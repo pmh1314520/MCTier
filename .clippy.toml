@@ -1,0 +1,32 @@
+# Clippy linting 配置
+# 使用 clippy 检查代码: cargo clippy
+
+# 认知复杂度阈值
+cognitive-complexity-threshold = 30
+
+# 类型复杂度阈值
+type-complexity-threshold = 250
+
+# 单个字母变量名称阈值
+single-char-binding-names-threshold = 4
+
+# 过多参数阈值
+too-many-arguments-threshold = 7
+
+# 过多行数阈值
+too-many-lines-threshold = 100
+
+# 大型枚举变体阈值
+enum-variant-size-threshold = 200
+
+# 向量装箱阈值
+vec-box-size-threshold = 4096
+
+# 过多布尔参数阈值
+max-trait-bounds = 3
+
+# 结构体字段过多阈值
+max-struct-bools = 3
+
+# 函数名称最小长度
+min-ident-chars-threshold = 1

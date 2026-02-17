@@ -1,0 +1,485 @@
+.mini-window {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: #ffffff;
+  overflow: hidden;
+  border-radius: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 默认使用较高透明度的背景，配合毛玻璃效果 */
+  background: rgba(20, 20, 30, 0.7);
+}
+
+.mini-window.collapsed {
+  height: 56px;
+}
+
+.mini-window-header {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: move;
+  user-select: none;
+  position: relative;
+  -webkit-app-region: drag;
+}
+
+.mini-window-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: #ffffff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini-header-info {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 4px;
+}
+
+.mini-window-controls {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.mini-control-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 14px;
+}
+
+.mini-control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.mini-control-btn:active {
+  transform: scale(0.95);
+}
+
+.mini-control-btn.close-btn:hover {
+  background: rgba(239, 68, 68, 0.8);
+}
+
+.mini-window-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+
+.mini-lobby-info {
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mini-lobby-info:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.mini-lobby-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: #a0a0a0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.mini-lobby-ip {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  align-self: flex-start;
+}
+
+.mini-lobby-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(100, 200, 255, 0.08);
+  border: 1px solid rgba(100, 200, 255, 0.2);
+  margin-top: 4px;
+}
+
+.lobby-tip-icon {
+  flex-shrink: 0;
+  color: rgba(100, 200, 255, 0.9);
+  margin-top: 1px;
+}
+
+.lobby-tip-text {
+  font-size: 10px;
+  color: rgba(200, 230, 255, 0.85);
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* 游戏提示样式 */
+.mini-game-tip {
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(100, 200, 255, 0.1);
+  border: 1px solid rgba(100, 200, 255, 0.3);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  animation: tipGlow 3s ease-in-out infinite;
+}
+
+.mini-game-tip .tip-icon {
+  flex-shrink: 0;
+  color: rgba(100, 200, 255, 0.9);
+  animation: tipBounce 2s ease-in-out infinite;
+}
+
+.mini-game-tip .tip-text {
+  font-size: 11px;
+  color: rgba(200, 230, 255, 0.9);
+  line-height: 1.5;
+  flex: 1;
+}
+
+@keyframes tipGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(100, 200, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(100, 200, 255, 0);
+  }
+}
+
+@keyframes tipBounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.mini-players-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.mini-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 6px 0;
+}
+
+.mini-player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+.mini-player-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mini-player-item:hover {
+  border-color: rgba(160, 160, 160, 0.3);
+  transform: translateX(2px);
+}
+
+.mini-player-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-player-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: #a0a0a0;
+}
+
+.mini-player-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-player-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mini-action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 14px;
+}
+
+.mini-action-btn:hover {
+  background: rgba(160, 160, 160, 0.3);
+  transform: scale(1.1);
+}
+
+.mini-action-btn.muted {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.mini-action-btn.muted:hover {
+  background: rgba(239, 68, 68, 0.5);
+}
+
+.mini-voice-controls {
+  padding: 12px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mini-voice-btn {
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 22px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.mini-voice-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.mini-voice-btn:active {
+  transform: translateY(0) scale(1);
+}
+
+.mini-voice-btn.active {
+  background: rgba(160, 160, 160, 0.4);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.mini-voice-btn.muted {
+  background: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.mini-voice-btn.muted:hover {
+  background: rgba(239, 68, 68, 0.6);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.2),
+      0 0 0 0 rgba(160, 160, 160, 0.7);
+  }
+  50% {
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.2),
+      0 0 0 8px rgba(160, 160, 160, 0);
+  }
+}
+
+/* 游戏联机提示 */
+.mini-game-tip {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(33, 150, 243, 0.1);
+  border: 1px solid rgba(33, 150, 243, 0.3);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mini-game-tip:hover {
+  background: rgba(33, 150, 243, 0.15);
+  border-color: rgba(33, 150, 243, 0.4);
+  transform: translateX(2px);
+}
+
+.game-tip-icon {
+  flex-shrink: 0;
+  color: rgba(33, 150, 243, 1);
+  animation: tipGlow 2s ease-in-out infinite;
+}
+
+@keyframes tipGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(33, 150, 243, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(33, 150, 243, 0.8));
+  }
+}
+
+.game-tip-text {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 透明度控制 */
+.mini-opacity-control {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mini-opacity-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.mini-opacity-slider {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.mini-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #a0a0a0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.mini-opacity-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px rgba(160, 160, 160, 0.2);
+}
+
+/* 移除不必要的滚动条 */
+
+/* 空状态 */
+.mini-player-list:empty::after {
+  content: '暂无玩家';
+  display: block;
+  text-align: center;
+  padding: 24px 16px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+}
+
+/* 加载动画 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mini-player-item {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.mini-player-item:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.mini-player-item:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.mini-player-item:nth-child(3) {
+  animation-delay: 0.15s;
+}
+.mini-player-item:nth-child(4) {
+  animation-delay: 0.2s;
+}
+.mini-player-item:nth-child(5) {
+  animation-delay: 0.25s;
+}

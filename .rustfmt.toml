@@ -1,0 +1,33 @@
+# Rust 代码格式化配置
+# 使用 rustfmt 格式化代码: cargo fmt
+# 注意：此配置仅使用稳定版本支持的特性
+
+# 基础配置
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# 代码风格
+use_small_heuristics = "Default"
+force_explicit_abi = true
+
+# 链式调用
+chain_width = 60
+single_line_if_else_max_width = 50
+
+# 匹配表达式
+match_block_trailing_comma = false
+
+# 其他
+remove_nested_parens = true
+use_try_shorthand = true
+use_field_init_shorthand = true
+
+# 注意：以下特性需要 nightly 版本，已注释
+# imports_granularity = "Crate"
+# group_imports = "StdExternalCrate"
+# reorder_imports = true
+# wrap_comments = true
+# format_code_in_doc_comments = true
+# format_strings = true

@@ -1,0 +1,178 @@
+/**
+ * MCTier 应用样式 - 现代化主题
+ */
+
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* 现代化主题色 - 高级暗色主题 */
+  --primary-color: #4a5568;
+  --primary-dark: #2d3748;
+  --secondary-color: #1a202c;
+  --accent-color: #a0a0a0;
+  --text-color: #e0e0e0;
+  --bg-color: #1a1a2e;
+  --light-gray: #2d2d44;
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  color: var(--text-color);
+  background-color: var(--bg-color);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: transparent;
+}
+
+#root {
+  min-height: 100vh;
+  background: transparent;
+}
+
+.app-container {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* 现代化滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--light-gray);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 4px;
+  transition: background 0.3s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark);
+}
+
+/* 禁用文本选择（游戏风格） */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* 全局按钮样式优化 */
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 输入框样式优化 */
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* Ant Design 主题覆盖 */
+.ant-btn-primary {
+  background: linear-gradient(135deg, #5a9428 0%, #4a7a20 100%);
+  border: none;
+}
+
+.ant-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4a7a20 0%, #3a6218 100%);
+}
+
+.ant-input:focus,
+.ant-input-focused {
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.ant-select-focused .ant-select-selector {
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Ant Design 暗色主题覆盖 */
+.ant-select-dropdown {
+  background: rgba(30, 30, 45, 0.98) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-select-item {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-select-item:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-select-item-option-selected {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* 密码输入框样式修复 - 移除外层边框 */
+.ant-input-password {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.ant-input-password input {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 8px !important;
+  padding: 4px 11px !important;
+}
+
+.ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.ant-input-password-icon {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.ant-input-password-icon:hover {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* 修复输入框自动填充样式 */
+.ant-input:-webkit-autofill,
+.ant-input-password input:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.05) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
