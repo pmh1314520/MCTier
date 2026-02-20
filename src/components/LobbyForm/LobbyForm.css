@@ -1,0 +1,389 @@
+.lobby-form-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 拖拽区域样式 - 只在标题区域启用 */
+.lobby-form-title {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: move;
+}
+
+/* 动态背景粒子效果 */
+.lobby-form-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
+  animation: particleFloat 20s ease-in-out infinite;
+}
+
+@keyframes particleFloat {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(20px, 20px);
+    opacity: 0.8;
+  }
+}
+
+.lobby-form-card {
+  padding: 28px 24px;
+  min-width: 300px;
+  max-width: 320px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  max-height: 85vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.lobby-form-title {
+  text-align: center;
+  margin-bottom: 20px !important;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800 !important;
+  font-size: 22px !important;
+}
+
+/* 隐藏滚动条但保留滚动功能 */
+.lobby-form-card::-webkit-scrollbar {
+  display: none;
+}
+
+.lobby-form-card {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.lobby-form {
+  margin-bottom: 0;
+}
+
+.lobby-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.lobby-form .ant-form-item:first-of-type {
+  margin-top: 0;
+}
+
+.lobby-form .ant-form-item-label {
+  padding-bottom: 8px;
+}
+
+.lobby-form .ant-form-item-label > label {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  height: auto;
+}
+
+.lobby-form .ant-input,
+.lobby-form .ant-select-selector {
+  border-radius: 8px !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  height: 40px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #ffffff !important;
+}
+
+/* 密码输入框外层容器 - 移除边框和背景 */
+.lobby-form .ant-input-password {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* 密码输入框内层 input */
+.lobby-form .ant-input-password input {
+  border-radius: 8px !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  height: 40px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #ffffff !important;
+  padding: 4px 11px !important;
+}
+
+.lobby-form .ant-input::placeholder,
+.lobby-form .ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.lobby-form .ant-input:focus,
+.lobby-form .ant-input-focused,
+.lobby-form .ant-select-focused .ant-select-selector {
+  border-color: rgba(90, 148, 40, 0.6) !important;
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15) !important;
+  transform: translateY(-1px);
+}
+
+/* 密码输入框聚焦状态 */
+.lobby-form .ant-input-password-focused input,
+.lobby-form .ant-input-password input:focus {
+  border-color: rgba(90, 148, 40, 0.6) !important;
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15) !important;
+  transform: translateY(-1px);
+}
+
+.lobby-form .ant-input:hover,
+.lobby-form .ant-select:hover .ant-select-selector {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 密码输入框悬停状态 */
+.lobby-form .ant-input-password:hover input {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.lobby-form-actions {
+  margin-top: 20px;
+  margin-bottom: 0 !important;
+}
+
+.lobby-form-actions .ant-btn {
+  height: 42px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 10px;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+.lobby-form-actions .ant-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-actions .ant-btn:hover::before {
+  left: 100%;
+}
+
+.lobby-form-actions .ant-btn-primary {
+  background: linear-gradient(135deg, #5a9428 0%, #4a7a20 100%);
+  border: none;
+  box-shadow: 0 4px 15px rgba(90, 148, 40, 0.3);
+}
+
+.lobby-form-actions .ant-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6aa438 0%, #5a8a30 100%);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(90, 148, 40, 0.5);
+}
+
+.lobby-form-actions .ant-btn-primary:active:not(:disabled) {
+  transform: translateY(-1px) scale(0.98);
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-actions .ant-btn-default:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.15);
+}
+
+.lobby-form-actions .ant-btn:not(.ant-btn-primary) {
+  border: 2px solid rgba(139, 111, 71, 0.5);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(139, 111, 71, 0.2);
+}
+
+.lobby-form-actions .ant-btn:not(.ant-btn-primary):hover:not(:disabled) {
+  border-color: rgba(139, 111, 71, 0.8);
+  color: #ffffff;
+  background: rgba(139, 111, 71, 0.3);
+}
+
+/* 网络环境提示 */
+.lobby-form-network-tip {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-network-tip:hover {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.4);
+  transform: translateY(-1px);
+}
+
+.network-tip-icon {
+  flex-shrink: 0;
+  color: rgba(255, 193, 7, 1);
+  animation: tipPulse 2s ease-in-out infinite;
+  margin-top: 2px;
+}
+
+@keyframes tipPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(255, 193, 7, 0.5));
+  }
+  50% {
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 6px rgba(255, 193, 7, 0.8));
+  }
+}
+
+.network-tip-content {
+  flex: 1;
+}
+
+.network-tip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 193, 7, 1);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.network-tip-text {
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.lobby-form-tip {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.lobby-form-tip p {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 网络警告提示样式 */
+.lobby-form-tip.network-warning {
+  background: rgba(255, 200, 100, 0.1);
+  border: 1px solid rgba(255, 200, 100, 0.3);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  animation: warningPulse 2s ease-in-out infinite;
+}
+
+.lobby-form-tip.network-warning .tip-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+  animation: warningShake 3s ease-in-out infinite;
+}
+
+.lobby-form-tip.network-warning .tip-content {
+  flex: 1;
+}
+
+@keyframes warningPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 200, 100, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 200, 100, 0);
+  }
+}
+
+@keyframes warningShake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: rotate(-5deg);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: rotate(5deg);
+  }
+}
+
+/* 移除滚动条样式 */
+
+/* 加载状态动画 */
+.lobby-form .ant-btn-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.lobby-form .ant-btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  to {
+    left: 100%;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .lobby-form-card {
+    min-width: 280px;
+    padding: 24px 20px;
+  }
+
+  .lobby-form-title {
+    font-size: 20px !important;
+  }
+
+  .lobby-form-actions .ant-btn {
+    height: 40px;
+    font-size: 13px;
+  }
+}

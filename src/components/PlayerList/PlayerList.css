@@ -1,0 +1,200 @@
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 自定义滚动条 */
+.player-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.player-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.player-list::-webkit-scrollbar-thumb {
+  background: rgba(17, 153, 142, 0.5);
+  border-radius: 3px;
+}
+
+.player-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 153, 142, 0.7);
+}
+
+/* 空状态 */
+.player-list-empty {
+  padding: 20px;
+  text-align: center;
+}
+
+.player-list-empty .ant-empty-description {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* 玩家项 */
+.player-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: default;
+}
+
+.player-item:hover {
+  border-color: rgba(17, 153, 142, 0.3);
+  transform: translateX(4px);
+}
+
+/* 玩家图标 */
+.player-item-icon {
+  flex-shrink: 0;
+  color: #11998e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 玩家信息 */
+.player-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.player-item-name {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.player-item-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.player-status-badge.active {
+  color: #52c41a;
+  border-color: rgba(82, 196, 26, 0.3);
+  animation: statusPulse 2s infinite;
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* 操作按钮 */
+.player-item-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.player-mute-button {
+  color: rgba(255, 255, 255, 0.6) !important;
+  transition: all 0.2s !important;
+  padding: 4px !important;
+  height: auto !important;
+}
+
+.player-mute-button:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: scale(1.1);
+}
+
+.player-mute-button.muted {
+  color: #ff4d4f !important;
+}
+
+.player-mute-button.muted:hover {
+  background: rgba(255, 77, 79, 0.2) !important;
+}
+
+/* 说话指示器 */
+.player-speaking-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  padding: 2px 0;
+}
+
+.speaking-wave {
+  width: 100%;
+  height: 4px;
+  background: #52c41a;
+  border-radius: 2px;
+  animation: speakingWave 0.8s ease-in-out infinite;
+}
+
+.speaking-wave:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.speaking-wave:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes speakingWave {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .player-item {
+    padding: 8px 10px;
+  }
+
+  .player-item-name {
+    font-size: 13px;
+  }
+
+  .player-status-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+}

@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 运行 lint-staged 检查暂存的文件
+npx lint-staged
+
+# 运行 Rust 格式化检查
+cd src-tauri && cargo fmt --check && cd ..
+
+# 运行 Rust clippy 检查
+cd src-tauri && cargo clippy -- -D warnings && cd ..
