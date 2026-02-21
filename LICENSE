@@ -1,0 +1,167 @@
+MCTier 自定义开源协议
+======================
+
+版权所有 (c) 2026 MCTier Team
+
+本软件采用自定义开源协议，使用本软件即表示您同意遵守以下协议条款：
+
+## 📜 协议条款
+
+### 1. 🚫 禁止商业用途
+
+本软件及其源代码仅供个人学习和非商业用途使用。未经原作者明确书面许可，禁止将本软件或其衍生作品用于任何商业目的，包括但不限于：
+
+- 销售本软件或其衍生作品
+- 将本软件集成到商业产品中
+- 使用本软件提供付费服务
+- 通过本软件直接或间接获取商业利益
+
+### 2. ✅ 允许二次开发
+
+欢迎基于本项目进行修改、扩展和二次开发，包括但不限于：
+
+- 修改源代码以满足个人需求
+- 添加新功能或改进现有功能
+- 修复 bug 和优化性能
+- 创建衍生项目
+
+### 3. 🎨 必须标明原作者
+
+在进行二次开发时，必须在以下位置明确标注原作者信息：
+
+- 源代码文件的头部注释中
+- 项目的 README 文档中
+- 软件的"关于"页面或类似界面中
+- 任何公开发布的衍生作品中
+
+标注格式应包含：
+```
+基于 MCTier 项目开发
+原作者：MCTier Team
+原项目地址：https://github.com/pmh1314520/MCTier
+```
+
+### 4. 🔓 二次开发必须开源
+
+所有基于本项目的二次开发作品必须：
+
+- 以相同的协议条款开源
+- 公开完整的源代码
+- 不得对源代码进行混淆或加密
+- 保持开源协议的传递性
+
+### 5. 📋 免责声明
+
+本软件按"原样"提供，不提供任何明示或暗示的保证，包括但不限于：
+
+- 适销性保证
+- 特定用途适用性保证
+- 不侵权保证
+
+在任何情况下，原作者或版权持有人均不对因使用本软件而产生的任何索赔、损害或其他责任负责，无论是在合同诉讼、侵权诉讼或其他诉讼中。
+
+### 6. 🔄 协议变更
+
+原作者保留随时修改本协议的权利。协议变更后，继续使用本软件即表示接受新的协议条款。
+
+### 7. ⚖️ 法律适用
+
+本协议受中华人民共和国法律管辖。因本协议引起的任何争议，应通过友好协商解决；协商不成的，应提交至原作者所在地人民法院诉讼解决。
+
+---
+
+## 📞 联系方式
+
+如需商业授权或有其他疑问，请通过以下方式联系：
+
+- GitHub: https://github.com/pmh1314520/MCTier
+- Gitee: https://gitee.com/peng-minghang/mctier
+
+---
+
+**使用本软件即表示您已阅读、理解并同意遵守以上所有协议条款。**
+
+
+---
+
+# MCTier Custom Open Source License (English Version)
+
+Copyright (c) 2026 MCTier Team
+
+This software is licensed under a custom open source license. By using this software, you agree to comply with the following terms:
+
+## 📜 License Terms
+
+### 1. 🚫 No Commercial Use
+
+This software and its source code are for personal learning and non-commercial use only. Without explicit written permission from the original author, it is prohibited to use this software or its derivatives for any commercial purposes, including but not limited to:
+
+- Selling this software or its derivatives
+- Integrating this software into commercial products
+- Providing paid services using this software
+- Obtaining commercial benefits directly or indirectly through this software
+
+### 2. ✅ Modifications Allowed
+
+You are welcome to modify, extend, and create derivative works based on this project, including but not limited to:
+
+- Modifying source code to meet personal needs
+- Adding new features or improving existing ones
+- Fixing bugs and optimizing performance
+- Creating derivative projects
+
+### 3. 🎨 Attribution Required
+
+When creating derivative works, you must clearly indicate the original author information in the following locations:
+
+- Header comments in source code files
+- Project README documentation
+- Software "About" page or similar interface
+- Any publicly released derivative works
+
+Attribution format should include:
+```
+Based on MCTier Project
+Original Author: MCTier Team
+Original Project: https://github.com/pmh1314520/MCTier
+```
+
+### 4. 🔓 Derivatives Must Be Open Source
+
+All derivative works based on this project must:
+
+- Be open sourced under the same license terms
+- Make complete source code publicly available
+- Not obfuscate or encrypt the source code
+- Maintain the transitivity of the open source license
+
+### 5. 📋 Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied, including but not limited to:
+
+- Warranties of merchantability
+- Fitness for a particular purpose
+- Non-infringement
+
+In no event shall the authors or copyright holders be liable for any claim, damages, or other liability arising from the use of this software, whether in an action of contract, tort, or otherwise.
+
+### 6. 🔄 License Changes
+
+The original author reserves the right to modify this license at any time. Continued use of this software after license changes indicates acceptance of the new terms.
+
+### 7. ⚖️ Governing Law
+
+This license is governed by the laws of the People's Republic of China. Any disputes arising from this license shall be resolved through friendly negotiation; if negotiation fails, they shall be submitted to the people's court where the original author is located for litigation.
+
+---
+
+## 📞 Contact
+
+For commercial licensing or other inquiries, please contact us through:
+
+- GitHub: https://github.com/pmh1314520/MCTier
+- Gitee: https://gitee.com/peng-minghang/mctier
+
+---
+
+**By using this software, you acknowledge that you have read, understood, and agree to comply with all the above license terms.**

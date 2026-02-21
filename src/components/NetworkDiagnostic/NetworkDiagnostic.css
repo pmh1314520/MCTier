@@ -1,0 +1,107 @@
+.network-diagnostic-modal .ant-modal-content {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 16px;
+}
+
+.network-diagnostic-modal .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.network-diagnostic-modal .ant-modal-close {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.network-diagnostic-modal .ant-modal-close:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.diagnostic-content {
+  padding: 20px 0;
+}
+
+.diagnostic-title {
+  color: rgba(255, 255, 255, 0.95) !important;
+  margin-bottom: 12px !important;
+  text-align: center;
+}
+
+.diagnostic-desc {
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  margin-bottom: 24px !important;
+}
+
+.diagnostic-results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.diagnostic-item {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s;
+}
+
+.diagnostic-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(4px);
+}
+
+.diagnostic-item-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.diagnostic-item-header .anticon {
+  font-size: 20px;
+}
+
+.icon-success {
+  color: #52c41a;
+}
+
+.icon-error {
+  color: #ff4d4f;
+}
+
+.icon-warning {
+  color: #faad14;
+}
+
+.diagnostic-item-message {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  margin-left: 32px;
+}
+
+.diagnostic-solution {
+  margin-top: 12px;
+  margin-left: 32px;
+}
+
+.diagnostic-summary {
+  margin-top: 20px;
+}
+
+.diagnostic-checking .diagnostic-item-header {
+  opacity: 0.6;
+}
+
+.diagnostic-success {
+  border-color: rgba(82, 196, 26, 0.3);
+}
+
+.diagnostic-error {
+  border-color: rgba(255, 77, 79, 0.3);
+}
+
+.diagnostic-warning {
+  border-color: rgba(250, 173, 20, 0.3);
+}

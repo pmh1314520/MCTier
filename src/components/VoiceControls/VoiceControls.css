@@ -1,0 +1,184 @@
+.voice-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.voice-control-item {
+  position: relative;
+}
+
+.voice-control-button {
+  height: 48px !important;
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  border: 2px solid transparent !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+/* 添加按钮点击波纹效果 */
+.voice-control-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition:
+    width 0.6s,
+    height 0.6s;
+}
+
+.voice-control-button:active::after {
+  width: 300px;
+  height: 300px;
+}
+
+.voice-control-button .voice-control-label {
+  font-size: 14px;
+}
+
+/* 麦克风按钮 */
+.voice-control-button.mic-button {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.voice-control-button.mic-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(17, 153, 142, 0.5) !important;
+  color: #fff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(17, 153, 142, 0.3);
+}
+
+.voice-control-button.mic-button.active {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 16px rgba(17, 153, 142, 0.4);
+}
+
+.voice-control-button.mic-button.active:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0d8074 0%, #2dd46b 100%) !important;
+  box-shadow: 0 6px 24px rgba(17, 153, 142, 0.5);
+}
+
+/* 静音按钮 */
+.voice-control-button.mute-button {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.voice-control-button.mute-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 77, 79, 0.5) !important;
+  color: #fff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 77, 79, 0.3);
+}
+
+.voice-control-button.mute-button.active {
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 16px rgba(255, 77, 79, 0.4);
+}
+
+.voice-control-button.mute-button.active:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d9363e 0%, #ff4d4f 100%) !important;
+  box-shadow: 0 6px 24px rgba(255, 77, 79, 0.5);
+}
+
+/* 按钮按下效果 */
+.voice-control-button:active:not(:disabled) {
+  transform: translateY(0) !important;
+}
+
+/* 麦克风活动指示器 */
+.voice-activity-indicator {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 16px;
+}
+
+.activity-bar {
+  width: 3px;
+  background: #52c41a;
+  border-radius: 2px;
+  animation: activityWave 0.8s ease-in-out infinite;
+}
+
+.activity-bar:nth-child(1) {
+  animation-delay: 0s;
+  height: 40%;
+}
+
+.activity-bar:nth-child(2) {
+  animation-delay: 0.1s;
+  height: 60%;
+}
+
+.activity-bar:nth-child(3) {
+  animation-delay: 0.2s;
+  height: 80%;
+}
+
+.activity-bar:nth-child(4) {
+  animation-delay: 0.3s;
+  height: 50%;
+}
+
+@keyframes activityWave {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* 加载状态 */
+.voice-control-button.ant-btn-loading {
+  opacity: 0.7;
+}
+
+/* 禁用状态 */
+.voice-control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .voice-control-button {
+    height: 44px !important;
+  }
+
+  .voice-control-button .voice-control-label {
+    font-size: 13px;
+  }
+
+  .voice-activity-indicator {
+    height: 14px;
+  }
+}

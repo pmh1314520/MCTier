@@ -1,0 +1,303 @@
+.favorite-lobby-modal .ant-modal-content {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 12px;
+}
+
+.favorite-lobby-modal .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.favorite-lobby-modal .ant-modal-title {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+}
+
+.favorite-lobby-modal .ant-modal-close {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.favorite-lobby-modal .ant-modal-close:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.favorite-lobby-container {
+  max-height: 500px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.favorite-form-container {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.favorite-form-container .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.favorite-form-container .ant-input,
+.favorite-form-container .ant-input-password {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.favorite-form-container .ant-input::placeholder,
+.favorite-form-container .ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.favorite-form-container .ant-input:focus,
+.favorite-form-container .ant-input-password:focus-within {
+  border-color: rgba(90, 148, 40, 0.6);
+  box-shadow: 0 0 0 2px rgba(90, 148, 40, 0.15);
+}
+
+/* 常用大厅列表 */
+.favorites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: hidden;
+}
+
+/* 常用大厅卡片 */
+.favorite-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.08) 0%, rgba(90, 148, 40, 0.03) 100%);
+  border: 1px solid rgba(90, 148, 40, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  min-width: 0;
+  transform: scale(1);
+}
+
+.favorite-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(90, 148, 40, 0.8) 0%, rgba(90, 148, 40, 0.4) 100%);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.favorite-card:hover {
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.15) 0%, rgba(90, 148, 40, 0.08) 100%);
+  border-color: rgba(90, 148, 40, 0.4);
+  box-shadow: 0 2px 6px rgba(90, 148, 40, 0.2);
+  transform: scale(1);
+}
+
+.favorite-card:hover::before {
+  width: 3px;
+}
+
+.favorite-card-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.favorite-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.favorite-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(90, 148, 40, 0.15);
+  border-radius: 5px;
+  color: rgba(90, 148, 40, 1);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.favorite-card:hover .favorite-card-icon {
+  background: rgba(90, 148, 40, 0.25);
+  transform: rotate(5deg) scale(1.05);
+}
+
+.favorite-card-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.favorite-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.favorite-card-password {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  padding-left: 30px;
+}
+
+.favorite-card-password svg {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+}
+
+.favorite-card-password span {
+  letter-spacing: 1.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 操作按钮区域 */
+.favorite-card-actions {
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transform: translateX(8px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.favorite-card:hover .favorite-card-actions {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.favorite-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.favorite-action-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.favorite-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.edit-btn:hover {
+  color: rgba(90, 148, 40, 1);
+  border-color: rgba(90, 148, 40, 0.4);
+  background: rgba(90, 148, 40, 0.1);
+}
+
+.delete-btn:hover {
+  color: rgba(255, 100, 100, 1);
+  border-color: rgba(255, 100, 100, 0.4);
+  background: rgba(255, 100, 100, 0.1);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.empty-state p {
+  margin: 8px 0;
+}
+
+.empty-state p:first-child {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 滚动条样式 */
+.favorite-lobby-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.favorite-lobby-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.favorite-lobby-container::-webkit-scrollbar-thumb {
+  background: rgba(90, 148, 40, 0.4);
+  border-radius: 3px;
+}
+
+.favorite-lobby-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(90, 148, 40, 0.6);
+}
+
+/* 隐藏自定义密码输入框的默认眼睛图标 */
+.custom-password-input::-ms-reveal,
+.custom-password-input::-ms-clear {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.custom-password-input::-webkit-credentials-auto-fill-button,
+.custom-password-input::-webkit-contacts-auto-fill-button {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  right: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 隐藏 Edge 浏览器的密码显示按钮 */
+.custom-password-input::-ms-reveal {
+  display: none !important;
+}
+
+/* 隐藏 Chrome 的密码显示按钮 */
+input[type="password"]::-webkit-textfield-decoration-container {
+  display: none !important;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  display: none !important;
+}
+
+/* 通用隐藏 */
+.favorite-form-container input[type="password"]::-ms-reveal,
+.favorite-form-container input[type="password"]::-ms-clear,
+.favorite-form-container input[type="text"]::-ms-reveal,
+.favorite-form-container input[type="text"]::-ms-clear {
+  display: none !important;
+}

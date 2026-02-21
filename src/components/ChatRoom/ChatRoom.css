@@ -1,0 +1,300 @@
+.chat-room {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex: 1;
+  background: transparent;
+  overflow: hidden;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: rgba(30, 30, 40, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.chat-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 56px 16px 56px; /* 增加顶部内边距从 16px 到 24px */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.chat-loading,
+.chat-no-more {
+  text-align: center;
+  padding: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  animation: slideIn 0.3s ease-out;
+  position: relative;
+  margin-bottom: 32px;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message.own {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chat-message.other {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* 头像样式 */
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.08) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  position: absolute;
+  top: 0;
+}
+
+.chat-message.own .message-avatar {
+  right: -48px;
+  background: linear-gradient(135deg, rgba(80, 80, 90, 0.4) 0%, rgba(60, 60, 70, 0.4) 100%);
+}
+
+.chat-message.other .message-avatar {
+  left: -48px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.08) 100%);
+}
+
+.message-avatar svg {
+  width: 20px;
+  height: 20px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.message-author-outside {
+  position: absolute;
+  top: -18px;
+  right: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.chat-message.other .message-author-outside {
+  right: auto;
+  left: 0;
+}
+
+.message-content {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  max-width: 100%;
+  width: fit-content;
+  position: relative;
+  user-select: text !important; /* 允许文本选择，覆盖全局设置 */
+  -webkit-user-select: text !important; /* 允许文本选择，覆盖全局设置 */
+  cursor: text; /* 显示文本光标 */
+}
+
+/* 消息框尾巴（直角三角形） */
+.message-content::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  z-index: -1; /* 将三角形放到消息框下层 */
+}
+
+.chat-message.own .message-content {
+  background: linear-gradient(135deg, #95ec69 0%, #7cc856 100%);
+  color: #2c2c2c;
+  position: relative; /* 确保z-index生效 */
+  z-index: 1; /* 消息框在上层 */
+}
+
+.chat-message.own .message-content::after {
+  top: 12px;
+  right: -6px;
+  border-width: 6px 0 6px 8px;
+  border-color: transparent transparent transparent #7cc856;
+}
+
+.chat-message.other .message-content {
+  background: linear-gradient(135deg, rgba(80, 80, 90, 0.6) 0%, rgba(60, 60, 70, 0.6) 100%);
+  color: rgba(255, 255, 255, 0.9);
+  position: relative; /* 确保z-index生效 */
+  z-index: 1; /* 消息框在上层 */
+}
+
+.chat-message.other .message-content::after {
+  top: 12px;
+  left: -6px;
+  border-width: 6px 8px 6px 0;
+  border-color: transparent rgba(60, 60, 70, 0.6) transparent transparent;
+}
+
+.message-time-outside {
+  position: absolute;
+  bottom: -18px;
+  left: 0;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+
+.chat-message.own .message-time-outside {
+  left: auto;
+  right: 0;
+}
+
+.new-message-indicator {
+  position: absolute;
+  bottom: 80px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: rgba(100, 100, 120, 0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  z-index: 10;
+}
+
+.new-message-indicator:hover {
+  background: rgba(120, 120, 140, 1);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.new-message-indicator svg {
+  color: white;
+}
+
+.new-message-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  background: #ef4444;
+  border-radius: 50%;
+  border: 2px solid rgba(20, 30, 25, 0.95);
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 16px;
+  background: rgba(30, 30, 40, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-input-area textarea {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-radius: 8px;
+  resize: none;
+  transition: all 0.3s ease;
+}
+
+.chat-input-area textarea:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.chat-input-area textarea:focus {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(100, 100, 120, 0.8) !important;
+  box-shadow: 0 0 0 2px rgba(100, 100, 120, 0.2);
+}
+
+.chat-input-area button {
+  align-self: flex-end;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.chat-input-area button:not(:disabled) {
+  background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%) !important;
+}
+
+.chat-input-area button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #73d13d 0%, #95de64 100%) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(82, 196, 26, 0.4);
+}
+
+.chat-input-area button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%) !important;
+}
