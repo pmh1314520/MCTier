@@ -292,7 +292,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       // 启动HTTP文件服务器
       try {
         await invoke('start_file_server', {
-          virtualIp: lobby.virtual_ip,
+          virtualIp: lobby.virtualIp,
         });
         console.log('✅ HTTP文件服务器已启动');
       } catch (error) {
