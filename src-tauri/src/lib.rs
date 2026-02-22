@@ -64,6 +64,7 @@ use modules::tauri_commands::{
     // HTTP 文件共享命令（新）
     start_file_server,
     stop_file_server,
+    check_file_server_status,
     add_shared_folder,
     remove_shared_folder,
     get_local_shares,
@@ -196,6 +197,7 @@ pub fn run() {
             // HTTP 文件共享命令（新）
             start_file_server,
             stop_file_server,
+            check_file_server_status,
             add_shared_folder,
             remove_shared_folder,
             get_local_shares,

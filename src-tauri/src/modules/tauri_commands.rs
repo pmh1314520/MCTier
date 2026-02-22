@@ -1726,6 +1726,19 @@ pub async fn stop_file_server(state: State<'_, AppState>) -> Result<(), String> 
     Ok(())
 }
 
+/// 检查HTTP文件服务器状态
+#[tauri::command]
+pub async fn check_file_server_status(state: State<'_, AppState>) -> Result<bool, String> {
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    // 检查服务器句柄是否存在
+    let is_running = ft_service.is_running();
+    log::info!("📊 HTTP文件服务器状态: {}", if is_running { "运行中" } else { "未运行" });
+    Ok(is_running)
+}
+
 /// 添加共享文件夹
 #[tauri::command]
 pub async fn add_shared_folder(

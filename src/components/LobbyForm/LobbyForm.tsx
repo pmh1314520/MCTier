@@ -291,7 +291,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
       // 注意：HTTP文件服务器已经在后端的create_lobby/join_lobby命令中启动
       // 这里不需要再次启动，避免重复启动导致端口冲突
-      console.log('✅ HTTP文件服务器已在后端启动');
+      
+      // 检查HTTP文件服务器是否真的启动成功
+      try {
+        const isRunning = await invoke<boolean>('check_file_server_status');
+        if (isRunning) {
+          console.log('✅ HTTP文件服务器已在后端启动并运行中');
+        } else {
+          console.error('❌ HTTP文件服务器未运行！');
+          message.warning('文件共享服务启动失败，文件共享功能可能不可用');
+        }
+      } catch (error) {
+        console.error('❌ 检查HTTP文件服务器状态失败:', error);
+      }
 
       // 更新状态
       setLobby(lobby);

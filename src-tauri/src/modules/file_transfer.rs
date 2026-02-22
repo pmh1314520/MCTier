@@ -208,6 +208,11 @@ impl FileTransferService {
         }
     }
 
+    /// 检查HTTP文件服务器是否正在运行
+    pub fn is_running(&self) -> bool {
+        self.server_handle.read().is_some()
+    }
+
     /// 添加共享文件夹
     pub fn add_share(&self, share: SharedFolder) -> Result<(), String> {
         // 检查路径是否存在
