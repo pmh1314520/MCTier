@@ -104,6 +104,8 @@ pub struct NetworkService {
     app_handle: Option<tauri::AppHandle>,
     /// 当前实例的配置目录路径
     instance_config_dir: Arc<Mutex<Option<PathBuf>>>,
+    /// 当前使用的RPC端口
+    rpc_port: Arc<Mutex<Option<u16>>>,
 }
 
 impl NetworkService {
@@ -123,6 +125,7 @@ impl NetworkService {
             is_running: Arc::new(Mutex::new(false)),
             app_handle: None,
             instance_config_dir: Arc::new(Mutex::new(None)),
+            rpc_port: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -307,6 +310,13 @@ impl NetworkService {
         }
         log::info!("配置目录: {:?}", config_dir);
 
+        // 查找可用的RPC端口（从15889开始，最多尝试10个端口）
+        let rpc_port = Self::find_available_rpc_port(15889, 10).await?;
+        log::info!("✅ 将使用RPC端口: {}", rpc_port);
+        
+        // 保存RPC端口
+        *self.rpc_port.lock().await = Some(rpc_port);
+
         // Sanitize player name for hostname
         let sanitized_hostname = player_name
             .chars()
@@ -332,6 +342,8 @@ impl NetworkService {
             .arg(&instance_name)
             .arg("--config-dir")
             .arg(&config_dir)
+            .arg("--rpc-portal")
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态查找的RPC端口
             .arg("--listeners")
             .arg("udp://0.0.0.0:0") // 只使用UDP监听器，端口0表示随机端口
             .arg("--default-protocol")
@@ -350,6 +362,7 @@ impl NetworkService {
         
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
         log::info!("启用 UDP 监听器以支持 Minecraft 局域网发现功能");
+        log::info!("使用动态检测的RPC端口 {}，避免与其他EasyTier实例冲突", rpc_port);
         log::info!("命令行参数: {:?}", cmd);
 
         // 在 Windows 上隐藏控制台窗口
@@ -451,11 +464,16 @@ impl NetworkService {
                 cli_check_count += 1;
                 log::info!("尝试使用 CLI 工具查询虚拟IP（第{}次）...", cli_check_count);
                 
-                if let Ok(found_ip) = self.query_virtual_ip_from_cli(&instance_name).await {
-                    log::info!("从 CLI 工具获取到虚拟IP: {}", found_ip);
-                    *self.virtual_ip.lock().await = Some(found_ip.clone());
-                    *self.status.lock().await = ConnectionStatus::Connected(found_ip.clone());
-                    return Ok(found_ip);
+                // 获取保存的RPC端口
+                if let Some(saved_rpc_port) = *self.rpc_port.lock().await {
+                    if let Ok(found_ip) = self.query_virtual_ip_from_cli(&instance_name, saved_rpc_port).await {
+                        log::info!("从 CLI 工具获取到虚拟IP: {}", found_ip);
+                        *self.virtual_ip.lock().await = Some(found_ip.clone());
+                        *self.status.lock().await = ConnectionStatus::Connected(found_ip.clone());
+                        return Ok(found_ip);
+                    }
+                } else {
+                    log::warn!("RPC端口未初始化，跳过CLI查询");
                 }
                 
                 last_check_time = std::time::Instant::now();
@@ -480,15 +498,66 @@ impl NetworkService {
     }
     
     
+    /// 检测端口是否可用
+    /// 
+    /// # 参数
+    /// * `port` - 要检测的端口号
+    /// 
+    /// # 返回
+    /// * `true` - 端口可用
+    /// * `false` - 端口被占用
+    async fn is_port_available(port: u16) -> bool {
+        use tokio::net::TcpListener;
+        
+        match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+            Ok(_) => {
+                log::debug!("端口 {} 可用", port);
+                true
+            }
+            Err(_) => {
+                log::debug!("端口 {} 被占用", port);
+                false
+            }
+        }
+    }
+    
+    /// 查找可用的RPC端口
+    /// 
+    /// # 参数
+    /// * `start_port` - 起始端口号
+    /// * `max_attempts` - 最大尝试次数
+    /// 
+    /// # 返回
+    /// * `Ok(u16)` - 可用的端口号
+    /// * `Err(AppError)` - 未找到可用端口
+    async fn find_available_rpc_port(start_port: u16, max_attempts: u16) -> Result<u16, AppError> {
+        log::info!("开始查找可用的RPC端口，起始端口: {}", start_port);
+        
+        for i in 0..max_attempts {
+            let port = start_port + i;
+            if Self::is_port_available(port).await {
+                log::info!("✅ 找到可用的RPC端口: {}", port);
+                return Ok(port);
+            }
+        }
+        
+        Err(AppError::NetworkError(format!(
+            "未找到可用的RPC端口（尝试范围: {}-{}）",
+            start_port,
+            start_port + max_attempts - 1
+        )))
+    }
+    
     /// 使用 CLI 工具查询虚拟IP
     /// 
     /// # 参数
     /// * `instance_name` - 实例名称
+    /// * `rpc_port` - RPC端口号
     /// 
     /// # 返回
     /// * `Ok(String)` - 查询到的虚拟IP
     /// * `Err(AppError)` - 查询失败
-    async fn query_virtual_ip_from_cli(&self, instance_name: &str) -> Result<String, AppError> {
+    async fn query_virtual_ip_from_cli(&self, instance_name: &str, rpc_port: u16) -> Result<String, AppError> {
         // 获取 CLI 工具路径
         let cli_path = if let Some(ref app_handle) = self.app_handle {
             ResourceManager::get_easytier_cli_path(app_handle)?
@@ -499,6 +568,8 @@ impl NetworkService {
         // 执行 CLI 命令查询节点信息
         #[cfg(windows)]
         let output = tokio::process::Command::new(&cli_path)
+            .arg("--rpc-url")
+            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(instance_name)
             .arg("--output")
@@ -512,6 +583,8 @@ impl NetworkService {
         
         #[cfg(not(windows))]
         let output = tokio::process::Command::new(&cli_path)
+            .arg("--rpc-url")
+            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(instance_name)
             .arg("--output")
@@ -1104,6 +1177,12 @@ impl NetworkService {
 
         log::info!("正在查询网络节点，实例名称: {}", instance_name);
 
+        // 获取保存的RPC端口
+        let rpc_port = self.rpc_port.lock().await
+            .ok_or_else(|| AppError::NetworkError("RPC端口未初始化".to_string()))?;
+        
+        log::info!("使用RPC端口: {}", rpc_port);
+
         // 获取 CLI 工具路径
         let cli_path = if let Some(ref app_handle) = self.app_handle {
             ResourceManager::get_easytier_cli_path(app_handle)?
@@ -1112,7 +1191,25 @@ impl NetworkService {
         };
 
         // 执行 CLI 命令查询节点列表
+        #[cfg(windows)]
         let output = tokio::process::Command::new(&cli_path)
+            .arg("--rpc-url")
+            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
+            .arg("--instance-name")
+            .arg(&instance_name)
+            .arg("--output")
+            .arg("json")
+            .arg("peer")
+            .arg("list")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .await
+            .map_err(|e| AppError::ProcessError(format!("执行 CLI 命令失败: {}", e)))?;
+        
+        #[cfg(not(windows))]
+        let output = tokio::process::Command::new(&cli_path)
+            .arg("--rpc-url")
+            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(&instance_name)
             .arg("--output")

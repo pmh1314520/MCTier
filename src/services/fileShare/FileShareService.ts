@@ -101,10 +101,10 @@ class FileShareService {
   async getRemoteShares(peerIp: string): Promise<SharedFolder[]> {
     try {
       console.log(`📡 [FileShareService] 正在获取远程共享: ${peerIp}`);
-      console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peer_ip: '${peerIp}' })`);
+      console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peerIp: '${peerIp}' })`);
       
-      // 注意：后端Rust参数名是peer_ip（下划线），不是peerIp（驼峰）
-      const shares = await invoke<SharedFolder[]>('get_remote_shares', { peer_ip: peerIp });
+      // Tauri会自动将驼峰命名peerIp转换为Rust的下划线命名peer_ip
+      const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp });
       
       console.log(`✅ [FileShareService] 成功获取 ${shares.length} 个共享`);
       if (shares.length > 0) {

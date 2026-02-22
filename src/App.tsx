@@ -6,7 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { useAppStore, initializeStore } from './stores';
-import { hotkeyManager, webrtcClient, audioService } from './services';
+import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
 import type { UserConfig } from './types';
 import './App.css';
 
@@ -300,6 +300,17 @@ function App() {
           });
 
           console.log('✅ WebRTC 初始化完成，玩家ID:', playerId);
+
+          // 启动HTTP文件服务器
+          try {
+            console.log('🚀 正在启动HTTP文件服务器...');
+            console.log('📍 虚拟IP:', lobby.virtualIp);
+            await fileShareService.startServer(lobby.virtualIp);
+            console.log('✅ HTTP文件服务器启动成功');
+          } catch (error) {
+            console.error('❌ 启动HTTP文件服务器失败:', error);
+            // 不阻止加入大厅，只是文件共享功能不可用
+          }
         } catch (error) {
           console.error('❌ WebRTC 初始化失败:', error);
         }

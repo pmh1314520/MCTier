@@ -141,12 +141,15 @@ impl FileTransferService {
             }
         }
 
-        let addr: SocketAddr = format!("{}:{}", virtual_ip, FILE_SERVER_PORT)
+        let addr: SocketAddr = format!("0.0.0.0:{}", FILE_SERVER_PORT)
             .parse()
             .map_err(|e| {
-                log::error!("❌ 无效的地址格式: {}:{} - {}", virtual_ip, FILE_SERVER_PORT, e);
+                log::error!("❌ 无效的地址格式: 0.0.0.0:{} - {}", FILE_SERVER_PORT, e);
                 format!("无效的地址: {}", e)
             })?;
+
+        log::info!("📍 HTTP服务器将监听所有网络接口: 0.0.0.0:{}", FILE_SERVER_PORT);
+        log::info!("📍 虚拟IP: {}", virtual_ip);
 
         let shared_folders = self.shared_folders.clone();
 
@@ -191,6 +194,8 @@ impl FileTransferService {
         *self.server_handle.write() = Some(server_task);
 
         log::info!("✅ HTTP文件服务器启动成功！");
+        log::info!("📡 监听地址: 0.0.0.0:{}", FILE_SERVER_PORT);
+        log::info!("📡 虚拟IP: {}", virtual_ip);
         log::info!("📡 其他玩家可以通过 http://{}:{} 访问您的共享", virtual_ip, FILE_SERVER_PORT);
         
         // 等待一小段时间，确保服务器完全启动
