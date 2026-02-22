@@ -39,4 +39,4 @@ export { FavoriteLobbyManager } from './FavoriteLobbyManager/FavoriteLobbyManage
 export type { FavoriteLobby } from './FavoriteLobbyManager/FavoriteLobbyManager';
 
 // 文件共享管理组件
-export { FileShareManager } from './FileShareManager/FileShareManager';
+export { FileShareManager } from './FileShareManager';

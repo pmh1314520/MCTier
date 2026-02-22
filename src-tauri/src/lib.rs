@@ -60,6 +60,9 @@ use modules::tauri_commands::{
     write_file_bytes,
     select_folder,
     select_save_location,
+    save_file,
+    read_file,
+    delete_file,
     open_file_location,
     // HTTP 文件共享命令（新）
     start_file_server,
@@ -193,6 +196,9 @@ pub fn run() {
             write_file_bytes,
             select_folder,
             select_save_location,
+            save_file,
+            read_file,
+            delete_file,
             open_file_location,
             // HTTP 文件共享命令（新）
             start_file_server,

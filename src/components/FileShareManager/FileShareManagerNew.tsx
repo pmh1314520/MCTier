@@ -10,7 +10,7 @@ import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd'
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores/appStore';
 import type { SharedFolder, FileInfo } from '../../types/fileShare';
-import { FolderIcon, FileIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
+import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon, PauseIcon, PlayIcon } from '../icons';
 import './FileShareManager.css';
 
 // 简化的远程共享类型
@@ -30,6 +30,7 @@ interface DownloadTask {
   url: string;
   savePath: string;
   error?: string;
+  abortController?: AbortController; // 用于取消下载
 }
 
 export const FileShareManagerNew: React.FC = () => {
@@ -193,12 +194,18 @@ export const FileShareManagerNew: React.FC = () => {
   // 下载单个文件
   const handleDownloadFile = async (file: FileInfo) => {
     if (!selectedShare) return;
+    
     try {
-      const downloadUrl = await invoke<string>('get_download_url', {
-        peerIp: selectedShare.ownerIp,
-        shareId: selectedShare.share.id,
-        filePath: file.path
+      // 选择保存位置
+      const savePath = await invoke<string | null>('select_save_location', {
+        defaultName: file.name
       });
+      
+      if (!savePath) {
+        return; // 用户取消
+      }
+      
+      const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
       
       // 创建下载任务
       const taskId = `download_${Date.now()}_${Math.random()}`;
@@ -209,16 +216,206 @@ export const FileShareManagerNew: React.FC = () => {
         downloaded: 0,
         status: 'downloading',
         url: downloadUrl,
-        savePath: ''
+        savePath
       };
       
       setDownloads(prev => [...prev, newTask]);
+      setActiveTab('transfers'); // 切换到传输列表
       
       // 开始下载
-      window.open(downloadUrl, '_blank');
+      startDownload(taskId, downloadUrl, savePath, file.size);
+      
       message.success('开始下载文件');
     } catch (error) {
       message.error(`下载失败: ${error}`);
+    }
+  };
+
+  // 实际执行下载
+  const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number) => {
+      const abortController = new AbortController();
+
+      // 更新任务，添加abortController
+      setDownloads(prev => prev.map(task =>
+        task.id === taskId ? { ...task, abortController } : task
+      ));
+
+      try {
+        const response = await fetch(url, {
+          signal: abortController.signal
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('无法读取响应');
+        }
+
+        const chunks: Uint8Array[] = [];
+        let downloaded = 0;
+
+        while (true) {
+          try {
+            const { done, value } = await reader.read();
+
+            if (done) break;
+
+            chunks.push(value);
+            downloaded += value.length;
+
+            // 更新进度
+            setDownloads(prev => prev.map(task =>
+              task.id === taskId ? { ...task, downloaded } : task
+            ));
+          } catch (error: any) {
+            // 如果是用户主动取消，保存已下载的部分
+            if (error.name === 'AbortError') {
+              const blob = new Blob(chunks as BlobPart[]);
+              const arrayBuffer = await blob.arrayBuffer();
+              const uint8Array = new Uint8Array(arrayBuffer);
+
+              await invoke('save_file', {
+                path: `${savePath}.part`,
+                data: Array.from(uint8Array)
+              });
+
+              console.log(`下载已暂停，已保存 ${downloaded} bytes 到临时文件`);
+              return;
+            }
+            throw error;
+          }
+        }
+
+        // 合并所有chunks
+        const blob = new Blob(chunks as BlobPart[]);
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        await invoke('save_file', {
+          path: savePath,
+          data: Array.from(uint8Array)
+        });
+
+        // 标记为完成
+        setDownloads(prev => prev.map(task =>
+          task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize } : task
+        ));
+
+        message.success('下载完成');
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          setDownloads(prev => prev.map(task =>
+            task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
+          ));
+          message.error(`下载失败: ${error}`);
+        }
+      }
+    }
+
+  // 断点续传下载
+  const resumeDownload = async (taskId: string, url: string, savePath: string, fileSize: number, startByte: number) => {
+    const abortController = new AbortController();
+    
+    // 更新任务，添加abortController
+    setDownloads(prev => prev.map(task =>
+      task.id === taskId ? { ...task, abortController } : task
+    ));
+    
+    try {
+      // 读取已下载的部分
+      let existingData: Uint8Array;
+      try {
+        const partData = await invoke<number[]>('read_file', { path: `${savePath}.part` });
+        existingData = new Uint8Array(partData);
+        console.log(`读取到已下载的 ${existingData.length} bytes`);
+      } catch {
+        existingData = new Uint8Array(0);
+        console.log('没有找到临时文件，从头开始下载');
+      }
+      
+      // 使用Range请求从断点处继续
+      const response = await fetch(url, {
+        headers: {
+          'Range': `bytes=${startByte}-`
+        },
+        signal: abortController.signal
+      });
+      
+      if (!response.ok && response.status !== 206) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应');
+      }
+      
+      const chunks: Uint8Array[] = [existingData];
+      let downloaded = startByte;
+      
+      while (true) {
+        try {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          chunks.push(value);
+          downloaded += value.length;
+          
+          // 更新进度
+          setDownloads(prev => prev.map(task =>
+            task.id === taskId ? { ...task, downloaded } : task
+          ));
+        } catch (error: any) {
+          // 如果是用户主动取消，保存已下载的部分
+          if (error.name === 'AbortError') {
+            const blob = new Blob(chunks as BlobPart[]);
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            
+            await invoke('save_file', {
+              path: `${savePath}.part`,
+              data: Array.from(uint8Array)
+            });
+            
+            console.log(`下载已暂停，已保存 ${downloaded} bytes 到临时文件`);
+            return;
+          }
+          throw error;
+        }
+      }
+      
+      // 合并所有chunks
+      const blob = new Blob(chunks as BlobPart[]);
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      await invoke('save_file', {
+        path: savePath,
+        data: Array.from(uint8Array)
+      });
+      
+      // 删除临时文件
+      try {
+        await invoke('delete_file', { path: `${savePath}.part` });
+      } catch {}
+      
+      // 标记为完成
+      setDownloads(prev => prev.map(task =>
+        task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize } : task
+      ));
+      
+      message.success('下载完成');
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        setDownloads(prev => prev.map(task =>
+          task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
+        ));
+        message.error(`下载失败: ${error}`);
+      }
     }
   };
 
@@ -234,6 +431,12 @@ export const FileShareManagerNew: React.FC = () => {
     if (selectedFileList.length === 0) {
       message.warning('没有选中任何文件');
       return;
+    }
+
+    // 选择保存位置
+    const saveDir = await invoke<string | null>('select_folder');
+    if (!saveDir) {
+      return; // 用户取消
     }
 
     // 检查是否启用了"先压后发"
@@ -261,16 +464,16 @@ export const FileShareManagerNew: React.FC = () => {
         
         // 获取ZIP文件
         const blob = await response.blob();
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `batch_download_${Date.now()}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(downloadUrl);
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
         
-        message.success('开始下载压缩包');
+        const zipPath = `${saveDir}/batch_download_${Date.now()}.zip`;
+        await invoke('save_file', {
+          path: zipPath,
+          data: Array.from(uint8Array)
+        });
+        
+        message.success('压缩包下载完成');
       } catch (error) {
         message.destroy();
         message.error(`打包失败: ${error}`);
@@ -278,8 +481,26 @@ export const FileShareManagerNew: React.FC = () => {
     } else {
       // 逐个下载
       for (const file of selectedFileList) {
-        await handleDownloadFile(file);
+        const savePath = `${saveDir}/${file.name}`;
+        const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+        
+        const taskId = `download_${Date.now()}_${Math.random()}`;
+        const newTask: DownloadTask = {
+          id: taskId,
+          fileName: file.name,
+          fileSize: file.size,
+          downloaded: 0,
+          status: 'downloading',
+          url: downloadUrl,
+          savePath
+        };
+        
+        setDownloads(prev => [...prev, newTask]);
+        startDownload(taskId, downloadUrl, savePath, file.size);
       }
+      
+      setActiveTab('transfers');
+      message.success(`开始下载 ${selectedFileList.length} 个文件`);
     }
   };
 
@@ -333,21 +554,25 @@ export const FileShareManagerNew: React.FC = () => {
 
   // 暂停下载
   const handlePauseDownload = (taskId: string) => {
+    const task = downloads.find(t => t.id === taskId);
+    if (task?.abortController) {
+      task.abortController.abort();
+    }
     setDownloads(prev => prev.map(task => 
       task.id === taskId ? { ...task, status: 'paused' as const } : task
     ));
     message.info('下载已暂停');
   };
 
-  // 继续下载
+  // 继续下载（支持断点续传）
   const handleResumeDownload = (taskId: string) => {
     const task = downloads.find(t => t.id === taskId);
     if (task) {
       setDownloads(prev => prev.map(t => 
         t.id === taskId ? { ...t, status: 'downloading' as const } : t
       ));
-      // 重新打开下载链接（支持断点续传）
-      window.open(task.url, '_blank');
+      // 使用Range请求继续下载
+      resumeDownload(taskId, task.url, task.savePath, task.fileSize, task.downloaded);
       message.info('继续下载');
     }
   };
@@ -460,11 +685,6 @@ export const FileShareManagerNew: React.FC = () => {
                         <Button size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? '取消全选' : '全选文件'}>
                           {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? '取消全选' : '全选'}
                         </Button>
-                        {selectedFiles.size > 0 && (
-                          <Button type="primary" size="small" onClick={handleBatchDownload} icon={<DownloadIcon size={14} />}>
-                            下载选中 ({selectedFiles.size})
-                          </Button>
-                        )}
                       </div>
                       <Button size="small" onClick={() => setSelectedShare(null)} icon={<CloseIcon size={16} />} title="关闭" />
                     </div>
@@ -478,27 +698,46 @@ export const FileShareManagerNew: React.FC = () => {
                               initial={{ opacity: 0 }} 
                               animate={{ opacity: 1 }} 
                               exit={{ opacity: 0 }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                             >
                               {!file.is_dir && (
                                 <Checkbox 
                                   checked={selectedFiles.has(file.path)}
                                   onChange={() => toggleFileSelection(file.path)}
                                   onClick={(e) => e.stopPropagation()}
-                                  style={{ marginRight: 8 }}
+                                  style={{ flexShrink: 0 }}
                                 />
                               )}
+                              {file.is_dir && <div style={{ width: 16, flexShrink: 0 }} />}
                               <div 
-                                style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: file.is_dir ? 'pointer' : 'default' }}
+                                style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  flex: 1, 
+                                  cursor: file.is_dir ? 'pointer' : 'default',
+                                  minWidth: 0,
+                                  gap: 8
+                                }}
                                 onClick={() => file.is_dir && handleEnterFolder(file)}
                               >
-                                {file.is_dir ? <FolderIcon size={20} className="file-icon" /> : <FileIcon size={20} className="file-icon" />}
-                                <div className="file-info">
-                                  <div className="file-name">{file.name}</div>
+                                {file.is_dir && <FolderIcon size={20} />}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div className="file-name" style={{ 
+                                    overflow: 'hidden', 
+                                    textOverflow: 'ellipsis', 
+                                    whiteSpace: 'nowrap' 
+                                  }} title={file.name}>{file.name}</div>
                                   <div className="file-meta">{!file.is_dir && formatSize(file.size)}</div>
                                 </div>
                               </div>
                               {!file.is_dir && (
-                                <Button size="small" icon={<DownloadIcon size={14} />} onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }} title="下载" />
+                                <Button 
+                                  size="small" 
+                                  icon={<DownloadIcon size={14} />} 
+                                  onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }} 
+                                  title="下载"
+                                  style={{ flexShrink: 0 }}
+                                />
                               )}
                             </motion.div>
                           ))}
@@ -506,6 +745,53 @@ export const FileShareManagerNew: React.FC = () => {
                       )}
                       {!loadingFiles && files.length === 0 && <div className="empty-state"><FolderIcon size={48} /><p>文件夹为空</p></div>}
                     </div>
+                    {/* 悬浮批量下载按钮 */}
+                    {selectedFiles.size > 0 && (
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        style={{
+                          position: 'fixed',
+                          bottom: 24,
+                          right: 24,
+                          zIndex: 1000
+                        }}
+                      >
+                        <Button
+                          type="primary"
+                          shape="circle"
+                          size="large"
+                          icon={<DownloadIcon size={24} />}
+                          onClick={handleBatchDownload}
+                          title={`下载选中 (${selectedFiles.size})`}
+                          style={{
+                            width: 64,
+                            height: 64,
+                            backgroundColor: '#52c41a',
+                            borderColor: '#52c41a',
+                            boxShadow: '0 4px 12px rgba(82, 196, 26, 0.4)'
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: -8,
+                          right: -8,
+                          backgroundColor: '#ff4d4f',
+                          color: 'white',
+                          borderRadius: '50%',
+                          width: 24,
+                          height: 24,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 12,
+                          fontWeight: 'bold'
+                        }}>
+                          {selectedFiles.size}
+                        </div>
+                      </motion.div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -519,14 +805,18 @@ export const FileShareManagerNew: React.FC = () => {
                     <AnimatePresence>
                       {downloads.map((task) => (
                         <motion.div key={task.id} className="transfer-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                          <FileIcon size={24} className="transfer-icon" />
-                          <div className="transfer-info">
-                            <div className="transfer-name">{task.fileName}</div>
+                          <div className="transfer-info" style={{ flex: 1, minWidth: 0 }}>
+                            <div className="transfer-name" style={{ 
+                              overflow: 'hidden', 
+                              textOverflow: 'ellipsis', 
+                              whiteSpace: 'nowrap' 
+                            }} title={task.fileName}>{task.fileName}</div>
                             <div className="transfer-progress">
                               <Progress 
                                 percent={Math.round((task.downloaded / task.fileSize) * 100)} 
                                 size="small" 
                                 status={task.status === 'failed' ? 'exception' : task.status === 'completed' ? 'success' : 'active'}
+                                strokeColor={task.status === 'completed' ? '#52c41a' : undefined}
                               />
                             </div>
                             <div className="transfer-meta">
@@ -537,14 +827,32 @@ export const FileShareManagerNew: React.FC = () => {
                               {task.status === 'failed' && ` - 失败: ${task.error}`}
                             </div>
                           </div>
-                          <div className="transfer-actions">
+                          <div className="transfer-actions" style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
                             {task.status === 'downloading' && (
-                              <Button size="small" onClick={() => handlePauseDownload(task.id)} title="暂停">暂停</Button>
+                              <Button 
+                                size="small" 
+                                icon={<PauseIcon size={14} />} 
+                                onClick={() => handlePauseDownload(task.id)} 
+                                title="暂停"
+                              />
                             )}
                             {task.status === 'paused' && (
-                              <Button size="small" type="primary" onClick={() => handleResumeDownload(task.id)} title="继续">继续</Button>
+                              <Button 
+                                size="small" 
+                                type="primary" 
+                                icon={<PlayIcon size={14} />} 
+                                onClick={() => handleResumeDownload(task.id)} 
+                                title="继续"
+                                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+                              />
                             )}
-                            <Button size="small" danger icon={<CloseIcon size={14} />} onClick={() => handleCancelDownload(task.id)} title="取消" />
+                            <Button 
+                              size="small" 
+                              danger 
+                              icon={<CloseIcon size={14} />} 
+                              onClick={() => handleCancelDownload(task.id)} 
+                              title="取消"
+                            />
                           </div>
                         </motion.div>
                       ))}

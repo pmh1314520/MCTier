@@ -2039,3 +2039,85 @@ pub async fn diagnose_file_share_connection(peer_ip: String) -> Result<String, S
     
     Ok(serde_json::to_string_pretty(&results).unwrap())
 }
+
+// ==================== 文件下载命令 ====================
+
+/// 保存文件
+/// 
+/// # 参数
+/// * `path` - 文件路径
+/// * `data` - 文件数据（字节数组）
+/// 
+/// # 返回
+/// * `Ok(())` - 保存成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn save_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    log::info!("保存文件: {}, 大小: {} bytes", path, data.len());
+    
+    use tokio::fs;
+    use std::path::Path;
+    
+    // 确保父目录存在
+    if let Some(parent) = Path::new(&path).parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+    }
+    
+    // 写入文件
+    fs::write(&path, data)
+        .await
+        .map_err(|e| format!("写入文件失败: {}", e))?;
+    
+    log::info!("✅ 文件保存成功: {}", path);
+    Ok(())
+}
+
+/// 读取文件
+/// 
+/// # 参数
+/// * `path` - 文件路径
+/// 
+/// # 返回
+/// * `Ok(Vec<u8>)` - 文件内容
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn read_file(path: String) -> Result<Vec<u8>, String> {
+    log::info!("读取文件: {}", path);
+    
+    use tokio::fs;
+    
+    // 读取文件
+    let data = fs::read(&path)
+        .await
+        .map_err(|e| format!("读取文件失败: {}", e))?;
+    
+    log::info!("✅ 文件读取成功: {}, 大小: {} bytes", path, data.len());
+    Ok(data)
+}
+
+/// 删除文件
+/// 
+/// # 参数
+/// * `path` - 文件路径
+/// 
+/// # 返回
+/// * `Ok(())` - 删除成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn delete_file(path: String) -> Result<(), String> {
+    log::info!("删除文件: {}", path);
+    
+    use tokio::fs;
+    
+    // 删除文件
+    fs::remove_file(&path)
+        .await
+        .map_err(|e| format!("删除文件失败: {}", e))?;
+    
+    log::info!("✅ 文件删除成功: {}", path);
+    Ok(())
+}

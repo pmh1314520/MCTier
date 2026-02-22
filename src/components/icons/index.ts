@@ -6,6 +6,8 @@ export { BackIcon } from './BackIcon';
 export { MicrophoneIcon } from './MicrophoneIcon';
 export { VolumeIcon } from './VolumeIcon';
 export { ChevronIcon } from './ChevronIcon';
+export { PauseIcon } from './PauseIcon';
+export { PlayIcon } from './PlayIcon';
 export { PlayerIcon } from './PlayerIcon';
 export { CloseIcon } from './CloseIcon';
 export { MicIcon } from './MicIcon';

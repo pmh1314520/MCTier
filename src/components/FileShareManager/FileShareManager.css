@@ -758,3 +758,23 @@
   padding-top: 16px !important;
   margin-top: 16px !important;
 }
+
+/* 复选框绿色样式 */
+.file-share-container .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #52c41a;
+  border-color: #52c41a;
+}
+
+.file-share-container .ant-checkbox-checked::after {
+  border-color: #52c41a;
+}
+
+.file-share-container .ant-checkbox-wrapper:hover .ant-checkbox-inner,
+.file-share-container .ant-checkbox:hover .ant-checkbox-inner {
+  border-color: #52c41a;
+}
+
+.file-share-container .ant-checkbox-checked:hover .ant-checkbox-inner {
+  background-color: #73d13d;
+  border-color: #73d13d;
+}
