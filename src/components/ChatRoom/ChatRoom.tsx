@@ -183,7 +183,7 @@ export const ChatRoom: React.FC = () => {
     const currentPlayerName = config.playerName || '我';
     
     // 生成唯一消息ID
-    const messageId = `msg-${Date.now()}-${currentPlayerId}-${Math.random().toString(36).substr(2, 9)}`;
+    const messageId = `msg-${Date.now()}-${currentPlayerId}-${Math.random().toString(36).substring(2, 11)}`;
     
     // 立即添加到本地消息列表（乐观更新）
     const localMessage: ChatMessage = {
@@ -562,15 +562,10 @@ export const ChatRoom: React.FC = () => {
         {showEmojiPicker && (
           <motion.div
             className="emoji-picker-container"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ 
-              type: 'spring',
-              stiffness: 500,
-              damping: 30,
-              mass: 0.5
-            }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.15 }}
           >
             <EmojiPicker 
               onSelect={handleEmojiSelect}

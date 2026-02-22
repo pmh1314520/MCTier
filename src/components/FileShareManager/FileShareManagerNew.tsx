@@ -121,7 +121,8 @@ export const FileShareManagerNew: React.FC = () => {
     }
     
     // 检查当前正在浏览的共享是否还存在
-    if (selectedShare) {
+    // 只有在正在浏览共享时才检查
+    if (selectedShare && activeTab === 'remote') {
       const stillExists = allShares.some(
         s => s.ownerIp === selectedShare.ownerIp && s.share.id === selectedShare.share.id
       );
@@ -735,7 +736,7 @@ export const FileShareManagerNew: React.FC = () => {
                         <FolderIcon size={24} className="share-icon" />
                         <div className="share-info">
                           <div className="share-name">{share.name}</div>
-                          <div className="share-meta">{share.password && '🔒 '}{share.expire_time && `⏰ ${formatTime(share.expire_time)}`}</div>
+                          <div className="share-meta">{share.password && '🔒 '}{share.compress_before_send && '📦 '}{share.expire_time && `⏰ ${formatTime(share.expire_time)}`}</div>
                         </div>
                         <button className="delete-share-btn" onClick={() => handleDeleteShare(share.id)} title="删除共享"><TrashIcon size={16} /></button>
                       </motion.div>
@@ -761,6 +762,9 @@ export const FileShareManagerNew: React.FC = () => {
                           <div className="share-status-icons">
                             {remoteShare.share.password && (
                               <div className="status-icon lock-icon" title="需要密码">🔒</div>
+                            )}
+                            {remoteShare.share.compress_before_send && (
+                              <div className="status-icon compress-icon" title="先压后发">📦</div>
                             )}
                             {remoteShare.share.expire_time && (
                               <div className="status-icon expiry-icon" title={`有效期至 ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`}>⏰</div>
@@ -944,8 +948,9 @@ export const FileShareManagerNew: React.FC = () => {
                             animate={{ opacity: 1, y: 0 }} 
                             exit={{ opacity: 0, y: -20 }}
                             onClick={() => task.status === 'completed' && handleOpenFileLocation(task.savePath)}
+                            style={{ position: 'relative' }}
                           >
-                            <div className="transfer-info" style={{ flex: 1, minWidth: 0 }}>
+                            <div className="transfer-info" style={{ flex: 1, minWidth: 0, paddingRight: task.status !== 'completed' ? '80px' : '0' }}>
                               <div className="transfer-name" style={{ 
                                 overflow: 'hidden', 
                                 textOverflow: 'ellipsis', 
@@ -968,26 +973,34 @@ export const FileShareManagerNew: React.FC = () => {
                                 {task.status === 'failed' && ` - 失败: ${task.error}`}
                               </div>
                             </div>
-                            <div className="transfer-actions" style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-                              {task.status === 'downloading' && (
-                                <Button 
-                                  size="small" 
-                                  icon={<PauseIcon size={14} />} 
-                                  onClick={(e) => { e.stopPropagation(); handlePauseDownload(task.id); }} 
-                                  title="暂停"
-                                />
-                              )}
-                              {task.status === 'paused' && (
-                                <Button 
-                                  size="small" 
-                                  type="primary" 
-                                  icon={<PlayIcon size={14} />} 
-                                  onClick={(e) => { e.stopPropagation(); handleResumeDownload(task.id); }} 
-                                  title="继续"
-                                  style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-                                />
-                              )}
-                              {task.status !== 'completed' && (
+                            {/* 右下角的暂停/继续按钮 */}
+                            {task.status !== 'completed' && (
+                              <div style={{ 
+                                position: 'absolute', 
+                                bottom: 8, 
+                                right: 8, 
+                                display: 'flex', 
+                                flexDirection: 'column',
+                                gap: 4 
+                              }}>
+                                {task.status === 'downloading' && (
+                                  <Button 
+                                    size="small" 
+                                    icon={<PauseIcon size={14} />} 
+                                    onClick={(e) => { e.stopPropagation(); handlePauseDownload(task.id); }} 
+                                    title="暂停"
+                                  />
+                                )}
+                                {task.status === 'paused' && (
+                                  <Button 
+                                    size="small" 
+                                    type="primary" 
+                                    icon={<PlayIcon size={14} />} 
+                                    onClick={(e) => { e.stopPropagation(); handleResumeDownload(task.id); }} 
+                                    title="继续"
+                                    style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+                                  />
+                                )}
                                 <Button 
                                   size="small" 
                                   danger 
@@ -995,8 +1008,8 @@ export const FileShareManagerNew: React.FC = () => {
                                   onClick={(e) => { e.stopPropagation(); handleCancelDownload(task.id); }} 
                                   title="取消"
                                 />
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </motion.div>
                         ))}
                       </AnimatePresence>
