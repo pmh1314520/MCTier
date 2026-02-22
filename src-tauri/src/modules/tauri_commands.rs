@@ -97,6 +97,21 @@ pub async fn create_lobby(
             }
             drop(ft_service);
             
+            // 启动P2P聊天服务器
+            log::info!("正在启动P2P聊天服务器...");
+            let chat_service = core.get_chat_service();
+            let chat_svc = chat_service.lock().await;
+            chat_svc.set_virtual_ip(virtual_ip.clone());
+            match chat_svc.start_server().await {
+                Ok(_) => {
+                    log::info!("✅ P2P聊天服务器启动成功");
+                }
+                Err(e) => {
+                    log::error!("❌ P2P聊天服务器启动失败: {}", e);
+                }
+            }
+            drop(chat_svc);
+            
             // 更新应用状态为在大厅中
             core.set_state(CoreAppState::InLobby).await;
             
@@ -214,6 +229,21 @@ pub async fn join_lobby(
                 }
             }
             drop(ft_service);
+            
+            // 启动P2P聊天服务器
+            log::info!("正在启动P2P聊天服务器...");
+            let chat_service = core.get_chat_service();
+            let chat_svc = chat_service.lock().await;
+            chat_svc.set_virtual_ip(virtual_ip.clone());
+            match chat_svc.start_server().await {
+                Ok(_) => {
+                    log::info!("✅ P2P聊天服务器启动成功");
+                }
+                Err(e) => {
+                    log::error!("❌ P2P聊天服务器启动失败: {}", e);
+                }
+            }
+            drop(chat_svc);
             
             // 更新应用状态为在大厅中
             core.set_state(CoreAppState::InLobby).await;
@@ -2119,5 +2149,174 @@ pub async fn delete_file(path: String) -> Result<(), String> {
         .map_err(|e| format!("删除文件失败: {}", e))?;
     
     log::info!("✅ 文件删除成功: {}", path);
+    Ok(())
+}
+
+// ==================== P2P 聊天命令 ====================
+
+use crate::modules::chat_service::{ChatMessage as ChatServiceMessage, MessageType, SendMessageRequest};
+
+/// 发送P2P聊天消息
+/// 
+/// # 参数
+/// * `player_id` - 玩家ID
+/// * `player_name` - 玩家名称
+/// * `content` - 消息内容
+/// * `message_type` - 消息类型（text/image）
+/// * `image_data` - 图片数据（可选）
+/// * `peer_ips` - 目标玩家的虚拟IP列表
+/// 
+/// # 返回
+/// * `Ok(())` - 发送成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn send_p2p_chat_message(
+    player_id: String,
+    player_name: String,
+    content: String,
+    message_type: String,
+    image_data: Option<Vec<u8>>,
+    peer_ips: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("💬 发送P2P聊天消息: {} - {}", player_name, content);
+    
+    let core = state.core.lock().await;
+    let chat_service = core.get_chat_service();
+    let chat_svc = chat_service.lock().await;
+    
+    // 解析消息类型
+    let msg_type = match message_type.as_str() {
+        "image" => MessageType::Image,
+        _ => MessageType::Text,
+    };
+    
+    // 创建消息
+    let message = ChatServiceMessage {
+        id: format!("msg-{}-{}", player_id, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+        player_id: player_id.clone(),
+        player_name: player_name.clone(),
+        content: content.clone(),
+        message_type: msg_type.clone(),
+        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        image_data: image_data.clone(),
+    };
+    
+    // 保存到本地消息队列
+    chat_svc.add_local_message(message);
+    
+    drop(chat_svc);
+    drop(core);
+    
+    // 向所有其他玩家发送消息
+    let client = reqwest::Client::new();
+    for peer_ip in peer_ips {
+        let url = format!("http://{}:14540/api/chat/send", peer_ip);
+        let request = SendMessageRequest {
+            player_id: player_id.clone(),
+            player_name: player_name.clone(),
+            content: content.clone(),
+            message_type: msg_type.clone(),
+            image_data: image_data.clone(),
+        };
+        
+        // 异步发送，不等待响应
+        let client_clone = client.clone();
+        let url_clone = url.clone();
+        tokio::spawn(async move {
+            match client_clone.post(&url_clone).json(&request).send().await {
+                Ok(_) => {
+                    log::info!("✅ 消息已发送到: {}", url_clone);
+                }
+                Err(e) => {
+                    log::warn!("⚠️ 发送消息失败 ({}): {}", url_clone, e);
+                }
+            }
+        });
+    }
+    
+    Ok(())
+}
+
+/// 获取P2P聊天消息
+/// 
+/// # 参数
+/// * `peer_ips` - 玩家的虚拟IP列表
+/// * `since` - 获取此时间戳之后的消息（可选）
+/// 
+/// # 返回
+/// * `Ok(Vec<ChatMessage>)` - 消息列表
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn get_p2p_chat_messages(
+    peer_ips: Vec<String>,
+    since: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChatServiceMessage>, String> {
+    let core = state.core.lock().await;
+    let chat_service = core.get_chat_service();
+    let chat_svc = chat_service.lock().await;
+    
+    // 获取本地消息
+    let mut all_messages = chat_svc.get_local_messages(since);
+    
+    drop(chat_svc);
+    drop(core);
+    
+    // 从所有其他玩家获取消息
+    let client = reqwest::Client::new();
+    for peer_ip in peer_ips {
+        let url = if let Some(ts) = since {
+            format!("http://{}:14540/api/chat/messages?since={}", peer_ip, ts)
+        } else {
+            format!("http://{}:14540/api/chat/messages", peer_ip)
+        };
+        
+        match client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<Vec<ChatServiceMessage>>().await {
+                        Ok(messages) => {
+                            all_messages.extend(messages);
+                        }
+                        Err(e) => {
+                            log::warn!("⚠️ 解析消息失败 ({}): {}", peer_ip, e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("⚠️ 获取消息失败 ({}): {}", peer_ip, e);
+            }
+        }
+    }
+    
+    // 按时间戳排序
+    all_messages.sort_by_key(|msg| msg.timestamp);
+    
+    // 去重（基于消息ID）
+    let mut seen_ids = std::collections::HashSet::new();
+    all_messages.retain(|msg| seen_ids.insert(msg.id.clone()));
+    
+    Ok(all_messages)
+}
+
+/// 清空本地聊天消息
+/// 
+/// # 返回
+/// * `Ok(())` - 清空成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn clear_p2p_chat_messages(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("🗑️ 清空本地聊天消息");
+    
+    let core = state.core.lock().await;
+    let chat_service = core.get_chat_service();
+    let chat_svc = chat_service.lock().await;
+    
+    chat_svc.clear_local_messages();
+    
     Ok(())
 }

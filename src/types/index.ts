@@ -122,6 +122,10 @@ export interface ChatMessage {
   content: string;
   /** 发送时间戳 */
   timestamp: number;
+  /** 消息类型 */
+  type?: 'text' | 'image';
+  /** 图片数据（Base64） */
+  imageData?: string;
 }
 
 /**

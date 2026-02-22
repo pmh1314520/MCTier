@@ -12,6 +12,7 @@ use super::voice_service::VoiceService;
 use super::p2p_signaling::P2PSignalingService;
 use super::websocket_signaling::WebSocketSignalingServer;
 use super::file_transfer::FileTransferService;
+use super::chat_service::ChatService;
 use super::error::AppError;
 
 /// 应用程序状态枚举
@@ -43,6 +44,8 @@ pub struct AppCore {
     websocket_signaling: Arc<Mutex<Option<WebSocketSignalingServer>>>,
     /// 文件传输服务
     file_transfer: Arc<Mutex<FileTransferService>>,
+    /// P2P聊天服务
+    chat_service: Arc<Mutex<ChatService>>,
     /// 配置管理器
     config_manager: Arc<Mutex<ConfigManager>>,
     /// 应用程序状态
@@ -111,6 +114,10 @@ impl AppCore {
         let file_transfer = Arc::new(Mutex::new(FileTransferService::new()));
         info!("文件传输服务初始化成功");
 
+        // 初始化P2P聊天服务
+        let chat_service = Arc::new(Mutex::new(ChatService::new()));
+        info!("P2P聊天服务初始化成功");
+
         // 初始化应用状态
         let state = Arc::new(Mutex::new(AppState::Idle));
 
@@ -123,6 +130,7 @@ impl AppCore {
             p2p_signaling,
             websocket_signaling,
             file_transfer,
+            chat_service,
             config_manager,
             state,
         })
@@ -296,6 +304,11 @@ impl AppCore {
     /// 获取文件传输服务的引用
     pub fn get_file_transfer(&self) -> Arc<Mutex<FileTransferService>> {
         Arc::clone(&self.file_transfer)
+    }
+
+    /// 获取P2P聊天服务的引用
+    pub fn get_chat_service(&self) -> Arc<Mutex<ChatService>> {
+        Arc::clone(&self.chat_service)
     }
 
     /// 启动WebSocket信令服务器（创建大厅时调用）

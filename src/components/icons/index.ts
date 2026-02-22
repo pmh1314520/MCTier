@@ -28,3 +28,5 @@ export { FileIcon } from './FileIcon';
 export { DownloadIcon } from './DownloadIcon';
 export { ShareIcon } from './ShareIcon';
 export { TrashIcon } from './TrashIcon';
+export { EmojiIcon } from './EmojiIcon';
+export { ImageIcon } from './ImageIcon';

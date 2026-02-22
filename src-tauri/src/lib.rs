@@ -77,6 +77,10 @@ use modules::tauri_commands::{
     verify_share_password,
     get_download_url,
     diagnose_file_share_connection,
+    // P2P 聊天命令
+    send_p2p_chat_message,
+    get_p2p_chat_messages,
+    clear_p2p_chat_messages,
 };
 
 // 测试命令
@@ -213,6 +217,10 @@ pub fn run() {
             verify_share_password,
             get_download_url,
             diagnose_file_share_connection,
+            // P2P 聊天命令
+            send_p2p_chat_message,
+            get_p2p_chat_messages,
+            clear_p2p_chat_messages,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

@@ -39,3 +39,6 @@ pub mod tauri_events;
 
 // 高性能文件传输模块
 pub mod file_transfer;
+
+// P2P聊天服务模块
+pub mod chat_service;

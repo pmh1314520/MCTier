@@ -247,10 +247,44 @@
 
 .chat-input-area {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 16px;
   background: rgba(30, 30, 40, 0.95);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-input-toolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  transition: all 0.3s ease;
+}
+
+.toolbar-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  transform: translateY(-2px);
+}
+
+.chat-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
 }
 
 .chat-input-area textarea {
@@ -297,4 +331,26 @@
   opacity: 0.5;
   cursor: not-allowed;
   background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%) !important;
+}
+
+/* 聊天图片样式 */
+.chat-image {
+  display: block;
+  max-width: 300px;
+  max-height: 300px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.chat-image:hover {
+  transform: scale(1.05);
+}
+
+/* Emoji选择器容器 */
+.emoji-picker-container {
+  position: absolute;
+  bottom: 120px;
+  left: 16px;
+  z-index: 1000;
 }

@@ -1,26 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Input, Button } from 'antd';
+import { Input, Button, message as antdMessage } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import { useAppStore } from '../../stores';
-import { webrtcClient } from '../../services';
+import { p2pChatService } from '../../services/chat/P2PChatService';
+import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
+import { EmojiIcon, ImageIcon } from '../icons';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
 const { TextArea } = Input;
 
 export const ChatRoom: React.FC = () => {
-  const { currentPlayerId, chatMessages, addChatMessage, config } = useAppStore();
+  const { currentPlayerId, chatMessages, addChatMessage, config, players, lobby } = useAppStore();
   const [inputValue, setInputValue] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [displayedMessageCount, setDisplayedMessageCount] = useState(30);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
+  const textAreaRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 计算未读消息数量（只计算其他人发送的消息）
   const unreadMessages = chatMessages.filter((msg, index) => 
@@ -44,6 +50,62 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ 已清除全局标志：离开聊天室界面');
     };
   }, []);
+
+  // 初始化P2P聊天服务
+  useEffect(() => {
+    if (!lobby || !currentPlayerId) {
+      console.log('⚠️ 大厅或玩家ID未就绪，跳过P2P聊天服务初始化');
+      return;
+    }
+
+    // 获取所有玩家的虚拟IP（包括自己）
+    const playerIPs = players.map(p => p.virtualIp).filter(Boolean) as string[];
+    // 添加自己的虚拟IP
+    if (lobby.virtualIp && !playerIPs.includes(lobby.virtualIp)) {
+      playerIPs.push(lobby.virtualIp);
+    }
+
+    console.log('🚀 初始化P2P聊天服务，玩家IPs:', playerIPs);
+
+    // 初始化P2P聊天服务
+    p2pChatService.initialize(playerIPs, currentPlayerId);
+
+    // 设置消息接收回调
+    p2pChatService.onMessage((message) => {
+      console.log('📨 收到P2P消息:', message);
+      
+      // 查找发送者名称
+      let senderName = '未知玩家';
+      if (message.playerId === currentPlayerId) {
+        senderName = config.playerName || '我';
+      } else {
+        const sender = players.find(p => p.id === message.playerId);
+        senderName = sender?.name || '未知玩家';
+      }
+
+      // 添加到消息列表
+      const chatMessage: ChatMessage = {
+        id: message.id,
+        playerId: message.playerId,
+        playerName: senderName,
+        content: message.content,
+        timestamp: message.timestamp,
+        type: message.type,
+        imageData: message.imageData,
+      };
+      
+      addChatMessage(chatMessage);
+    });
+
+    // 开始轮询消息
+    p2pChatService.startPolling();
+
+    return () => {
+      // 停止轮询
+      p2pChatService.stopPolling();
+      console.log('✅ 已停止P2P聊天服务轮询');
+    };
+  }, [lobby, currentPlayerId, players, config.playerName, addChatMessage]);
 
   // 监听滚动位置
   const handleScroll = () => {
@@ -112,26 +174,13 @@ export const ChatRoom: React.FC = () => {
     }
   }, [chatMessages.length, isAtBottom]);
 
-  // 发送消息
+  // 发送文本消息
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !currentPlayerId) return;
     
-    // 获取当前玩家名称（优先从config获取，因为当前玩家不在players列表中）
-    const currentPlayerName = config.playerName || '我';
-    
     try {
-      // 通过WebSocket发送消息到信令服务器
-      await webrtcClient.sendChatMessage(inputValue.trim());
-      
-      // 添加到本地消息列表（自己发的消息）
-      const newMessage: ChatMessage = {
-        id: `msg-${Date.now()}-${currentPlayerId}`,
-        playerId: currentPlayerId,
-        playerName: currentPlayerName,
-        content: inputValue.trim(),
-        timestamp: Date.now(),
-      };
-      addChatMessage(newMessage);
+      // 通过P2P发送消息
+      await p2pChatService.sendTextMessage(inputValue.trim());
       
       // 清空输入框
       setInputValue('');
@@ -140,7 +189,186 @@ export const ChatRoom: React.FC = () => {
       setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('发送聊天消息失败:', error);
+      antdMessage.error('发送消息失败');
     }
+  };
+
+  // 处理图片上传
+  const handleImageUpload = async () => {
+    if (isUploading) return;
+
+    try {
+      setIsUploading(true);
+
+      // 创建文件选择器
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) {
+          setIsUploading(false);
+          return;
+        }
+
+        // 检查文件大小（限制5MB）
+        if (file.size > 5 * 1024 * 1024) {
+          antdMessage.error('图片大小不能超过5MB');
+          setIsUploading(false);
+          return;
+        }
+
+        console.log('📁 选择的图片文件:', file.name, '大小:', file.size);
+
+        // 读取文件为Base64
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const dataUrl = event.target?.result as string;
+          
+          console.log('📤 发送图片消息');
+
+          try {
+            // 发送图片消息
+            await p2pChatService.sendImageMessage(dataUrl);
+            antdMessage.success('图片发送成功');
+            
+            // 滚动到底部
+            setTimeout(() => scrollToBottom(), 100);
+          } catch (error) {
+            console.error('发送图片失败:', error);
+            antdMessage.error('发送图片失败');
+          } finally {
+            setIsUploading(false);
+          }
+        };
+        reader.onerror = () => {
+          antdMessage.error('读取图片失败');
+          setIsUploading(false);
+        };
+        reader.readAsDataURL(file);
+      };
+
+      input.click();
+    } catch (error) {
+      console.error('上传图片失败:', error);
+      antdMessage.error('上传图片失败');
+      setIsUploading(false);
+    }
+  };
+
+  // 处理粘贴事件
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        // 检查文件大小
+        if (file.size > 5 * 1024 * 1024) {
+          antdMessage.error('图片大小不能超过5MB');
+          return;
+        }
+
+        try {
+          setIsUploading(true);
+
+          // 读取文件为Base64
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const dataUrl = event.target?.result as string;
+            
+            console.log('📤 发送粘贴的图片');
+
+            // 发送图片消息
+            await p2pChatService.sendImageMessage(dataUrl);
+
+            antdMessage.success('图片发送成功');
+            
+            // 滚动到底部
+            setTimeout(() => scrollToBottom(), 100);
+            
+            setIsUploading(false);
+          };
+          reader.onerror = () => {
+            antdMessage.error('读取图片失败');
+            setIsUploading(false);
+          };
+          reader.readAsDataURL(file);
+        } catch (error) {
+          console.error('粘贴图片失败:', error);
+          antdMessage.error('粘贴图片失败');
+          setIsUploading(false);
+        }
+        
+        break;
+      }
+    }
+  };
+
+  // 处理拖拽事件
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    
+    // 检查是否为图片
+    if (!file.type.startsWith('image/')) {
+      antdMessage.error('只能拖拽图片文件');
+      return;
+    }
+
+    // 检查文件大小
+    if (file.size > 5 * 1024 * 1024) {
+      antdMessage.error('图片大小不能超过5MB');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // 读取文件为Base64
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const dataUrl = event.target?.result as string;
+        
+        console.log('📤 发送拖拽的图片');
+
+        // 发送图片消息
+        await p2pChatService.sendImageMessage(dataUrl);
+
+        antdMessage.success('图片发送成功');
+        
+        // 滚动到底部
+        setTimeout(() => scrollToBottom(), 100);
+        
+        setIsUploading(false);
+      };
+      reader.onerror = () => {
+        antdMessage.error('读取图片失败');
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('拖拽图片失败:', error);
+      antdMessage.error('拖拽图片失败');
+      setIsUploading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   // 处理键盘事件
@@ -148,6 +376,18 @@ export const ChatRoom: React.FC = () => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // 处理Emoji选择
+  const handleEmojiSelect = (emoji: string) => {
+    // 插入Emoji到输入框
+    setInputValue(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    
+    // 聚焦输入框
+    if (textAreaRef.current) {
+      textAreaRef.current.focus();
     }
   };
 
@@ -163,7 +403,11 @@ export const ChatRoom: React.FC = () => {
   const displayedMessages = chatMessages.slice(-displayedMessageCount);
 
   return (
-    <div className="chat-room">
+    <div 
+      className="chat-room"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
       <div 
         className="chat-messages" 
         ref={messagesContainerRef}
@@ -206,9 +450,20 @@ export const ChatRoom: React.FC = () => {
                   {message.playerName}
                   {isOwnMessage && ' (我)'}
                 </span>
+                
                 <div className="message-content">
-                  {message.content}
+                  {message.type === 'image' && message.imageData ? (
+                    <img 
+                      src={message.imageData} 
+                      alt="聊天图片" 
+                      className="chat-image"
+                      style={{ maxWidth: '300px', maxHeight: '300px', borderRadius: '8px' }}
+                    />
+                  ) : (
+                    message.content
+                  )}
                 </div>
+                
                 <span className="message-time-outside">
                   {formatTime(message.timestamp)}
                 </span>
@@ -239,7 +494,25 @@ export const ChatRoom: React.FC = () => {
         )}
       </AnimatePresence>
       
-      {/* 底栏输入区域 - 添加升起动画 */}
+      {/* Emoji选择器 */}
+      <AnimatePresence>
+        {showEmojiPicker && (
+          <motion.div
+            className="emoji-picker-container"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <EmojiPicker 
+              onSelect={handleEmojiSelect}
+              onClose={() => setShowEmojiPicker(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* 底栏输入区域 */}
       <motion.div 
         className="chat-input-area"
         initial={{ y: 100, opacity: 0 }}
@@ -251,23 +524,60 @@ export const ChatRoom: React.FC = () => {
           delay: 0.1
         }}
       >
-        <TextArea
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="输入消息(Shift+Enter换行)"
-          autoSize={{ minRows: 1, maxRows: 3 }}
-          maxLength={500}
-        />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSendMessage}
-          disabled={!inputValue.trim()}
-        >
-          发送
-        </Button>
+        <div className="chat-input-toolbar">
+          <Button
+            type="text"
+            icon={<EmojiIcon size={20} />}
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            title="选择表情"
+            className="toolbar-button"
+          />
+          <Button
+            type="text"
+            icon={<ImageIcon size={20} />}
+            onClick={handleImageUpload}
+            loading={isUploading}
+            title="发送图片"
+            className="toolbar-button"
+          />
+        </div>
+        
+        <div className="chat-input-wrapper">
+          <TextArea
+            ref={textAreaRef}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder="输入消息(Shift+Enter换行，支持粘贴/拖拽图片)"
+            autoSize={{ minRows: 1, maxRows: 3 }}
+            maxLength={500}
+          />
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={handleSendMessage}
+            disabled={!inputValue.trim()}
+          >
+            发送
+          </Button>
+        </div>
       </motion.div>
+      
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            // 处理文件上传
+            console.log('选择的文件:', file);
+          }
+        }}
+      />
     </div>
   );
 };
