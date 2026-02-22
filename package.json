@@ -1,7 +1,7 @@
 {
   "name": "mctier",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "MCTier - Minecraft 虚拟局域网联机工具",
   "author": "MCTier Team",
   "type": "module",
