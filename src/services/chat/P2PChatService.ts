@@ -24,6 +24,7 @@ class P2PChatService {
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private processedMessageIds: Set<string> = new Set();
+  private sentMessageIds: Set<string> = new Set(); // 记录自己发送的消息ID
 
   /**
    * 初始化服务
@@ -32,6 +33,7 @@ class P2PChatService {
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
     this.processedMessageIds.clear();
+    this.sentMessageIds.clear();
     console.log('✅ [P2PChatService] 初始化完成，玩家IPs:', peerIps);
   }
 
@@ -102,6 +104,18 @@ class P2PChatService {
           }
           this.processedMessageIds.add(msg.id);
 
+          // 跳过自己发送的消息（通过sentMessageIds判断）
+          if (this.sentMessageIds.has(msg.id)) {
+            console.log('📭 [P2PChatService] 跳过自己发送的消息（已在本地显示）:', msg.id);
+            continue;
+          }
+
+          // 跳过自己发送的消息（通过playerId判断，双重保险）
+          if (msg.player_id === this.currentPlayerId) {
+            console.log('📭 [P2PChatService] 跳过自己发送的消息:', msg.id);
+            continue;
+          }
+
           // 转换为前端消息格式
           const chatMessage: ChatMessage = {
             id: msg.id,
@@ -112,12 +126,6 @@ class P2PChatService {
             type: msg.message_type,
             imageData: msg.image_data ? this.arrayToBase64(msg.image_data) : undefined,
           };
-
-          // 跳过自己发送的消息（避免重复显示）
-          if (msg.player_id === this.currentPlayerId) {
-            console.log('📭 [P2PChatService] 跳过自己发送的消息:', msg.id);
-            continue;
-          }
 
           // 回调通知新消息
           if (this.onMessageCallback) {
@@ -133,9 +141,14 @@ class P2PChatService {
   /**
    * 发送文本消息
    */
-  async sendTextMessage(content: string): Promise<void> {
+  async sendTextMessage(content: string, messageId?: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
+    }
+
+    // 如果提供了messageId，记录到sentMessageIds
+    if (messageId) {
+      this.sentMessageIds.add(messageId);
     }
 
     try {
@@ -157,9 +170,14 @@ class P2PChatService {
   /**
    * 发送图片消息（Base64格式）
    */
-  async sendImageMessage(imageDataUrl: string): Promise<void> {
+  async sendImageMessage(imageDataUrl: string, messageId?: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
+    }
+
+    // 如果提供了messageId，记录到sentMessageIds
+    if (messageId) {
+      this.sentMessageIds.add(messageId);
     }
 
     try {

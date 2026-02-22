@@ -203,8 +203,8 @@ export const ChatRoom: React.FC = () => {
     setTimeout(() => scrollToBottom(), 50);
     
     try {
-      // 异步发送到P2P网络
-      await p2pChatService.sendTextMessage(messageContent);
+      // 异步发送到P2P网络，传递messageId
+      await p2pChatService.sendTextMessage(messageContent, messageId);
     } catch (error) {
       console.error('发送聊天消息失败:', error);
       antdMessage.error('发送消息失败');
@@ -558,22 +558,14 @@ export const ChatRoom: React.FC = () => {
       </AnimatePresence>
       
       {/* Emoji选择器 */}
-      <AnimatePresence>
-        {showEmojiPicker && (
-          <motion.div
-            className="emoji-picker-container"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.15 }}
-          >
-            <EmojiPicker 
-              onSelect={handleEmojiSelect}
-              onClose={() => setShowEmojiPicker(false)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {showEmojiPicker && (
+        <div className="emoji-picker-container">
+          <EmojiPicker 
+            onSelect={handleEmojiSelect}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        </div>
+      )}
       
       {/* 底栏输入区域 */}
       <motion.div 

@@ -1321,8 +1321,6 @@ export class WebRTCClient {
       
       fileTransferChannel.onopen = () => {
         console.log(`📁 文件传输通道已打开 with ${peerId}`);
-        // 通知文件传输服务通道已就绪
-        fileTransferService.onDataChannelReady(peerId, fileTransferChannel);
       };
       
       fileTransferChannel.onclose = () => {
@@ -1349,7 +1347,6 @@ export class WebRTCClient {
           
           receivedChannel.onopen = () => {
             console.log(`📁 接收的文件传输通道已打开 with ${peerId}`);
-            fileTransferService.onDataChannelReady(peerId, receivedChannel);
           };
           
           receivedChannel.onclose = () => {

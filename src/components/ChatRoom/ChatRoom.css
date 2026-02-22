@@ -292,9 +292,8 @@
 
 .emoji-button-inline {
   position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 8px;
+  bottom: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -306,6 +305,7 @@
   border: none;
   color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
+  z-index: 10;
 }
 
 .emoji-button-inline:hover {

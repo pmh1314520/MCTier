@@ -428,11 +428,17 @@ impl NetworkService {
         let start_time = std::time::Instant::now();
         let mut last_check_time = std::time::Instant::now();
         let mut cli_check_count = 0;
+        let mut last_log_time = std::time::Instant::now();
 
         loop {
             // 检查是否超时
             if start_time.elapsed() > timeout_duration {
-                log::error!("获取虚拟 IP 超时");
+                log::error!("❌ 获取虚拟 IP 超时（等待了60秒）");
+                log::error!("可能的原因：");
+                log::error!("  1. EasyTier进程启动失败");
+                log::error!("  2. 网络连接问题，无法连接到信令服务器");
+                log::error!("  3. RPC端口冲突");
+                log::error!("  4. 虚拟网卡创建失败");
                 self.stop_easytier().await?;
                 return Err(AppError::NetworkError(
                     "获取虚拟 IP 超时：请检查网络连接和 EasyTier 服务状态".to_string(),
@@ -440,13 +446,16 @@ impl NetworkService {
             }
             
             // 每5秒输出一次等待日志
-            if start_time.elapsed().as_secs() % 5 == 0 && start_time.elapsed().as_millis() % 5000 < 200 {
-                log::info!("等待获取虚拟 IP... 已等待 {} 秒", start_time.elapsed().as_secs());
+            if last_log_time.elapsed().as_secs() >= 5 {
+                let elapsed = start_time.elapsed().as_secs();
+                log::info!("⏳ 等待获取虚拟 IP... 已等待 {} 秒 / 60 秒", elapsed);
+                last_log_time = std::time::Instant::now();
             }
             
             // 检查是否有错误状态
             let current_status = self.status.lock().await.clone();
             if let ConnectionStatus::Error(err_msg) = current_status {
+                log::error!("❌ 检测到错误状态: {}", err_msg);
                 self.stop_easytier().await?;
                 return Err(AppError::NetworkError(err_msg));
             }
@@ -454,7 +463,7 @@ impl NetworkService {
             // 检查是否已从输出中获取到虚拟 IP
             let ip = self.virtual_ip.lock().await.clone();
             if let Some(ip_addr) = ip {
-                log::info!("从输出中成功获取虚拟 IP: {}", ip_addr);
+                log::info!("✅ 从输出中成功获取虚拟 IP: {}", ip_addr);
                 *self.status.lock().await = ConnectionStatus::Connected(ip_addr.clone());
                 return Ok(ip_addr);
             }
@@ -462,18 +471,23 @@ impl NetworkService {
             // 每2秒尝试使用 CLI 工具查询虚拟IP
             if last_check_time.elapsed() > Duration::from_secs(2) && cli_check_count < 30 {
                 cli_check_count += 1;
-                log::info!("尝试使用 CLI 工具查询虚拟IP（第{}次）...", cli_check_count);
+                log::info!("🔍 尝试使用 CLI 工具查询虚拟IP（第{}次）...", cli_check_count);
                 
                 // 获取保存的RPC端口
                 if let Some(saved_rpc_port) = *self.rpc_port.lock().await {
-                    if let Ok(found_ip) = self.query_virtual_ip_from_cli(&instance_name, saved_rpc_port).await {
-                        log::info!("从 CLI 工具获取到虚拟IP: {}", found_ip);
-                        *self.virtual_ip.lock().await = Some(found_ip.clone());
-                        *self.status.lock().await = ConnectionStatus::Connected(found_ip.clone());
-                        return Ok(found_ip);
+                    match self.query_virtual_ip_from_cli(&instance_name, saved_rpc_port).await {
+                        Ok(found_ip) => {
+                            log::info!("✅ 从 CLI 工具获取到虚拟IP: {}", found_ip);
+                            *self.virtual_ip.lock().await = Some(found_ip.clone());
+                            *self.status.lock().await = ConnectionStatus::Connected(found_ip.clone());
+                            return Ok(found_ip);
+                        }
+                        Err(e) => {
+                            log::debug!("CLI查询失败（第{}次）: {}", cli_check_count, e);
+                        }
                     }
                 } else {
-                    log::warn!("RPC端口未初始化，跳过CLI查询");
+                    log::warn!("⚠️ RPC端口未初始化，跳过CLI查询");
                 }
                 
                 last_check_time = std::time::Instant::now();
@@ -482,6 +496,7 @@ impl NetworkService {
             // 检查进程是否崩溃
             let is_running = *self.is_running.lock().await;
             if !is_running {
+                log::error!("❌ EasyTier 进程意外终止");
                 // 检查是否有错误状态
                 let status = self.status.lock().await.clone();
                 if let ConnectionStatus::Error(err_msg) = status {

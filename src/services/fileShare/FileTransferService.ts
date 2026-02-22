@@ -242,10 +242,6 @@ class FileTransferService {
     console.warn('handleTransferError方法已废弃');
   }
 
-  onDataChannelReady(_peerId: string, _channel: any): void {
-    console.warn('onDataChannelReady方法已废弃');
-  }
-
   handleDataChannelMessage(_peerId: string, _data: any): void {
     console.warn('handleDataChannelMessage方法已废弃');
   }

@@ -502,40 +502,65 @@ export const FileShareManagerNew: React.FC = () => {
     // 检查是否启用了"先压后发"
     if (selectedShare.share.compress_before_send && selectedFileList.length > 1) {
       try {
-        message.loading('正在打包文件...', 0);
+        // 创建一个下载任务用于显示进度
+        const taskId = `batch_download_${Date.now()}`;
+        const newTask: DownloadTask = {
+          id: taskId,
+          fileName: `batch_download_${Date.now()}.zip`,
+          fileSize: 0, // 未知大小
+          downloaded: 0,
+          status: 'downloading',
+          url: '',
+          savePath: `${saveDir}/batch_download_${Date.now()}.zip`
+        };
         
-        // 直接调用HTTP API打包文件
-        const url = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/batch-download`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            file_paths: selectedFileList.map(f => f.path)
-          })
-        });
+        setDownloads(prev => [...prev, newTask]);
+        message.info('正在打包文件，请稍候...');
         
-        message.destroy();
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        // 获取ZIP文件
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        
-        const zipPath = `${saveDir}/batch_download_${Date.now()}.zip`;
-        await invoke('save_file', {
-          path: zipPath,
-          data: Array.from(uint8Array)
-        });
-        
-        message.success('压缩包下载完成');
+        // 异步下载，不阻塞UI
+        (async () => {
+          try {
+            // 直接调用HTTP API打包文件
+            const url = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/batch-download`;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                file_paths: selectedFileList.map(f => f.path)
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            
+            // 获取ZIP文件
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            
+            await invoke('save_file', {
+              path: newTask.savePath,
+              data: Array.from(uint8Array)
+            });
+            
+            // 更新任务状态为完成
+            setDownloads(prev => prev.map(task =>
+              task.id === taskId ? { ...task, status: 'completed' as const, downloaded: uint8Array.length, fileSize: uint8Array.length } : task
+            ));
+            
+            message.success('压缩包下载完成');
+          } catch (error) {
+            // 更新任务状态为失败
+            setDownloads(prev => prev.map(task =>
+              task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
+            ));
+            message.error(`打包失败: ${error}`);
+          }
+        })();
       } catch (error) {
-        message.destroy();
         message.error(`打包失败: ${error}`);
       }
     } else {
