@@ -198,7 +198,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '1.2.0',
+              clientVersion: '1.3.0',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
