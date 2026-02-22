@@ -70,8 +70,8 @@ pub async fn create_lobby(
                 log::info!("大厅JSON: {}", json);
             }
             
-            // 获取虚拟IP（虽然不再使用，但保留用于日志）
-            let _virtual_ip = lobby.virtual_ip.clone();
+            // 获取虚拟IP
+            let virtual_ip = lobby.virtual_ip.clone();
             drop(lobby_mgr);
             drop(network_svc);
             
@@ -80,6 +80,22 @@ pub async fn create_lobby(
             // 不再启动本地 WebSocket 信令服务器
             // 所有客户端都连接到公网信令服务器 (ws://24.233.29.43:8445)
             log::info!("客户端将连接到公网信令服务器: ws://24.233.29.43:8445");
+            
+            // 启动HTTP文件服务器
+            log::info!("正在启动HTTP文件服务器...");
+            let file_transfer = core.get_file_transfer();
+            let ft_service = file_transfer.lock().await;
+            ft_service.set_virtual_ip(virtual_ip.clone());
+            match ft_service.start_server().await {
+                Ok(_) => {
+                    log::info!("✅ HTTP文件服务器启动成功");
+                }
+                Err(e) => {
+                    log::error!("❌ HTTP文件服务器启动失败: {}", e);
+                    // 文件服务器启动失败不应该阻止创建大厅
+                }
+            }
+            drop(ft_service);
             
             // 更新应用状态为在大厅中
             core.set_state(CoreAppState::InLobby).await;
@@ -155,7 +171,7 @@ pub async fn join_lobby(
             }
             drop(voice_svc);
             
-            // 获取虚拟IP（用于P2P信令服务）
+            // 获取虚拟IP（用于P2P信令服务和HTTP文件服务器）
             let virtual_ip = lobby.virtual_ip.clone();
             drop(lobby_mgr);
             drop(network_svc);
@@ -169,7 +185,7 @@ pub async fn join_lobby(
             // 启动P2P信令服务
             log::info!("正在启动P2P信令服务（加入大厅）...");
             let p2p_svc = p2p_signaling.lock().await;
-            match p2p_svc.start(player_id, player_name, virtual_ip).await {
+            match p2p_svc.start(player_id, player_name, virtual_ip.clone()).await {
                 Ok(_) => {
                     log::info!("✅ P2P信令服务启动成功（加入大厅）");
                 }
@@ -182,6 +198,22 @@ pub async fn join_lobby(
                 }
             }
             drop(p2p_svc);
+            
+            // 启动HTTP文件服务器
+            log::info!("正在启动HTTP文件服务器...");
+            let file_transfer = core.get_file_transfer();
+            let ft_service = file_transfer.lock().await;
+            ft_service.set_virtual_ip(virtual_ip.clone());
+            match ft_service.start_server().await {
+                Ok(_) => {
+                    log::info!("✅ HTTP文件服务器启动成功");
+                }
+                Err(e) => {
+                    log::error!("❌ HTTP文件服务器启动失败: {}", e);
+                    // 文件服务器启动失败不应该阻止加入大厅
+                }
+            }
+            drop(ft_service);
             
             // 更新应用状态为在大厅中
             core.set_state(CoreAppState::InLobby).await;
@@ -215,6 +247,12 @@ pub async fn leave_lobby(state: State<'_, AppState>) -> Result<(), String> {
     let network_service = core.get_network_service();
     let voice_service = core.get_voice_service();
     let p2p_signaling = core.get_p2p_signaling();
+    let file_transfer = core.get_file_transfer();
+    
+    // 停止HTTP文件服务器
+    let ft_service = file_transfer.lock().await;
+    ft_service.stop_server().await;
+    drop(ft_service);
     
     // 停止P2P信令服务
     let p2p_svc = p2p_signaling.lock().await;
