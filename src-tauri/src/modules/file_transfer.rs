@@ -116,6 +116,31 @@ impl FileTransferService {
             }
         };
 
+        log::info!("🔍 检查虚拟IP是否就绪: {}", virtual_ip);
+        
+        // 等待虚拟IP就绪（最多等待10秒）
+        let mut attempts = 0;
+        let max_attempts = 20; // 20次 * 500ms = 10秒
+        loop {
+            // 尝试绑定到虚拟IP的一个临时端口，测试IP是否可用
+            match tokio::net::TcpListener::bind(format!("{}:0", virtual_ip)).await {
+                Ok(test_listener) => {
+                    drop(test_listener);
+                    log::info!("✅ 虚拟IP已就绪");
+                    break;
+                }
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= max_attempts {
+                        log::error!("❌ 虚拟IP未就绪，超时: {}", e);
+                        return Err(format!("虚拟IP未就绪: {}", e).into());
+                    }
+                    log::warn!("⏳ 虚拟IP尚未就绪，等待中... ({}/{})", attempts, max_attempts);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+
         let addr: SocketAddr = format!("{}:{}", virtual_ip, FILE_SERVER_PORT)
             .parse()
             .map_err(|e| {
@@ -167,6 +192,10 @@ impl FileTransferService {
 
         log::info!("✅ HTTP文件服务器启动成功！");
         log::info!("📡 其他玩家可以通过 http://{}:{} 访问您的共享", virtual_ip, FILE_SERVER_PORT);
+        
+        // 等待一小段时间，确保服务器完全启动
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        log::info!("🎉 HTTP文件服务器已完全就绪");
 
         Ok(())
     }
