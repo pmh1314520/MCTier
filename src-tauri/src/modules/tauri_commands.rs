@@ -1634,3 +1634,243 @@ pub async fn open_file_location(path: String) -> Result<(), String> {
 
 // 注意：由于Rust文件传输模块的复杂性，暂时保留JavaScript实现
 // 未来可以考虑完全迁移到Rust后端以获得更好的性能
+
+// ==================== HTTP 文件共享命令 ====================
+
+use crate::modules::file_transfer::{SharedFolder, FileInfo as FileTransferFileInfo};
+
+/// 启动HTTP文件服务器
+#[tauri::command]
+pub async fn start_file_server(
+    virtual_ip: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("启动HTTP文件服务器: {}", virtual_ip);
+    
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    // 设置虚拟IP
+    ft_service.set_virtual_ip(virtual_ip);
+    
+    // 启动服务器
+    match ft_service.start_server().await {
+        Ok(_) => {
+            log::info!("✅ HTTP文件服务器启动成功");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("❌ HTTP文件服务器启动失败: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// 停止HTTP文件服务器
+#[tauri::command]
+pub async fn stop_file_server(state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("停止HTTP文件服务器");
+    
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    ft_service.stop_server().await;
+    log::info!("✅ HTTP文件服务器已停止");
+    Ok(())
+}
+
+/// 添加共享文件夹
+#[tauri::command]
+pub async fn add_shared_folder(
+    share: SharedFolder,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("添加共享文件夹: {} ({})", share.name, share.id);
+    
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    ft_service.add_share(share)
+}
+
+/// 删除共享文件夹
+#[tauri::command]
+pub async fn remove_shared_folder(
+    share_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("删除共享文件夹: {}", share_id);
+    
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    ft_service.remove_share(&share_id)
+}
+
+/// 获取本地共享列表
+#[tauri::command]
+pub async fn get_local_shares(state: State<'_, AppState>) -> Result<Vec<SharedFolder>, String> {
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    Ok(ft_service.get_shares())
+}
+
+/// 清理过期共享
+#[tauri::command]
+pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("清理过期共享");
+    
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    
+    ft_service.cleanup_expired_shares();
+    Ok(())
+}
+
+/// 获取远程共享列表（通过HTTP API）
+#[tauri::command]
+pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, String> {
+    log::info!("获取远程共享列表: {}", peer_ip);
+    
+    let url = format!("http://{}:18888/api/shares", peer_ip);
+    
+    match reqwest::get(&url).await {
+        Ok(response) => {
+            match response.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if let Some(shares) = json.get("shares") {
+                        match serde_json::from_value::<Vec<SharedFolder>>(shares.clone()) {
+                            Ok(shares_vec) => {
+                                log::info!("✅ 获取到 {} 个共享", shares_vec.len());
+                                Ok(shares_vec)
+                            }
+                            Err(e) => {
+                                log::error!("❌ 解析共享列表失败: {}", e);
+                                Err(format!("解析共享列表失败: {}", e))
+                            }
+                        }
+                    } else {
+                        Ok(Vec::new())
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ 解析响应失败: {}", e);
+                    Err(format!("解析响应失败: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("❌ 请求失败: {}", e);
+            Err(format!("请求失败: {}", e))
+        }
+    }
+}
+
+/// 获取远程文件列表
+#[tauri::command]
+pub async fn get_remote_files(
+    peer_ip: String,
+    share_id: String,
+    path: Option<String>,
+) -> Result<Vec<FileTransferFileInfo>, String> {
+    log::info!("获取远程文件列表: {} / {} / {:?}", peer_ip, share_id, path);
+    
+    let mut url = format!("http://{}:18888/api/shares/{}/files", peer_ip, share_id);
+    if let Some(p) = path {
+        url = format!("{}?path={}", url, urlencoding::encode(&p));
+    }
+    
+    match reqwest::get(&url).await {
+        Ok(response) => {
+            match response.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if let Some(files) = json.get("files") {
+                        match serde_json::from_value::<Vec<FileTransferFileInfo>>(files.clone()) {
+                            Ok(files_vec) => {
+                                log::info!("✅ 获取到 {} 个文件", files_vec.len());
+                                Ok(files_vec)
+                            }
+                            Err(e) => {
+                                log::error!("❌ 解析文件列表失败: {}", e);
+                                Err(format!("解析文件列表失败: {}", e))
+                            }
+                        }
+                    } else {
+                        Ok(Vec::new())
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ 解析响应失败: {}", e);
+                    Err(format!("解析响应失败: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("❌ 请求失败: {}", e);
+            Err(format!("请求失败: {}", e))
+        }
+    }
+}
+
+/// 验证共享密码
+#[tauri::command]
+pub async fn verify_share_password(
+    peer_ip: String,
+    share_id: String,
+    password: String,
+) -> Result<bool, String> {
+    log::info!("验证共享密码: {} / {}", peer_ip, share_id);
+    
+    let url = format!("http://{}:18888/api/shares/{}/verify", peer_ip, share_id);
+    let client = reqwest::Client::new();
+    
+    let body = serde_json::json!({
+        "password": password
+    });
+    
+    match client.post(&url).json(&body).send().await {
+        Ok(response) => {
+            match response.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if let Some(success) = json.get("success").and_then(|v| v.as_bool()) {
+                        log::info!("✅ 密码验证结果: {}", success);
+                        Ok(success)
+                    } else {
+                        Err("无效的响应格式".to_string())
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ 解析响应失败: {}", e);
+                    Err(format!("解析响应失败: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("❌ 请求失败: {}", e);
+            Err(format!("请求失败: {}", e))
+        }
+    }
+}
+
+/// 获取文件下载URL
+#[tauri::command]
+pub async fn get_download_url(
+    peer_ip: String,
+    share_id: String,
+    file_path: String,
+) -> Result<String, String> {
+    let url = format!(
+        "http://{}:18888/api/shares/{}/download/{}",
+        peer_ip,
+        share_id,
+        urlencoding::encode(&file_path)
+    );
+    Ok(url)
+}

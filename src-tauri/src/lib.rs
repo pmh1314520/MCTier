@@ -52,7 +52,7 @@ use modules::tauri_commands::{
     // Magic DNS 命令
     add_player_domain,
     remove_player_domain,
-    // 文件共享命令
+    // 文件共享命令（旧）
     get_folder_name,
     get_folder_info,
     list_directory_files,
@@ -61,6 +61,17 @@ use modules::tauri_commands::{
     select_folder,
     select_save_location,
     open_file_location,
+    // HTTP 文件共享命令（新）
+    start_file_server,
+    stop_file_server,
+    add_shared_folder,
+    remove_shared_folder,
+    get_local_shares,
+    cleanup_expired_shares,
+    get_remote_shares,
+    get_remote_files,
+    verify_share_password,
+    get_download_url,
 };
 
 // 测试命令
@@ -172,7 +183,7 @@ pub fn run() {
             // Magic DNS 命令
             add_player_domain,
             remove_player_domain,
-            // 文件共享命令
+            // 文件共享命令（旧）
             get_folder_name,
             get_folder_info,
             list_directory_files,
@@ -181,6 +192,17 @@ pub fn run() {
             select_folder,
             select_save_location,
             open_file_location,
+            // HTTP 文件共享命令（新）
+            start_file_server,
+            stop_file_server,
+            add_shared_folder,
+            remove_shared_folder,
+            get_local_shares,
+            cleanup_expired_shares,
+            get_remote_shares,
+            get_remote_files,
+            verify_share_password,
+            get_download_url,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

@@ -11,6 +11,7 @@ use super::network_service::{NetworkService, NetworkConfig};
 use super::voice_service::VoiceService;
 use super::p2p_signaling::P2PSignalingService;
 use super::websocket_signaling::WebSocketSignalingServer;
+use super::file_transfer::FileTransferService;
 use super::error::AppError;
 
 /// 应用程序状态枚举
@@ -40,6 +41,8 @@ pub struct AppCore {
     p2p_signaling: Arc<Mutex<P2PSignalingService>>,
     /// WebSocket信令服务器（创建大厅时使用）
     websocket_signaling: Arc<Mutex<Option<WebSocketSignalingServer>>>,
+    /// 文件传输服务
+    file_transfer: Arc<Mutex<FileTransferService>>,
     /// 配置管理器
     config_manager: Arc<Mutex<ConfigManager>>,
     /// 应用程序状态
@@ -104,6 +107,10 @@ impl AppCore {
         let websocket_signaling = Arc::new(Mutex::new(None));
         info!("WebSocket信令服务器已准备");
 
+        // 初始化文件传输服务
+        let file_transfer = Arc::new(Mutex::new(FileTransferService::new()));
+        info!("文件传输服务初始化成功");
+
         // 初始化应用状态
         let state = Arc::new(Mutex::new(AppState::Idle));
 
@@ -115,6 +122,7 @@ impl AppCore {
             voice_service,
             p2p_signaling,
             websocket_signaling,
+            file_transfer,
             config_manager,
             state,
         })
@@ -283,6 +291,11 @@ impl AppCore {
     /// 获取P2P信令服务的引用
     pub fn get_p2p_signaling(&self) -> Arc<Mutex<P2PSignalingService>> {
         Arc::clone(&self.p2p_signaling)
+    }
+
+    /// 获取文件传输服务的引用
+    pub fn get_file_transfer(&self) -> Arc<Mutex<FileTransferService>> {
+        Arc::clone(&self.file_transfer)
     }
 
     /// 启动WebSocket信令服务器（创建大厅时调用）

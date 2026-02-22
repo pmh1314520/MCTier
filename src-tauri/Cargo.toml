@@ -36,12 +36,18 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.8"
-reqwest = { version = "0.11", features = ["blocking"] }
+reqwest = { version = "0.11", features = ["blocking", "stream", "json"] }
 rfd = "0.15"
+urlencoding = "2.1"
 # 高性能文件传输
 bytes = "1"
 dashmap = "6"
 parking_lot = "0.12"
+# HTTP 文件服务器
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+async-stream = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
@@ -55,4 +61,3 @@ windows = { version = "0.58", features = [
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
-

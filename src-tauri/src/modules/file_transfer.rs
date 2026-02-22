@@ -1,401 +1,483 @@
 /**
- * 高性能 P2P 文件传输模块
- * 使用 Rust 原生多线程和零拷贝 I/O 实现超高速文件传输
+ * HTTP 文件共享服务模块
+ * 基于 WireGuard 虚拟网络的高性能文件传输
+ * 使用标准 HTTP 协议，支持断点续传和多线程下载
  */
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::{
+    body::Body,
+    extract::{Path as AxumPath, Query, State},
+    http::{header, HeaderMap, StatusCode},
+    response::Response,
+    routing::{get, post},
+    Json, Router,
+};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tower_http::cors::CorsLayer;
 
-const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MB
-const MAX_CONCURRENT_TRANSFERS: usize = 10;
-const TRANSFER_TIMEOUT: Duration = Duration::from_secs(300); // 5分钟超时
+const FILE_SERVER_PORT: u16 = 18888; // 固定端口，方便其他节点访问
+const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
 
+/// 共享文件夹信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferRequest {
-    pub request_id: String,
-    pub share_id: String,
-    pub file_path: String,
-    pub file_name: String,
-    pub file_size: u64,
-    pub range_start: Option<u64>,
-    pub range_end: Option<u64>,
-    pub thread_id: Option<u32>,
+pub struct SharedFolder {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub password: Option<String>,
+    pub expire_time: Option<u64>, // Unix timestamp
+    pub owner_id: String,
+    pub created_at: u64,
 }
 
+/// 文件信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferProgress {
-    pub request_id: String,
-    pub file_name: String,
-    pub total_size: u64,
-    pub transferred_size: u64,
-    pub progress: f64,
-    pub speed: f64, // bytes per second
-    pub status: String,
+pub struct FileInfo {
+    pub name: String,
+    pub path: String, // 相对于共享文件夹的路径
+    pub size: u64,
+    pub is_dir: bool,
+    pub modified: u64,
 }
 
-#[derive(Debug)]
-struct ActiveTransfer {
-    request_id: String,
-    file_path: PathBuf,
-    total_size: u64,
-    transferred_size: Arc<RwLock<u64>>,
-    start_time: Instant,
-    last_update: Arc<RwLock<Instant>>,
+/// 共享列表响应
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ShareListResponse {
+    pub shares: Vec<SharedFolder>,
 }
 
+/// 文件列表响应
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileListResponse {
+    pub files: Vec<FileInfo>,
+    pub current_path: String,
+}
+
+/// 验证密码请求
+#[derive(Debug, Deserialize)]
+pub struct VerifyPasswordRequest {
+    pub password: String,
+}
+
+/// 验证密码响应
+#[derive(Debug, Serialize)]
+pub struct VerifyPasswordResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// 文件传输服务状态
 pub struct FileTransferService {
-    active_transfers: Arc<DashMap<String, ActiveTransfer>>,
-    listener: Option<Arc<TcpListener>>,
-    local_port: u16,
-    progress_tx: mpsc::UnboundedSender<TransferProgress>,
+    /// 本地共享的文件夹
+    shared_folders: Arc<DashMap<String, SharedFolder>>,
+    /// 虚拟IP地址
+    virtual_ip: Arc<RwLock<Option<String>>>,
+    /// 服务器句柄
+    server_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl FileTransferService {
-    pub async fn new(progress_tx: mpsc::UnboundedSender<TransferProgress>) -> Result<Self, Box<dyn std::error::Error>> {
-        // 绑定到随机端口
-        let listener = TcpListener::bind("0.0.0.0:0").await?;
-        let local_port = listener.local_addr()?.port();
-        
-        log::info!("📡 文件传输服务启动，监听端口: {}", local_port);
-        
-        Ok(Self {
-            active_transfers: Arc::new(DashMap::new()),
-            listener: Some(Arc::new(listener)),
-            local_port,
-            progress_tx,
-        })
-    }
-    
-    pub fn get_local_port(&self) -> u16 {
-        self.local_port
-    }
-    
-    /// 启动文件传输服务器
-    pub async fn start_server(&self) {
-        let listener = self.listener.as_ref().unwrap().clone();
-        let active_transfers = self.active_transfers.clone();
-        let progress_tx = self.progress_tx.clone();
-        
-        tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, addr)) => {
-                        log::info!("📥 接受连接: {}", addr);
-                        let transfers = active_transfers.clone();
-                        let tx = progress_tx.clone();
-                        
-                        tokio::spawn(async move {
-                            if let Err(e) = Self::handle_connection(stream, transfers, tx).await {
-                                log::error!("❌ 处理连接失败: {}", e);
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        log::error!("❌ 接受连接失败: {}", e);
-                    }
-                }
-            }
-        });
-    }
-    
-    /// 处理传入连接
-    async fn handle_connection(
-        mut stream: TcpStream,
-        _active_transfers: Arc<DashMap<String, ActiveTransfer>>,
-        progress_tx: mpsc::UnboundedSender<TransferProgress>,
-    ) -> Result<(), String> {
-        // 读取请求头（JSON格式）
-        let mut len_buf = [0u8; 4];
-        stream.read_exact(&mut len_buf).await.map_err(|e| e.to_string())?;
-        let json_len = u32::from_le_bytes(len_buf) as usize;
-        
-        let mut json_buf = vec![0u8; json_len];
-        stream.read_exact(&mut json_buf).await.map_err(|e| e.to_string())?;
-        
-        let request: TransferRequest = serde_json::from_slice(&json_buf).map_err(|e| e.to_string())?;
-        log::info!("📥 收到传输请求: {} ({})", request.file_name, request.request_id);
-        
-        // 打开文件
-        let mut file = File::open(&request.file_path).await.map_err(|e| e.to_string())?;
-        
-        // 如果是范围请求，seek到指定位置
-        if let (Some(start), Some(end)) = (request.range_start, request.range_end) {
-            use tokio::io::AsyncSeekExt;
-            file.seek(std::io::SeekFrom::Start(start)).await.map_err(|e| e.to_string())?;
-            
-            let range_size = end - start;
-            log::info!("📦 范围传输: {}-{} ({} bytes)", start, end, range_size);
-            
-            // 发送范围数据
-            Self::send_file_range(&mut stream, &mut file, range_size, &request, &progress_tx).await?;
-        } else {
-            // 发送整个文件
-            Self::send_file_full(&mut stream, &mut file, request.file_size, &request, &progress_tx).await?;
+    pub fn new() -> Self {
+        Self {
+            shared_folders: Arc::new(DashMap::new()),
+            virtual_ip: Arc::new(RwLock::new(None)),
+            server_handle: Arc::new(RwLock::new(None)),
         }
-        
-        log::info!("✅ 文件传输完成: {}", request.file_name);
-        Ok(())
     }
-    
-    /// 发送文件范围
-    async fn send_file_range(
-        stream: &mut TcpStream,
-        file: &mut File,
-        size: u64,
-        request: &TransferRequest,
-        progress_tx: &mpsc::UnboundedSender<TransferProgress>,
-    ) -> Result<(), String> {
-        let mut buffer = vec![0u8; CHUNK_SIZE];
-        let mut sent = 0u64;
-        let start_time = Instant::now();
-        let mut last_progress_time = Instant::now();
-        
-        while sent < size {
-            let to_read = std::cmp::min(CHUNK_SIZE, (size - sent) as usize);
-            let n = file.read(&mut buffer[..to_read]).await.map_err(|e| e.to_string())?;
-            
-            if n == 0 {
-                break;
+
+    /// 设置虚拟IP地址
+    pub fn set_virtual_ip(&self, ip: String) {
+        log::info!("📡 设置虚拟IP: {}", ip);
+        *self.virtual_ip.write() = Some(ip);
+    }
+
+    /// 获取虚拟IP地址
+    pub fn get_virtual_ip(&self) -> Option<String> {
+        self.virtual_ip.read().clone()
+    }
+
+    /// 启动HTTP文件服务器
+    pub async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let virtual_ip = match self.get_virtual_ip() {
+            Some(ip) => ip,
+            None => {
+                return Err("虚拟IP未设置".into());
             }
-            
-            stream.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
-            sent += n as u64;
-            
-            // 每100ms更新一次进度
-            if last_progress_time.elapsed() >= Duration::from_millis(100) {
-                let elapsed = start_time.elapsed().as_secs_f64();
-                let speed = if elapsed > 0.0 { sent as f64 / elapsed } else { 0.0 };
-                
-                let _ = progress_tx.send(TransferProgress {
-                    request_id: request.request_id.clone(),
-                    file_name: request.file_name.clone(),
-                    total_size: size,
-                    transferred_size: sent,
-                    progress: (sent as f64 / size as f64) * 100.0,
-                    speed,
-                    status: "transferring".to_string(),
-                });
-                
-                last_progress_time = Instant::now();
-            }
-        }
-        
-        Ok(())
-    }
-    
-    /// 发送完整文件
-    async fn send_file_full(
-        stream: &mut TcpStream,
-        file: &mut File,
-        size: u64,
-        request: &TransferRequest,
-        progress_tx: &mpsc::UnboundedSender<TransferProgress>,
-    ) -> Result<(), String> {
-        Self::send_file_range(stream, file, size, request, progress_tx).await
-    }
-    
-    /// 请求下载文件（多线程）
-    pub async fn request_download(
-        &self,
-        peer_ip: String,
-        peer_port: u16,
-        request: TransferRequest,
-        save_path: PathBuf,
-        thread_count: usize,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let request_id = request.request_id.clone();
-        let file_size = request.file_size;
-        
-        log::info!("📥 开始多线程下载: {} ({} 线程)", request.file_name, thread_count);
-        
-        // 创建传输记录
-        let transfer = ActiveTransfer {
-            request_id: request_id.clone(),
-            file_path: save_path.clone(),
-            total_size: file_size,
-            transferred_size: Arc::new(RwLock::new(0)),
-            start_time: Instant::now(),
-            last_update: Arc::new(RwLock::new(Instant::now())),
         };
-        
-        self.active_transfers.insert(request_id.clone(), transfer);
-        
-        // 创建临时文件
-        let temp_file = File::create(&save_path).await?;
-        temp_file.set_len(file_size).await?; // 预分配空间
-        drop(temp_file);
-        
-        // 启动多线程下载
-        let peer_addr = format!("{}:{}", peer_ip, peer_port);
-        let active_transfers = self.active_transfers.clone();
-        let progress_tx = self.progress_tx.clone();
-        
-        tokio::spawn(async move {
-            if let Err(e) = Self::download_multi_thread(
-                peer_addr,
-                request,
-                save_path,
-                thread_count,
-                active_transfers,
-                progress_tx,
-            ).await {
-                log::error!("❌ 多线程下载失败: {}", e);
-            }
-        });
-        
-        Ok(request_id)
-    }
-    
-    /// 多线程下载实现
-    async fn download_multi_thread(
-        peer_addr: String,
-        request: TransferRequest,
-        save_path: PathBuf,
-        thread_count: usize,
-        active_transfers: Arc<DashMap<String, ActiveTransfer>>,
-        progress_tx: mpsc::UnboundedSender<TransferProgress>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let file_size = request.file_size;
-        let chunk_size = file_size / thread_count as u64;
-        
-        let mut handles = vec![];
-        
-        for thread_id in 0..thread_count {
-            let start = thread_id as u64 * chunk_size;
-            let end = if thread_id == thread_count - 1 {
-                file_size
-            } else {
-                start + chunk_size
-            };
-            
-            let mut thread_request = request.clone();
-            thread_request.range_start = Some(start);
-            thread_request.range_end = Some(end);
-            thread_request.thread_id = Some(thread_id as u32);
-            
-            let addr = peer_addr.clone();
-            let path = save_path.clone();
-            let transfers = active_transfers.clone();
-            let tx = progress_tx.clone();
-            
-            let handle = tokio::spawn(async move {
-                match Self::download_range(addr, thread_request, path, start, transfers, tx).await {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(e.to_string()),
-                }
+
+        let addr: SocketAddr = format!("{}:{}", virtual_ip, FILE_SERVER_PORT)
+            .parse()
+            .map_err(|e| format!("无效的地址: {}", e))?;
+
+        let shared_folders = self.shared_folders.clone();
+
+        // 创建路由
+        let app = Router::new()
+            .route("/api/shares", get(list_shares))
+            .route("/api/shares/:share_id/files", get(list_files))
+            .route("/api/shares/:share_id/verify", post(verify_password))
+            .route("/api/shares/:share_id/download/*file_path", get(download_file))
+            .layer(CorsLayer::permissive())
+            .with_state(AppState {
+                shared_folders: shared_folders.clone(),
             });
-            
-            handles.push(handle);
-        }
-        
-        // 等待所有线程完成
-        for handle in handles {
-            match handle.await {
-                Ok(Ok(_)) => {},
-                Ok(Err(e)) => return Err(e.into()),
-                Err(e) => return Err(e.to_string().into()),
+
+        log::info!("🚀 启动HTTP文件服务器: http://{}", addr);
+
+        // 启动服务器
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        let server_task = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                log::error!("❌ HTTP服务器错误: {}", e);
             }
-        }
-        
-        // 发送完成通知
-        let _ = progress_tx.send(TransferProgress {
-            request_id: request.request_id.clone(),
-            file_name: request.file_name.clone(),
-            total_size: file_size,
-            transferred_size: file_size,
-            progress: 100.0,
-            speed: 0.0,
-            status: "completed".to_string(),
         });
-        
-        log::info!("✅ 多线程下载完成: {}", request.file_name);
+
+        *self.server_handle.write() = Some(server_task);
+
         Ok(())
     }
-    
-    /// 下载文件范围
-    async fn download_range(
-        peer_addr: String,
-        request: TransferRequest,
-        save_path: PathBuf,
-        offset: u64,
-        active_transfers: Arc<DashMap<String, ActiveTransfer>>,
-        progress_tx: mpsc::UnboundedSender<TransferProgress>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // 连接到对端
-        let mut stream = timeout(Duration::from_secs(10), TcpStream::connect(&peer_addr)).await??;
-        
-        // 发送请求
-        let json = serde_json::to_vec(&request)?;
-        let len = (json.len() as u32).to_le_bytes();
-        stream.write_all(&len).await?;
-        stream.write_all(&json).await?;
-        
-        // 接收数据
-        let range_size = request.range_end.unwrap() - request.range_start.unwrap();
+
+    /// 停止HTTP文件服务器
+    pub async fn stop_server(&self) {
+        if let Some(handle) = self.server_handle.write().take() {
+            handle.abort();
+            log::info!("🛑 HTTP文件服务器已停止");
+        }
+    }
+
+    /// 添加共享文件夹
+    pub fn add_share(&self, share: SharedFolder) -> Result<(), String> {
+        // 检查路径是否存在
+        if !Path::new(&share.path).exists() {
+            return Err("文件夹不存在".to_string());
+        }
+
+        self.shared_folders.insert(share.id.clone(), share.clone());
+        log::info!("📁 添加共享: {} ({})", share.name, share.id);
+        Ok(())
+    }
+
+    /// 删除共享文件夹
+    pub fn remove_share(&self, share_id: &str) -> Result<(), String> {
+        self.shared_folders
+            .remove(share_id)
+            .ok_or_else(|| "共享不存在".to_string())?;
+        log::info!("🗑️ 删除共享: {}", share_id);
+        Ok(())
+    }
+
+    /// 获取所有共享
+    pub fn get_shares(&self) -> Vec<SharedFolder> {
+        self.shared_folders
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    /// 清理过期共享
+    pub fn cleanup_expired_shares(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let expired: Vec<String> = self
+            .shared_folders
+            .iter()
+            .filter(|entry| {
+                if let Some(expire_time) = entry.value().expire_time {
+                    expire_time < now
+                } else {
+                    false
+                }
+            })
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for share_id in expired {
+            self.shared_folders.remove(&share_id);
+            log::info!("⏰ 清理过期共享: {}", share_id);
+        }
+    }
+}
+
+/// Axum 应用状态
+#[derive(Clone)]
+struct AppState {
+    shared_folders: Arc<DashMap<String, SharedFolder>>,
+}
+
+/// 获取共享列表
+async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
+    let shares: Vec<SharedFolder> = state
+        .shared_folders
+        .iter()
+        .map(|entry| entry.value().clone())
+        .collect();
+
+    Json(ShareListResponse { shares })
+}
+
+/// 获取文件列表
+async fn list_files(
+    State(state): State<AppState>,
+    AxumPath(share_id): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<FileListResponse>, StatusCode> {
+    // 获取共享信息
+    let share = state
+        .shared_folders
+        .get(&share_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let base_path = PathBuf::from(&share.path);
+    let sub_path = params.get("path").map(|s| s.as_str()).unwrap_or("");
+    let full_path = base_path.join(sub_path);
+
+    // 安全检查：确保路径在共享目录内
+    if !full_path.starts_with(&base_path) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // 读取目录
+    let mut files = Vec::new();
+    let mut entries = tokio::fs::read_dir(&full_path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        let metadata = entry
+            .metadata()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let relative_path = if sub_path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", sub_path, name)
+        };
+
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        files.push(FileInfo {
+            name,
+            path: relative_path,
+            size: metadata.len(),
+            is_dir: metadata.is_dir(),
+            modified,
+        });
+    }
+
+    // 按名称排序，文件夹在前
+    files.sort_by(|a, b| {
+        if a.is_dir == b.is_dir {
+            a.name.cmp(&b.name)
+        } else if a.is_dir {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+
+    Ok(Json(FileListResponse {
+        files,
+        current_path: sub_path.to_string(),
+    }))
+}
+
+/// 验证密码
+async fn verify_password(
+    State(state): State<AppState>,
+    AxumPath(share_id): AxumPath<String>,
+    Json(req): Json<VerifyPasswordRequest>,
+) -> Json<VerifyPasswordResponse> {
+    let share = match state.shared_folders.get(&share_id) {
+        Some(s) => s,
+        None => {
+            return Json(VerifyPasswordResponse {
+                success: false,
+                message: "共享不存在".to_string(),
+            });
+        }
+    };
+
+    let success = match &share.password {
+        Some(pwd) => pwd == &req.password,
+        None => true, // 无密码保护
+    };
+
+    Json(VerifyPasswordResponse {
+        success,
+        message: if success {
+            "验证成功".to_string()
+        } else {
+            "密码错误".to_string()
+        },
+    })
+}
+
+/// 下载文件（支持Range请求）
+async fn download_file(
+    State(state): State<AppState>,
+    AxumPath((share_id, file_path)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    // 获取共享信息
+    let share = state
+        .shared_folders
+        .get(&share_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let base_path = PathBuf::from(&share.path);
+    let full_path = base_path.join(&file_path);
+
+    // 安全检查
+    if !full_path.starts_with(&base_path) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !full_path.exists() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // 获取文件元数据
+    let metadata = tokio::fs::metadata(&full_path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if metadata.is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let file_size = metadata.len();
+
+    // 解析Range头
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_range);
+
+    match range {
+        Some((start, end)) => {
+            // 范围请求
+            let end = end.min(file_size - 1);
+            let length = end - start + 1;
+
+            let mut file = File::open(&full_path)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            file.seek(std::io::SeekFrom::Start(start))
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let stream = create_file_stream(file, length);
+
+            Response::builder()
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .header(header::CONTENT_LENGTH, length)
+                .header(
+                    header::CONTENT_RANGE,
+                    format!("bytes {}-{}/{}", start, end, file_size),
+                )
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!(
+                        "attachment; filename=\"{}\"",
+                        full_path.file_name().unwrap().to_string_lossy()
+                    ),
+                )
+                .body(Body::from_stream(stream))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
+        None => {
+            // 完整文件请求
+            let file = File::open(&full_path)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let stream = create_file_stream(file, file_size);
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .header(header::CONTENT_LENGTH, file_size)
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!(
+                        "attachment; filename=\"{}\"",
+                        full_path.file_name().unwrap().to_string_lossy()
+                    ),
+                )
+                .body(Body::from_stream(stream))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// 解析Range头
+fn parse_range(range_str: &str) -> Option<(u64, u64)> {
+    // 格式: "bytes=start-end"
+    let range_str = range_str.strip_prefix("bytes=")?;
+    let parts: Vec<&str> = range_str.split('-').collect();
+
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let start = parts[0].parse::<u64>().ok()?;
+    let end = if parts[1].is_empty() {
+        u64::MAX
+    } else {
+        parts[1].parse::<u64>().ok()?
+    };
+
+    Some((start, end))
+}
+
+/// 创建文件流
+fn create_file_stream(
+    mut file: File,
+    length: u64,
+) -> impl futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> {
+    async_stream::stream! {
+        let mut remaining = length;
         let mut buffer = vec![0u8; CHUNK_SIZE];
-        let mut received = 0u64;
-        
-        // 打开文件用于写入（使用tokio异步文件操作）
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .open(&save_path)
-            .await?;
-        
-        // 使用tokio的seek
-        use tokio::io::AsyncSeekExt;
-        file.seek(std::io::SeekFrom::Start(offset)).await?;
-        
-        while received < range_size {
-            let to_read = std::cmp::min(CHUNK_SIZE, (range_size - received) as usize);
-            let n = stream.read(&mut buffer[..to_read]).await?;
-            
-            if n == 0 {
-                break;
-            }
-            
-            // 写入文件
-            file.write_all(&buffer[..n]).await?;
-            received += n as u64;
-            
-            // 更新进度
-            if let Some(transfer) = active_transfers.get(&request.request_id) {
-                let mut transferred = transfer.transferred_size.write();
-                *transferred += n as u64;
-                
-                let mut last_update = transfer.last_update.write();
-                if last_update.elapsed() >= Duration::from_millis(100) {
-                    let elapsed = transfer.start_time.elapsed().as_secs_f64();
-                    let speed = if elapsed > 0.0 { *transferred as f64 / elapsed } else { 0.0 };
-                    
-                    let _ = progress_tx.send(TransferProgress {
-                        request_id: request.request_id.clone(),
-                        file_name: request.file_name.clone(),
-                        total_size: request.file_size,
-                        transferred_size: *transferred,
-                        progress: (*transferred as f64 / request.file_size as f64) * 100.0,
-                        speed,
-                        status: "transferring".to_string(),
-                    });
-                    
-                    *last_update = Instant::now();
+
+        while remaining > 0 {
+            let to_read = std::cmp::min(CHUNK_SIZE as u64, remaining) as usize;
+            match file.read(&mut buffer[..to_read]).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    remaining -= n as u64;
+                    yield Ok(bytes::Bytes::copy_from_slice(&buffer[..n]));
+                }
+                Err(e) => {
+                    yield Err(e);
+                    break;
                 }
             }
         }
-        
-        // 确保数据写入磁盘
-        file.flush().await?;
-        
-        log::info!("✅ 线程 {} 下载完成", request.thread_id.unwrap_or(0));
-        Ok(())
     }
 }
