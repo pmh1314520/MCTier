@@ -398,23 +398,7 @@ export class WebRTCClient {
             }
           }
           
-          // 向所有已存在的玩家广播自己的共享列表
-          try {
-            const myShares = fileShareService.getLocalSharesForBroadcast();
-            if (myShares.length > 0) {
-              console.log(`📤 向大厅广播自己的 ${myShares.length} 个共享`);
-              for (const share of myShares) {
-                const message = {
-                  type: 'share-added',
-                  from: this.localPlayerId,
-                  share: share,
-                };
-                this.sendWebSocketMessage(message);
-              }
-            }
-          } catch (error) {
-            console.error('❌ 广播共享列表失败:', error);
-          }
+          // HTTP模式：不需要广播共享列表，客户端直接通过HTTP API查询
           break;
           
         case 'player-joined':
@@ -449,23 +433,7 @@ export class WebRTCClient {
             this.onPlayerJoinedCallback(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
           }
           
-          // 向新玩家发送自己的共享列表
-          try {
-            const myShares = fileShareService.getLocalSharesForBroadcast();
-            if (myShares.length > 0) {
-              console.log(`📤 向新玩家 ${message.playerId} 发送自己的 ${myShares.length} 个共享`);
-              for (const share of myShares) {
-                const shareMessage = {
-                  type: 'share-added',
-                  from: this.localPlayerId,
-                  share: share,
-                };
-                this.sendWebSocketMessage(shareMessage);
-              }
-            }
-          } catch (error) {
-            console.error('❌ 向新玩家发送共享列表失败:', error);
-          }
+          // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
           
           // 使用字符串比较决定谁主动发起连接
           // 只有当本地玩家ID字典序大于对方时才主动发起连接
