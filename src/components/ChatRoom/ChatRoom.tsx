@@ -182,9 +182,12 @@ export const ChatRoom: React.FC = () => {
     const messageContent = inputValue.trim();
     const currentPlayerName = config.playerName || '我';
     
+    // 生成唯一消息ID
+    const messageId = `msg-${Date.now()}-${currentPlayerId}-${Math.random().toString(36).substr(2, 9)}`;
+    
     // 立即添加到本地消息列表（乐观更新）
     const localMessage: ChatMessage = {
-      id: `msg-${Date.now()}-${currentPlayerId}`,
+      id: messageId,
       playerId: currentPlayerId,
       playerName: currentPlayerName,
       content: messageContent,
@@ -559,10 +562,15 @@ export const ChatRoom: React.FC = () => {
         {showEmojiPicker && (
           <motion.div
             className="emoji-picker-container"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ 
+              type: 'spring',
+              stiffness: 500,
+              damping: 30,
+              mass: 0.5
+            }}
           >
             <EmojiPicker 
               onSelect={handleEmojiSelect}
@@ -592,7 +600,7 @@ export const ChatRoom: React.FC = () => {
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="输入消息(Shift+Enter换行，支持粘贴/拖拽图片)"
+              placeholder="Shift+Enter换行"
               autoSize={{ minRows: 1, maxRows: 3 }}
               maxLength={500}
             />

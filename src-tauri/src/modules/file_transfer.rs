@@ -175,7 +175,7 @@ impl FileTransferService {
 
         log::info!("🚀 正在启动HTTP文件服务器...");
         log::info!("📍 监听地址: http://{}", addr);
-        log::info!("📂 共享文件夹数量: {}", shared_folders.len());
+        log::debug!("📂 共享文件夹数量: {}", shared_folders.len());
 
         // 尝试绑定端口
         let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -205,7 +205,7 @@ impl FileTransferService {
         log::info!("✅ HTTP文件服务器启动成功！");
         log::info!("📡 监听地址: 0.0.0.0:{}", FILE_SERVER_PORT);
         log::info!("📡 虚拟IP: {}", virtual_ip);
-        log::info!("📡 其他玩家可以通过 http://{}:{} 访问您的共享", virtual_ip, FILE_SERVER_PORT);
+        log::debug!("📡 其他玩家可以通过 http://{}:{} 访问您的共享", virtual_ip, FILE_SERVER_PORT);
         
         // 等待一小段时间，确保服务器完全启动
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -235,7 +235,7 @@ impl FileTransferService {
         }
 
         self.shared_folders.insert(share.id.clone(), share.clone());
-        log::info!("📁 添加共享: {} ({})", share.name, share.id);
+        log::debug!("📁 添加共享: {} ({})", share.name, share.id);
         Ok(())
     }
 
@@ -244,7 +244,7 @@ impl FileTransferService {
         self.shared_folders
             .remove(share_id)
             .ok_or_else(|| "共享不存在".to_string())?;
-        log::info!("🗑️ 删除共享: {}", share_id);
+        log::debug!("🗑️ 删除共享: {}", share_id);
         Ok(())
     }
 
@@ -278,7 +278,7 @@ impl FileTransferService {
 
         for share_id in expired {
             self.shared_folders.remove(&share_id);
-            log::info!("⏰ 清理过期共享: {}", share_id);
+            log::debug!("⏰ 清理过期共享: {}", share_id);
         }
     }
 }
@@ -297,7 +297,7 @@ async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
         .map(|entry| entry.value().clone())
         .collect();
 
-    log::info!("📋 收到获取共享列表请求，返回 {} 个共享", shares.len());
+    log::debug!("📋 收到获取共享列表请求，返回 {} 个共享", shares.len());
 
     Json(ShareListResponse { shares })
 }

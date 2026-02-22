@@ -113,6 +113,12 @@ class P2PChatService {
             imageData: msg.image_data ? this.arrayToBase64(msg.image_data) : undefined,
           };
 
+          // 跳过自己发送的消息（避免重复显示）
+          if (msg.player_id === this.currentPlayerId) {
+            console.log('📭 [P2PChatService] 跳过自己发送的消息:', msg.id);
+            continue;
+          }
+
           // 回调通知新消息
           if (this.onMessageCallback) {
             this.onMessageCallback(chatMessage);

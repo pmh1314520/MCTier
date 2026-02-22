@@ -31,6 +31,9 @@ interface DownloadTask {
   savePath: string;
   error?: string;
   abortController?: AbortController; // 用于取消下载
+  speed?: number; // 下载速度（bytes/s）
+  lastUpdateTime?: number; // 上次更新时间
+  lastDownloaded?: number; // 上次下载的字节数
 }
 
 export const FileShareManagerNew: React.FC = () => {
@@ -149,6 +152,13 @@ export const FileShareManagerNew: React.FC = () => {
     }
   }, [activeTab, lobby, players, config]);
 
+  // 切换到传输列表时，默认显示正在下载分页
+  useEffect(() => {
+    if (activeTab === 'transfers') {
+      setTransferSubTab('downloading');
+    }
+  }, [activeTab]);
+
   // 删除共享
   const handleDeleteShare = async (shareId: string) => {
     try {
@@ -243,7 +253,7 @@ export const FileShareManagerNew: React.FC = () => {
       };
       
       setDownloads(prev => [...prev, newTask]);
-      setActiveTab('transfers'); // 切换到传输列表
+      // 不自动跳转到传输列表，让用户继续浏览
       
       // 开始下载
       startDownload(taskId, downloadUrl, savePath, file.size);
@@ -257,10 +267,13 @@ export const FileShareManagerNew: React.FC = () => {
   // 实际执行下载
   const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number) => {
       const abortController = new AbortController();
+      const startTime = Date.now();
+      let lastUpdateTime = startTime;
+      let lastDownloaded = 0;
 
       // 更新任务，添加abortController
       setDownloads(prev => prev.map(task =>
-        task.id === taskId ? { ...task, abortController } : task
+        task.id === taskId ? { ...task, abortController, lastUpdateTime, lastDownloaded } : task
       ));
 
       try {
@@ -289,10 +302,33 @@ export const FileShareManagerNew: React.FC = () => {
             chunks.push(value);
             downloaded += value.length;
 
-            // 更新进度
-            setDownloads(prev => prev.map(task =>
-              task.id === taskId ? { ...task, downloaded } : task
-            ));
+            // 计算速度（每500ms更新一次）
+            const now = Date.now();
+            const timeDiff = now - lastUpdateTime;
+            
+            if (timeDiff >= 500) {
+              const byteDiff = downloaded - lastDownloaded;
+              const speed = (byteDiff / timeDiff) * 1000; // bytes/s
+              
+              // 更新进度和速度
+              setDownloads(prev => prev.map(task =>
+                task.id === taskId ? { 
+                  ...task, 
+                  downloaded, 
+                  speed,
+                  lastUpdateTime: now,
+                  lastDownloaded: downloaded
+                } : task
+              ));
+              
+              lastUpdateTime = now;
+              lastDownloaded = downloaded;
+            } else {
+              // 只更新进度
+              setDownloads(prev => prev.map(task =>
+                task.id === taskId ? { ...task, downloaded } : task
+              ));
+            }
           } catch (error: any) {
             // 如果是用户主动取消，保存已下载的部分
             if (error.name === 'AbortError') {
@@ -324,14 +360,14 @@ export const FileShareManagerNew: React.FC = () => {
 
         // 标记为完成
         setDownloads(prev => prev.map(task =>
-          task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize } : task
+          task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize, speed: 0 } : task
         ));
 
         message.success('下载完成');
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           setDownloads(prev => prev.map(task =>
-            task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
+            task.id === taskId ? { ...task, status: 'failed' as const, error: String(error), speed: 0 } : task
           ));
           message.error(`下载失败: ${error}`);
         }
@@ -522,7 +558,7 @@ export const FileShareManagerNew: React.FC = () => {
         startDownload(taskId, downloadUrl, savePath, file.size);
       }
       
-      setActiveTab('transfers');
+      // 不自动跳转到传输列表
       message.success(`开始下载 ${selectedFileList.length} 个文件`);
     }
   };
@@ -641,6 +677,15 @@ export const FileShareManagerNew: React.FC = () => {
     else return `${minutes}分钟`;
   };
 
+  // 格式化速度
+  const formatSpeed = (bytesPerSecond: number): string => {
+    if (bytesPerSecond === 0) return '0 B/s';
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+    return `${(bytesPerSecond / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  };
+
   return (
     <div className="file-share-container">
       <div className="file-share-content">
@@ -671,6 +716,11 @@ export const FileShareManagerNew: React.FC = () => {
             title="传输列表"
           >
             <DownloadIcon size={20} />
+            {downloads.filter(t => t.status === 'downloading').length > 0 && (
+              <span className="transfer-badge">
+                {downloads.filter(t => t.status === 'downloading').length}
+              </span>
+            )}
           </motion.div>
         </div>
         <div className="content-area">
@@ -911,7 +961,8 @@ export const FileShareManagerNew: React.FC = () => {
                               </div>
                               <div className="transfer-meta">
                                 {formatSize(task.downloaded)} / {formatSize(task.fileSize)}
-                                {task.status === 'downloading' && ' - 下载中'}
+                                {task.status === 'downloading' && task.speed && ` - ${formatSpeed(task.speed)}`}
+                                {task.status === 'downloading' && !task.speed && ' - 下载中'}
                                 {task.status === 'paused' && ' - 已暂停'}
                                 {task.status === 'completed' && ' - 已完成'}
                                 {task.status === 'failed' && ` - 失败: ${task.error}`}

@@ -1775,7 +1775,7 @@ pub async fn add_shared_folder(
     share: SharedFolder,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log::info!("添加共享文件夹: {} ({})", share.name, share.id);
+    log::debug!("添加共享文件夹: {} ({})", share.name, share.id);
     
     let core = state.core.lock().await;
     let file_transfer = core.get_file_transfer();
@@ -1790,7 +1790,7 @@ pub async fn remove_shared_folder(
     share_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log::info!("删除共享文件夹: {}", share_id);
+    log::debug!("删除共享文件夹: {}", share_id);
     
     let core = state.core.lock().await;
     let file_transfer = core.get_file_transfer();
@@ -1812,7 +1812,7 @@ pub async fn get_local_shares(state: State<'_, AppState>) -> Result<Vec<SharedFo
 /// 清理过期共享
 #[tauri::command]
 pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), String> {
-    log::info!("清理过期共享");
+    log::debug!("清理过期共享");
     
     let core = state.core.lock().await;
     let file_transfer = core.get_file_transfer();
@@ -1825,7 +1825,7 @@ pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), St
 /// 获取远程共享列表（通过HTTP API）
 #[tauri::command]
 pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, String> {
-    log::info!("📡 正在获取远程共享列表: {}", peer_ip);
+    log::debug!("📡 正在获取远程共享列表: {}", peer_ip);
     
     let url = format!("http://{}:14539/api/shares", peer_ip);
     log::info!("🔗 请求URL: {}", url);
@@ -1856,9 +1856,9 @@ pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, Str
                     if let Some(shares) = json.get("shares") {
                         match serde_json::from_value::<Vec<SharedFolder>>(shares.clone()) {
                             Ok(shares_vec) => {
-                                log::info!("✅ 成功获取 {} 个共享", shares_vec.len());
+                                log::debug!("✅ 成功获取 {} 个共享", shares_vec.len());
                                 for (i, share) in shares_vec.iter().enumerate() {
-                                    log::info!("  {}. {} (ID: {})", i + 1, share.name, share.id);
+                                    log::debug!("  {}. {} (ID: {})", i + 1, share.name, share.id);
                                 }
                                 Ok(shares_vec)
                             }
@@ -1943,7 +1943,7 @@ pub async fn verify_share_password(
     share_id: String,
     password: String,
 ) -> Result<bool, String> {
-    log::info!("验证共享密码: {} / {}", peer_ip, share_id);
+    log::debug!("验证共享密码: {} / {}", peer_ip, share_id);
     
     let url = format!("http://{}:14539/api/shares/{}/verify", peer_ip, share_id);
     let client = reqwest::Client::new();
