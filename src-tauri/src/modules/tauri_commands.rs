@@ -1693,6 +1693,9 @@ pub async fn start_file_server(
     ft_service.stop_server().await;
     log::info!("已停止旧的HTTP文件服务器（如果存在）");
     
+    // 等待端口完全释放
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    
     // 设置虚拟IP
     ft_service.set_virtual_ip(virtual_ip);
     
