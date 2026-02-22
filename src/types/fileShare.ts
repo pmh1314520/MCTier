@@ -12,6 +12,7 @@ export interface SharedFolder {
   path: string;
   password?: string;
   expire_time?: number; // Unix timestamp
+  compress_before_send?: boolean; // 是否启用"先压后发"策略
   owner_id: string;
   created_at: number;
 }

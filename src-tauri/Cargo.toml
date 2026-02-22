@@ -48,6 +48,8 @@ axum = "0.7"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
 async-stream = "0.3"
+# ZIP 压缩
+zip = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

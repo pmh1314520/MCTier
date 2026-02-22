@@ -8,7 +8,7 @@ import { useAppStore } from '../../stores';
 import { webrtcClient, fileShareService } from '../../services';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
-import { FileShareManager } from '../FileShareManager/FileShareManager';
+import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import './MiniWindow.css';
 
 /**
@@ -691,7 +691,10 @@ export const MiniWindow: React.FC = () => {
                 <CloseIcon size={16} />
               </button>
             </div>
-            <FileShareManager />
+            {(() => {
+              console.log('🎨 [MiniWindow] 正在渲染FileShareManagerNew组件，currentView:', currentView);
+              return <FileShareManagerNew />;
+            })()}
           </motion.div>
         ) : (
           <motion.div
@@ -1026,7 +1029,10 @@ export const MiniWindow: React.FC = () => {
                 </motion.button>
                 <motion.button
                   className="mini-voice-btn file-share-btn"
-                  onClick={() => setCurrentView('fileShare')}
+                  onClick={() => {
+                    console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
+                    setCurrentView('fileShare');
+                  }}
                   title={remoteSharesCount > 0 ? `文件夹共享 (${remoteSharesCount}个可用)` : "文件夹共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}

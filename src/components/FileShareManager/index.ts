@@ -1,1 +1,1 @@
-export * from './FileShareManager';
+export { FileShareManagerNew as FileShareManager } from './FileShareManagerNew';

@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::Write;
 
 use axum::{
     body::Body,
@@ -24,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tower_http::cors::CorsLayer;
+use zip::write::SimpleFileOptions;
 
 const FILE_SERVER_PORT: u16 = 14539; // 固定端口，方便其他节点访问
 const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
@@ -36,6 +38,7 @@ pub struct SharedFolder {
     pub path: String,
     pub password: Option<String>,
     pub expire_time: Option<u64>, // Unix timestamp
+    pub compress_before_send: Option<bool>, // 是否启用"先压后发"策略
     pub owner_id: String,
     pub created_at: u64,
 }
@@ -74,6 +77,12 @@ pub struct VerifyPasswordRequest {
 pub struct VerifyPasswordResponse {
     pub success: bool,
     pub message: String,
+}
+
+/// 批量打包下载请求
+#[derive(Debug, Deserialize)]
+pub struct BatchDownloadRequest {
+    pub file_paths: Vec<String>,
 }
 
 /// 文件传输服务状态
@@ -159,6 +168,7 @@ impl FileTransferService {
             .route("/api/shares/:share_id/files", get(list_files))
             .route("/api/shares/:share_id/verify", post(verify_password))
             .route("/api/shares/:share_id/download/*file_path", get(download_file))
+            .route("/api/shares/:share_id/batch-download", post(batch_download))
             .layer(CorsLayer::permissive())
             .with_state(AppState {
                 shared_folders: shared_folders.clone(),
@@ -545,4 +555,138 @@ fn create_file_stream(
             }
         }
     }
+}
+
+/// 批量打包下载（先压后发）
+async fn batch_download(
+    State(state): State<AppState>,
+    AxumPath(share_id): AxumPath<String>,
+    Json(req): Json<BatchDownloadRequest>,
+) -> Result<Response, StatusCode> {
+    log::info!("📦 收到批量打包下载请求: share_id={}, files={}", share_id, req.file_paths.len());
+    
+    // 获取共享信息
+    let share = state
+        .shared_folders
+        .get(&share_id)
+        .ok_or_else(|| {
+            log::error!("❌ 共享不存在: {}", share_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // 检查是否启用了"先压后发"
+    if !share.compress_before_send.unwrap_or(false) {
+        log::warn!("⚠️ 共享未启用先压后发功能");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let base_path = PathBuf::from(&share.path);
+    
+    // 创建临时ZIP文件
+    let temp_dir = std::env::temp_dir();
+    let zip_filename = format!("mctier_batch_{}_{}.zip", share_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+    let zip_path = temp_dir.join(&zip_filename);
+    
+    log::info!("📦 创建临时ZIP文件: {:?}", zip_path);
+    
+    // 创建ZIP文件
+    let zip_file = std::fs::File::create(&zip_path)
+        .map_err(|e| {
+            log::error!("❌ 创建ZIP文件失败: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    let mut zip = zip::ZipWriter::new(zip_file);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(6));
+    
+    // 添加文件到ZIP
+    for file_path in &req.file_paths {
+        let full_path = base_path.join(file_path);
+        
+        // 安全检查
+        if !full_path.starts_with(&base_path) {
+            log::warn!("⚠️ 路径安全检查失败: {:?}", full_path);
+            continue;
+        }
+        
+        if !full_path.exists() {
+            log::warn!("⚠️ 文件不存在: {:?}", full_path);
+            continue;
+        }
+        
+        let metadata = std::fs::metadata(&full_path)
+            .map_err(|e| {
+                log::error!("❌ 获取文件元数据失败: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        
+        if metadata.is_file() {
+            log::info!("📄 添加文件到ZIP: {}", file_path);
+            
+            zip.start_file(file_path, options)
+                .map_err(|e| {
+                    log::error!("❌ 开始写入ZIP文件失败: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            
+            let mut file = std::fs::File::open(&full_path)
+                .map_err(|e| {
+                    log::error!("❌ 打开文件失败: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            
+            std::io::copy(&mut file, &mut zip)
+                .map_err(|e| {
+                    log::error!("❌ 复制文件到ZIP失败: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+        }
+    }
+    
+    zip.finish()
+        .map_err(|e| {
+            log::error!("❌ 完成ZIP文件失败: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    log::info!("✅ ZIP文件创建成功: {:?}", zip_path);
+    
+    // 读取ZIP文件
+    let zip_data = tokio::fs::read(&zip_path)
+        .await
+        .map_err(|e| {
+            log::error!("❌ 读取ZIP文件失败: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    let zip_size = zip_data.len();
+    log::info!("📦 ZIP文件大小: {} bytes", zip_size);
+    
+    // 异步删除临时文件
+    let zip_path_clone = zip_path.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        if let Err(e) = tokio::fs::remove_file(&zip_path_clone).await {
+            log::warn!("⚠️ 删除临时ZIP文件失败: {}", e);
+        } else {
+            log::info!("🗑️ 临时ZIP文件已删除: {:?}", zip_path_clone);
+        }
+    });
+    
+    // 返回ZIP文件
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_LENGTH, zip_size)
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", zip_filename),
+        )
+        .body(Body::from(zip_data))
+        .map_err(|e| {
+            log::error!("❌ 构建响应失败: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
