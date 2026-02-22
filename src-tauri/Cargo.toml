@@ -39,6 +39,7 @@ rand = "0.8"
 reqwest = { version = "0.11", features = ["blocking", "stream", "json"] }
 rfd = "0.15"
 urlencoding = "2.1"
+base64 = "0.22"
 # 高性能文件传输
 bytes = "1"
 dashmap = "6"

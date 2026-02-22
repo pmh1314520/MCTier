@@ -261,57 +261,8 @@
   flex: 1;
 }
 
-.input-with-emoji {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-}
-
-.input-with-emoji textarea {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
-  border-radius: 8px;
-  resize: none;
-  transition: all 0.3s ease;
-  padding-right: 40px !important;
-}
-
-.input-with-emoji textarea:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
-.input-with-emoji textarea:focus {
-  background: rgba(255, 255, 255, 0.1) !important;
-  border-color: rgba(100, 100, 120, 0.8) !important;
-  box-shadow: 0 0 0 2px rgba(100, 100, 120, 0.2);
-}
-
-.emoji-button-inline {
-  position: absolute;
-  right: 8px;
-  bottom: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 6px;
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  z-index: 10;
-}
-
-.emoji-button-inline:hover {
-  color: rgba(255, 255, 255, 0.8);
-}
-
+/* 表情包按钮和图片按钮统一样式 */
+.emoji-button,
 .image-button {
   display: flex;
   align-items: center;
@@ -324,8 +275,10 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.7);
   transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
+.emoji-button:hover:not(:disabled),
 .image-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
@@ -371,13 +324,7 @@
   height: auto;
   border-radius: 8px;
   cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
   object-fit: contain;
-}
-
-.chat-image:hover {
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 /* 图片预览模态框 */
@@ -425,4 +372,86 @@
   left: 16px;
   right: 16px;
   z-index: 1000;
+}
+
+/* 图片消息容器 */
+.chat-image-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* 图片下载按钮 */
+.image-download-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  opacity: 0;
+}
+
+.chat-image-wrapper:hover .image-download-btn {
+  opacity: 1;
+}
+
+.image-download-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.8);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.image-download-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 下载中的旋转动画 */
+.downloading-icon {
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 下载成功提示 */
+.download-success-tip {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(82, 196, 26, 0.9);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  white-space: nowrap;
+  animation: tipFadeIn 0.3s ease-out;
+  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.4);
+}
+
+@keyframes tipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }

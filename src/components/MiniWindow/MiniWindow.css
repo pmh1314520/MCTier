@@ -548,6 +548,7 @@
 
 .mini-voice-btn.chat-btn.has-unread:hover {
   background: rgba(82, 196, 26, 0.45);
+  animation: chatPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes chatPulse {
@@ -1248,5 +1249,39 @@
 
 /* 文件夹共享按钮需要相对定位以支持徽章 */
 .mini-voice-btn.file-share-btn {
+  position: relative;
+}
+
+/* 屏幕共享视图样式 */
+.screen-share-view {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(25, 25, 35, 0.98) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.screen-share-header {
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: drag;
+  min-height: 50px;
+}
+
+.screen-share-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0;
+}
+
+/* 屏幕共享按钮需要相对定位以支持徽章 */
+.mini-voice-btn.screen-share-btn {
   position: relative;
 }

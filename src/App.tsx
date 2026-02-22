@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
+import { ScreenViewer } from './components/ScreenViewer/ScreenViewer';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
 import type { UserConfig } from './types';
@@ -20,6 +21,43 @@ function App() {
   const setCurrentPlayerId = useAppStore((state) => state.setCurrentPlayerId);
   const currentPlayerId = useAppStore((state) => state.currentPlayerId);
   const addChatMessage = useAppStore((state) => state.addChatMessage);
+
+  // 检测是否是屏幕查看窗口
+  const isScreenViewerWindow = window.location.search.includes('screen-viewer=true');
+
+  // 如果是屏幕查看窗口，直接渲染ScreenViewer组件
+  if (isScreenViewerWindow) {
+    // 从URL参数中获取shareId和playerName
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareId = urlParams.get('shareId') || '';
+    const playerName = urlParams.get('playerName') || '未知玩家';
+    
+    return (
+      <ErrorBoundary>
+        <ConfigProvider
+          locale={zhCN}
+          theme={{
+            algorithm: theme.darkAlgorithm,
+            token: {
+              colorPrimary: '#4a5568',
+              colorSuccess: '#52c41a',
+              colorWarning: '#f59e0b',
+              colorError: '#ef4444',
+              borderRadius: 8,
+              colorBgContainer: 'rgba(30, 30, 45, 0.95)',
+              colorBorder: 'rgba(255, 255, 255, 0.1)',
+              colorText: 'rgba(255, 255, 255, 0.9)',
+              colorTextSecondary: 'rgba(255, 255, 255, 0.6)',
+              fontFamily:
+                '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
+            },
+          }}
+        >
+          <ScreenViewer shareId={shareId} playerName={playerName} />
+        </ConfigProvider>
+      </ErrorBoundary>
+    );
+  }
 
   // 在组件挂载后显示窗口（优化启动体验）
   useEffect(() => {

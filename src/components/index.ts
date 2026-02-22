@@ -40,3 +40,6 @@ export type { FavoriteLobby } from './FavoriteLobbyManager/FavoriteLobbyManager'
 
 // 文件共享管理组件
 export { FileShareManager } from './FileShareManager';
+
+// 屏幕共享管理组件
+export { ScreenShareManager } from './ScreenShareManager';

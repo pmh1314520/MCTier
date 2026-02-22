@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input, Button, message as antdMessage } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
@@ -12,7 +13,7 @@ import './ChatRoom.css';
 const { TextArea } = Input;
 
 export const ChatRoom: React.FC = () => {
-  const { currentPlayerId, chatMessages, addChatMessage, config, players, lobby } = useAppStore();
+  const { currentPlayerId, chatMessages, addChatMessage, config } = useAppStore();
   const [inputValue, setInputValue] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -22,6 +23,8 @@ export const ChatRoom: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
+  const [downloadedImages, setDownloadedImages] = useState<Set<string>>(new Set());
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -51,62 +54,6 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ 已清除全局标志：离开聊天室界面');
     };
   }, []);
-
-  // 初始化P2P聊天服务
-  useEffect(() => {
-    if (!lobby || !currentPlayerId) {
-      console.log('⚠️ 大厅或玩家ID未就绪，跳过P2P聊天服务初始化');
-      return;
-    }
-
-    // 获取所有玩家的虚拟IP（包括自己）
-    const playerIPs = players.map(p => p.virtualIp).filter(Boolean) as string[];
-    // 添加自己的虚拟IP
-    if (lobby.virtualIp && !playerIPs.includes(lobby.virtualIp)) {
-      playerIPs.push(lobby.virtualIp);
-    }
-
-    console.log('🚀 初始化P2P聊天服务，玩家IPs:', playerIPs);
-
-    // 初始化P2P聊天服务
-    p2pChatService.initialize(playerIPs, currentPlayerId);
-
-    // 设置消息接收回调
-    p2pChatService.onMessage((message) => {
-      console.log('📨 收到P2P消息:', message);
-      
-      // 查找发送者名称
-      let senderName = '未知玩家';
-      if (message.playerId === currentPlayerId) {
-        senderName = config.playerName || '我';
-      } else {
-        const sender = players.find(p => p.id === message.playerId);
-        senderName = sender?.name || '未知玩家';
-      }
-
-      // 添加到消息列表
-      const chatMessage: ChatMessage = {
-        id: message.id,
-        playerId: message.playerId,
-        playerName: senderName,
-        content: message.content,
-        timestamp: message.timestamp,
-        type: message.type,
-        imageData: message.imageData,
-      };
-      
-      addChatMessage(chatMessage);
-    });
-
-    // 开始轮询消息
-    p2pChatService.startPolling();
-
-    return () => {
-      // 停止轮询
-      p2pChatService.stopPolling();
-      console.log('✅ 已停止P2P聊天服务轮询');
-    };
-  }, [lobby, currentPlayerId, players, config.playerName, addChatMessage]);
 
   // 监听滚动位置
   const handleScroll = () => {
@@ -180,34 +127,33 @@ export const ChatRoom: React.FC = () => {
     if (!inputValue.trim() || !currentPlayerId) return;
     
     const messageContent = inputValue.trim();
-    const currentPlayerName = config.playerName || '我';
-    
-    // 生成唯一消息ID
-    const messageId = `msg-${Date.now()}-${currentPlayerId}-${Math.random().toString(36).substring(2, 11)}`;
-    
-    // 立即添加到本地消息列表（乐观更新）
-    const localMessage: ChatMessage = {
-      id: messageId,
-      playerId: currentPlayerId,
-      playerName: currentPlayerName,
-      content: messageContent,
-      timestamp: Date.now(),
-      type: 'text',
-    };
-    addChatMessage(localMessage);
     
     // 清空输入框
     setInputValue('');
     
-    // 滚动到底部
-    setTimeout(() => scrollToBottom(), 50);
-    
     try {
-      // 异步发送到P2P网络，传递messageId
-      await p2pChatService.sendTextMessage(messageContent, messageId);
+      // 乐观更新：立即在本地显示自己发送的消息
+      const optimisticMessage: ChatMessage = {
+        id: `msg-${currentPlayerId}-${Date.now()}`,
+        playerId: currentPlayerId,
+        playerName: config.playerName || '我',
+        content: messageContent,
+        timestamp: Date.now(),
+        type: 'text',
+      };
+      
+      // 立即添加到本地消息列表
+      addChatMessage(optimisticMessage);
+      console.log('✅ [ChatRoom] 乐观更新：本地显示消息');
+      
+      // 发送到P2P网络
+      await p2pChatService.sendTextMessage(messageContent);
+      console.log('✅ [ChatRoom] 文本消息已发送到P2P网络');
     } catch (error) {
       console.error('发送聊天消息失败:', error);
       antdMessage.error('发送消息失败');
+      // 发送失败时恢复输入框内容
+      setInputValue(messageContent);
     }
   };
 
@@ -247,7 +193,22 @@ export const ChatRoom: React.FC = () => {
           console.log('📤 发送图片消息');
 
           try {
-            // 发送图片消息
+            // 乐观更新：立即在本地显示自己发送的图片
+            const optimisticMessage: ChatMessage = {
+              id: `msg-${currentPlayerId}-${Date.now()}`,
+              playerId: currentPlayerId!,
+              playerName: config.playerName || '我',
+              content: '[图片]',
+              timestamp: Date.now(),
+              type: 'image',
+              imageData: dataUrl,
+            };
+            
+            // 立即添加到本地消息列表
+            addChatMessage(optimisticMessage);
+            console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
+            
+            // 发送图片消息到P2P网络
             await p2pChatService.sendImageMessage(dataUrl);
             antdMessage.success('图片发送成功');
             
@@ -304,7 +265,22 @@ export const ChatRoom: React.FC = () => {
             
             console.log('📤 发送粘贴的图片');
 
-            // 发送图片消息
+            // 乐观更新：立即在本地显示自己发送的图片
+            const optimisticMessage: ChatMessage = {
+              id: `msg-${currentPlayerId}-${Date.now()}`,
+              playerId: currentPlayerId!,
+              playerName: config.playerName || '我',
+              content: '[图片]',
+              timestamp: Date.now(),
+              type: 'image',
+              imageData: dataUrl,
+            };
+            
+            // 立即添加到本地消息列表
+            addChatMessage(optimisticMessage);
+            console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
+
+            // 发送图片消息到P2P网络
             await p2pChatService.sendImageMessage(dataUrl);
 
             antdMessage.success('图片发送成功');
@@ -362,7 +338,22 @@ export const ChatRoom: React.FC = () => {
         
         console.log('📤 发送拖拽的图片');
 
-        // 发送图片消息
+        // 乐观更新：立即在本地显示自己发送的图片
+        const optimisticMessage: ChatMessage = {
+          id: `msg-${currentPlayerId}-${Date.now()}`,
+          playerId: currentPlayerId!,
+          playerName: config.playerName || '我',
+          content: '[图片]',
+          timestamp: Date.now(),
+          type: 'image',
+          imageData: dataUrl,
+        };
+        
+        // 立即添加到本地消息列表
+        addChatMessage(optimisticMessage);
+        console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
+
+        // 发送图片消息到P2P网络
         await p2pChatService.sendImageMessage(dataUrl);
 
         antdMessage.success('图片发送成功');
@@ -411,18 +402,38 @@ export const ChatRoom: React.FC = () => {
   };
 
   // 下载图片
-  const handleDownloadImage = (imageData: string) => {
+  const handleDownloadImage = async (imageData: string, messageId: string) => {
     try {
-      const link = document.createElement('a');
-      link.href = imageData;
-      link.download = `chat-image-${Date.now()}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      antdMessage.success('图片已下载');
+      console.log('🖼️ 开始下载图片...');
+      setDownloadingImageId(messageId);
+      
+      // 从Data URL中提取Base64数据
+      const base64Data = imageData.split(',')[1];
+      
+      // 调用后端保存图片
+      const filePath = await invoke<string>('save_chat_image', {
+        imageData: base64Data,
+      });
+      
+      console.log('✅ 图片已保存到:', filePath);
+      
+      // 标记为已下载
+      setDownloadedImages(prev => new Set(prev).add(messageId));
+      setDownloadingImageId(null);
+      
+      // 3秒后清除下载状态
+      setTimeout(() => {
+        setDownloadedImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(messageId);
+          return newSet;
+        });
+      }, 3000);
+      
     } catch (error) {
-      console.error('下载图片失败:', error);
+      console.error('❌ 下载图片失败:', error);
       antdMessage.error('下载图片失败');
+      setDownloadingImageId(null);
     }
   };
 
@@ -488,12 +499,41 @@ export const ChatRoom: React.FC = () => {
                 
                 <div className="message-content">
                   {message.type === 'image' && message.imageData ? (
-                    <img 
-                      src={message.imageData} 
-                      alt="聊天图片" 
-                      className="chat-image"
-                      onClick={() => setPreviewImage(message.imageData!)}
-                    />
+                    <div className="chat-image-wrapper">
+                      <img 
+                        src={message.imageData} 
+                        alt="聊天图片" 
+                        className="chat-image"
+                        onClick={() => setPreviewImage(message.imageData!)}
+                      />
+                      <button
+                        className="image-download-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadImage(message.imageData!, message.id);
+                        }}
+                        disabled={downloadingImageId === message.id}
+                        title="下载图片"
+                      >
+                        {downloadingImageId === message.id ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="downloading-icon">
+                            <circle cx="12" cy="12" r="10" opacity="0.25"/>
+                            <path d="M12 2 A10 10 0 0 1 22 12" strokeLinecap="round"/>
+                          </svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                          </svg>
+                        )}
+                      </button>
+                      {downloadedImages.has(message.id) && (
+                        <div className="download-success-tip">
+                          图片已保存至"下载"文件夹
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     message.content
                   )}
@@ -540,18 +580,13 @@ export const ChatRoom: React.FC = () => {
             onClick={() => setPreviewImage(null)}
           >
             <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
-              <img src={previewImage} alt="预览" />
-              <div className="image-preview-actions">
-                <Button
-                  type="primary"
-                  onClick={() => handleDownloadImage(previewImage)}
-                >
-                  下载图片
-                </Button>
-                <Button onClick={() => setPreviewImage(null)}>
-                  关闭
-                </Button>
-              </div>
+              <img 
+                src={previewImage} 
+                alt="预览" 
+                onClick={() => setPreviewImage(null)}
+                style={{ cursor: 'pointer' }}
+              />
+
             </div>
           </motion.div>
         )}
@@ -580,25 +615,13 @@ export const ChatRoom: React.FC = () => {
         }}
       >
         <div className="chat-input-wrapper">
-          <div className="input-with-emoji">
-            <TextArea
-              ref={textAreaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder="Shift+Enter换行"
-              autoSize={{ minRows: 1, maxRows: 3 }}
-              maxLength={500}
-            />
-            <Button
-              type="text"
-              icon={<EmojiIcon size={20} />}
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              title="选择表情"
-              className="emoji-button-inline"
-            />
-          </div>
+          <Button
+            type="text"
+            icon={<EmojiIcon size={22} />}
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            title="选择表情"
+            className="emoji-button"
+          />
           
           <Button
             type="text"
@@ -607,6 +630,18 @@ export const ChatRoom: React.FC = () => {
             loading={isUploading}
             title="发送图片"
             className="image-button"
+          />
+          
+          <TextArea
+            ref={textAreaRef}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder="Shift+Enter换行"
+            autoSize={{ minRows: 1, maxRows: 3 }}
+            maxLength={500}
+            style={{ flex: 1 }}
           />
           
           <Button

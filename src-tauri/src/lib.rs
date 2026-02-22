@@ -61,6 +61,7 @@ use modules::tauri_commands::{
     select_folder,
     select_save_location,
     save_file,
+    save_chat_image,
     read_file,
     delete_file,
     open_file_location,
@@ -81,6 +82,8 @@ use modules::tauri_commands::{
     send_p2p_chat_message,
     get_p2p_chat_messages,
     clear_p2p_chat_messages,
+    // 屏幕共享命令
+    open_screen_viewer_window,
 };
 
 // 测试命令
@@ -201,6 +204,7 @@ pub fn run() {
             select_folder,
             select_save_location,
             save_file,
+            save_chat_image,
             read_file,
             delete_file,
             open_file_location,
@@ -216,6 +220,8 @@ pub fn run() {
             get_remote_files,
             verify_share_password,
             get_download_url,
+            // 屏幕共享命令
+            open_screen_viewer_window,
             diagnose_file_share_connection,
             // P2P 聊天命令
             send_p2p_chat_message,

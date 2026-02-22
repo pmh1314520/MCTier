@@ -6,9 +6,12 @@ import { open } from '@tauri-apps/plugin-shell';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient, fileShareService } from '../../services';
-import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon } from '../icons';
+import { p2pChatService } from '../../services/chat/P2PChatService';
+import type { ChatMessage } from '../../types';
+import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
+import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import './MiniWindow.css';
 
 /**
@@ -26,15 +29,17 @@ export const MiniWindow: React.FC = () => {
     togglePlayerMute,
     config,
     versionError,
+    chatMessages,
+    currentPlayerId,
+    addChatMessage,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
   const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
-  const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare'>('lobby');
+  const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
-  const { chatMessages, currentPlayerId } = useAppStore();
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -45,9 +50,38 @@ export const MiniWindow: React.FC = () => {
   
   // 计算未读消息数量（只计算其他人的消息）
   const unreadCount = Math.max(0, othersMessageCount - lastViewedOthersMessageCount);
+  
+  // 调试日志 - 详细打印未读消息统计
+  useEffect(() => {
+    console.log('📊 [MiniWindow] 未读消息统计:', {
+      currentPlayerId,
+      totalMessages: chatMessages.length,
+      othersMessageCount,
+      lastViewedOthersMessageCount,
+      unreadCount,
+      hasUnreadMessages: unreadCount > 0,
+      currentView,
+      collapsed,
+    });
+    
+    // 打印最近的几条消息
+    if (chatMessages.length > 0) {
+      console.log('📝 [MiniWindow] 最近的消息:', chatMessages.slice(-3).map(m => ({
+        id: m.id,
+        playerId: m.playerId,
+        playerName: m.playerName,
+        content: m.content.substring(0, 20),
+        timestamp: new Date(m.timestamp).toLocaleTimeString(),
+      })));
+    }
+  }, [chatMessages.length, unreadCount, currentView, collapsed]);
 
   // 后台轮询远程共享
   const [remoteSharesCount, setRemoteSharesCount] = useState(0);
+  
+  // 后台轮询屏幕共享
+  // TODO: 实现屏幕共享列表的实时同步
+  // const [screenSharesCount, setScreenSharesCount] = useState(0);
 
   // 后台加载远程共享
   useEffect(() => {
@@ -143,6 +177,69 @@ export const MiniWindow: React.FC = () => {
     }
   }, []); // 只在组件挂载时执行一次
 
+  // 初始化P2P聊天服务 - 在大厅界面就启动，不需要打开聊天室
+  useEffect(() => {
+    if (!lobby || !currentPlayerId) {
+      console.log('⚠️ 大厅或玩家ID未就绪，跳过P2P聊天服务初始化');
+      return;
+    }
+
+    // 获取所有玩家的虚拟IP（包括自己）
+    const playerIPs = players.map(p => p.virtualIp).filter(Boolean) as string[];
+    // 添加自己的虚拟IP
+    if (lobby.virtualIp && !playerIPs.includes(lobby.virtualIp)) {
+      playerIPs.push(lobby.virtualIp);
+    }
+
+    console.log('🚀 [MiniWindow] 初始化P2P聊天服务，玩家IPs:', playerIPs);
+
+    // 初始化P2P聊天服务
+    p2pChatService.initialize(playerIPs, currentPlayerId);
+
+    // 设置消息接收回调
+    p2pChatService.onMessage((message) => {
+      console.log('📨 [MiniWindow] 收到P2P消息:', message);
+      
+      // 查找发送者名称
+      let senderName = '未知玩家';
+      if (message.playerId === currentPlayerId) {
+        senderName = config.playerName || '我';
+      } else {
+        const sender = players.find(p => p.id === message.playerId);
+        senderName = sender?.name || '未知玩家';
+      }
+
+      // 添加到消息列表
+      const chatMessage: ChatMessage = {
+        id: message.id,
+        playerId: message.playerId,
+        playerName: senderName,
+        content: message.content,
+        timestamp: message.timestamp,
+        type: message.type,
+        imageData: message.imageData,
+      };
+      
+      addChatMessage(chatMessage);
+      
+      // 如果不在聊天室界面，播放新消息提示音
+      if (!(window as any).__isInChatRoom__) {
+        console.log('🔔 [MiniWindow] 不在聊天室，播放新消息提示音');
+        // TODO: 播放提示音
+      }
+    });
+
+    // 开始轮询消息
+    p2pChatService.startPolling();
+    console.log('✅ [MiniWindow] P2P聊天服务已启动轮询');
+
+    return () => {
+      // 停止轮询
+      p2pChatService.stopPolling();
+      console.log('✅ [MiniWindow] 已停止P2P聊天服务轮询');
+    };
+  }, [lobby, currentPlayerId, players, config.playerName, addChatMessage]);
+
   // 监听ESC键返回大厅
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -152,6 +249,8 @@ export const MiniWindow: React.FC = () => {
           // 标记所有其他人的消息为已读
           setLastViewedOthersMessageCount(othersMessageCount);
         } else if (currentView === 'fileShare') {
+          setCurrentView('lobby');
+        } else if (currentView === 'screenShare') {
           setCurrentView('lobby');
         }
       }
@@ -219,6 +318,11 @@ export const MiniWindow: React.FC = () => {
       console.log('正在清理WebRTC客户端...');
       await webrtcClient.cleanup();
       console.log('✅ WebRTC客户端已清理');
+      
+      // 2. 重置P2P聊天服务
+      console.log('正在重置P2P聊天服务...');
+      p2pChatService.reset();
+      console.log('✅ P2P聊天服务已重置');
       
       // 等待一小段时间，确保WebSocket完全关闭
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -696,6 +800,27 @@ export const MiniWindow: React.FC = () => {
               return <FileShareManagerNew />;
             })()}
           </motion.div>
+        ) : currentView === 'screenShare' ? (
+          <motion.div
+            key="screenShare"
+            className="screen-share-view"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0 }}
+          >
+            <div className="screen-share-header">
+              <h3 className="screen-share-title">屏幕共享</h3>
+              <button
+                className="back-button"
+                onClick={() => setCurrentView('lobby')}
+                title="返回大厅 (ESC)"
+              >
+                <CloseIcon size={16} />
+              </button>
+            </div>
+            <ScreenShareManager />
+          </motion.div>
         ) : (
           <motion.div
             key="lobby"
@@ -1043,6 +1168,18 @@ export const MiniWindow: React.FC = () => {
                   {remoteSharesCount > 0 && (
                     <span className="share-count-badge">{remoteSharesCount}</span>
                   )}
+                </motion.button>
+                <motion.button
+                  className="mini-voice-btn screen-share-btn"
+                  onClick={() => {
+                    console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
+                    setCurrentView('screenShare');
+                  }}
+                  title="屏幕共享"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <ScreenShareIcon size={24} />
                 </motion.button>
               </motion.div>
             </motion.div>

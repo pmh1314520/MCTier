@@ -24,17 +24,43 @@ class P2PChatService {
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private processedMessageIds: Set<string> = new Set();
-  private sentMessageIds: Set<string> = new Set(); // 记录自己发送的消息ID
+  private isInitialized: boolean = false; // 标记是否已初始化
 
   /**
    * 初始化服务
    */
   initialize(peerIps: string[], currentPlayerId: string): void {
+    // 更新玩家IPs和ID
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
+    
+    // 只在第一次初始化时设置时间戳和清空消息ID
+    if (!this.isInitialized) {
+      this.processedMessageIds.clear();
+      // 设置初始时间戳为当前时间，只接收加入后的消息
+      this.lastMessageTimestamp = Math.floor(Date.now() / 1000);
+      this.isInitialized = true;
+      
+      console.log('✅ [P2PChatService] 首次初始化完成，玩家IPs:', peerIps);
+      console.log('📅 [P2PChatService] 初始时间戳:', this.lastMessageTimestamp, '（只接收此时间后的消息）');
+    } else {
+      console.log('🔄 [P2PChatService] 更新配置，玩家IPs:', peerIps);
+      console.log('📅 [P2PChatService] 保持现有时间戳:', this.lastMessageTimestamp);
+    }
+  }
+  
+  /**
+   * 重置服务状态（退出大厅时调用）
+   */
+  reset(): void {
+    this.stopPolling();
+    this.lastMessageTimestamp = 0;
     this.processedMessageIds.clear();
-    this.sentMessageIds.clear();
-    console.log('✅ [P2PChatService] 初始化完成，玩家IPs:', peerIps);
+    this.peerIps = [];
+    this.currentPlayerId = '';
+    this.onMessageCallback = undefined;
+    this.isInitialized = false;
+    console.log('🔄 [P2PChatService] 服务已重置');
   }
 
   /**
@@ -56,12 +82,12 @@ class P2PChatService {
     // 立即获取一次消息
     this.pollMessages();
     
-    // 每2秒轮询一次
+    // 每500毫秒轮询一次，实现秒发秒收的低延迟
     this.pollingInterval = window.setInterval(() => {
       this.pollMessages();
-    }, 2000);
+    }, 500);
     
-    console.log('✅ [P2PChatService] 开始轮询消息');
+    console.log('✅ [P2PChatService] 开始轮询消息（500ms间隔）');
   }
 
   /**
@@ -91,6 +117,23 @@ class P2PChatService {
 
       if (messages.length > 0) {
         console.log(`📨 [P2PChatService] 收到 ${messages.length} 条新消息`);
+        
+        // 打印原始消息时间戳用于调试
+        console.log('📅 [P2PChatService] 原始消息时间戳:', messages.map(m => ({
+          id: m.id,
+          player: m.player_name,
+          timestamp: m.timestamp,
+          content: m.content.substring(0, 20)
+        })));
+
+        // 按时间戳排序消息，确保顺序正确
+        messages.sort((a, b) => a.timestamp - b.timestamp);
+        
+        console.log('📅 [P2PChatService] 排序后消息顺序:', messages.map(m => ({
+          id: m.id,
+          player: m.player_name,
+          timestamp: m.timestamp
+        })));
 
         // 更新最后消息时间戳
         const maxTimestamp = Math.max(...messages.map(m => m.timestamp));
@@ -98,23 +141,28 @@ class P2PChatService {
 
         // 处理每条消息
         for (const msg of messages) {
-          // 去重：跳过已处理的消息
-          if (this.processedMessageIds.has(msg.id)) {
-            continue;
-          }
-          this.processedMessageIds.add(msg.id);
-
-          // 跳过自己发送的消息（通过sentMessageIds判断）
-          if (this.sentMessageIds.has(msg.id)) {
-            console.log('📭 [P2PChatService] 跳过自己发送的消息（已在本地显示）:', msg.id);
-            continue;
-          }
-
-          // 跳过自己发送的消息（通过playerId判断，双重保险）
+          // 关键修复：跳过自己发送的消息
           if (msg.player_id === this.currentPlayerId) {
-            console.log('📭 [P2PChatService] 跳过自己发送的消息:', msg.id);
+            console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
             continue;
           }
+
+          // 去重：跳过已处理的消息ID
+          if (this.processedMessageIds.has(msg.id)) {
+            console.log('📭 [P2PChatService] 跳过已处理的消息ID:', msg.id);
+            continue;
+          }
+
+          // 增强去重：基于消息内容+发送者+时间戳生成唯一键
+          const contentKey = `${msg.player_id}-${msg.content}-${msg.timestamp}`;
+          if (this.processedMessageIds.has(contentKey)) {
+            console.log('📭 [P2PChatService] 跳过重复内容的消息:', contentKey);
+            continue;
+          }
+          
+          // 同时记录消息ID和内容键
+          this.processedMessageIds.add(msg.id);
+          this.processedMessageIds.add(contentKey);
 
           // 转换为前端消息格式
           const chatMessage: ChatMessage = {
@@ -122,7 +170,7 @@ class P2PChatService {
             playerId: msg.player_id,
             playerName: msg.player_name,
             content: msg.content,
-            timestamp: msg.timestamp,
+            timestamp: msg.timestamp * 1000, // 转换为毫秒
             type: msg.message_type,
             imageData: msg.image_data ? this.arrayToBase64(msg.image_data) : undefined,
           };
@@ -141,14 +189,9 @@ class P2PChatService {
   /**
    * 发送文本消息
    */
-  async sendTextMessage(content: string, messageId?: string): Promise<void> {
+  async sendTextMessage(content: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
-    }
-
-    // 如果提供了messageId，记录到sentMessageIds
-    if (messageId) {
-      this.sentMessageIds.add(messageId);
     }
 
     try {
@@ -170,14 +213,9 @@ class P2PChatService {
   /**
    * 发送图片消息（Base64格式）
    */
-  async sendImageMessage(imageDataUrl: string, messageId?: string): Promise<void> {
+  async sendImageMessage(imageDataUrl: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
-    }
-
-    // 如果提供了messageId，记录到sentMessageIds
-    if (messageId) {
-      this.sentMessageIds.add(messageId);
     }
 
     try {

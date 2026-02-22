@@ -2106,6 +2106,54 @@ pub async fn save_file(path: String, data: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+/// 保存聊天图片
+/// 
+/// # 参数
+/// * `image_data` - Base64编码的图片数据
+/// 
+/// # 返回
+/// * `Ok(String)` - 保存的文件路径
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn save_chat_image(image_data: String) -> Result<String, String> {
+    use tokio::fs;
+    use base64::{Engine as _, engine::general_purpose};
+    
+    log::info!("保存聊天图片，数据长度: {} bytes", image_data.len());
+    
+    // 解码Base64数据
+    let bytes = general_purpose::STANDARD
+        .decode(&image_data)
+        .map_err(|e| format!("Base64解码失败: {}", e))?;
+    
+    log::info!("解码后图片大小: {} bytes", bytes.len());
+    
+    // 获取下载目录
+    let download_dir = dirs::download_dir()
+        .ok_or_else(|| "无法获取下载目录".to_string())?;
+    
+    // 生成文件名
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let filename = format!("MCTier_聊天图片_{}.png", timestamp);
+    
+    // 构建完整路径
+    let file_path = download_dir.join(filename);
+    let path_str = file_path.to_string_lossy().to_string();
+    
+    log::info!("保存图片到: {}", path_str);
+    
+    // 写入文件
+    fs::write(&file_path, bytes)
+        .await
+        .map_err(|e| format!("写入文件失败: {}", e))?;
+    
+    log::info!("✅ 聊天图片保存成功: {}", path_str);
+    Ok(path_str)
+}
+
 /// 读取文件
 /// 
 /// # 参数
@@ -2318,5 +2366,67 @@ pub async fn clear_p2p_chat_messages(
     
     chat_svc.clear_local_messages();
     
+    Ok(())
+}
+
+
+// ==================== 屏幕共享命令 ====================
+
+/// 打开屏幕查看窗口
+/// 
+/// # 参数
+/// * `share_id` - 共享ID
+/// 打开屏幕查看窗口
+/// 
+/// # 参数
+/// * `share_id` - 共享ID
+/// * `player_name` - 共享者名称
+/// * `app` - Tauri应用句柄
+/// 
+/// # 返回
+/// * `Ok(())` - 成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn open_screen_viewer_window(
+    share_id: String,
+    player_name: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    log::info!("打开屏幕查看窗口: share_id={}, player_name={}", share_id, player_name);
+    
+    use tauri::Manager;
+    use tauri::WebviewWindowBuilder;
+    
+    // 检查窗口是否已存在
+    let window_label = "screen-viewer";
+    if let Some(existing_window) = app.get_webview_window(window_label) {
+        log::info!("屏幕查看窗口已存在，关闭旧窗口");
+        let _ = existing_window.close();
+        // 等待窗口关闭
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    
+    // 构建URL，包含查询参数
+    let url = format!("index.html?screen-viewer=true&shareId={}&playerName={}", 
+        urlencoding::encode(&share_id), 
+        urlencoding::encode(&player_name)
+    );
+    
+    // 创建新窗口
+    let _window = WebviewWindowBuilder::new(
+        &app,
+        window_label,
+        tauri::WebviewUrl::App(url.into())
+    )
+    .title(format!("{} 的屏幕", player_name))
+    .inner_size(1280.0, 720.0)
+    .min_inner_size(800.0, 600.0)
+    .resizable(true)
+    .decorations(true)
+    .center()
+    .build()
+    .map_err(|e| format!("创建窗口失败: {}", e))?;
+    
+    log::info!("✅ 屏幕查看窗口已打开");
     Ok(())
 }

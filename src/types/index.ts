@@ -138,3 +138,25 @@ export interface AdvancedNetworkConfig {
 
 // 导出文件共享相关类型
 export * from './fileShare';
+
+/**
+ * 屏幕共享信息
+ */
+export interface ScreenShare {
+  /** 共享ID */
+  id: string;
+  /** 共享者玩家ID */
+  playerId: string;
+  /** 共享者玩家名称 */
+  playerName: string;
+  /** 共享者虚拟IP */
+  virtualIp: string;
+  /** 是否需要密码 */
+  requirePassword: boolean;
+  /** 密码（如果需要） */
+  password?: string;
+  /** 共享开始时间 */
+  startTime: number;
+  /** 共享状态 */
+  status: 'active' | 'paused' | 'stopped';
+}
