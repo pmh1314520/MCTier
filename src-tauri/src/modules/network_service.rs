@@ -812,38 +812,63 @@ impl NetworkService {
         };
 
         let mut process_guard = self.easytier_process.lock().await;
+        let mut graceful_shutdown_success = false;
 
         if let Some(mut child) = process_guard.take() {
             // 尝试优雅地终止进程
             match child.kill().await {
                 Ok(_) => {
-                    log::info!("EasyTier 进程已终止");
+                    log::info!("✅ 已发送终止信号到 EasyTier 进程");
                 }
                 Err(e) => {
-                    log::warn!("终止 EasyTier 进程时出错: {}", e);
+                    log::warn!("⚠️ 发送终止信号失败: {}", e);
                 }
             }
 
-            // 等待进程完全退出
-            match child.wait().await {
-                Ok(status) => {
-                    log::info!("EasyTier 进程已退出，状态码: {:?}", status);
+            // 等待进程完全退出（最多等待3秒）
+            match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                Ok(Ok(status)) => {
+                    log::info!("✅ EasyTier 进程已优雅退出，状态码: {:?}", status);
+                    graceful_shutdown_success = true;
                 }
-                Err(e) => {
-                    log::warn!("等待 EasyTier 进程退出时出错: {}", e);
+                Ok(Err(e)) => {
+                    log::warn!("⚠️ 等待进程退出时出错: {}", e);
+                }
+                Err(_) => {
+                    log::warn!("⚠️ 等待进程退出超时（3秒），将尝试强制终止");
                 }
             }
         } else {
             log::info!("EasyTier 服务未运行");
+            graceful_shutdown_success = true; // 没有进程运行，视为成功
         }
 
         // 释放进程锁
         drop(process_guard);
 
-        // 等待进程完全退出（缩短等待时间）
+        // 如果优雅关闭成功，跳过强制终止
+        if graceful_shutdown_success {
+            log::info!("✅ EasyTier 进程已优雅关闭，跳过强制终止");
+        } else {
+            // 只有在优雅关闭失败时才使用强制终止
+            log::warn!("⚠️ 优雅关闭失败，尝试强制终止...");
+            
+            #[cfg(target_os = "windows")]
+            {
+                let _ = tokio::process::Command::new("taskkill")
+                    .args(&["/F", "/IM", "easytier-core.exe"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                    .await;
+                
+                log::info!("✅ 已执行强制终止命令");
+            }
+        }
+
+        // 等待一小段时间确保进程完全退出
         sleep(Duration::from_millis(300)).await;
 
-        // 使用CLI工具强制清理实例（如果有实例名称）
+        // 使用CLI工具清理实例（如果有实例名称）
         if let Some(ref inst_name) = instance_name {
             log::info!("正在使用CLI工具清理实例: {}", inst_name);
             
@@ -887,25 +912,15 @@ impl NetworkService {
             }
         }
 
-        // 在Windows上强制清理虚拟网卡
+        // 在Windows上清理虚拟网卡
         #[cfg(target_os = "windows")]
         {
             log::info!("正在清理虚拟网卡...");
             
-            // 方法1: 强制结束所有easytier相关进程（先执行，确保进程不会干扰网卡清理）
-            log::info!("强制结束所有EasyTier进程...");
-            
-            // 只执行一次taskkill，使用隐藏窗口
-            let _ = tokio::process::Command::new("taskkill")
-                .args(&["/F", "/IM", "easytier-core.exe"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await;
-            
-            // 缩短等待时间
+            // 等待一小段时间，确保进程已完全退出
             sleep(Duration::from_millis(300)).await;
             
-            // 方法2: 使用pnputil删除WinTun驱动（最彻底）
+            // 使用pnputil删除WinTun驱动
             log::info!("尝试使用pnputil清理WinTun驱动...");
             match tokio::process::Command::new("pnputil")
                 .args(&["/enum-devices", "/class", "Net"])
