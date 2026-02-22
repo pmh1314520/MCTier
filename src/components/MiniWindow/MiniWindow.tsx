@@ -53,34 +53,36 @@ export const MiniWindow: React.FC = () => {
   useEffect(() => {
     const loadRemoteShares = async () => {
       try {
-        console.log('🔄 [后台] 开始加载远程共享...');
-        
-        // 直接从Store获取玩家列表（包含所有玩家，不仅仅是当前玩家）
-        console.log(`👥 [后台] 从Store获取到 ${players.length} 个玩家`);
+        // 获取当前玩家的虚拟IP
+        const currentPlayerIp = lobby?.virtualIp;
         
         let totalShares = 0;
-        for (const player of players) {
-          // 使用驼峰命名的virtualIp字段
-          if (player.virtualIp) {
-            try {
-              console.log(`📡 [后台] 正在请求 ${player.name} (${player.virtualIp}) 的共享...`);
-              const shares = await fileShareService.getRemoteShares(player.virtualIp);
-              console.log(`✅ [后台] 玩家 ${player.name} 有 ${shares.length} 个共享`);
-              totalShares += shares.length;
-            } catch (error) {
-              console.error(`❌ [后台] 获取 ${player.name} 的共享失败:`, error);
-              console.error(`❌ [后台] 错误详情:`, JSON.stringify(error));
-            }
-          } else {
-            console.warn(`⚠️ [后台] 玩家 ${player.name} 没有虚拟IP，跳过`);
+        
+        // 1. 先加载自己的共享
+        if (currentPlayerIp) {
+          try {
+            const shares = await fileShareService.getRemoteShares(currentPlayerIp);
+            totalShares += shares.length;
+          } catch (error) {
+            console.error('获取自己的共享失败:', error);
           }
         }
         
-        console.log(`📦 [后台] 总共获取到 ${totalShares} 个远程共享`);
+        // 2. 再加载其他玩家的共享
+        for (const player of players) {
+          if (player.virtualIp) {
+            try {
+              const shares = await fileShareService.getRemoteShares(player.virtualIp);
+              totalShares += shares.length;
+            } catch (error) {
+              console.error(`获取 ${player.name} 的共享失败:`, error);
+            }
+          }
+        }
+        
         setRemoteSharesCount(totalShares);
       } catch (error) {
-        console.error('❌ [后台] 加载远程共享失败:', error);
-        console.error('❌ [后台] 错误详情:', JSON.stringify(error));
+        console.error('加载远程共享失败:', error);
       }
     };
 
