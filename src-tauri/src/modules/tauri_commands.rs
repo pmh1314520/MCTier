@@ -1689,6 +1689,10 @@ pub async fn start_file_server(
     let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
     
+    // 先尝试停止旧的服务器（如果存在）
+    ft_service.stop_server().await;
+    log::info!("已停止旧的HTTP文件服务器（如果存在）");
+    
     // 设置虚拟IP
     ft_service.set_virtual_ip(virtual_ip);
     
