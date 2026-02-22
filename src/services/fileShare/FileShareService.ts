@@ -221,6 +221,72 @@ class FileShareService {
   isServerStarted(): boolean {
     return this.serverStarted;
   }
+
+  // ==================== 兼容旧WebRTC API的方法（临时） ====================
+  // 这些方法是为了让旧的FileShareManager组件能够编译通过
+  // 在完全迁移到HTTP API后可以删除
+
+  onRemoteSharesChanged(_callback: (shares: any[]) => void): void {
+    console.warn('onRemoteSharesChanged方法已废弃');
+  }
+
+  onShareAdded(_callback: (share: any) => void): void {
+    console.warn('onShareAdded方法已废弃');
+  }
+
+  onShareRemoved(_callback: (shareId: string) => void): void {
+    console.warn('onShareRemoved方法已废弃');
+  }
+
+  onShareUpdated(_callback: (share: any) => void): void {
+    console.warn('onShareUpdated方法已废弃');
+  }
+
+  initialize(_playerId: string, _playerName: string): void {
+    console.warn('initialize方法已废弃，HTTP模式不需要初始化');
+  }
+
+  setWebSocket(_ws: any): void {
+    console.warn('setWebSocket方法已废弃，HTTP模式不使用WebSocket');
+  }
+
+  getLocalSharesForBroadcast(): any[] {
+    console.warn('getLocalSharesForBroadcast方法已废弃');
+    return [];
+  }
+
+  handlePlayerLeft(_playerId: string): void {
+    console.warn('handlePlayerLeft方法已废弃');
+  }
+
+  updateRemoteShares(_shares: any): void {
+    console.warn('updateRemoteShares方法已废弃');
+  }
+
+  handleFileListRequest(_shareId: string, _path: string): Promise<any> {
+    console.warn('handleFileListRequest方法已废弃');
+    return Promise.resolve([]);
+  }
+
+  handleFileListResponse(_shareId: string, _path: string, _files: any): void {
+    console.warn('handleFileListResponse方法已废弃');
+  }
+
+  handleRemoteShareAdded(_share: any): void {
+    console.warn('handleRemoteShareAdded方法已废弃');
+  }
+
+  handleRemoteShareRemoved(_shareId: string): void {
+    console.warn('handleRemoteShareRemoved方法已废弃');
+  }
+
+  handleRemoteShareUpdated(_share: any): void {
+    console.warn('handleRemoteShareUpdated方法已废弃');
+  }
+
+  cleanup(): void {
+    this.clear();
+  }
 }
 
 export const fileShareService = new FileShareService();

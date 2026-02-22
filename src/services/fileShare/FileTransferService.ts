@@ -133,7 +133,7 @@ class FileTransferService {
         offset += chunk.length;
       }
 
-      // 保存文件（使用Tauri的fs API）
+      // 保存文件
       const { writeFile } = await import('@tauri-apps/api/fs');
       await writeFile(task.save_path, fileData);
 
@@ -211,6 +211,49 @@ class FileTransferService {
     }
     this.downloadTasks.clear();
     this.abortControllers.clear();
+  }
+
+  // ==================== 兼容旧WebRTC API的方法（临时） ====================
+
+  onTransferProgress(_callback: (progress: any) => void): void {
+    console.warn('onTransferProgress方法已废弃');
+  }
+
+  onTransferComplete(_callback: (requestId: string, filePath: string) => void): void {
+    console.warn('onTransferComplete方法已废弃');
+  }
+
+  onTransferError(_callback: (requestId: string, error: string) => void): void {
+    console.warn('onTransferError方法已废弃');
+  }
+
+  initialize(_playerId: string): void {
+    console.warn('initialize方法已废弃');
+  }
+
+  setWebSocket(_ws: any): void {
+    console.warn('setWebSocket方法已废弃');
+  }
+
+  handleTransferRequest(_requestId: string, _shareId: string, _filePath: string, _fileSize: number, _peerId: string): Promise<void> {
+    console.warn('handleTransferRequest方法已废弃');
+    return Promise.resolve();
+  }
+
+  handleTransferError(_requestId: string, _error: string): void {
+    console.warn('handleTransferError方法已废弃');
+  }
+
+  onDataChannelReady(_peerId: string, _channel: any): void {
+    console.warn('onDataChannelReady方法已废弃');
+  }
+
+  handleDataChannelMessage(_peerId: string, _data: any): void {
+    console.warn('handleDataChannelMessage方法已废弃');
+  }
+
+  cleanup(): void {
+    this.clear();
   }
 }
 
