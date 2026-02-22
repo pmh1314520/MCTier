@@ -1782,18 +1782,41 @@ pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), St
 /// 获取远程共享列表（通过HTTP API）
 #[tauri::command]
 pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, String> {
-    log::info!("获取远程共享列表: {}", peer_ip);
+    log::info!("📡 正在获取远程共享列表: {}", peer_ip);
     
-    let url = format!("http://{}:18888/api/shares", peer_ip);
+    let url = format!("http://{}:14539/api/shares", peer_ip);
+    log::info!("🔗 请求URL: {}", url);
     
-    match reqwest::get(&url).await {
+    // 设置超时时间为5秒
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| {
+            log::error!("❌ 创建HTTP客户端失败: {}", e);
+            format!("创建HTTP客户端失败: {}", e)
+        })?;
+    
+    match client.get(&url).send().await {
         Ok(response) => {
+            let status = response.status();
+            log::info!("📥 收到响应，状态码: {}", status);
+            
+            if !status.is_success() {
+                log::error!("❌ HTTP请求失败，状态码: {}", status);
+                return Err(format!("HTTP请求失败: {}", status));
+            }
+            
             match response.json::<serde_json::Value>().await {
                 Ok(json) => {
+                    log::info!("📦 响应JSON: {}", json);
+                    
                     if let Some(shares) = json.get("shares") {
                         match serde_json::from_value::<Vec<SharedFolder>>(shares.clone()) {
                             Ok(shares_vec) => {
-                                log::info!("✅ 获取到 {} 个共享", shares_vec.len());
+                                log::info!("✅ 成功获取 {} 个共享", shares_vec.len());
+                                for (i, share) in shares_vec.iter().enumerate() {
+                                    log::info!("  {}. {} (ID: {})", i + 1, share.name, share.id);
+                                }
                                 Ok(shares_vec)
                             }
                             Err(e) => {
@@ -1802,17 +1825,23 @@ pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, Str
                             }
                         }
                     } else {
+                        log::warn!("⚠️ 响应中没有shares字段，返回空列表");
                         Ok(Vec::new())
                     }
                 }
                 Err(e) => {
-                    log::error!("❌ 解析响应失败: {}", e);
+                    log::error!("❌ 解析响应JSON失败: {}", e);
                     Err(format!("解析响应失败: {}", e))
                 }
             }
         }
         Err(e) => {
-            log::error!("❌ 请求失败: {}", e);
+            log::error!("❌ HTTP请求失败: {}", e);
+            log::error!("💡 可能原因:");
+            log::error!("   1. 对方的HTTP文件服务器未启动");
+            log::error!("   2. 虚拟网络连接不通（尝试ping {}）", peer_ip);
+            log::error!("   3. 防火墙阻止了14539端口");
+            log::error!("   4. 对方的虚拟IP地址不正确");
             Err(format!("请求失败: {}", e))
         }
     }
@@ -1827,7 +1856,7 @@ pub async fn get_remote_files(
 ) -> Result<Vec<FileTransferFileInfo>, String> {
     log::info!("获取远程文件列表: {} / {} / {:?}", peer_ip, share_id, path);
     
-    let mut url = format!("http://{}:18888/api/shares/{}/files", peer_ip, share_id);
+    let mut url = format!("http://{}:14539/api/shares/{}/files", peer_ip, share_id);
     if let Some(p) = path {
         url = format!("{}?path={}", url, urlencoding::encode(&p));
     }
@@ -1873,7 +1902,7 @@ pub async fn verify_share_password(
 ) -> Result<bool, String> {
     log::info!("验证共享密码: {} / {}", peer_ip, share_id);
     
-    let url = format!("http://{}:18888/api/shares/{}/verify", peer_ip, share_id);
+    let url = format!("http://{}:14539/api/shares/{}/verify", peer_ip, share_id);
     let client = reqwest::Client::new();
     
     let body = serde_json::json!({
@@ -1912,10 +1941,88 @@ pub async fn get_download_url(
     file_path: String,
 ) -> Result<String, String> {
     let url = format!(
-        "http://{}:18888/api/shares/{}/download/{}",
+        "http://{}:14539/api/shares/{}/download/{}",
         peer_ip,
         share_id,
         urlencoding::encode(&file_path)
     );
     Ok(url)
+}
+
+/// 诊断文件共享连接
+/// 
+/// # 参数
+/// * `peer_ip` - 对方的虚拟IP
+/// 
+/// # 返回
+/// * `Ok(String)` - 诊断结果（JSON格式）
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn diagnose_file_share_connection(peer_ip: String) -> Result<String, String> {
+    log::info!("🔍 开始诊断文件共享连接: {}", peer_ip);
+    
+    let mut results = serde_json::json!({
+        "peer_ip": peer_ip,
+        "tests": []
+    });
+    
+    // 测试1: Ping虚拟IP
+    log::info!("📡 测试1: Ping虚拟IP...");
+    let ping_result = ping_virtual_ip(peer_ip.clone()).await;
+    let ping_success = ping_result.is_ok() && ping_result.unwrap_or(false);
+    results["tests"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "Ping虚拟IP",
+        "success": ping_success,
+        "message": if ping_success {
+            "✅ 虚拟网络连接正常"
+        } else {
+            "❌ 无法ping通虚拟IP，虚拟网络可能未连接"
+        }
+    }));
+    
+    // 测试2: 检查HTTP服务器端口
+    log::info!("🔌 测试2: 检查HTTP服务器端口...");
+    let url = format!("http://{}:14539/api/shares", peer_ip);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+    
+    let http_result = client.get(&url).send().await;
+    let http_message = if http_result.is_ok() {
+        "✅ HTTP文件服务器可访问".to_string()
+    } else {
+        format!("❌ 无法连接HTTP服务器: {}", http_result.as_ref().err().unwrap())
+    };
+    
+    results["tests"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "HTTP服务器连接",
+        "success": http_result.is_ok(),
+        "message": http_message
+    }));
+    
+    // 测试3: 获取共享列表
+    if http_result.is_ok() {
+        log::info!("📋 测试3: 获取共享列表...");
+        match get_remote_shares(peer_ip.clone()).await {
+            Ok(shares) => {
+                results["tests"].as_array_mut().unwrap().push(serde_json::json!({
+                    "name": "获取共享列表",
+                    "success": true,
+                    "message": format!("✅ 成功获取 {} 个共享", shares.len())
+                }));
+            }
+            Err(e) => {
+                results["tests"].as_array_mut().unwrap().push(serde_json::json!({
+                    "name": "获取共享列表",
+                    "success": false,
+                    "message": format!("❌ 获取共享列表失败: {}", e)
+                }));
+            }
+        }
+    }
+    
+    log::info!("✅ 诊断完成");
+    
+    Ok(serde_json::to_string_pretty(&results).unwrap())
 }

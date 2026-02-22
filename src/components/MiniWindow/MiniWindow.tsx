@@ -5,7 +5,7 @@ import { Modal, Spin, message, Tooltip } from 'antd';
 import { open } from '@tauri-apps/plugin-shell';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
-import { webrtcClient } from '../../services';
+import { webrtcClient, fileShareService } from '../../services';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManager } from '../FileShareManager/FileShareManager';
@@ -45,6 +45,56 @@ export const MiniWindow: React.FC = () => {
   
   // 计算未读消息数量（只计算其他人的消息）
   const unreadCount = Math.max(0, othersMessageCount - lastViewedOthersMessageCount);
+
+  // 后台轮询远程共享
+  const [remoteSharesCount, setRemoteSharesCount] = useState(0);
+
+  // 后台加载远程共享
+  useEffect(() => {
+    const loadRemoteShares = async () => {
+      try {
+        console.log('🔄 [后台] 开始加载远程共享...');
+        
+        interface Player {
+          id: string;
+          name: string;
+          virtual_ip: string;
+        }
+        
+        const playerList = await invoke<Player[]>('get_players');
+        console.log(`👥 [后台] 获取到 ${playerList.length} 个玩家`);
+        
+        let totalShares = 0;
+        for (const player of playerList) {
+          if (player.virtual_ip) {
+            try {
+              console.log(`📡 [后台] 正在请求 ${player.name} (${player.virtual_ip}) 的共享...`);
+              const shares = await fileShareService.getRemoteShares(player.virtual_ip);
+              console.log(`✅ [后台] 玩家 ${player.name} 有 ${shares.length} 个共享`);
+              totalShares += shares.length;
+            } catch (error) {
+              console.error(`❌ [后台] 获取 ${player.name} 的共享失败:`, error);
+              console.error(`❌ [后台] 错误详情:`, JSON.stringify(error));
+            }
+          }
+        }
+        
+        console.log(`📦 [后台] 总共获取到 ${totalShares} 个远程共享`);
+        setRemoteSharesCount(totalShares);
+      } catch (error) {
+        console.error('❌ [后台] 加载远程共享失败:', error);
+        console.error('❌ [后台] 错误详情:', JSON.stringify(error));
+      }
+    };
+
+    // 立即执行一次
+    loadRemoteShares();
+
+    // 每3秒轮询一次
+    const interval = setInterval(loadRemoteShares, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {
@@ -978,13 +1028,16 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className="mini-voice-btn file-share-btn"
                   onClick={() => setCurrentView('fileShare')}
-                  title="文件夹共享"
+                  title={remoteSharesCount > 0 ? `文件夹共享 (${remoteSharesCount}个可用)` : "文件夹共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
+                  {remoteSharesCount > 0 && (
+                    <span className="share-count-badge">{remoteSharesCount}</span>
+                  )}
                 </motion.button>
               </motion.div>
             </motion.div>

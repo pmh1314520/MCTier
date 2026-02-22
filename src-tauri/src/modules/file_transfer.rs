@@ -25,7 +25,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tower_http::cors::CorsLayer;
 
-const FILE_SERVER_PORT: u16 = 18888; // 固定端口，方便其他节点访问
+const FILE_SERVER_PORT: u16 = 14539; // 固定端口，方便其他节点访问
 const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
 
 /// 共享文件夹信息
@@ -111,13 +111,17 @@ impl FileTransferService {
         let virtual_ip = match self.get_virtual_ip() {
             Some(ip) => ip,
             None => {
+                log::error!("❌ 虚拟IP未设置，无法启动HTTP文件服务器");
                 return Err("虚拟IP未设置".into());
             }
         };
 
         let addr: SocketAddr = format!("{}:{}", virtual_ip, FILE_SERVER_PORT)
             .parse()
-            .map_err(|e| format!("无效的地址: {}", e))?;
+            .map_err(|e| {
+                log::error!("❌ 无效的地址格式: {}:{} - {}", virtual_ip, FILE_SERVER_PORT, e);
+                format!("无效的地址: {}", e)
+            })?;
 
         let shared_folders = self.shared_folders.clone();
 
@@ -132,17 +136,37 @@ impl FileTransferService {
                 shared_folders: shared_folders.clone(),
             });
 
-        log::info!("🚀 启动HTTP文件服务器: http://{}", addr);
+        log::info!("🚀 正在启动HTTP文件服务器...");
+        log::info!("📍 监听地址: http://{}", addr);
+        log::info!("📂 共享文件夹数量: {}", shared_folders.len());
+
+        // 尝试绑定端口
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => {
+                log::info!("✅ 成功绑定端口 {}", FILE_SERVER_PORT);
+                l
+            }
+            Err(e) => {
+                log::error!("❌ 绑定端口失败: {} - 错误: {}", FILE_SERVER_PORT, e);
+                log::error!("💡 可能原因: 1) 端口被占用 2) 虚拟网卡未就绪 3) 防火墙阻止");
+                return Err(format!("绑定端口失败: {}", e).into());
+            }
+        };
 
         // 启动服务器
-        let listener = tokio::net::TcpListener::bind(addr).await?;
         let server_task = tokio::spawn(async move {
+            log::info!("🌐 HTTP文件服务器开始监听请求...");
             if let Err(e) = axum::serve(listener, app).await {
-                log::error!("❌ HTTP服务器错误: {}", e);
+                log::error!("❌ HTTP服务器运行错误: {}", e);
+            } else {
+                log::info!("🛑 HTTP服务器已正常停止");
             }
         });
 
         *self.server_handle.write() = Some(server_task);
+
+        log::info!("✅ HTTP文件服务器启动成功！");
+        log::info!("📡 其他玩家可以通过 http://{}:{} 访问您的共享", virtual_ip, FILE_SERVER_PORT);
 
         Ok(())
     }
@@ -224,6 +248,8 @@ async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
         .iter()
         .map(|entry| entry.value().clone())
         .collect();
+
+    log::info!("📋 收到获取共享列表请求，返回 {} 个共享", shares.len());
 
     Json(ShareListResponse { shares })
 }

@@ -408,7 +408,7 @@ mod tests {
     fn test_player_joined_event_serialization() {
         use crate::modules::lobby_manager::Player;
         
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let event = PlayerJoinedEvent {
             player,
             timestamp: 1234567890,

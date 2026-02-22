@@ -1,0 +1,7 @@
+﻿cargo :     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.00s
+所在位置 行:1 字符: 1
++ cargo build 2>&1 | Out-File -FilePath "build_output.txt" -Encoding UT ...
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `d...get(s) in 1.00s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -71,6 +71,8 @@ pub struct Player {
     pub id: String,
     /// 玩家名称
     pub name: String,
+    /// 虚拟IP地址
+    pub virtual_ip: String,
     /// 麦克风是否开启
     pub mic_enabled: bool,
     /// 是否被静音
@@ -84,13 +86,15 @@ impl Player {
     /// 
     /// # 参数
     /// * `name` - 玩家名称
+    /// * `virtual_ip` - 虚拟IP地址
     /// 
     /// # 返回
     /// 新的玩家实例
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, virtual_ip: String) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name,
+            virtual_ip,
             mic_enabled: false,
             is_muted: false,
             joined_at: Utc::now(),
@@ -377,7 +381,7 @@ impl LobbyManager {
         );
 
         // 创建当前玩家
-        let player = Player::new(player_name);
+        let player = Player::new(player_name, virtual_ip.clone());
 
         // 保存大厅和玩家信息
         self.current_lobby = Some(lobby.clone());
@@ -473,14 +477,14 @@ impl LobbyManager {
         let lobby = Lobby::new(
             name, 
             Some(password), 
-            virtual_ip, 
+            virtual_ip.clone(),  // clone一份，因为后面还要用
             creator_virtual_ip,
             virtual_domain,
             Some(use_domain),
         );
 
         // 创建当前玩家
-        let player = Player::new(player_name);
+        let player = Player::new(player_name, virtual_ip);
 
         // 保存大厅和玩家信息
         self.current_lobby = Some(lobby.clone());
@@ -736,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_player_creation() {
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         
         assert_eq!(player.name, "测试玩家");
         assert!(!player.mic_enabled);
@@ -863,7 +867,7 @@ mod tests {
     fn test_update_player_mic_status() {
         let mut manager = LobbyManager::new();
         
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let player_id = player.id.clone();
         
         manager.add_player(player);
@@ -886,7 +890,7 @@ mod tests {
     fn test_update_player_mute_status() {
         let mut manager = LobbyManager::new();
         
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let player_id = player.id.clone();
         
         manager.add_player(player);
@@ -966,7 +970,7 @@ mod tests {
 
     #[test]
     fn test_player_serialization() {
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         
         // 序列化
         let json = serde_json::to_string(&player).unwrap();
@@ -1143,7 +1147,7 @@ mod tests {
 
     #[test]
     fn test_player_struct_fields() {
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         
         // 验证所有字段都已正确设置
         assert!(!player.id.is_empty(), "玩家 ID 不应为空");
@@ -1170,7 +1174,7 @@ mod tests {
         
         // 添加多个玩家
         for i in 1..=5 {
-            let player = Player::new(format!("玩家{}", i));
+            let player = Player::new(format!("玩家{}", i), format!("10.126.126.{}", i));
             manager.add_player(player);
         }
         
@@ -1214,7 +1218,7 @@ mod tests {
 
     #[test]
     fn test_player_equality() {
-        let player1 = Player::new("测试玩家".to_string());
+        let player1 = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let player2 = player1.clone();
         
         // 验证克隆的玩家相等
@@ -1224,7 +1228,7 @@ mod tests {
     #[test]
     fn test_get_player_by_id() {
         let mut manager = LobbyManager::new();
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let player_id = player.id.clone();
         
         manager.add_player(player);
@@ -1251,7 +1255,7 @@ mod tests {
     #[test]
     fn test_update_player_status_comprehensive() {
         let mut manager = LobbyManager::new();
-        let player = Player::new("测试玩家".to_string());
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
         let player_id = player.id.clone();
         
         manager.add_player(player);

@@ -72,6 +72,7 @@ use modules::tauri_commands::{
     get_remote_files,
     verify_share_password,
     get_download_url,
+    diagnose_file_share_connection,
 };
 
 // 测试命令
@@ -203,6 +204,7 @@ pub fn run() {
             get_remote_files,
             verify_share_password,
             get_download_url,
+            diagnose_file_share_connection,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

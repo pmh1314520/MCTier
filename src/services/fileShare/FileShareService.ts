@@ -99,10 +99,20 @@ class FileShareService {
    */
   async getRemoteShares(peerIp: string): Promise<SharedFolder[]> {
     try {
+      console.log(`📡 [FileShareService] 正在获取远程共享: ${peerIp}`);
+      console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peerIp: '${peerIp}' })`);
+      
       const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp });
+      
+      console.log(`✅ [FileShareService] 成功获取 ${shares.length} 个共享`);
+      if (shares.length > 0) {
+        console.log(`📋 [FileShareService] 共享列表:`, shares);
+      }
       return shares;
     } catch (error) {
-      console.error('❌ 获取远程共享失败:', error);
+      console.error(`❌ [FileShareService] 获取远程共享失败 (${peerIp}):`, error);
+      console.error(`❌ [FileShareService] 错误类型:`, typeof error);
+      console.error(`❌ [FileShareService] 错误内容:`, JSON.stringify(error, null, 2));
       throw error;
     }
   }

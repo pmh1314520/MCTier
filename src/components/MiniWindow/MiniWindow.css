@@ -1212,3 +1212,41 @@
   z-index: 1;
 }
 
+
+
+/* 共享数量徽章样式 */
+.share-count-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
+  animation: shareCountPulse 2s ease-in-out infinite;
+  z-index: 10;
+}
+
+@keyframes shareCountPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 2px 10px rgba(255, 107, 107, 0.6);
+  }
+}
+
+/* 文件夹共享按钮需要相对定位以支持徽章 */
+.mini-voice-btn.file-share-btn {
+  position: relative;
+}
