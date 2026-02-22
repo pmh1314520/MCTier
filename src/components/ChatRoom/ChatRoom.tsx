@@ -21,6 +21,7 @@ export const ChatRoom: React.FC = () => {
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -178,15 +179,29 @@ export const ChatRoom: React.FC = () => {
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !currentPlayerId) return;
     
+    const messageContent = inputValue.trim();
+    const currentPlayerName = config.playerName || '我';
+    
+    // 立即添加到本地消息列表（乐观更新）
+    const localMessage: ChatMessage = {
+      id: `msg-${Date.now()}-${currentPlayerId}`,
+      playerId: currentPlayerId,
+      playerName: currentPlayerName,
+      content: messageContent,
+      timestamp: Date.now(),
+      type: 'text',
+    };
+    addChatMessage(localMessage);
+    
+    // 清空输入框
+    setInputValue('');
+    
+    // 滚动到底部
+    setTimeout(() => scrollToBottom(), 50);
+    
     try {
-      // 通过P2P发送消息
-      await p2pChatService.sendTextMessage(inputValue.trim());
-      
-      // 清空输入框
-      setInputValue('');
-      
-      // 滚动到底部
-      setTimeout(() => scrollToBottom(), 100);
+      // 异步发送到P2P网络
+      await p2pChatService.sendTextMessage(messageContent);
     } catch (error) {
       console.error('发送聊天消息失败:', error);
       antdMessage.error('发送消息失败');
@@ -375,6 +390,7 @@ export const ChatRoom: React.FC = () => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation();
       handleSendMessage();
     }
   };
@@ -388,6 +404,22 @@ export const ChatRoom: React.FC = () => {
     // 聚焦输入框
     if (textAreaRef.current) {
       textAreaRef.current.focus();
+    }
+  };
+
+  // 下载图片
+  const handleDownloadImage = (imageData: string) => {
+    try {
+      const link = document.createElement('a');
+      link.href = imageData;
+      link.download = `chat-image-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      antdMessage.success('图片已下载');
+    } catch (error) {
+      console.error('下载图片失败:', error);
+      antdMessage.error('下载图片失败');
     }
   };
 
@@ -457,7 +489,7 @@ export const ChatRoom: React.FC = () => {
                       src={message.imageData} 
                       alt="聊天图片" 
                       className="chat-image"
-                      style={{ maxWidth: '300px', maxHeight: '300px', borderRadius: '8px' }}
+                      onClick={() => setPreviewImage(message.imageData!)}
                     />
                   ) : (
                     message.content
@@ -494,6 +526,34 @@ export const ChatRoom: React.FC = () => {
         )}
       </AnimatePresence>
       
+      {/* 图片预览模态框 */}
+      <AnimatePresence>
+        {previewImage && (
+          <motion.div
+            className="image-preview-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewImage(null)}
+          >
+            <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
+              <img src={previewImage} alt="预览" />
+              <div className="image-preview-actions">
+                <Button
+                  type="primary"
+                  onClick={() => handleDownloadImage(previewImage)}
+                >
+                  下载图片
+                </Button>
+                <Button onClick={() => setPreviewImage(null)}>
+                  关闭
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
       {/* Emoji选择器 */}
       <AnimatePresence>
         {showEmojiPicker && (
@@ -524,43 +584,43 @@ export const ChatRoom: React.FC = () => {
           delay: 0.1
         }}
       >
-        <div className="chat-input-toolbar">
+        <div className="chat-input-wrapper">
+          <div className="input-with-emoji">
+            <TextArea
+              ref={textAreaRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder="输入消息(Shift+Enter换行，支持粘贴/拖拽图片)"
+              autoSize={{ minRows: 1, maxRows: 3 }}
+              maxLength={500}
+            />
+            <Button
+              type="text"
+              icon={<EmojiIcon size={20} />}
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              title="选择表情"
+              className="emoji-button-inline"
+            />
+          </div>
+          
           <Button
             type="text"
-            icon={<EmojiIcon size={20} />}
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            title="选择表情"
-            className="toolbar-button"
-          />
-          <Button
-            type="text"
-            icon={<ImageIcon size={20} />}
+            icon={<ImageIcon size={22} />}
             onClick={handleImageUpload}
             loading={isUploading}
             title="发送图片"
-            className="toolbar-button"
+            className="image-button"
           />
-        </div>
-        
-        <div className="chat-input-wrapper">
-          <TextArea
-            ref={textAreaRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="输入消息(Shift+Enter换行，支持粘贴/拖拽图片)"
-            autoSize={{ minRows: 1, maxRows: 3 }}
-            maxLength={500}
-          />
+          
           <Button
             type="primary"
             icon={<SendOutlined />}
             onClick={handleSendMessage}
             disabled={!inputValue.trim()}
-          >
-            发送
-          </Button>
+            className="send-button"
+          />
         </div>
       </motion.div>
       

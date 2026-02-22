@@ -31,7 +31,8 @@
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 56px 16px 56px; /* 增加顶部内边距从 16px 到 24px */
+  overflow-x: hidden;
+  padding: 24px 56px 16px 56px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -247,24 +248,77 @@
 
 .chat-input-area {
   display: flex;
-  flex-direction: column;
   gap: 8px;
   padding: 16px;
   background: rgba(30, 30, 40, 0.95);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.chat-input-toolbar {
+.chat-input-wrapper {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  align-items: flex-end;
+  flex: 1;
+}
+
+.input-with-emoji {
+  position: relative;
+  flex: 1;
+  display: flex;
   align-items: center;
 }
 
-.toolbar-button {
+.input-with-emoji textarea {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-radius: 8px;
+  resize: none;
+  transition: all 0.3s ease;
+  padding-right: 40px !important;
+}
+
+.input-with-emoji textarea:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.input-with-emoji textarea:focus {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(100, 100, 120, 0.8) !important;
+  box-shadow: 0 0 0 2px rgba(100, 100, 120, 0.2);
+}
+
+.emoji-button-inline {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.emoji-button-inline:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  transform: scale(1.1);
+}
+
+.image-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
   height: 32px;
   padding: 0;
   border-radius: 8px;
@@ -274,60 +328,37 @@
   transition: all 0.3s ease;
 }
 
-.toolbar-button:hover {
+.image-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.9);
   transform: translateY(-2px);
 }
 
-.chat-input-wrapper {
+.send-button {
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.chat-input-area textarea {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
-  border-radius: 8px;
-  resize: none;
-  transition: all 0.3s ease;
-}
-
-.chat-input-area textarea:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
-.chat-input-area textarea:focus {
-  background: rgba(255, 255, 255, 0.1) !important;
-  border-color: rgba(100, 100, 120, 0.8) !important;
-  box-shadow: 0 0 0 2px rgba(100, 100, 120, 0.2);
-}
-
-.chat-input-area button {
-  align-self: flex-end;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
   height: 32px;
+  padding: 0;
   border-radius: 8px;
   background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%);
   border: none;
   transition: all 0.3s ease;
 }
 
-.chat-input-area button:not(:disabled) {
+.send-button:not(:disabled) {
   background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%) !important;
 }
 
-.chat-input-area button:hover:not(:disabled) {
+.send-button:hover:not(:disabled) {
   background: linear-gradient(135deg, #73d13d 0%, #95de64 100%) !important;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(82, 196, 26, 0.4);
 }
 
-.chat-input-area button:disabled {
+.send-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%) !important;
@@ -336,21 +367,64 @@
 /* 聊天图片样式 */
 .chat-image {
   display: block;
-  max-width: 300px;
+  max-width: 100%;
   max-height: 300px;
+  width: auto;
+  height: auto;
   border-radius: 8px;
   cursor: pointer;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  object-fit: contain;
 }
 
 .chat-image:hover {
-  transform: scale(1.05);
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 图片预览模态框 */
+.image-preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  cursor: pointer;
+}
+
+.image-preview-content {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  cursor: default;
+}
+
+.image-preview-content img {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.image-preview-actions {
+  display: flex;
+  gap: 12px;
 }
 
 /* Emoji选择器容器 */
 .emoji-picker-container {
   position: absolute;
-  bottom: 120px;
+  bottom: 70px;
   left: 16px;
+  right: 16px;
   z-index: 1000;
 }

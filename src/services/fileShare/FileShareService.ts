@@ -257,10 +257,6 @@ class FileShareService {
     console.warn('onShareUpdated方法已废弃');
   }
 
-  initialize(_playerId: string, _playerName: string): void {
-    console.warn('initialize方法已废弃，HTTP模式不需要初始化');
-  }
-
   setWebSocket(_ws: any): void {
     console.warn('setWebSocket方法已废弃，HTTP模式不使用WebSocket');
   }

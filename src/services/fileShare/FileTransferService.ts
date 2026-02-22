@@ -229,10 +229,6 @@ class FileTransferService {
     console.warn('onTransferError方法已废弃');
   }
 
-  initialize(_playerId: string): void {
-    console.warn('initialize方法已废弃');
-  }
-
   setWebSocket(_ws: any): void {
     console.warn('setWebSocket方法已废弃');
   }

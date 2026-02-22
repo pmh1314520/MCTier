@@ -158,17 +158,6 @@ export class WebRTCClient {
       this.startHeartbeat();
       console.log('✅ 心跳已启动');
 
-      // 初始化文件共享服务
-      console.log('正在初始化文件共享服务...');
-      try {
-        fileShareService.initialize(this.localPlayerId, this.localPlayerName);
-        fileTransferService.initialize(this.localPlayerId);
-        console.log('✅ 文件共享服务初始化完成');
-      } catch (error) {
-        console.error('❌ 文件共享服务初始化失败:', error);
-        // 不中断流程，文件共享功能可选
-      }
-
       console.log('✅ WebRTC 客户端初始化完成');
     } catch (error) {
       console.error('❌ WebRTC 初始化失败:', error);
