@@ -4,8 +4,8 @@
  * 支持多线程下载、断点续传
  */
 
+import { invoke } from '@tauri-apps/api/core';
 import { DownloadTask } from '../../types/fileShare';
-import { save } from '@tauri-apps/api/dialog';
 
 class FileTransferService {
   private downloadTasks: Map<string, DownloadTask> = new Map();
@@ -24,14 +24,14 @@ class FileTransferService {
     filePath: string
   ): Promise<void> {
     // 让用户选择保存位置
-    const savePath = await save({
-      defaultPath: fileName,
-      filters: [],
-    });
+    const saveFolder = await invoke<string | null>('select_folder');
 
-    if (!savePath) {
+    if (!saveFolder) {
       throw new Error('用户取消了保存');
     }
+
+    // 构建完整的保存路径
+    const savePath = `${saveFolder}\\${fileName}`;
 
     // 创建下载任务
     const task: DownloadTask = {
@@ -134,8 +134,10 @@ class FileTransferService {
       }
 
       // 保存文件
-      const { writeFile } = await import('@tauri-apps/api/fs');
-      await writeFile(task.save_path, fileData);
+      await invoke('write_file_bytes', { 
+        path: task.save_path, 
+        data: Array.from(fileData) 
+      });
 
       // 更新任务状态
       task.status = 'completed';

@@ -589,76 +589,18 @@ export class WebRTCClient {
           break;
           
         case 'file-list-request':
-          // 收到文件列表请求
-          console.log(`📂 收到文件列表请求 from ${message.from}, shareId: ${message.shareId}`);
-          try {
-            const fileList = await fileShareService.handleFileListRequest(
-              message.shareId,
-              message.path,
-              message.password
-            );
-            
-            // 发送文件列表响应
-            this.sendWebSocketMessage({
-              type: 'file-list-response',
-              from: this.localPlayerId,
-              to: message.from,
-              shareId: message.shareId,
-              path: message.path,
-              files: fileList,
-            });
-            console.log(`✅ 文件列表已发送 to ${message.from}`);
-          } catch (error) {
-            console.error('❌ 处理文件列表请求失败:', error);
-            // 发送错误响应
-            this.sendWebSocketMessage({
-              type: 'file-list-response',
-              from: this.localPlayerId,
-              to: message.from,
-              shareId: message.shareId,
-              path: message.path,
-              error: String(error),
-            });
-          }
+          // 收到文件列表请求 (已废弃，使用HTTP API)
+          console.log(`📂 收到文件列表请求 from ${message.from}, shareId: ${message.shareId} (已废弃)`);
           break;
           
         case 'file-list-response':
-          // 收到文件列表响应
-          console.log(`📂 收到文件列表响应 from ${message.from}, shareId: ${message.shareId}`);
-          try {
-            if (message.error) {
-              console.error(`❌ 文件列表请求失败: ${message.error}`);
-            } else {
-              fileShareService.handleFileListResponse(message.shareId, message.path, message.files);
-              console.log(`✅ 文件列表已接收，共 ${message.files?.length || 0} 个文件`);
-            }
-          } catch (error) {
-            console.error('❌ 处理文件列表响应失败:', error);
-          }
+          // 收到文件列表响应 (已废弃，使用HTTP API)
+          console.log(`📂 收到文件列表响应 from ${message.from}, shareId: ${message.shareId} (已废弃)`);
           break;
           
         case 'file-transfer-request':
-          // 收到文件传输请求
-          console.log(`📥 收到文件传输请求 from ${message.from}, request:`, message.request);
-          try {
-            if (!message.request) {
-              throw new Error('请求数据不存在');
-            }
-            await fileTransferService.handleTransferRequest(
-              message.request.requestId,
-              message.from,
-              message.request.shareId,
-              message.request.filePath,
-              message.request.fileName,
-              message.request.fileSize,
-              message.request.rangeStart,
-              message.request.rangeEnd,
-              message.request.threadId
-            );
-            console.log(`✅ 文件传输请求已接受: ${message.request.fileName}`);
-          } catch (error) {
-            console.error('❌ 处理文件传输请求失败:', error);
-          }
+          // 收到文件传输请求 (已废弃，使用HTTP API)
+          console.log(`📥 收到文件传输请求 from ${message.from} (已废弃)`);
           break;
           
         case 'file-transfer-response':
