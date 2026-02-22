@@ -49,6 +49,7 @@ export const FileShareManagerNew: React.FC = () => {
   
   // 下载状态
   const [downloads, setDownloads] = useState<DownloadTask[]>([]);
+  const [transferSubTab, setTransferSubTab] = useState<'downloading' | 'completed'>('downloading');
   
   // 密码验证
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -72,6 +73,7 @@ export const FileShareManagerNew: React.FC = () => {
   const loadRemoteShares = async () => {
     
     const allShares: SimpleRemoteShare[] = [];
+    const now = Math.floor(Date.now() / 1000);
     
     // 1. 加载自己的共享
     if (lobby?.virtualIp) {
@@ -79,11 +81,14 @@ export const FileShareManagerNew: React.FC = () => {
         const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp: lobby.virtualIp });
         
         shares.forEach(share => {
-          allShares.push({
-            share,
-            ownerName: `${config.playerName || '我'} (我)`,
-            ownerIp: lobby.virtualIp!
-          });
+          // 过滤掉过期的共享
+          if (!share.expire_time || share.expire_time > now) {
+            allShares.push({
+              share,
+              ownerName: `${config.playerName || '我'} (我)`,
+              ownerIp: lobby.virtualIp!
+            });
+          }
         });
       } catch (error) {
         console.error('获取自己的共享失败:', error);
@@ -97,15 +102,33 @@ export const FileShareManagerNew: React.FC = () => {
           const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp: player.virtualIp });
           
           shares.forEach(share => {
-            allShares.push({
-              share,
-              ownerName: player.name,
-              ownerIp: player.virtualIp!
-            });
+            // 过滤掉过期的共享
+            if (!share.expire_time || share.expire_time > now) {
+              allShares.push({
+                share,
+                ownerName: player.name,
+                ownerIp: player.virtualIp!
+              });
+            }
           });
         } catch (error) {
           console.error(`获取 ${player.name} 的共享失败:`, error);
         }
+      }
+    }
+    
+    // 检查当前正在浏览的共享是否还存在
+    if (selectedShare) {
+      const stillExists = allShares.some(
+        s => s.ownerIp === selectedShare.ownerIp && s.share.id === selectedShare.share.id
+      );
+      if (!stillExists) {
+        // 共享已被删除，退出浏览
+        setSelectedShare(null);
+        setCurrentPath('');
+        setFiles([]);
+        setSelectedFiles(new Set());
+        message.warning('该共享文件夹已被删除');
       }
     }
     
@@ -579,8 +602,21 @@ export const FileShareManagerNew: React.FC = () => {
 
   // 取消下载
   const handleCancelDownload = (taskId: string) => {
+    const task = downloads.find(t => t.id === taskId);
+    if (task?.abortController) {
+      task.abortController.abort();
+    }
     setDownloads(prev => prev.filter(t => t.id !== taskId));
     message.info('已取消下载');
+  };
+
+  // 打开文件所在文件夹
+  const handleOpenFileLocation = async (savePath: string) => {
+    try {
+      await invoke('open_file_location', { path: savePath });
+    } catch (error) {
+      message.error(`打开文件夹失败: ${error}`);
+    }
   };
 
   // 格式化大小
@@ -669,7 +705,16 @@ export const FileShareManagerNew: React.FC = () => {
                           <FolderIcon size={24} className="share-icon" />
                           <div className="share-info">
                             <div className="share-name">{remoteShare.share.name}</div>
-                            <div className="share-meta">{remoteShare.ownerName}{remoteShare.share.password && ' · 🔒'}{remoteShare.share.expire_time && ` · ⏰ ${formatTime(remoteShare.share.expire_time)}`}</div>
+                            <div className="share-meta">{remoteShare.ownerName}</div>
+                          </div>
+                          {/* 右上角状态图标 */}
+                          <div className="share-status-icons">
+                            {remoteShare.share.password && (
+                              <div className="status-icon lock-icon" title="需要密码">🔒</div>
+                            )}
+                            {remoteShare.share.expire_time && (
+                              <div className="status-icon expiry-icon" title={`有效期至 ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`}>⏰</div>
+                            )}
                           </div>
                         </motion.div>
                       ))}
@@ -679,14 +724,14 @@ export const FileShareManagerNew: React.FC = () => {
                 ) : (
                   <div className="file-browser">
                     <div className="browser-header">
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
                         <Button size="small" onClick={handleGoBack} disabled={!currentPath} icon={<BackIcon size={16} />} title="返回上级" />
                         <Button size="small" onClick={handleGoToRoot} disabled={!currentPath} title="返回根目录">根目录</Button>
                         <Button size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? '取消全选' : '全选文件'}>
                           {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? '取消全选' : '全选'}
                         </Button>
                       </div>
-                      <Button size="small" onClick={() => setSelectedShare(null)} icon={<CloseIcon size={16} />} title="关闭" />
+                      <Button size="small" onClick={() => setSelectedShare(null)} icon={<CloseIcon size={16} />} title="关闭" style={{ marginLeft: 'auto' }} />
                     </div>
                     <div className="file-list">
                       {loadingFiles ? <div className="loading-state">加载中...</div> : (
@@ -762,12 +807,12 @@ export const FileShareManagerNew: React.FC = () => {
                           type="primary"
                           shape="circle"
                           size="large"
-                          icon={<DownloadIcon size={24} />}
+                          icon={<DownloadIcon size={18} />}
                           onClick={handleBatchDownload}
                           title={`下载选中 (${selectedFiles.size})`}
                           style={{
-                            width: 64,
-                            height: 64,
+                            width: 48,
+                            height: 48,
                             backgroundColor: '#52c41a',
                             borderColor: '#52c41a',
                             boxShadow: '0 4px 12px rgba(82, 196, 26, 0.4)'
@@ -780,12 +825,12 @@ export const FileShareManagerNew: React.FC = () => {
                           backgroundColor: '#ff4d4f',
                           color: 'white',
                           borderRadius: '50%',
-                          width: 24,
-                          height: 24,
+                          width: 20,
+                          height: 20,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: 'bold'
                         }}>
                           {selectedFiles.size}
@@ -798,66 +843,114 @@ export const FileShareManagerNew: React.FC = () => {
             )}
             {activeTab === 'transfers' && (
               <motion.div key="transfers" className="tab-content" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.2 }}>
+                {/* 子标签 */}
+                <div className="transfers-subtabs">
+                  <div 
+                    className={`subtab ${transferSubTab === 'downloading' ? 'active' : ''}`}
+                    onClick={() => setTransferSubTab('downloading')}
+                  >
+                    正在下载
+                    {downloads.filter(d => d.status === 'downloading' || d.status === 'paused').length > 0 && (
+                      <span className="subtab-badge">
+                        {downloads.filter(d => d.status === 'downloading' || d.status === 'paused').length}
+                      </span>
+                    )}
+                  </div>
+                  <div 
+                    className={`subtab ${transferSubTab === 'completed' ? 'active' : ''}`}
+                    onClick={() => setTransferSubTab('completed')}
+                  >
+                    已完成
+                    {downloads.filter(d => d.status === 'completed').length > 0 && (
+                      <span className="subtab-badge">
+                        {downloads.filter(d => d.status === 'completed').length}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
                 <div className="transfer-list">
-                  {downloads.length === 0 ? (
-                    <div className="empty-state"><DownloadIcon size={48} /><p>暂无下载任务</p></div>
-                  ) : (
-                    <AnimatePresence>
-                      {downloads.map((task) => (
-                        <motion.div key={task.id} className="transfer-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                          <div className="transfer-info" style={{ flex: 1, minWidth: 0 }}>
-                            <div className="transfer-name" style={{ 
-                              overflow: 'hidden', 
-                              textOverflow: 'ellipsis', 
-                              whiteSpace: 'nowrap' 
-                            }} title={task.fileName}>{task.fileName}</div>
-                            <div className="transfer-progress">
-                              <Progress 
-                                percent={Math.round((task.downloaded / task.fileSize) * 100)} 
-                                size="small" 
-                                status={task.status === 'failed' ? 'exception' : task.status === 'completed' ? 'success' : 'active'}
-                                strokeColor={task.status === 'completed' ? '#52c41a' : undefined}
-                              />
+                  {(() => {
+                    const filteredDownloads = transferSubTab === 'downloading'
+                      ? downloads.filter(d => d.status === 'downloading' || d.status === 'paused' || d.status === 'failed')
+                      : downloads.filter(d => d.status === 'completed');
+                    
+                    if (filteredDownloads.length === 0) {
+                      return (
+                        <div className="empty-state">
+                          <DownloadIcon size={48} />
+                          <p>{transferSubTab === 'downloading' ? '暂无正在下载的任务' : '暂无已完成的任务'}</p>
+                        </div>
+                      );
+                    }
+                    
+                    return (
+                      <AnimatePresence>
+                        {filteredDownloads.map((task) => (
+                          <motion.div 
+                            key={task.id} 
+                            className={`transfer-item ${task.status === 'completed' ? 'clickable' : ''}`}
+                            initial={{ opacity: 0, y: 20 }} 
+                            animate={{ opacity: 1, y: 0 }} 
+                            exit={{ opacity: 0, y: -20 }}
+                            onClick={() => task.status === 'completed' && handleOpenFileLocation(task.savePath)}
+                          >
+                            <div className="transfer-info" style={{ flex: 1, minWidth: 0 }}>
+                              <div className="transfer-name" style={{ 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis', 
+                                whiteSpace: 'nowrap' 
+                              }} title={task.fileName}>{task.fileName}</div>
+                              <div className="transfer-progress">
+                                <Progress 
+                                  percent={Math.round((task.downloaded / task.fileSize) * 100)} 
+                                  size="small" 
+                                  status={task.status === 'failed' ? 'exception' : task.status === 'completed' ? 'success' : 'active'}
+                                  strokeColor={task.status === 'completed' ? '#52c41a' : undefined}
+                                />
+                              </div>
+                              <div className="transfer-meta">
+                                {formatSize(task.downloaded)} / {formatSize(task.fileSize)}
+                                {task.status === 'downloading' && ' - 下载中'}
+                                {task.status === 'paused' && ' - 已暂停'}
+                                {task.status === 'completed' && ' - 已完成'}
+                                {task.status === 'failed' && ` - 失败: ${task.error}`}
+                              </div>
                             </div>
-                            <div className="transfer-meta">
-                              {formatSize(task.downloaded)} / {formatSize(task.fileSize)}
-                              {task.status === 'downloading' && ' - 下载中'}
-                              {task.status === 'paused' && ' - 已暂停'}
-                              {task.status === 'completed' && ' - 已完成'}
-                              {task.status === 'failed' && ` - 失败: ${task.error}`}
+                            <div className="transfer-actions" style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                              {task.status === 'downloading' && (
+                                <Button 
+                                  size="small" 
+                                  icon={<PauseIcon size={14} />} 
+                                  onClick={(e) => { e.stopPropagation(); handlePauseDownload(task.id); }} 
+                                  title="暂停"
+                                />
+                              )}
+                              {task.status === 'paused' && (
+                                <Button 
+                                  size="small" 
+                                  type="primary" 
+                                  icon={<PlayIcon size={14} />} 
+                                  onClick={(e) => { e.stopPropagation(); handleResumeDownload(task.id); }} 
+                                  title="继续"
+                                  style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+                                />
+                              )}
+                              {task.status !== 'completed' && (
+                                <Button 
+                                  size="small" 
+                                  danger 
+                                  icon={<CloseIcon size={14} />} 
+                                  onClick={(e) => { e.stopPropagation(); handleCancelDownload(task.id); }} 
+                                  title="取消"
+                                />
+                              )}
                             </div>
-                          </div>
-                          <div className="transfer-actions" style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-                            {task.status === 'downloading' && (
-                              <Button 
-                                size="small" 
-                                icon={<PauseIcon size={14} />} 
-                                onClick={() => handlePauseDownload(task.id)} 
-                                title="暂停"
-                              />
-                            )}
-                            {task.status === 'paused' && (
-                              <Button 
-                                size="small" 
-                                type="primary" 
-                                icon={<PlayIcon size={14} />} 
-                                onClick={() => handleResumeDownload(task.id)} 
-                                title="继续"
-                                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-                              />
-                            )}
-                            <Button 
-                              size="small" 
-                              danger 
-                              icon={<CloseIcon size={14} />} 
-                              onClick={() => handleCancelDownload(task.id)} 
-                              title="取消"
-                            />
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    );
+                  })()}
                 </div>
               </motion.div>
             )}
