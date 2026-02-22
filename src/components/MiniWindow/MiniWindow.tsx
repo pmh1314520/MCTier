@@ -179,7 +179,16 @@ export const MiniWindow: React.FC = () => {
       await invoke('leave_lobby');
       console.log('✅ 后端退出大厅成功');
       
-      // 3. 更新前端状态返回主界面
+      // 3. 停止HTTP文件服务器
+      try {
+        await invoke('stop_file_server');
+        console.log('✅ HTTP文件服务器已停止');
+      } catch (error) {
+        console.error('❌ 停止HTTP文件服务器失败:', error);
+        // 不中断流程
+      }
+      
+      // 4. 更新前端状态返回主界面
       const { setAppState, clearLobby } = useAppStore.getState();
       clearLobby(); // 这会清理大厅、玩家列表和语音状态
       setAppState('idle');

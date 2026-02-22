@@ -289,6 +289,17 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.warn('保存玩家名称到配置文件失败:', error);
       }
 
+      // 启动HTTP文件服务器
+      try {
+        await invoke('start_file_server', {
+          virtualIp: lobby.virtual_ip,
+        });
+        console.log('✅ HTTP文件服务器已启动');
+      } catch (error) {
+        console.error('❌ 启动HTTP文件服务器失败:', error);
+        // 不中断流程，文件共享功能可能不可用但不影响其他功能
+      }
+
       // 更新状态
       setLobby(lobby);
       setAppState('in-lobby');
