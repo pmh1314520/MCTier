@@ -55,27 +55,24 @@ export const MiniWindow: React.FC = () => {
       try {
         console.log('🔄 [后台] 开始加载远程共享...');
         
-        interface Player {
-          id: string;
-          name: string;
-          virtual_ip: string;
-        }
-        
-        const playerList = await invoke<Player[]>('get_players');
-        console.log(`👥 [后台] 获取到 ${playerList.length} 个玩家`);
+        // 直接从Store获取玩家列表（包含所有玩家，不仅仅是当前玩家）
+        console.log(`👥 [后台] 从Store获取到 ${players.length} 个玩家`);
         
         let totalShares = 0;
-        for (const player of playerList) {
-          if (player.virtual_ip) {
+        for (const player of players) {
+          // 使用驼峰命名的virtualIp字段
+          if (player.virtualIp) {
             try {
-              console.log(`📡 [后台] 正在请求 ${player.name} (${player.virtual_ip}) 的共享...`);
-              const shares = await fileShareService.getRemoteShares(player.virtual_ip);
+              console.log(`📡 [后台] 正在请求 ${player.name} (${player.virtualIp}) 的共享...`);
+              const shares = await fileShareService.getRemoteShares(player.virtualIp);
               console.log(`✅ [后台] 玩家 ${player.name} 有 ${shares.length} 个共享`);
               totalShares += shares.length;
             } catch (error) {
               console.error(`❌ [后台] 获取 ${player.name} 的共享失败:`, error);
               console.error(`❌ [后台] 错误详情:`, JSON.stringify(error));
             }
+          } else {
+            console.warn(`⚠️ [后台] 玩家 ${player.name} 没有虚拟IP，跳过`);
           }
         }
         
@@ -94,7 +91,7 @@ export const MiniWindow: React.FC = () => {
     const interval = setInterval(loadRemoteShares, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [players]); // 依赖players，当玩家列表变化时重新加载
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {
