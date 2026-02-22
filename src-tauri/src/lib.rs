@@ -399,19 +399,46 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                info!("窗口关闭请求");
-                // 在窗口关闭时执行清理
-                let app_handle = window.app_handle();
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    let core = Arc::clone(&state.core);
-                    // 使用 tauri::async_runtime 而不是 tokio::spawn
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(e) = core.lock().await.shutdown().await {
-                            error!("应用关闭时发生错误: {}", e);
-                        }
-                    });
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    info!("窗口关闭请求");
+                    // 阻止默认的关闭行为，等待清理完成
+                    api.prevent_close();
+                    
+                    // 在窗口关闭时执行清理
+                    let app_handle = window.app_handle().clone();
+                    let window_label = window.label().to_string();
+                    
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        let core = Arc::clone(&state.core);
+                        
+                        // 使用 tauri::async_runtime::spawn 异步执行清理
+                        tauri::async_runtime::spawn(async move {
+                            info!("🔄 开始执行应用清理...");
+                            
+                            // 执行清理
+                            if let Err(e) = core.lock().await.shutdown().await {
+                                error!("❌ 应用关闭时发生错误: {}", e);
+                            } else {
+                                info!("✅ 应用清理完成");
+                            }
+                            
+                            // 清理完成后，真正关闭窗口
+                            if let Some(window) = app_handle.get_webview_window(&window_label) {
+                                let _ = window.close();
+                                info!("✅ 窗口已关闭");
+                            }
+                            
+                            // 退出应用
+                            app_handle.exit(0);
+                        });
+                    } else {
+                        // 如果没有状态，直接关闭
+                        let _ = window.close();
+                        app_handle.exit(0);
+                    }
                 }
+                _ => {}
             }
         })
         .run(tauri::generate_context!());
