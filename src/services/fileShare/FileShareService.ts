@@ -58,7 +58,8 @@ class FileShareService {
    */
   async removeShare(shareId: string): Promise<void> {
     try {
-      await invoke('remove_shared_folder', { shareId });
+      // 注意：后端Rust参数名使用下划线命名
+      await invoke('remove_shared_folder', { share_id: shareId });
       this.localShares = this.localShares.filter(s => s.id !== shareId);
       console.log('✅ 删除共享成功:', shareId);
     } catch (error) {
@@ -100,9 +101,10 @@ class FileShareService {
   async getRemoteShares(peerIp: string): Promise<SharedFolder[]> {
     try {
       console.log(`📡 [FileShareService] 正在获取远程共享: ${peerIp}`);
-      console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peerIp: '${peerIp}' })`);
+      console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peer_ip: '${peerIp}' })`);
       
-      const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp });
+      // 注意：后端Rust参数名是peer_ip（下划线），不是peerIp（驼峰）
+      const shares = await invoke<SharedFolder[]>('get_remote_shares', { peer_ip: peerIp });
       
       console.log(`✅ [FileShareService] 成功获取 ${shares.length} 个共享`);
       if (shares.length > 0) {
@@ -126,9 +128,10 @@ class FileShareService {
     path?: string
   ): Promise<FileInfo[]> {
     try {
+      // 注意：后端Rust参数名使用下划线命名
       const files = await invoke<FileInfo[]>('get_remote_files', {
-        peerIp,
-        shareId,
+        peer_ip: peerIp,
+        share_id: shareId,
         path: path || null,
       });
       return files;
@@ -147,9 +150,10 @@ class FileShareService {
     password: string
   ): Promise<boolean> {
     try {
+      // 注意：后端Rust参数名使用下划线命名
       const result = await invoke<boolean>('verify_share_password', {
-        peerIp,
-        shareId,
+        peer_ip: peerIp,
+        share_id: shareId,
         password,
       });
       return result;
@@ -168,10 +172,11 @@ class FileShareService {
     filePath: string
   ): Promise<string> {
     try {
+      // 注意：后端Rust参数名使用下划线命名
       const url = await invoke<string>('get_download_url', {
-        peerIp,
-        shareId,
-        filePath,
+        peer_ip: peerIp,
+        share_id: shareId,
+        file_path: filePath,
       });
       return url;
     } catch (error) {
