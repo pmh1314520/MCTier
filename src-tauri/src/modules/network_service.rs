@@ -815,10 +815,12 @@ impl NetworkService {
         let mut graceful_shutdown_success = false;
 
         if let Some(mut child) = process_guard.take() {
+            log::info!("🔄 正在优雅关闭 EasyTier 进程...");
+            
             // 尝试优雅地终止进程
             match child.kill().await {
                 Ok(_) => {
-                    log::info!("✅ 已发送终止信号到 EasyTier 进程");
+                    log::info!("✅ 已发送 SIGTERM 信号到 EasyTier 进程（优雅关闭）");
                 }
                 Err(e) => {
                     log::warn!("⚠️ 发送终止信号失败: {}", e);
@@ -826,20 +828,22 @@ impl NetworkService {
             }
 
             // 等待进程完全退出（最多等待3秒）
+            log::info!("⏳ 等待进程自然退出（最多3秒）...");
             match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
                 Ok(Ok(status)) => {
                     log::info!("✅ EasyTier 进程已优雅退出，状态码: {:?}", status);
+                    log::info!("💡 进程通过优雅关闭方式退出，未使用强制终止");
                     graceful_shutdown_success = true;
                 }
                 Ok(Err(e)) => {
                     log::warn!("⚠️ 等待进程退出时出错: {}", e);
                 }
                 Err(_) => {
-                    log::warn!("⚠️ 等待进程退出超时（3秒），将尝试强制终止");
+                    log::warn!("⚠️ 等待进程退出超时（3秒）");
                 }
             }
         } else {
-            log::info!("EasyTier 服务未运行");
+            log::info!("EasyTier 服务未运行，无需关闭");
             graceful_shutdown_success = true; // 没有进程运行，视为成功
         }
 
@@ -848,10 +852,11 @@ impl NetworkService {
 
         // 如果优雅关闭成功，跳过强制终止
         if graceful_shutdown_success {
-            log::info!("✅ EasyTier 进程已优雅关闭，跳过强制终止");
+            log::info!("✅ EasyTier 进程已通过优雅方式关闭，无需强制终止");
         } else {
             // 只有在优雅关闭失败时才使用强制终止
-            log::warn!("⚠️ 优雅关闭失败，尝试强制终止...");
+            log::warn!("⚠️ 优雅关闭失败，现在尝试强制终止（taskkill /F）...");
+            log::warn!("💡 这是最后的手段，仅在优雅关闭失败时使用");
             
             #[cfg(target_os = "windows")]
             {
@@ -861,7 +866,7 @@ impl NetworkService {
                     .output()
                     .await;
                 
-                log::info!("✅ 已执行强制终止命令");
+                log::info!("✅ 已执行强制终止命令（taskkill /F）");
             }
         }
 

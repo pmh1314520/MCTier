@@ -289,16 +289,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.warn('保存玩家名称到配置文件失败:', error);
       }
 
-      // 启动HTTP文件服务器
-      try {
-        await invoke('start_file_server', {
-          virtualIp: lobby.virtualIp,
-        });
-        console.log('✅ HTTP文件服务器已启动');
-      } catch (error) {
-        console.error('❌ 启动HTTP文件服务器失败:', error);
-        // 不中断流程，文件共享功能可能不可用但不影响其他功能
-      }
+      // 注意：HTTP文件服务器已经在后端的create_lobby/join_lobby命令中启动
+      // 这里不需要再次启动，避免重复启动导致端口冲突
+      console.log('✅ HTTP文件服务器已在后端启动');
 
       // 更新状态
       setLobby(lobby);
