@@ -257,9 +257,7 @@ class FileShareService {
     console.warn('onShareUpdated方法已废弃');
   }
 
-  setWebSocket(_ws: any): void {
-    console.warn('setWebSocket方法已废弃，HTTP模式不使用WebSocket');
-  }
+  // setWebSocket方法已完全移除，HTTP模式不使用WebSocket
 
   getLocalSharesForBroadcast(): any[] {
     console.warn('getLocalSharesForBroadcast方法已废弃');

@@ -149,30 +149,8 @@ class ScreenShareService {
       const connectionKey = `${shareId}-viewer-${Date.now()}`;
       this.peerConnections.set(connectionKey, pc);
 
-      // 创建Offer
-      const offer = await pc.createOffer({
-        offerToReceiveVideo: true,
-        offerToReceiveAudio: false,
-      });
-
-      await pc.setLocalDescription(offer);
-
-      // 发送Offer到共享者
-      const offerMessage: ScreenShareOffer = {
-        shareId,
-        playerId: this.currentPlayerId,
-        playerName: this.currentPlayerName,
-        requirePassword: !!password,
-        sdp: offer.sdp!,
-      };
-
-      this.sendWebSocketMessage({
-        type: 'screen-share-offer',
-        data: offerMessage,
-      });
-
-      // 等待Answer
-      return new Promise((resolve, reject) => {
+      // 等待远程流的Promise
+      const streamPromise = new Promise<MediaStream>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('等待屏幕共享响应超时'));
         }, 10000);
@@ -181,7 +159,14 @@ class ScreenShareService {
         pc.ontrack = (event) => {
           console.log('✅ [ScreenShareService] 收到远程屏幕流');
           clearTimeout(timeout);
-          resolve(event.streams[0]);
+          
+          if (event.streams && event.streams[0]) {
+            // 将流保存到全局变量供ScreenViewer使用
+            (window as any).__screenShareStream__ = event.streams[0];
+            resolve(event.streams[0]);
+          } else {
+            reject(new Error('未收到有效的媒体流'));
+          }
         };
 
         // 监听ICE候选
@@ -196,7 +181,47 @@ class ScreenShareService {
             });
           }
         };
+
+        // 监听连接状态
+        pc.onconnectionstatechange = () => {
+          console.log(`🔗 [ScreenShareService] 连接状态: ${pc.connectionState}`);
+          
+          if (pc.connectionState === 'failed') {
+            clearTimeout(timeout);
+            reject(new Error('WebRTC连接失败'));
+          } else if (pc.connectionState === 'disconnected') {
+            console.warn('⚠️ [ScreenShareService] 连接断开');
+          }
+        };
       });
+
+      // 创建Offer
+      const offer = await pc.createOffer({
+        offerToReceiveVideo: true,
+        offerToReceiveAudio: false,
+      });
+
+      await pc.setLocalDescription(offer);
+
+      // 发送Offer到共享者
+      const offerMessage = {
+        shareId,
+        playerId: this.currentPlayerId,
+        playerName: this.currentPlayerName,
+        requirePassword: !!password,
+        password: password,
+        sdp: offer.sdp!,
+      };
+
+      this.sendWebSocketMessage({
+        type: 'screen-share-offer',
+        data: offerMessage,
+      });
+
+      console.log('📤 [ScreenShareService] Offer已发送');
+
+      // 等待流
+      return await streamPromise;
     } catch (error) {
       console.error('❌ [ScreenShareService] 请求查看屏幕失败:', error);
       throw error;

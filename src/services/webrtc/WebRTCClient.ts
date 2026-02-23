@@ -180,13 +180,6 @@ export class WebRTCClient {
         this.websocket.onopen = () => {
           console.log('✅ 已连接到信令服务器');
           
-          // 设置WebSocket到文件共享服务
-          if (this.websocket) {
-            fileShareService.setWebSocket(this.websocket);
-            fileTransferService.setWebSocket(this.websocket);
-            console.log('✅ 文件共享服务WebSocket已设置');
-          }
-          
           // 注册到服务器
           if (this.websocket) {
             this.websocket.send(JSON.stringify({

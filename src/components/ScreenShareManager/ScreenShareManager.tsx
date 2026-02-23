@@ -135,7 +135,7 @@ export const ScreenShareManager: React.FC = () => {
 
   return (
     <div className="screen-share-manager">
-      {/* 顶部操作栏 */}
+      {/* 顶部操作栏 - 合并详情和操作按钮 */}
       <div className="screen-share-header">
         <div className="screen-share-title-wrapper">
           <h3 className="screen-share-title">屏幕共享</h3>
@@ -169,7 +169,7 @@ export const ScreenShareManager: React.FC = () => {
         )}
       </div>
 
-      {/* 共享列表 */}
+      {/* 共享列表 - 两列布局 */}
       <div className="screen-share-list">
         {activeShares.length === 0 ? (
           <div className="empty-state">

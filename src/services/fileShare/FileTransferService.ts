@@ -229,9 +229,7 @@ class FileTransferService {
     console.warn('onTransferError方法已废弃');
   }
 
-  setWebSocket(_ws: any): void {
-    console.warn('setWebSocket方法已废弃');
-  }
+  // setWebSocket方法已完全移除
 
   handleTransferRequest(_requestId: string, _shareId: string, _filePath: string, _fileSize: number, _peerId: string): Promise<void> {
     console.warn('handleTransferRequest方法已废弃');

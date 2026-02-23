@@ -21,10 +21,13 @@ export const ScreenShareIcon: React.FC<ScreenShareIconProps> = ({
       strokeLinejoin="round"
       className={className}
     >
+      {/* 显示器外框 */}
       <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+      {/* 显示器底座 */}
       <line x1="8" y1="21" x2="16" y2="21" />
       <line x1="12" y1="17" x2="12" y2="21" />
-      <path d="M7 10l5 3-5 3z" fill="currentColor" />
+      {/* 播放/共享图标 - 使用三角形 */}
+      <path d="M9 8l6 4-6 4V8z" fill="currentColor" stroke="none" />
     </svg>
   );
 };
