@@ -349,14 +349,13 @@
 .stop-viewing-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 8px;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   border: none;
   background: rgba(239, 68, 68, 0.8);
   color: white;
-  font-size: 14px;
-  font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
@@ -364,12 +363,12 @@
 
 .stop-viewing-btn:hover {
   background: rgba(239, 68, 68, 1);
-  transform: translateY(-2px);
+  transform: scale(1.1);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
 .stop-viewing-btn:active {
-  transform: translateY(0);
+  transform: scale(0.95);
 }
 
 .stop-viewing-btn svg {

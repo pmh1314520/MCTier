@@ -124,10 +124,23 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
       // 设置正在查看的共享ID
       setViewingShareId(share.id);
       
+      // 等待下一帧再播放视频，确保DOM已更新
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // 播放视频
       if (videoRef.current) {
+        console.log('📺 [ScreenShareManager] 设置视频流到video元素');
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        
+        try {
+          await videoRef.current.play();
+          console.log('✅ [ScreenShareManager] 视频播放成功');
+        } catch (playError) {
+          console.error('❌ [ScreenShareManager] 视频播放失败:', playError);
+          message.error('视频播放失败');
+        }
+      } else {
+        console.error('❌ [ScreenShareManager] videoRef.current 为 null');
       }
       
       message.success(`正在查看 ${share.playerName} 的屏幕`);
@@ -170,10 +183,23 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
       setShowPasswordModal(false);
       setPasswordInput('');
       
+      // 等待下一帧再播放视频，确保DOM已更新
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // 播放视频
       if (videoRef.current) {
+        console.log('📺 [ScreenShareManager] 设置视频流到video元素');
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        
+        try {
+          await videoRef.current.play();
+          console.log('✅ [ScreenShareManager] 视频播放成功');
+        } catch (playError) {
+          console.error('❌ [ScreenShareManager] 视频播放失败:', playError);
+          message.error('视频播放失败');
+        }
+      } else {
+        console.error('❌ [ScreenShareManager] videoRef.current 为 null');
       }
       
       setSelectedShare(null);
@@ -223,12 +249,12 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
                 onClick={handleStopViewing}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                title="停止查看"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-                <span>停止查看</span>
               </motion.button>
             </div>
             
