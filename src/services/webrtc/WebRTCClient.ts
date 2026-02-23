@@ -428,6 +428,15 @@ export class WebRTCClient {
             this.onPlayerJoinedCallback(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
           }
           
+          // 【新增】如果是自己加入大厅，向所有人请求屏幕共享列表
+          if (message.playerId === this.localPlayerId) {
+            console.log('📢 [WebRTCClient] 自己加入大厅，请求屏幕共享列表...');
+            this.sendWebSocketMessage({
+              type: 'screen-share-list-request',
+              from: this.localPlayerId,
+            });
+          }
+          
           // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
           
           // 使用字符串比较决定谁主动发起连接
@@ -746,6 +755,57 @@ export class WebRTCClient {
             console.log(`✅ 查看者离开已处理`);
           } catch (error) {
             console.error('❌ 处理查看者离开失败:', error);
+          }
+          break;
+          
+        case 'screen-share-list-request':
+          // 收到屏幕共享列表请求
+          console.log(`📋 收到屏幕共享列表请求 from ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            const myShares = screenShareService.getActiveShares();
+            
+            // 如果有活跃的共享，发送给请求者
+            if (myShares.length > 0) {
+              console.log(`📤 发送 ${myShares.length} 个屏幕共享信息给 ${message.from}`);
+              myShares.forEach(share => {
+                this.sendWebSocketMessage({
+                  type: 'screen-share-list-response',
+                  from: this.localPlayerId,
+                  to: message.from,
+                  shareId: share.id,
+                  playerName: share.playerName,
+                  hasPassword: share.requirePassword,
+                });
+              });
+            } else {
+              console.log(`📭 没有活跃的屏幕共享`);
+            }
+          } catch (error) {
+            console.error('❌ 处理屏幕共享列表请求失败:', error);
+          }
+          break;
+          
+        case 'screen-share-list-response':
+          // 收到屏幕共享列表响应
+          console.log(`📥 收到屏幕共享列表响应 from ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            // 将共享信息添加到本地列表
+            const share = {
+              id: message.shareId,
+              playerId: message.from,
+              playerName: message.playerName,
+              virtualIp: '', // 将由前端填充
+              requirePassword: message.hasPassword,
+              startTime: Date.now(),
+              status: 'active' as const,
+            };
+            // 直接添加到activeShares
+            (screenShareService as any).activeShares.set(share.id, share);
+            console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享列表响应失败:', error);
           }
           break;
           

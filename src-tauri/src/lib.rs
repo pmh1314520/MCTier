@@ -86,6 +86,10 @@ use modules::tauri_commands::{
     clear_p2p_chat_messages,
     // 屏幕共享命令
     open_screen_viewer_window,
+    // 日志管理命令
+    open_log_folder,
+    open_log_file,
+    get_log_file_path,
 };
 
 // 测试命令
@@ -115,13 +119,36 @@ fn open_devtools(_app: tauri::AppHandle) {
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 初始化日志系统
+    // 初始化日志系统 - 输出到文件
+    use std::fs::OpenOptions;
+    
+    // 获取日志文件路径（保存在用户的AppData目录）
+    let log_path = if let Some(data_dir) = dirs::data_local_dir() {
+        let mctier_dir = data_dir.join("MCTier");
+        // 确保目录存在
+        let _ = std::fs::create_dir_all(&mctier_dir);
+        mctier_dir.join("mctier.log")
+    } else {
+        // 如果无法获取AppData目录，使用当前目录
+        std::path::PathBuf::from("mctier.log")
+    };
+    
+    // 打开日志文件（追加模式）
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("无法创建日志文件");
+    
+    // 配置日志系统：输出到文件
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .format_timestamp_millis()
+        .target(env_logger::Target::Pipe(Box::new(log_file)))
         .init();
 
     info!("MCTier 应用程序启动中...");
+    info!("日志文件位置: {:?}", log_path);
 
     // 创建 Tokio 运行时用于初始化
     let runtime = tokio::runtime::Runtime::new().expect("无法创建 Tokio 运行时");
@@ -231,6 +258,10 @@ pub fn run() {
             send_p2p_chat_message,
             get_p2p_chat_messages,
             clear_p2p_chat_messages,
+            // 日志管理命令
+            open_log_folder,
+            open_log_file,
+            get_log_file_path,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

@@ -2499,3 +2499,120 @@ pub async fn open_screen_viewer_window(
     log::info!("✅ 屏幕查看窗口已打开");
     Ok(())
 }
+
+// ==================== 日志管理命令 ====================
+
+/// 打开日志文件所在的文件夹
+/// 
+/// # 返回
+/// * `Ok(())` - 成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn open_log_folder() -> Result<(), String> {
+    log::info!("打开日志文件夹");
+    
+    // 获取日志文件路径
+    let log_path = if let Some(data_dir) = dirs::data_local_dir() {
+        data_dir.join("MCTier")
+    } else {
+        std::env::current_dir()
+            .map_err(|e| format!("获取当前目录失败: {}", e))?
+    };
+    
+    log::info!("日志文件夹路径: {:?}", log_path);
+    
+    // 确保目录存在
+    if !log_path.exists() {
+        return Err("日志文件夹不存在".to_string());
+    }
+    
+    // 打开文件夹
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        match Command::new("explorer.exe")
+            .arg(&log_path)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("✅ 成功打开日志文件夹");
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("❌ 打开日志文件夹失败: {}", e);
+                Err(format!("打开日志文件夹失败: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("当前平台不支持此功能".to_string())
+    }
+}
+
+/// 打开日志文件（使用默认文本编辑器）
+/// 
+/// # 返回
+/// * `Ok(())` - 成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn open_log_file() -> Result<(), String> {
+    log::info!("打开日志文件");
+    
+    // 获取日志文件路径
+    let log_path = if let Some(data_dir) = dirs::data_local_dir() {
+        data_dir.join("MCTier").join("mctier.log")
+    } else {
+        std::path::PathBuf::from("mctier.log")
+    };
+    
+    log::info!("日志文件路径: {:?}", log_path);
+    
+    // 确保文件存在
+    if !log_path.exists() {
+        return Err("日志文件不存在".to_string());
+    }
+    
+    // 打开文件
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // 使用notepad打开日志文件
+        match Command::new("notepad.exe")
+            .arg(&log_path)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("✅ 成功打开日志文件");
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("❌ 打开日志文件失败: {}", e);
+                Err(format!("打开日志文件失败: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("当前平台不支持此功能".to_string())
+    }
+}
+
+/// 获取日志文件路径
+/// 
+/// # 返回
+/// * `Ok(String)` - 日志文件路径
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn get_log_file_path() -> Result<String, String> {
+    let log_path = if let Some(data_dir) = dirs::data_local_dir() {
+        data_dir.join("MCTier").join("mctier.log")
+    } else {
+        std::path::PathBuf::from("mctier.log")
+    };
+    
+    Ok(log_path.to_string_lossy().to_string())
+}
+

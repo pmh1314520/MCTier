@@ -256,16 +256,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         serverNode = values.customServerNode.trim();
       }
 
-      // 【新增】在创建或加入大厅前，先强制关闭所有残留的EasyTier进程
-      console.log('🔍 检查并清理残留的EasyTier进程...');
-      try {
-        await invoke('force_stop_easytier');
-        console.log('✅ EasyTier进程清理完成');
-      } catch (error) {
-        console.warn('⚠️ 清理EasyTier进程时出现警告:', error);
-        // 不中断流程，继续创建/加入大厅
-      }
-
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
 
       // 获取当前玩家ID

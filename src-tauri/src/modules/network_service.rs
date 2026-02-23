@@ -583,8 +583,8 @@ impl NetworkService {
         // 执行 CLI 命令查询节点信息
         #[cfg(windows)]
         let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-url")
-            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
+            .arg("--rpc-portal")
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(instance_name)
             .arg("--output")
@@ -598,8 +598,8 @@ impl NetworkService {
         
         #[cfg(not(windows))]
         let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-url")
-            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
+            .arg("--rpc-portal")
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(instance_name)
             .arg("--output")
@@ -1208,8 +1208,8 @@ impl NetworkService {
         // 执行 CLI 命令查询节点列表
         #[cfg(windows)]
         let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-url")
-            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
+            .arg("--rpc-portal")
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(&instance_name)
             .arg("--output")
@@ -1223,8 +1223,8 @@ impl NetworkService {
         
         #[cfg(not(windows))]
         let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-url")
-            .arg(format!("http://127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
+            .arg("--rpc-portal")
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
             .arg("--instance-name")
             .arg(&instance_name)
             .arg("--output")

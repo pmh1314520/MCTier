@@ -55,7 +55,7 @@
       "allowDowngrades": false,
       "wix": null
     },
-    "externalBin": ["resources/binaries/easytier-core"],
+    "externalBin": ["resources/binaries/easytier-core", "resources/binaries/easytier-cli"],
     "resources": ["resources/binaries/*"],
     "copyright": "Copyright © 2024 MCTier Team",
     "category": "Game",
