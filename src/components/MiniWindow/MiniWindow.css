@@ -1274,11 +1274,41 @@
   min-height: 50px;
 }
 
+.screen-share-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .screen-share-title {
   font-size: 14px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   margin: 0;
+}
+
+.screen-share-info-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.screen-share-info-icon:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.screen-share-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
 }
 
 /* 屏幕共享按钮需要相对定位以支持徽章 */

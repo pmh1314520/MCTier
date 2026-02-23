@@ -8,7 +8,11 @@ import { ScreenShareIcon, InfoIcon } from '../icons';
 import type { ScreenShare } from '../../types';
 import './ScreenShareManager.css';
 
-export const ScreenShareManager: React.FC = () => {
+interface ScreenShareManagerProps {
+  onSharingStateChange?: (isSharing: boolean) => void;
+}
+
+export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharingStateChange }) => {
   const { currentPlayerId } = useAppStore();
   const [activeShares, setActiveShares] = useState<ScreenShare[]>([]);
   const [myShareId, setMyShareId] = useState<string | null>(null);
@@ -35,6 +39,13 @@ export const ScreenShareManager: React.FC = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  // 通知父组件共享状态变化
+  useEffect(() => {
+    if (onSharingStateChange) {
+      onSharingStateChange(isSharing);
+    }
+  }, [isSharing, onSharingStateChange]);
 
   // 开始共享
   const handleStartSharing = async () => {
@@ -81,7 +92,7 @@ export const ScreenShareManager: React.FC = () => {
   // 查看屏幕
   const handleViewScreen = async (share: ScreenShare) => {
     try {
-      // 如果需要密码
+      // 如果需要密码且不是自己的共享
       if (share.requirePassword && share.playerId !== currentPlayerId) {
         setSelectedShare(share);
         setShowPasswordModal(true);
@@ -135,15 +146,8 @@ export const ScreenShareManager: React.FC = () => {
 
   return (
     <div className="screen-share-manager">
-      {/* 顶部操作栏 - 合并详情和操作按钮 */}
-      <div className="screen-share-header">
-        <div className="screen-share-title-wrapper">
-          <h3 className="screen-share-title">屏幕共享</h3>
-          <div className="screen-share-info-icon" title="查看和共享屏幕给大厅内的其他玩家">
-            <InfoIcon size={14} />
-          </div>
-        </div>
-
+      {/* 内部操作栏 */}
+      <div className="screen-share-actions">
         {!isSharing ? (
           <motion.button
             className="start-share-btn"
@@ -218,32 +222,30 @@ export const ScreenShareManager: React.FC = () => {
                     )}
                   </div>
 
-                  {!isMyShare && (
-                    <motion.button
-                      className="view-screen-btn"
-                      onClick={() => handleViewScreen(share)}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      disabled={isViewing}
-                    >
-                      {isViewing ? (
-                        <>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                          </svg>
-                          <span>正在查看</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                            <circle cx="12" cy="12" r="3" />
-                          </svg>
-                          <span>查看屏幕</span>
-                        </>
-                      )}
-                    </motion.button>
-                  )}
+                  <motion.button
+                    className="view-screen-btn"
+                    onClick={() => handleViewScreen(share)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={isViewing}
+                  >
+                    {isViewing ? (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                        <span>正在查看</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        <span>查看</span>
+                      </>
+                    )}
+                  </motion.button>
                 </motion.div>
               );
             })}

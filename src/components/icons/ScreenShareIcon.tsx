@@ -26,8 +26,6 @@ export const ScreenShareIcon: React.FC<ScreenShareIconProps> = ({
       {/* 显示器底座 */}
       <line x1="8" y1="21" x2="16" y2="21" />
       <line x1="12" y1="17" x2="12" y2="21" />
-      {/* 播放/共享图标 - 使用三角形 */}
-      <path d="M9 8l6 4-6 4V8z" fill="currentColor" stroke="none" />
     </svg>
   );
 };

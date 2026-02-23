@@ -810,14 +810,22 @@ export const MiniWindow: React.FC = () => {
             transition={{ duration: 0 }}
           >
             <div className="screen-share-header">
-              <h3 className="screen-share-title">屏幕共享</h3>
-              <button
-                className="back-button"
-                onClick={() => setCurrentView('lobby')}
-                title="返回大厅 (ESC)"
-              >
-                <CloseIcon size={16} />
-              </button>
+              <div className="screen-share-title-wrapper">
+                <h3 className="screen-share-title">屏幕共享</h3>
+                <div className="screen-share-info-icon" title="查看和共享屏幕给大厅内的其他玩家">
+                  <InfoIcon size={14} />
+                </div>
+              </div>
+              <div className="screen-share-controls">
+                {/* 屏幕共享按钮将由ScreenShareManager内部管理 */}
+                <button
+                  className="back-button"
+                  onClick={() => setCurrentView('lobby')}
+                  title="返回大厅 (ESC)"
+                >
+                  <CloseIcon size={16} />
+                </button>
+              </div>
             </div>
             <ScreenShareManager />
           </motion.div>

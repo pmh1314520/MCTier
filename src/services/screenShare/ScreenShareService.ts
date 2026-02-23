@@ -153,7 +153,7 @@ class ScreenShareService {
       const streamPromise = new Promise<MediaStream>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('等待屏幕共享响应超时'));
-        }, 10000);
+        }, 30000); // 增加到30秒超时
 
         // 监听远程流
         pc.ontrack = (event) => {
