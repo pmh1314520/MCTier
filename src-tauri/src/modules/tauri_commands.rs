@@ -970,6 +970,42 @@ pub async fn send_heartbeat(
 }
 
 
+// ==================== 网络管理命令 ====================
+
+/// 强制停止所有EasyTier进程
+/// 
+/// 在创建或加入大厅前调用，确保没有残留的EasyTier进程
+/// 
+/// # 返回
+/// * `Ok(())` - 停止成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn force_stop_easytier(state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("🔧 收到强制停止EasyTier进程命令");
+    
+    let core = state.core.lock().await;
+    let network_service = core.get_network_service();
+    let network_svc = network_service.lock().await;
+    
+    // 调用NetworkService的stop_easytier方法
+    // 该方法已经包含了完整的清理逻辑：
+    // 1. 优雅关闭进程（SIGTERM）
+    // 2. 强制终止（taskkill /F）
+    // 3. 清理虚拟网卡
+    // 4. 刷新DNS缓存
+    match network_svc.stop_easytier().await {
+        Ok(_) => {
+            log::info!("✅ EasyTier进程已强制停止并清理完成");
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("⚠️ 强制停止EasyTier进程时出现警告: {}", e);
+            // 即使出现错误，也返回成功，因为可能只是没有进程在运行
+            Ok(())
+        }
+    }
+}
+
 // ==================== 网络诊断命令 ====================
 
 /// 检查虚拟网卡是否存在
@@ -2253,12 +2289,28 @@ pub async fn send_p2p_chat_message(
     // 保存到本地消息队列
     chat_svc.add_local_message(message);
     
+    // 【修复】获取本机虚拟IP，避免发送消息给自己
+    let my_virtual_ip = chat_svc.get_virtual_ip();
+    
     drop(chat_svc);
     drop(core);
     
-    // 向所有其他玩家发送消息
+    // 【修复】过滤掉自己的IP
+    let other_peer_ips: Vec<String> = peer_ips.into_iter()
+        .filter(|ip| {
+            if let Some(ref my_ip) = my_virtual_ip {
+                ip != my_ip
+            } else {
+                true
+            }
+        })
+        .collect();
+    
+    log::info!("📤 [ChatService] 向 {} 个其他玩家发送消息 (排除自己)", other_peer_ips.len());
+    
+    // 向所有其他玩家发送消息（不包括自己）
     let client = reqwest::Client::new();
-    for peer_ip in peer_ips {
+    for peer_ip in other_peer_ips {
         let url = format!("http://{}:14540/api/chat/send", peer_ip);
         let request = SendMessageRequest {
             player_id: player_id.clone(),
@@ -2308,12 +2360,28 @@ pub async fn get_p2p_chat_messages(
     // 获取本地消息
     let mut all_messages = chat_svc.get_local_messages(since);
     
+    // 【修复】获取本机虚拟IP，避免从自己这里重复获取消息
+    let my_virtual_ip = chat_svc.get_virtual_ip();
+    
     drop(chat_svc);
     drop(core);
     
+    // 【修复】过滤掉自己的IP，只从其他玩家获取消息
+    let other_peer_ips: Vec<String> = peer_ips.into_iter()
+        .filter(|ip| {
+            if let Some(ref my_ip) = my_virtual_ip {
+                ip != my_ip
+            } else {
+                true
+            }
+        })
+        .collect();
+    
+    log::info!("📥 [ChatService] 从 {} 个其他玩家获取消息 (排除自己)", other_peer_ips.len());
+    
     // 从所有其他玩家获取消息
     let client = reqwest::Client::new();
-    for peer_ip in peer_ips {
+    for peer_ip in other_peer_ips {
         let url = if let Some(ts) = since {
             format!("http://{}:14540/api/chat/messages?since={}", peer_ip, ts)
         } else {

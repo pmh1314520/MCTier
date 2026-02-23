@@ -116,9 +116,10 @@
 .share-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   margin-bottom: 8px;
   transition: all 0.3s ease;
@@ -136,13 +137,22 @@
 }
 
 .share-item.clickable:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.share-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .share-icon {
   color: #52c41a;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
 }
 
 .share-info {
@@ -151,33 +161,33 @@
 }
 
 .share-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .share-meta {
-  font-size: 12px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
 }
 
 /* 远程共享项特殊样式 */
 .remote-share-item {
   position: relative;
-  padding-right: 12px; /* 恢复正常padding */
+  padding-right: 12px;
 }
 
 /* 右上角状态图标容器 */
 .share-status-icons {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 6px;
+  right: 6px;
   display: flex;
-  gap: 4px;
+  gap: 3px;
   z-index: 2;
 }
 
@@ -185,9 +195,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
   background: rgba(0, 0, 0, 0.5);
   border-radius: 4px;
   backdrop-filter: blur(4px);
@@ -205,6 +215,10 @@
   border: 1px solid rgba(255, 193, 7, 0.3);
 }
 
+.compress-icon {
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
 .expiry-icon {
   border: 1px solid rgba(33, 150, 243, 0.3);
 }
@@ -212,8 +226,8 @@
 /* 右下角用户名 */
 .share-owner {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 6px;
+  bottom: 6px;
   font-size: 10px;
   color: #52c41a;
   white-space: nowrap;
@@ -437,6 +451,7 @@
   border-radius: 8px;
   margin-bottom: 8px;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .transfer-item.clickable {
@@ -448,6 +463,44 @@
   transform: translateX(4px);
 }
 
+/* 取消按钮 - 右上角 */
+.transfer-cancel-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: rgba(239, 68, 68, 0.9);
+  color: #ffffff;
+  border: 1px solid rgba(239, 68, 68, 1);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  z-index: 10;
+  opacity: 1;
+}
+
+.transfer-cancel-btn:hover {
+  background: rgba(220, 38, 38, 1);
+  border-color: rgba(220, 38, 38, 1);
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+}
+
+.transfer-cancel-btn:active {
+  transform: scale(0.95);
+}
+
+.transfer-cancel-btn svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
 .transfer-icon {
   color: rgba(255, 255, 255, 0.6);
   flex-shrink: 0;
@@ -457,6 +510,7 @@
 .transfer-info {
   flex: 1;
   min-width: 0;
+  padding-right: 30px; /* 为取消按钮留出空间 */
 }
 
 .transfer-name {
@@ -466,6 +520,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%; /* 限制文件名宽度 */
 }
 
 .transfer-meta {
@@ -566,8 +621,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
@@ -578,12 +633,13 @@
   pointer-events: auto !important;
   z-index: 100;
   position: relative;
+  flex-shrink: 0;
 }
 
 .delete-share-btn:hover {
   background: rgba(239, 68, 68, 0.3);
   border-color: rgba(239, 68, 68, 0.6);
-  transform: scale(1.1);
+  transform: scale(1.05);
 }
 
 .delete-share-btn:active {
@@ -592,6 +648,8 @@
 
 .delete-share-btn svg {
   flex-shrink: 0;
+  width: 14px;
+  height: 14px;
 }
 
 /* 自定义确认对话框 */

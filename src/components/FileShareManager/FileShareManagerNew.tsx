@@ -10,7 +10,7 @@ import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd'
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores/appStore';
 import type { SharedFolder, FileInfo } from '../../types/fileShare';
-import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon, PauseIcon, PlayIcon } from '../icons';
+import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
 import './FileShareManager.css';
 
 // 简化的远程共享类型
@@ -26,7 +26,7 @@ interface DownloadTask {
   fileName: string;
   fileSize: number;
   downloaded: number;
-  status: 'downloading' | 'paused' | 'completed' | 'failed';
+  status: 'downloading' | 'completed' | 'failed';
   url: string;
   savePath: string;
   error?: string;
@@ -151,7 +151,7 @@ export const FileShareManagerNew: React.FC = () => {
       const interval = setInterval(loadRemoteShares, 3000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, lobby, players, config]);
+  }, [activeTab, lobby?.virtualIp, players.length]);
 
   // 切换到传输列表时，默认显示正在下载分页
   useEffect(() => {
@@ -325,24 +325,18 @@ export const FileShareManagerNew: React.FC = () => {
               lastUpdateTime = now;
               lastDownloaded = downloaded;
             } else {
-              // 只更新进度
-              setDownloads(prev => prev.map(task =>
-                task.id === taskId ? { ...task, downloaded } : task
-              ));
+              // 【修复】减少状态更新频率，避免过度渲染
+              // 只在下载量变化超过1MB时才更新UI
+              if (downloaded - (lastDownloaded || 0) > 1024 * 1024) {
+                setDownloads(prev => prev.map(task =>
+                  task.id === taskId ? { ...task, downloaded } : task
+                ));
+              }
             }
           } catch (error: any) {
-            // 如果是用户主动取消，保存已下载的部分
+            // 如果是用户主动取消
             if (error.name === 'AbortError') {
-              const blob = new Blob(chunks as BlobPart[]);
-              const arrayBuffer = await blob.arrayBuffer();
-              const uint8Array = new Uint8Array(arrayBuffer);
-
-              await invoke('save_file', {
-                path: `${savePath}.part`,
-                data: Array.from(uint8Array)
-              });
-
-              console.log(`下载已暂停，已保存 ${downloaded} bytes 到临时文件`);
+              console.log(`❌ [FileShareManager] 下载被取消`);
               return;
             }
             throw error;
@@ -375,109 +369,7 @@ export const FileShareManagerNew: React.FC = () => {
       }
     }
 
-  // 断点续传下载
-  const resumeDownload = async (taskId: string, url: string, savePath: string, fileSize: number, startByte: number) => {
-    const abortController = new AbortController();
-    
-    // 更新任务，添加abortController
-    setDownloads(prev => prev.map(task =>
-      task.id === taskId ? { ...task, abortController } : task
-    ));
-    
-    try {
-      // 读取已下载的部分
-      let existingData: Uint8Array;
-      try {
-        const partData = await invoke<number[]>('read_file', { path: `${savePath}.part` });
-        existingData = new Uint8Array(partData);
-        console.log(`读取到已下载的 ${existingData.length} bytes`);
-      } catch {
-        existingData = new Uint8Array(0);
-        console.log('没有找到临时文件，从头开始下载');
-      }
-      
-      // 使用Range请求从断点处继续
-      const response = await fetch(url, {
-        headers: {
-          'Range': `bytes=${startByte}-`
-        },
-        signal: abortController.signal
-      });
-      
-      if (!response.ok && response.status !== 206) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法读取响应');
-      }
-      
-      const chunks: Uint8Array[] = [existingData];
-      let downloaded = startByte;
-      
-      while (true) {
-        try {
-          const { done, value } = await reader.read();
-          
-          if (done) break;
-          
-          chunks.push(value);
-          downloaded += value.length;
-          
-          // 更新进度
-          setDownloads(prev => prev.map(task =>
-            task.id === taskId ? { ...task, downloaded } : task
-          ));
-        } catch (error: any) {
-          // 如果是用户主动取消，保存已下载的部分
-          if (error.name === 'AbortError') {
-            const blob = new Blob(chunks as BlobPart[]);
-            const arrayBuffer = await blob.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
-            
-            await invoke('save_file', {
-              path: `${savePath}.part`,
-              data: Array.from(uint8Array)
-            });
-            
-            console.log(`下载已暂停，已保存 ${downloaded} bytes 到临时文件`);
-            return;
-          }
-          throw error;
-        }
-      }
-      
-      // 合并所有chunks
-      const blob = new Blob(chunks as BlobPart[]);
-      const arrayBuffer = await blob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      
-      await invoke('save_file', {
-        path: savePath,
-        data: Array.from(uint8Array)
-      });
-      
-      // 删除临时文件
-      try {
-        await invoke('delete_file', { path: `${savePath}.part` });
-      } catch {}
-      
-      // 标记为完成
-      setDownloads(prev => prev.map(task =>
-        task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize } : task
-      ));
-      
-      message.success('下载完成');
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        setDownloads(prev => prev.map(task =>
-          task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
-        ));
-        message.error(`下载失败: ${error}`);
-      }
-    }
-  };
+
 
   // 批量下载选中的文件
   const handleBatchDownload = async () => {
@@ -504,24 +396,28 @@ export const FileShareManagerNew: React.FC = () => {
       try {
         // 创建一个下载任务用于显示进度
         const taskId = `batch_download_${Date.now()}`;
+        const zipFileName = `batch_download_${Date.now()}.zip`;
         const newTask: DownloadTask = {
           id: taskId,
-          fileName: `batch_download_${Date.now()}.zip`,
+          fileName: zipFileName,
           fileSize: 0, // 未知大小
           downloaded: 0,
           status: 'downloading',
           url: '',
-          savePath: `${saveDir}/batch_download_${Date.now()}.zip`
+          savePath: `${saveDir}/${zipFileName}`
         };
         
         setDownloads(prev => [...prev, newTask]);
-        message.info('正在打包文件，请稍候...');
+        message.info(`正在打包 ${selectedFileList.length} 个文件，请稍候...`);
         
         // 异步下载，不阻塞UI
         (async () => {
           try {
             // 直接调用HTTP API打包文件
             const url = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/batch-download`;
+            console.log('📦 [FileShareManager] 请求批量打包:', url);
+            console.log('📦 [FileShareManager] 文件列表:', selectedFileList.map(f => f.path));
+            
             const response = await fetch(url, {
               method: 'POST',
               headers: {
@@ -533,26 +429,40 @@ export const FileShareManagerNew: React.FC = () => {
             });
             
             if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
+              const errorText = await response.text();
+              console.error('❌ [FileShareManager] 批量打包失败:', response.status, errorText);
+              throw new Error(`HTTP ${response.status}: ${errorText || '打包失败'}`);
             }
+            
+            console.log('✅ [FileShareManager] 开始下载压缩包');
             
             // 获取ZIP文件
             const blob = await response.blob();
             const arrayBuffer = await blob.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
             
+            console.log('📦 [FileShareManager] 压缩包大小:', uint8Array.length, 'bytes');
+            
+            // 保存文件
             await invoke('save_file', {
               path: newTask.savePath,
               data: Array.from(uint8Array)
             });
+            
+            console.log('✅ [FileShareManager] 压缩包已保存:', newTask.savePath);
             
             // 更新任务状态为完成
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { ...task, status: 'completed' as const, downloaded: uint8Array.length, fileSize: uint8Array.length } : task
             ));
             
-            message.success('压缩包下载完成');
+            message.success(`压缩包下载完成 (${selectedFileList.length} 个文件)`);
+            
+            // 清空选中状态
+            setSelectedFiles(new Set());
           } catch (error) {
+            console.error('❌ [FileShareManager] 批量打包失败:', error);
+            
             // 更新任务状态为失败
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
@@ -561,9 +471,13 @@ export const FileShareManagerNew: React.FC = () => {
           }
         })();
       } catch (error) {
-        message.error(`打包失败: ${error}`);
+        console.error('❌ [FileShareManager] 批量下载失败:', error);
+        message.error(`批量下载失败: ${error}`);
       }
-    } else {
+    } else if (!selectedShare.share.compress_before_send && selectedFileList.length > 1) {
+      // 【修复】如果没有启用"先压后发"，提示用户
+      message.warning('该共享未启用"先压后发"功能，将逐个下载文件');
+      
       // 逐个下载
       for (const file of selectedFileList) {
         const savePath = `${saveDir}/${file.name}`;
@@ -584,8 +498,34 @@ export const FileShareManagerNew: React.FC = () => {
         startDownload(taskId, downloadUrl, savePath, file.size);
       }
       
-      // 不自动跳转到传输列表
       message.success(`开始下载 ${selectedFileList.length} 个文件`);
+      
+      // 清空选中状态
+      setSelectedFiles(new Set());
+    } else {
+      // 只选中了一个文件，直接下载
+      const file = selectedFileList[0];
+      const savePath = `${saveDir}/${file.name}`;
+      const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      
+      const taskId = `download_${Date.now()}_${Math.random()}`;
+      const newTask: DownloadTask = {
+        id: taskId,
+        fileName: file.name,
+        fileSize: file.size,
+        downloaded: 0,
+        status: 'downloading',
+        url: downloadUrl,
+        savePath
+      };
+      
+      setDownloads(prev => [...prev, newTask]);
+      startDownload(taskId, downloadUrl, savePath, file.size);
+      
+      message.success('开始下载');
+      
+      // 清空选中状态
+      setSelectedFiles(new Set());
     }
   };
 
@@ -637,39 +577,37 @@ export const FileShareManagerNew: React.FC = () => {
     }
   };
 
-  // 暂停下载
-  const handlePauseDownload = (taskId: string) => {
-    const task = downloads.find(t => t.id === taskId);
-    if (task?.abortController) {
-      task.abortController.abort();
-    }
-    setDownloads(prev => prev.map(task => 
-      task.id === taskId ? { ...task, status: 'paused' as const } : task
-    ));
-    message.info('下载已暂停');
-  };
 
-  // 继续下载（支持断点续传）
-  const handleResumeDownload = (taskId: string) => {
-    const task = downloads.find(t => t.id === taskId);
-    if (task) {
-      setDownloads(prev => prev.map(t => 
-        t.id === taskId ? { ...t, status: 'downloading' as const } : t
-      ));
-      // 使用Range请求继续下载
-      resumeDownload(taskId, task.url, task.savePath, task.fileSize, task.downloaded);
-      message.info('继续下载');
-    }
-  };
 
   // 取消下载
-  const handleCancelDownload = (taskId: string) => {
+  const handleCancelDownload = async (taskId: string) => {
     const task = downloads.find(t => t.id === taskId);
     if (task?.abortController) {
+      console.log('❌ [FileShareManager] 取消下载任务:', taskId);
       task.abortController.abort();
     }
+    
+    // 删除已下载的残留文件
+    if (task?.savePath) {
+      try {
+        console.log('🗑️ [FileShareManager] 删除残留文件:', task.savePath);
+        await invoke('delete_file', { path: task.savePath });
+        console.log('✅ [FileShareManager] 残留文件已删除');
+      } catch (error) {
+        console.error('❌ [FileShareManager] 删除残留文件失败:', error);
+      }
+      
+      // 删除临时文件
+      try {
+        await invoke('delete_file', { path: `${task.savePath}.part` });
+        console.log('✅ [FileShareManager] 临时文件已删除');
+      } catch (error) {
+        // 临时文件可能不存在，忽略错误
+      }
+    }
+    
     setDownloads(prev => prev.filter(t => t.id !== taskId));
-    message.info('已取消下载');
+    message.success('已取消下载');
   };
 
   // 打开文件所在文件夹
@@ -929,9 +867,9 @@ export const FileShareManagerNew: React.FC = () => {
                     onClick={() => setTransferSubTab('downloading')}
                   >
                     正在下载
-                    {downloads.filter(d => d.status === 'downloading' || d.status === 'paused').length > 0 && (
+                    {downloads.filter(d => d.status === 'downloading').length > 0 && (
                       <span className="subtab-badge">
-                        {downloads.filter(d => d.status === 'downloading' || d.status === 'paused').length}
+                        {downloads.filter(d => d.status === 'downloading').length}
                       </span>
                     )}
                   </div>
@@ -951,7 +889,7 @@ export const FileShareManagerNew: React.FC = () => {
                 <div className="transfer-list">
                   {(() => {
                     const filteredDownloads = transferSubTab === 'downloading'
-                      ? downloads.filter(d => d.status === 'downloading' || d.status === 'paused' || d.status === 'failed')
+                      ? downloads.filter(d => d.status === 'downloading' || d.status === 'failed')
                       : downloads.filter(d => d.status === 'completed');
                     
                     if (filteredDownloads.length === 0) {
@@ -975,12 +913,19 @@ export const FileShareManagerNew: React.FC = () => {
                             onClick={() => task.status === 'completed' && handleOpenFileLocation(task.savePath)}
                             style={{ position: 'relative' }}
                           >
-                            <div className="transfer-info" style={{ flex: 1, minWidth: 0, paddingRight: task.status !== 'completed' ? '80px' : '0' }}>
-                              <div className="transfer-name" style={{ 
-                                overflow: 'hidden', 
-                                textOverflow: 'ellipsis', 
-                                whiteSpace: 'nowrap' 
-                              }} title={task.fileName}>{task.fileName}</div>
+                            {/* 取消按钮 - 右上角 */}
+                            {task.status !== 'completed' && (
+                              <button
+                                className="transfer-cancel-btn"
+                                onClick={(e) => { e.stopPropagation(); handleCancelDownload(task.id); }}
+                                title="取消下载"
+                              >
+                                <CloseIcon size={12} />
+                              </button>
+                            )}
+                            
+                            <div className="transfer-info">
+                              <div className="transfer-name" title={task.fileName}>{task.fileName}</div>
                               <div className="transfer-progress">
                                 <Progress 
                                   percent={Math.round((task.downloaded / task.fileSize) * 100)} 
@@ -993,48 +938,10 @@ export const FileShareManagerNew: React.FC = () => {
                                 {formatSize(task.downloaded)} / {formatSize(task.fileSize)}
                                 {task.status === 'downloading' && task.speed && ` - ${formatSpeed(task.speed)}`}
                                 {task.status === 'downloading' && !task.speed && ' - 下载中'}
-                                {task.status === 'paused' && ' - 已暂停'}
                                 {task.status === 'completed' && ' - 已完成'}
                                 {task.status === 'failed' && ` - 失败: ${task.error}`}
                               </div>
                             </div>
-                            {/* 右下角的暂停/继续按钮 */}
-                            {task.status !== 'completed' && (
-                              <div style={{ 
-                                position: 'absolute', 
-                                bottom: 8, 
-                                right: 8, 
-                                display: 'flex', 
-                                flexDirection: 'column',
-                                gap: 4 
-                              }}>
-                                {task.status === 'downloading' && (
-                                  <Button 
-                                    size="small" 
-                                    icon={<PauseIcon size={14} />} 
-                                    onClick={(e) => { e.stopPropagation(); handlePauseDownload(task.id); }} 
-                                    title="暂停"
-                                  />
-                                )}
-                                {task.status === 'paused' && (
-                                  <Button 
-                                    size="small" 
-                                    type="primary" 
-                                    icon={<PlayIcon size={14} />} 
-                                    onClick={(e) => { e.stopPropagation(); handleResumeDownload(task.id); }} 
-                                    title="继续"
-                                    style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-                                  />
-                                )}
-                                <Button 
-                                  size="small" 
-                                  danger 
-                                  icon={<CloseIcon size={14} />} 
-                                  onClick={(e) => { e.stopPropagation(); handleCancelDownload(task.id); }} 
-                                  title="取消"
-                                />
-                              </div>
-                            )}
                           </motion.div>
                         ))}
                       </AnimatePresence>

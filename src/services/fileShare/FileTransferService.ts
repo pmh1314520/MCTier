@@ -157,11 +157,25 @@ class FileTransferService {
   /**
    * 取消下载
    */
-  cancelDownload(taskId: string): void {
+  async cancelDownload(taskId: string): Promise<void> {
     const controller = this.abortControllers.get(taskId);
     if (controller) {
       controller.abort();
       console.log('🛑 取消下载:', taskId);
+    }
+    
+    // 【修复】删除已下载的残留文件
+    const task = this.downloadTasks.get(taskId);
+    if (task?.save_path) {
+      try {
+        console.log('🗑️ [FileTransferService] 删除残留文件:', task.save_path);
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('delete_file', { path: task.save_path });
+        console.log('✅ [FileTransferService] 残留文件已删除');
+      } catch (error) {
+        console.error('❌ [FileTransferService] 删除残留文件失败:', error);
+        // 不影响取消操作，继续执行
+      }
     }
   }
 

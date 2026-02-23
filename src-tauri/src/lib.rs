@@ -42,6 +42,8 @@ use modules::tauri_commands::{
     send_signaling_message,
     broadcast_status_update,
     send_heartbeat,
+    // 网络管理命令
+    force_stop_easytier,
     // 网络诊断命令
     check_virtual_adapter,
     check_firewall_rules,
@@ -185,6 +187,8 @@ pub fn run() {
             send_signaling_message,
             broadcast_status_update,
             send_heartbeat,
+            // 网络管理命令
+            force_stop_easytier,
             // 网络诊断命令
             check_virtual_adapter,
             check_firewall_rules,

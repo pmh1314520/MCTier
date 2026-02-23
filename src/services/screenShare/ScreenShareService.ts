@@ -10,6 +10,7 @@ interface ScreenShareOffer {
   playerId: string;
   playerName: string;
   requirePassword: boolean;
+  password?: string; // 【修复】添加密码字段用于验证
   sdp: string;
 }
 
@@ -138,9 +139,10 @@ class ScreenShareService {
   /**
    * 请求查看屏幕
    */
-  async requestViewScreen(shareId: string, _password?: string): Promise<MediaStream> {
+  async requestViewScreen(shareId: string, password?: string): Promise<MediaStream> {
     try {
       console.log('👀 [ScreenShareService] 请求查看屏幕:', shareId);
+      console.log('🔐 [ScreenShareService] 收到密码:', password ? '***' : 'undefined');
 
       // 从shareId中提取共享者的playerId
       // shareId格式: share-{playerId}-{timestamp}
@@ -151,6 +153,15 @@ class ScreenShareService {
       // 提取playerId (去掉"share-"前缀和时间戳后缀)
       const sharerPlayerId = shareIdParts.slice(1, -1).join('-');
       console.log('📍 [ScreenShareService] 共享者PlayerId:', sharerPlayerId);
+
+      // 【修复】清理同一个shareId的旧连接，避免状态冲突
+      for (const [key, oldPc] of this.peerConnections.entries()) {
+        if (key.startsWith(`${shareId}-viewer-`)) {
+          console.log('🧹 [ScreenShareService] 清理旧的PeerConnection:', key);
+          oldPc.close();
+          this.peerConnections.delete(key);
+        }
+      }
 
       // 创建PeerConnection
       const pc = new RTCPeerConnection({
@@ -166,13 +177,28 @@ class ScreenShareService {
       // 等待远程流的Promise
       const streamPromise = new Promise<MediaStream>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('等待屏幕共享响应超时'));
-        }, 30000); // 增加到30秒超时
+          console.error('❌ [ScreenShareService] 等待屏幕共享响应超时（30秒）');
+          reject(new Error('等待屏幕共享响应超时，请检查密码是否正确或信令服务器是否正常'));
+        }, 30000); // 30秒超时
+
+        // 【修复】监听screen-share-error事件（密码错误）
+        const handleError = (event: any) => {
+          const { shareId: errorShareId, error } = event.detail;
+          if (errorShareId === shareId) {
+            console.error('❌ [ScreenShareService] 收到屏幕共享错误:', error);
+            clearTimeout(timeout);
+            window.removeEventListener('screen-share-error', handleError);
+            reject(new Error(error || '查看屏幕失败'));
+          }
+        };
+        
+        window.addEventListener('screen-share-error', handleError);
 
         // 监听远程流
         pc.ontrack = (event) => {
           console.log('✅ [ScreenShareService] 收到远程屏幕流');
           clearTimeout(timeout);
+          window.removeEventListener('screen-share-error', handleError);
           
           if (event.streams && event.streams[0]) {
             const stream = event.streams[0];
@@ -210,6 +236,7 @@ class ScreenShareService {
           
           if (pc.connectionState === 'failed') {
             clearTimeout(timeout);
+            window.removeEventListener('screen-share-error', handleError);
             reject(new Error('WebRTC连接失败'));
           } else if (pc.connectionState === 'disconnected') {
             console.warn('⚠️ [ScreenShareService] 连接断开');
@@ -231,13 +258,14 @@ class ScreenShareService {
         from: this.currentPlayerId,
         to: sharerPlayerId,
         shareId,
+        password: password, // 【修复】发送密码用于验证
         offer: {
           type: offer.type,
           sdp: offer.sdp!,
         },
       });
 
-      console.log('📤 [ScreenShareService] Offer已发送');
+      console.log('📤 [ScreenShareService] Offer已发送，包含密码:', password ? '***' : 'undefined');
 
       // 等待流
       return await streamPromise;
@@ -261,10 +289,58 @@ class ScreenShareService {
   }
 
   /**
+   * 停止查看屏幕（清理viewer的PeerConnection）
+   */
+  stopViewingScreen(shareId: string): void {
+    console.log('🛑 [ScreenShareService] 停止查看屏幕:', shareId);
+
+    // 【新增】清除查看者标记
+    const share = this.activeShares.get(shareId);
+    if (share && share.viewerId === this.currentPlayerId) {
+      console.log('� [ScreenShareService] 清除查看者标记');
+      share.viewerId = undefined;
+      share.viewerName = undefined;
+      this.activeShares.set(shareId, share);
+      
+      // 通知共享者更新状态
+      this.sendWebSocketMessage({
+        type: 'screen-share-viewer-left',
+        from: this.currentPlayerId,
+        shareId: shareId,
+      });
+    }
+
+    // 关闭所有viewer相关的PeerConnection
+    const keysToDelete: string[] = [];
+    this.peerConnections.forEach((pc, key) => {
+      if (key.startsWith(`${shareId}-viewer-`)) {
+        console.log('🔌 [ScreenShareService] 关闭PeerConnection:', key);
+        pc.close();
+        keysToDelete.push(key);
+      }
+    });
+
+    keysToDelete.forEach(key => this.peerConnections.delete(key));
+
+    // 移除远程流
+    this.remoteStreams.delete(shareId);
+
+    console.log('✅ [ScreenShareService] 已清理查看资源');
+  }
+
+  /**
    * 获取当前所有共享
    */
   getActiveShares(): ScreenShare[] {
-    return Array.from(this.activeShares.values());
+    const shares = Array.from(this.activeShares.values());
+    console.log('📋 [ScreenShareService] 获取活跃共享列表:', shares.map(s => ({
+      id: s.id,
+      playerId: s.playerId,
+      playerName: s.playerName,
+      requirePassword: s.requirePassword,
+      hasPassword: !!s.password
+    })));
+    return shares;
   }
 
   /**
@@ -299,6 +375,25 @@ class ScreenShareService {
   }
 
   /**
+   * 广播共享状态更新
+   */
+  private broadcastShareUpdate(share: ScreenShare): void {
+    console.log('📢 [ScreenShareService] 广播共享状态更新', {
+      shareId: share.id,
+      viewerId: share.viewerId,
+      viewerName: share.viewerName
+    });
+    
+    this.sendWebSocketMessage({
+      type: 'screen-share-update',
+      from: this.currentPlayerId,
+      shareId: share.id,
+      viewerId: share.viewerId,
+      viewerName: share.viewerName,
+    });
+  }
+
+  /**
    * 发送WebSocket消息
    */
   private sendWebSocketMessage(message: any): void {
@@ -319,6 +414,69 @@ class ScreenShareService {
         return;
       }
 
+      const share = this.activeShares.get(offer.shareId);
+      if (!share) {
+        console.error('❌ [ScreenShareService] 找不到对应的共享');
+        this.sendWebSocketMessage({
+          type: 'screen-share-error',
+          from: this.currentPlayerId,
+          to: offer.playerId,
+          shareId: offer.shareId,
+          error: '共享不存在',
+        });
+        return;
+      }
+
+      // 【新增】检查是否已有人在查看
+      if (share.viewerId && share.viewerId !== offer.playerId) {
+        console.warn('⚠️ [ScreenShareService] 已有玩家在查看:', share.viewerName);
+        this.sendWebSocketMessage({
+          type: 'screen-share-error',
+          from: this.currentPlayerId,
+          to: offer.playerId,
+          shareId: offer.shareId,
+          error: `该屏幕正在被 ${share.viewerName} 查看，暂时无法同时观看`,
+        });
+        return;
+      }
+
+      // 【修复】验证密码
+      if (share.requirePassword) {
+        console.log('🔐 [ScreenShareService] 该共享需要密码验证');
+        console.log('🔐 [ScreenShareService] 共享密码:', share.password ? '***' : 'undefined');
+        console.log('🔐 [ScreenShareService] 收到密码:', offer.password ? '***' : 'undefined');
+        console.log('🔐 [ScreenShareService] 密码匹配:', offer.password === share.password);
+        
+        if (!offer.password || offer.password !== share.password) {
+          console.error('❌ [ScreenShareService] 密码验证失败');
+          console.error('❌ [ScreenShareService] 期望密码:', share.password);
+          console.error('❌ [ScreenShareService] 收到密码:', offer.password);
+          // 发送错误消息给查看者
+          this.sendWebSocketMessage({
+            type: 'screen-share-error',
+            from: this.currentPlayerId,
+            to: offer.playerId,
+            shareId: offer.shareId,
+            error: '密码错误',
+          });
+          return;
+        }
+        console.log('✅ [ScreenShareService] 密码验证成功');
+      }
+
+      // 【新增】标记该共享正在被查看
+      share.viewerId = offer.playerId;
+      share.viewerName = offer.playerName;
+      this.activeShares.set(offer.shareId, share);
+      console.log('👁️ [ScreenShareService] 标记共享正在被查看:', {
+        shareId: offer.shareId,
+        viewerId: offer.playerId,
+        viewerName: offer.playerName
+      });
+
+      // 【新增】广播共享状态更新
+      this.broadcastShareUpdate(share);
+
       // 创建PeerConnection
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -329,6 +487,22 @@ class ScreenShareService {
 
       const connectionKey = `${offer.shareId}-sharer-${offer.playerId}`;
       this.peerConnections.set(connectionKey, pc);
+
+      // 【新增】监听连接断开，清除查看者标记
+      pc.onconnectionstatechange = () => {
+        console.log(`🔗 [ScreenShareService] 连接状态变化: ${pc.connectionState}`);
+        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          console.log('🔌 [ScreenShareService] 查看者断开连接，清除标记');
+          const currentShare = this.activeShares.get(offer.shareId);
+          if (currentShare && currentShare.viewerId === offer.playerId) {
+            currentShare.viewerId = undefined;
+            currentShare.viewerName = undefined;
+            this.activeShares.set(offer.shareId, currentShare);
+            // 广播状态更新
+            this.broadcastShareUpdate(currentShare);
+          }
+        }
+      };
 
       // 添加本地流
       this.localStream.getTracks().forEach(track => {
@@ -440,6 +614,34 @@ class ScreenShareService {
     } catch (error) {
       console.error('❌ [ScreenShareService] 处理ICE候选失败:', error);
     }
+  }
+
+  /**
+   * 处理查看者离开
+   */
+  handleViewerLeft(shareId: string, viewerId: string): void {
+    console.log('👋 [ScreenShareService] 查看者离开:', { shareId, viewerId });
+    
+    const share = this.activeShares.get(shareId);
+    if (share && share.viewerId === viewerId) {
+      share.viewerId = undefined;
+      share.viewerName = undefined;
+      this.activeShares.set(shareId, share);
+      console.log('🔓 [ScreenShareService] 已清除查看者标记');
+      
+      // 广播状态更新
+      this.broadcastShareUpdate(share);
+    }
+  }
+
+  /**
+   * 处理共享状态更新
+   */
+  handleShareUpdate(shareId: string, viewerId?: string, viewerName?: string): void {
+    console.log('🔄 [ScreenShareService] 收到共享状态更新:', { shareId, viewerId, viewerName });
+    
+    // 这个方法主要用于其他客户端接收共享状态更新
+    // 实际的共享对象由WebRTCClient管理，这里只是记录日志
   }
 
   /**

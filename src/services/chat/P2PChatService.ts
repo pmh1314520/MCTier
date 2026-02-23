@@ -23,7 +23,8 @@ class P2PChatService {
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
-  private processedMessageIds: Set<string> = new Set();
+  private processedMessageIds: Set<string> = new Set(); // 存储已处理的消息ID
+  private lastPlayerMessages: Map<string, string> = new Map(); // 存储每个玩家的最后一条消息内容
   private isInitialized: boolean = false; // 标记是否已初始化
 
   /**
@@ -37,6 +38,7 @@ class P2PChatService {
     // 只在第一次初始化时设置时间戳和清空消息ID
     if (!this.isInitialized) {
       this.processedMessageIds.clear();
+      this.lastPlayerMessages.clear();
       // 设置初始时间戳为当前时间，只接收加入后的消息
       this.lastMessageTimestamp = Math.floor(Date.now() / 1000);
       this.isInitialized = true;
@@ -56,6 +58,7 @@ class P2PChatService {
     this.stopPolling();
     this.lastMessageTimestamp = 0;
     this.processedMessageIds.clear();
+    this.lastPlayerMessages.clear();
     this.peerIps = [];
     this.currentPlayerId = '';
     this.onMessageCallback = undefined;
@@ -153,16 +156,19 @@ class P2PChatService {
             continue;
           }
 
-          // 增强去重：基于消息内容+发送者+时间戳生成唯一键
-          const contentKey = `${msg.player_id}-${msg.content}-${msg.timestamp}`;
-          if (this.processedMessageIds.has(contentKey)) {
-            console.log('📭 [P2PChatService] 跳过重复内容的消息:', contentKey);
+          // 【修复】增强去重：判断新消息是否与该玩家最后一条消息内容重复
+          const lastContent = this.lastPlayerMessages.get(msg.player_name);
+          if (lastContent === msg.content) {
+            console.log('📭 [P2PChatService] 跳过重复内容的消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
+            // 仍然记录消息ID，避免重复处理
+            this.processedMessageIds.add(msg.id);
             continue;
           }
           
-          // 同时记录消息ID和内容键
+          // 记录消息ID和该玩家的最后一条消息内容
           this.processedMessageIds.add(msg.id);
-          this.processedMessageIds.add(contentKey);
+          this.lastPlayerMessages.set(msg.player_name, msg.content);
+          console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
 
           // 转换为前端消息格式
           const chatMessage: ChatMessage = {
@@ -178,6 +184,20 @@ class P2PChatService {
           // 回调通知新消息
           if (this.onMessageCallback) {
             this.onMessageCallback(chatMessage);
+          }
+
+          // 【修复】只有在不在聊天室界面时才播放音效
+          const isInChatRoom = (window as any).__isInChatRoom__;
+          if (!isInChatRoom) {
+            try {
+              const { audioService } = await import('../audio/AudioService');
+              await audioService.play('newMessage');
+              console.log('🔔 [P2PChatService] 播放新消息音效');
+            } catch (error) {
+              console.error('❌ [P2PChatService] 播放新消息音效失败:', error);
+            }
+          } else {
+            console.log('🔕 [P2PChatService] 在聊天室中，跳过播放音效');
           }
         }
       }
@@ -250,6 +270,7 @@ class P2PChatService {
       await invoke('clear_p2p_chat_messages');
       this.lastMessageTimestamp = 0;
       this.processedMessageIds.clear();
+      this.lastPlayerMessages.clear();
       console.log('✅ [P2PChatService] 本地消息已清空');
     } catch (error) {
       console.error('❌ [P2PChatService] 清空消息失败:', error);
@@ -263,6 +284,7 @@ class P2PChatService {
   resetTimestamp(): void {
     this.lastMessageTimestamp = 0;
     this.processedMessageIds.clear();
+    this.lastPlayerMessages.clear();
   }
 
   /**

@@ -159,4 +159,8 @@ export interface ScreenShare {
   startTime: number;
   /** 共享状态 */
   status: 'active' | 'paused' | 'stopped';
+  /** 正在查看的玩家ID（单人查看限制） */
+  viewerId?: string;
+  /** 正在查看的玩家名称 */
+  viewerName?: string;
 }

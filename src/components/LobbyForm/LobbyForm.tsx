@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import type { Lobby, UserConfig } from '../../types';
-import { WarningIcon } from '../icons';
+import { WarningIcon, StarIcon, DiceIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { FavoriteLobbyManager, type FavoriteLobby } from '../FavoriteLobbyManager/FavoriteLobbyManager';
 import './LobbyForm.css';
@@ -256,6 +256,16 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         serverNode = values.customServerNode.trim();
       }
 
+      // 【新增】在创建或加入大厅前，先强制关闭所有残留的EasyTier进程
+      console.log('🔍 检查并清理残留的EasyTier进程...');
+      try {
+        await invoke('force_stop_easytier');
+        console.log('✅ EasyTier进程清理完成');
+      } catch (error) {
+        console.warn('⚠️ 清理EasyTier进程时出现警告:', error);
+        // 不中断流程，继续创建/加入大厅
+      }
+
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
 
       // 获取当前玩家ID
@@ -453,7 +463,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   justifyContent: 'center',
                   cursor: 'pointer',
                   transition: 'all 0.3s ease',
-                  fontSize: '18px',
                 }}
                 whileHover={{ 
                   scale: 1.1,
@@ -462,7 +471,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 }}
                 whileTap={{ scale: 0.95 }}
               >
-                ⭐
+                <StarIcon size={18} />
               </motion.button>
               
               {mode === 'create' ? (
@@ -481,7 +490,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     justifyContent: 'center',
                     cursor: 'pointer',
                     transition: 'all 0.3s ease',
-                    fontSize: '20px',
                   }}
                   whileHover={{ 
                     scale: 1.1,
@@ -490,7 +498,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  🎲
+                  <DiceIcon size={20} />
                 </motion.button>
               ) : (
                 <motion.button
@@ -508,7 +516,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     justifyContent: 'center',
                     cursor: 'pointer',
                     transition: 'all 0.3s ease',
-                    fontSize: '18px',
                   }}
                   whileHover={{ 
                     scale: 1.1,
@@ -517,7 +524,12 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  📋
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                    <line x1="9" y1="12" x2="15" y2="12" />
+                    <line x1="9" y1="16" x2="15" y2="16" />
+                  </svg>
                 </motion.button>
               )}
             </div>
@@ -640,13 +652,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 rules={[
                   { required: true, message: '请输入自定义服务器地址' },
                   { 
-                    pattern: /^(ws|wss):\/\/.+/,
-                    message: '请输入有效的 WebSocket 地址，格式：ws://地址 或 wss://地址'
+                    pattern: /^(tcp|udp|ws|wss):\/\/.+:\d+$/,
+                    message: '请输入有效的服务器地址，格式：tcp://地址:端口、udp://地址:端口 或 ws://地址:端口'
                   }
                 ]}
               >
                 <Input
-                  placeholder="例如：wss://your-server.com"
+                  placeholder="例如：tcp://your-server.com:11010 或 ws://your-server.com:11011"
                   size="large"
                   disabled={loading}
                 />
@@ -661,9 +673,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             >
               <Switch disabled={loading} />
             </Form.Item>
-            <div style={{ marginTop: '-16px', marginBottom: '16px', fontSize: '13px', color: 'rgba(255,255,255,0.6)', paddingLeft: '4px' }}>
-              虚拟域名可以解决虚拟IP的痛点
-            </div>
 
             <Form.Item className="lobby-form-actions">
               <Space size="middle" style={{ width: '100%' }}>
@@ -716,6 +725,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               ✓ 推荐使用家庭 WiFi 网络
               <br />
               ✗ 不建议使用校园网、手机流量或热点
+              <br />
+              <br />
+              <strong>虚拟域名：</strong>使用虚拟域名功能时，请务必关闭代理工具（如梯子、VPN等），否则域名解析将失效
             </div>
           </div>
         </motion.div>

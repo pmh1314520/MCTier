@@ -383,10 +383,10 @@
 /* 图片下载按钮 */
 .image-download-btn {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: 32px;
-  height: 32px;
+  bottom: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(10px);
@@ -432,17 +432,20 @@
 /* 下载成功提示 */
 .download-success-tip {
   position: absolute;
-  bottom: -28px;
+  bottom: -32px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(82, 196, 26, 0.9);
+  background: rgba(82, 196, 26, 0.95);
   color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 11px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
   white-space: nowrap;
   animation: tipFadeIn 0.3s ease-out;
-  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.4);
+  box-shadow: 0 2px 12px rgba(82, 196, 26, 0.5);
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @keyframes tipFadeIn {

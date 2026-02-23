@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { invoke } from '@tauri-apps/api/core';
@@ -6,9 +6,11 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { ScreenViewer } from './components/ScreenViewer/ScreenViewer';
+import { VersionUpdateModal } from './components/VersionUpdateModal';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
 import { screenShareService } from './services/screenShare/ScreenShareService';
+import { versionCheckService } from './services/version/VersionCheckService';
 import type { UserConfig } from './types';
 import './App.css';
 
@@ -22,6 +24,14 @@ function App() {
   const setCurrentPlayerId = useAppStore((state) => state.setCurrentPlayerId);
   const currentPlayerId = useAppStore((state) => state.currentPlayerId);
   const addChatMessage = useAppStore((state) => state.addChatMessage);
+
+  // 版本更新状态
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{
+    latestVersion: string;
+    currentVersion: string;
+    updateMessage: string[];
+  } | null>(null);
 
   // 检测是否是屏幕查看窗口
   const isScreenViewerWindow = window.location.search.includes('screen-viewer=true');
@@ -76,6 +86,60 @@ function App() {
     const timer = setTimeout(() => {
       showWindow();
     }, 100);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 检查版本更新（仅在首次打开时）
+  useEffect(() => {
+    const checkVersion = async () => {
+      try {
+        // 检查是否需要显示更新提示
+        if (!versionCheckService.shouldShowUpdatePrompt()) {
+          console.log('⏭️ [VersionCheck] 已显示过更新提示，跳过检查');
+          return;
+        }
+
+        console.log('🔍 [VersionCheck] 开始检查版本更新...');
+        
+        // 获取最新版本信息
+        const info = await versionCheckService.fetchLatestVersion();
+        
+        if (!info) {
+          console.warn('⚠️ [VersionCheck] 获取版本信息失败');
+          return;
+        }
+
+        if (info.hasUpdate && info.updateMessage) {
+          console.log('🎉 [VersionCheck] 发现新版本:', info.latestVersion);
+          
+          // 格式化更新日志
+          const formattedMessage = versionCheckService.formatUpdateMessage(info.updateMessage);
+          
+          // 设置版本信息并显示弹窗
+          setVersionInfo({
+            latestVersion: info.latestVersion,
+            currentVersion: info.currentVersion,
+            updateMessage: formattedMessage,
+          });
+          setShowVersionModal(true);
+          
+          // 标记已显示更新提示
+          versionCheckService.markUpdatePromptShown();
+        } else {
+          console.log('✅ [VersionCheck] 当前已是最新版本');
+          // 即使是最新版本，也标记已检查过，避免每次启动都检查
+          versionCheckService.markUpdatePromptShown();
+        }
+      } catch (error) {
+        console.error('❌ [VersionCheck] 版本检查失败:', error);
+      }
+    };
+
+    // 延迟3秒后检查版本，避免影响应用启动速度
+    const timer = setTimeout(() => {
+      checkVersion();
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, []);
@@ -393,6 +457,17 @@ function App() {
           {/* 根据应用状态显示不同的界面 */}
           {appState === 'in-lobby' && lobby ? <MiniWindow /> : <MainWindow />}
         </div>
+
+        {/* 版本更新提示弹窗 */}
+        {versionInfo && (
+          <VersionUpdateModal
+            visible={showVersionModal}
+            latestVersion={versionInfo.latestVersion}
+            currentVersion={versionInfo.currentVersion}
+            updateMessage={versionInfo.updateMessage}
+            onClose={() => setShowVersionModal(false)}
+          />
+        )}
       </ConfigProvider>
     </ErrorBoundary>
   );

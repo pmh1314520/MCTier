@@ -40,7 +40,6 @@ export const MiniWindow: React.FC = () => {
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
-  const [isScreenSharing, setIsScreenSharing] = useState(false); // 屏幕共享状态
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -135,9 +134,9 @@ export const MiniWindow: React.FC = () => {
       try {
         const { screenShareService } = await import('../../services/screenShare/ScreenShareService');
         const shares = screenShareService.getActiveShares();
-        // 过滤掉自己的共享
-        const otherShares = shares.filter(share => share.playerId !== currentPlayerId);
-        setScreenSharesCount(otherShares.length);
+        // 【修复】包括自己的共享
+        console.log('📊 [MiniWindow] 屏幕共享数量:', shares.length, '包括自己的共享');
+        setScreenSharesCount(shares.length);
       } catch (error) {
         console.error('加载屏幕共享失败:', error);
       }
@@ -517,8 +516,15 @@ export const MiniWindow: React.FC = () => {
     if (!versionError) return;
     
     try {
-      await open(versionError.downloadUrl);
-      console.log('已打开官网:', versionError.downloadUrl);
+      // 确保URL以https://开头
+      let url = versionError.downloadUrl;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = `https://${url}`;
+        console.log('自动添加https://前缀:', url);
+      }
+      
+      await open(url);
+      console.log('已打开官网:', url);
       message.success('已在浏览器中打开官网');
     } catch (error) {
       console.error('打开官网失败:', error);
@@ -609,16 +615,6 @@ export const MiniWindow: React.FC = () => {
       console.error('复制大厅信息失败:', error);
       message.error('复制失败，请重试');
     }
-  };
-
-  // 处理开始屏幕共享
-  const handleStartScreenSharing = () => {
-    setIsScreenSharing(true);
-  };
-
-  // 处理停止屏幕共享
-  const handleStopScreenSharing = () => {
-    setIsScreenSharing(false);
   };
 
   return (
@@ -855,37 +851,6 @@ export const MiniWindow: React.FC = () => {
                 </Tooltip>
               </div>
               <div className="screen-share-controls">
-                {!isScreenSharing ? (
-                  <motion.button
-                    className="start-share-btn"
-                    onClick={handleStartScreenSharing}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Tooltip title="开始共享屏幕" placement="bottom">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <ScreenShareIcon size={16} />
-                        <span>开始共享</span>
-                      </div>
-                    </Tooltip>
-                  </motion.button>
-                ) : (
-                  <motion.button
-                    className="stop-share-btn"
-                    onClick={handleStopScreenSharing}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Tooltip title="停止共享屏幕" placement="bottom">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="6" y="6" width="12" height="12" />
-                        </svg>
-                        <span>停止共享</span>
-                      </div>
-                    </Tooltip>
-                  </motion.button>
-                )}
                 <button
                   className="back-button"
                   onClick={() => setCurrentView('lobby')}
@@ -896,11 +861,7 @@ export const MiniWindow: React.FC = () => {
                 </button>
               </div>
             </div>
-            <ScreenShareManager 
-              isSharing={isScreenSharing}
-              onStartSharing={handleStartScreenSharing}
-              onStopSharing={handleStopScreenSharing}
-            />
+            <ScreenShareManager />
           </motion.div>
         ) : (
           <motion.div

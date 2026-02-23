@@ -63,7 +63,14 @@ export const MainWindow: React.FC = () => {
         onOk: async () => {
           console.log('用户点击了"前往官网"按钮');
           try {
-            await open(versionError.downloadUrl);
+            // 确保URL以https://开头
+            let url = versionError.downloadUrl;
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+              url = `https://${url}`;
+              console.log('自动添加https://前缀:', url);
+            }
+            
+            await open(url);
           } catch (error) {
             console.error('打开官网失败:', error);
           }

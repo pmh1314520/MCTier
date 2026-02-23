@@ -24,7 +24,7 @@ export const ChatRoom: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
-  const [downloadedImages, setDownloadedImages] = useState<Set<string>>(new Set());
+  const [downloadedImages, setDownloadedImages] = useState<Map<string, string>>(new Map());
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -169,7 +169,25 @@ export const ChatRoom: React.FC = () => {
       input.type = 'file';
       input.accept = 'image/*';
       
+      // 【修复】监听取消事件：当用户关闭文件选择器时重置loading状态
+      const resetLoading = () => {
+        // 延迟检查，因为onchange可能会在focus之后触发
+        setTimeout(() => {
+          // 如果没有选择文件，重置loading状态
+          if (!input.files || input.files.length === 0) {
+            console.log('⚠️ [ChatRoom] 用户取消了文件选择');
+            setIsUploading(false);
+          }
+        }, 100);
+      };
+
+      // 监听窗口焦点恢复（用户关闭文件选择器后会恢复焦点）
+      window.addEventListener('focus', resetLoading, { once: true });
+      
       input.onchange = async (e) => {
+        // 移除焦点监听器，因为用户已经选择了文件
+        window.removeEventListener('focus', resetLoading);
+        
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) {
           setIsUploading(false);
@@ -417,16 +435,16 @@ export const ChatRoom: React.FC = () => {
       
       console.log('✅ 图片已保存到:', filePath);
       
-      // 标记为已下载
-      setDownloadedImages(prev => new Set(prev).add(messageId));
+      // 保存文件路径，用于显示
+      setDownloadedImages(prev => new Map(prev).set(messageId, filePath));
       setDownloadingImageId(null);
       
       // 3秒后清除下载状态
       setTimeout(() => {
         setDownloadedImages(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(messageId);
-          return newSet;
+          const newMap = new Map(prev);
+          newMap.delete(messageId);
+          return newMap;
         });
       }, 3000);
       
@@ -516,12 +534,12 @@ export const ChatRoom: React.FC = () => {
                         title="下载图片"
                       >
                         {downloadingImageId === message.id ? (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="downloading-icon">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="downloading-icon">
                             <circle cx="12" cy="12" r="10" opacity="0.25"/>
                             <path d="M12 2 A10 10 0 0 1 22 12" strokeLinecap="round"/>
                           </svg>
                         ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                             <polyline points="7 10 12 15 17 10"></polyline>
                             <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -530,7 +548,7 @@ export const ChatRoom: React.FC = () => {
                       </button>
                       {downloadedImages.has(message.id) && (
                         <div className="download-success-tip">
-                          图片已保存至"下载"文件夹
+                          已保存至 {downloadedImages.get(message.id)?.replace(/\\[^\\]+$/, '')}
                         </div>
                       )}
                     </div>

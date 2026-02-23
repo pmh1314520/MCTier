@@ -666,6 +666,18 @@ export class WebRTCClient {
           }
           break;
           
+        case 'screen-share-error':
+          // 收到屏幕共享错误（例如密码错误）
+          console.log(`❌ 收到屏幕共享错误: ${message.error}`);
+          // 这里可以通过事件通知前端显示错误
+          window.dispatchEvent(new CustomEvent('screen-share-error', { 
+            detail: { 
+              shareId: message.shareId, 
+              error: message.error 
+            } 
+          }));
+          break;
+          
         case 'screen-share-stop':
           // 收到屏幕共享停止通知
           console.log(`🖥️ 收到屏幕共享停止通知, shareId: ${message.shareId}`);
@@ -689,6 +701,7 @@ export class WebRTCClient {
               playerId: message.from,
               playerName: '',
               requirePassword: false,
+              password: message.password, // 【修复】传递密码字段
               sdp: message.offer.sdp,
             });
             console.log(`✅ 屏幕共享Offer已处理`);
@@ -721,6 +734,36 @@ export class WebRTCClient {
             console.log(`✅ 屏幕共享ICE候选已处理`);
           } catch (error) {
             console.error('❌ 处理屏幕共享ICE候选失败:', error);
+          }
+          break;
+          
+        case 'screen-share-viewer-left':
+          // 收到查看者离开通知
+          console.log(`👋 收到查看者离开通知, shareId: ${message.shareId}, from: ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            screenShareService.handleViewerLeft(message.shareId, message.from);
+            console.log(`✅ 查看者离开已处理`);
+          } catch (error) {
+            console.error('❌ 处理查看者离开失败:', error);
+          }
+          break;
+          
+        case 'screen-share-update':
+          // 收到共享状态更新
+          console.log(`🔄 收到共享状态更新, shareId: ${message.shareId}, viewerId: ${message.viewerId}, viewerName: ${message.viewerName}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            // 更新本地共享列表中的查看者信息
+            const share = (screenShareService as any).activeShares.get(message.shareId);
+            if (share) {
+              share.viewerId = message.viewerId;
+              share.viewerName = message.viewerName;
+              (screenShareService as any).activeShares.set(message.shareId, share);
+              console.log(`✅ 共享状态已更新:`, { viewerId: message.viewerId, viewerName: message.viewerName });
+            }
+          } catch (error) {
+            console.error('❌ 处理共享状态更新失败:', error);
           }
           break;
           
