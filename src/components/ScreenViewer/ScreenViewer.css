@@ -19,7 +19,10 @@
   justify-content: space-between;
   align-items: center;
   z-index: 100;
-  -webkit-app-region: drag;
+}
+
+.viewer-controls > * {
+  -webkit-app-region: no-drag;
 }
 
 .viewer-info {
@@ -111,4 +114,50 @@
 .viewer-error p {
   margin: 0;
   font-size: 16px;
+}
+
+.close-viewer-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.close-viewer-btn:hover {
+  background: rgba(239, 68, 68, 0.8);
+  transform: scale(1.05);
+}
+
+.close-viewer-btn:active {
+  transform: scale(0.95);
+}
+
+.retry-btn {
+  margin-top: 8px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.retry-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.retry-btn:active {
+  transform: translateY(0);
 }

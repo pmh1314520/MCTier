@@ -2413,7 +2413,7 @@ pub async fn open_screen_viewer_window(
     );
     
     // 创建新窗口
-    let window = WebviewWindowBuilder::new(
+    let _window = WebviewWindowBuilder::new(
         &app,
         window_label,
         tauri::WebviewUrl::App(url.into())
@@ -2423,6 +2423,7 @@ pub async fn open_screen_viewer_window(
     .min_inner_size(800.0, 600.0)
     .resizable(true)
     .decorations(true)
+    .always_on_top(true)  // 设置窗口始终置顶
     .center()
     .build()
     .map_err(|e| format!("创建窗口失败: {}", e))?;

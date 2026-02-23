@@ -22,6 +22,8 @@ class ScreenShareService {
   private localStream: MediaStream | null = null;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
   private activeShares: Map<string, ScreenShare> = new Map();
+  // 存储接收到的远程流（用于查看者）
+  private remoteStreams: Map<string, MediaStream> = new Map();
   // 事件回调（预留，暂未使用）
   // private onShareListUpdateCallback?: (shares: ScreenShare[]) => void;
   private currentPlayerId: string = '';
@@ -175,18 +177,10 @@ class ScreenShareService {
           if (event.streams && event.streams[0]) {
             const stream = event.streams[0];
             
-            // 将流保存到全局变量供ScreenViewer使用
-            (window as any).__screenShareStream__ = stream;
+            // 将流保存到服务中，供独立窗口访问
+            this.remoteStreams.set(shareId, stream);
             
-            // 同时保存到localStorage作为标记（实际流无法序列化）
-            try {
-              localStorage.setItem('__screenShareStreamReady__', 'true');
-              localStorage.setItem('__screenShareId__', shareId);
-            } catch (e) {
-              console.warn('无法保存到localStorage:', e);
-            }
-            
-            console.log('📺 [ScreenShareService] 流已保存到全局变量');
+            console.log('📺 [ScreenShareService] 流已保存到服务中');
             resolve(stream);
           } else {
             reject(new Error('未收到有效的媒体流'));
@@ -251,6 +245,19 @@ class ScreenShareService {
       console.error('❌ [ScreenShareService] 请求查看屏幕失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * 获取已保存的远程流（供独立窗口使用）
+   */
+  getRemoteStream(shareId: string): MediaStream | null {
+    const stream = this.remoteStreams.get(shareId);
+    if (stream) {
+      console.log('✅ [ScreenShareService] 从服务中获取到流:', shareId);
+      return stream;
+    }
+    console.warn('⚠️ [ScreenShareService] 未找到流:', shareId);
+    return null;
   }
 
   /**
@@ -451,6 +458,7 @@ class ScreenShareService {
     this.peerConnections.clear();
 
     this.activeShares.clear();
+    this.remoteStreams.clear();
     this.ws = null;
 
     console.log('✅ [ScreenShareService] 资源已清理');

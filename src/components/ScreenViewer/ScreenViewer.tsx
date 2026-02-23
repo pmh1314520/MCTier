@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { screenShareService } from '../../services/screenShare/ScreenShareService';
 import './ScreenViewer.css';
 
 interface ScreenViewerProps {
@@ -15,60 +17,49 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
   useEffect(() => {
     console.log('🎬 [ScreenViewer] 组件已挂载，shareId:', shareId);
     
-    // 尝试从主窗口获取流（如果是从主窗口打开的）
-    const mainWindowStream = (window.opener as any)?.__screenShareStream__;
-    
-    if (mainWindowStream) {
-      console.log('✅ [ScreenViewer] 从window.opener获取到屏幕流');
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = mainWindowStream;
-        videoRef.current.play().then(() => {
-          setIsLoading(false);
-          console.log('✅ [ScreenViewer] 视频播放成功');
-        }).catch((err) => {
-          console.error('❌ [ScreenViewer] 播放视频失败:', err);
-          setError('播放视频失败');
-          setIsLoading(false);
-        });
-      }
-      return;
-    }
-
-    // 如果window.opener不可用，尝试从全局变量获取
     let checkInterval: ReturnType<typeof setInterval> | undefined;
     let attempts = 0;
-    const maxAttempts = 50; // 减少到5秒
+    const maxAttempts = 100; // 10秒超时
 
-    const checkForStream = () => {
-      // 尝试从全局变量获取流
-      const stream = (window as any).__screenShareStream__;
+    const checkForStream = async () => {
+      attempts++;
       
-      if (stream) {
-        console.log('✅ [ScreenViewer] 从全局变量获取到屏幕流');
+      try {
+        console.log(`⏳ [ScreenViewer] 尝试从服务获取流... (${attempts}/${maxAttempts})`);
         
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().then(() => {
+        // 从screenShareService获取流
+        const stream = screenShareService.getRemoteStream(shareId);
+        
+        if (stream && stream.active) {
+          console.log('✅ [ScreenViewer] 从服务获取到屏幕流');
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            await videoRef.current.play();
             setIsLoading(false);
             console.log('✅ [ScreenViewer] 视频播放成功');
-          }).catch((err) => {
-            console.error('❌ [ScreenViewer] 播放视频失败:', err);
-            setError('播放视频失败');
-            setIsLoading(false);
-          });
+            
+            if (checkInterval) {
+              clearInterval(checkInterval);
+            }
+            return;
+          }
         }
         
-        if (checkInterval) {
-          clearInterval(checkInterval);
-        }
-      } else {
-        attempts++;
-        console.log(`⏳ [ScreenViewer] 等待屏幕流... (${attempts}/${maxAttempts})`);
-        
+        // 如果超时
         if (attempts >= maxAttempts) {
           console.error('❌ [ScreenViewer] 等待屏幕流超时');
-          setError('未找到屏幕共享流');
+          setError('无法获取屏幕共享流，请重试');
+          setIsLoading(false);
+          if (checkInterval) {
+            clearInterval(checkInterval);
+          }
+        }
+      } catch (err) {
+        console.error('❌ [ScreenViewer] 获取流时出错:', err);
+        
+        if (attempts >= maxAttempts) {
+          setError('获取屏幕共享流失败');
           setIsLoading(false);
           if (checkInterval) {
             clearInterval(checkInterval);
@@ -80,10 +71,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
     // 立即检查一次
     checkForStream();
 
-    // 如果没有找到，开始轮询
-    if (!(window as any).__screenShareStream__) {
-      checkInterval = setInterval(checkForStream, 100);
-    }
+    // 开始轮询
+    checkInterval = setInterval(checkForStream, 100);
 
     return () => {
       if (checkInterval) {
@@ -94,6 +83,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
       }
     };
   }, [shareId]);
+
+  // 添加关闭窗口的处理
+  const handleClose = async () => {
+    const currentWindow = getCurrentWebviewWindow();
+    await currentWindow.close();
+  };
 
   return (
     <div className="screen-viewer">
@@ -112,6 +107,13 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
           </svg>
           <span>{playerName} 的屏幕</span>
         </div>
+        
+        <button className="close-viewer-btn" onClick={handleClose} title="关闭">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </motion.div>
 
       {/* 视频显示区域 */}
@@ -131,6 +133,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
               <circle cx="12" cy="16" r="0.8" fill="currentColor" stroke="none" />
             </svg>
             <p>{error}</p>
+            <button className="retry-btn" onClick={handleClose}>
+              关闭窗口
+            </button>
           </div>
         )}
 
@@ -145,3 +150,5 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
     </div>
   );
 };
+
+
