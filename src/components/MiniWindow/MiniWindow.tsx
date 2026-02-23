@@ -40,6 +40,7 @@ export const MiniWindow: React.FC = () => {
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
+  const [isScreenSharing, setIsScreenSharing] = useState(false); // 屏幕共享状态
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -80,8 +81,7 @@ export const MiniWindow: React.FC = () => {
   const [remoteSharesCount, setRemoteSharesCount] = useState(0);
   
   // 后台轮询屏幕共享
-  // TODO: 实现屏幕共享列表的实时同步
-  // const [screenSharesCount, setScreenSharesCount] = useState(0);
+  const [screenSharesCount, setScreenSharesCount] = useState(0);
 
   // 后台加载远程共享
   useEffect(() => {
@@ -128,6 +128,29 @@ export const MiniWindow: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [players]); // 依赖players，当玩家列表变化时重新加载
+
+  // 后台加载屏幕共享
+  useEffect(() => {
+    const loadScreenShares = async () => {
+      try {
+        const { screenShareService } = await import('../../services/screenShare/ScreenShareService');
+        const shares = screenShareService.getActiveShares();
+        // 过滤掉自己的共享
+        const otherShares = shares.filter(share => share.playerId !== currentPlayerId);
+        setScreenSharesCount(otherShares.length);
+      } catch (error) {
+        console.error('加载屏幕共享失败:', error);
+      }
+    };
+
+    // 立即执行一次
+    loadScreenShares();
+
+    // 每2秒轮询一次
+    const interval = setInterval(loadScreenShares, 2000);
+
+    return () => clearInterval(interval);
+  }, [currentPlayerId]); // 依赖currentPlayerId
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {
@@ -588,6 +611,16 @@ export const MiniWindow: React.FC = () => {
     }
   };
 
+  // 处理开始屏幕共享
+  const handleStartScreenSharing = () => {
+    setIsScreenSharing(true);
+  };
+
+  // 处理停止屏幕共享
+  const handleStopScreenSharing = () => {
+    setIsScreenSharing(false);
+  };
+
   return (
     <>
       {/* 版本错误全屏提示 - 完全覆盖大厅界面 */}
@@ -812,22 +845,62 @@ export const MiniWindow: React.FC = () => {
             <div className="screen-share-header">
               <div className="screen-share-title-wrapper">
                 <h3 className="screen-share-title">屏幕共享</h3>
-                <div className="screen-share-info-icon" title="查看和共享屏幕给大厅内的其他玩家">
-                  <InfoIcon size={14} />
-                </div>
+                <Tooltip 
+                  title="将您的屏幕实时共享给大厅内的其他玩家查看，支持密码保护。"
+                  placement="bottom"
+                >
+                  <div className="screen-share-info-icon">
+                    <InfoIcon size={14} />
+                  </div>
+                </Tooltip>
               </div>
               <div className="screen-share-controls">
-                {/* 屏幕共享按钮将由ScreenShareManager内部管理 */}
+                {!isScreenSharing ? (
+                  <motion.button
+                    className="start-share-btn"
+                    onClick={handleStartScreenSharing}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Tooltip title="开始共享屏幕" placement="bottom">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <ScreenShareIcon size={16} />
+                        <span>开始共享</span>
+                      </div>
+                    </Tooltip>
+                  </motion.button>
+                ) : (
+                  <motion.button
+                    className="stop-share-btn"
+                    onClick={handleStopScreenSharing}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Tooltip title="停止共享屏幕" placement="bottom">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="6" y="6" width="12" height="12" />
+                        </svg>
+                        <span>停止共享</span>
+                      </div>
+                    </Tooltip>
+                  </motion.button>
+                )}
                 <button
                   className="back-button"
                   onClick={() => setCurrentView('lobby')}
-                  title="返回大厅 (ESC)"
                 >
-                  <CloseIcon size={16} />
+                  <Tooltip title="返回大厅 (ESC)" placement="bottom">
+                    <CloseIcon size={16} />
+                  </Tooltip>
                 </button>
               </div>
             </div>
-            <ScreenShareManager />
+            <ScreenShareManager 
+              isSharing={isScreenSharing}
+              onStartSharing={handleStartScreenSharing}
+              onStopSharing={handleStopScreenSharing}
+            />
           </motion.div>
         ) : (
           <motion.div
@@ -1183,11 +1256,14 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
                     setCurrentView('screenShare');
                   }}
-                  title="屏幕共享"
+                  title={screenSharesCount > 0 ? `屏幕共享 (${screenSharesCount}个可用)` : "屏幕共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <ScreenShareIcon size={24} />
+                  {screenSharesCount > 0 && (
+                    <span className="share-count-badge">{screenSharesCount}</span>
+                  )}
                 </motion.button>
               </motion.div>
             </motion.div>

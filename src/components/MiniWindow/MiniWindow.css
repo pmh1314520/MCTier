@@ -1311,6 +1311,40 @@
   -webkit-app-region: no-drag;
 }
 
+.screen-share-controls .start-share-btn,
+.screen-share-controls .stop-share-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.screen-share-controls .start-share-btn {
+  background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%);
+  color: white;
+}
+
+.screen-share-controls .start-share-btn:hover {
+  background: linear-gradient(135deg, #73d13d 0%, #95de64 100%);
+  box-shadow: 0 4px 12px rgba(82, 196, 26, 0.4);
+}
+
+.screen-share-controls .stop-share-btn {
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+  color: white;
+}
+
+.screen-share-controls .stop-share-btn:hover {
+  background: linear-gradient(135deg, #ff7875 0%, #ffa39e 100%);
+  box-shadow: 0 4px 12px rgba(255, 77, 79, 0.4);
+}
+
 /* 屏幕共享按钮需要相对定位以支持徽章 */
 .mini-voice-btn.screen-share-btn {
   position: relative;

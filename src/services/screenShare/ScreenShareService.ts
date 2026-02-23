@@ -36,15 +36,17 @@ class ScreenShareService {
     this.currentPlayerName = playerName;
     this.ws = ws;
     
-    // 监听WebSocket消息
-    this.setupWebSocketListeners();
-    
-    console.log('✅ [ScreenShareService] 初始化完成');
+    console.log('✅ [ScreenShareService] 初始化完成', {
+      playerId: this.currentPlayerId,
+      playerName: this.currentPlayerName,
+      wsReady: this.ws?.readyState === WebSocket.OPEN
+    });
   }
 
   /**
    * 设置共享列表更新回调（预留，暂未使用）
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onShareListUpdate(_callback: (shares: ScreenShare[]) => void): void {
     // TODO: 实现共享列表更新回调
     console.log('屏幕共享列表更新回调已设置（暂未实现）');
@@ -134,9 +136,19 @@ class ScreenShareService {
   /**
    * 请求查看屏幕
    */
-  async requestViewScreen(shareId: string, password?: string): Promise<MediaStream> {
+  async requestViewScreen(shareId: string, _password?: string): Promise<MediaStream> {
     try {
       console.log('👀 [ScreenShareService] 请求查看屏幕:', shareId);
+
+      // 从shareId中提取共享者的playerId
+      // shareId格式: share-{playerId}-{timestamp}
+      const shareIdParts = shareId.split('-');
+      if (shareIdParts.length < 3) {
+        throw new Error('无效的shareId格式');
+      }
+      // 提取playerId (去掉"share-"前缀和时间戳后缀)
+      const sharerPlayerId = shareIdParts.slice(1, -1).join('-');
+      console.log('📍 [ScreenShareService] 共享者PlayerId:', sharerPlayerId);
 
       // 创建PeerConnection
       const pc = new RTCPeerConnection({
@@ -161,9 +173,21 @@ class ScreenShareService {
           clearTimeout(timeout);
           
           if (event.streams && event.streams[0]) {
+            const stream = event.streams[0];
+            
             // 将流保存到全局变量供ScreenViewer使用
-            (window as any).__screenShareStream__ = event.streams[0];
-            resolve(event.streams[0]);
+            (window as any).__screenShareStream__ = stream;
+            
+            // 同时保存到localStorage作为标记（实际流无法序列化）
+            try {
+              localStorage.setItem('__screenShareStreamReady__', 'true');
+              localStorage.setItem('__screenShareId__', shareId);
+            } catch (e) {
+              console.warn('无法保存到localStorage:', e);
+            }
+            
+            console.log('📺 [ScreenShareService] 流已保存到全局变量');
+            resolve(stream);
           } else {
             reject(new Error('未收到有效的媒体流'));
           }
@@ -174,9 +198,13 @@ class ScreenShareService {
           if (event.candidate) {
             this.sendWebSocketMessage({
               type: 'screen-share-ice-candidate',
-              data: {
-                shareId,
-                candidate: event.candidate,
+              from: this.currentPlayerId,
+              to: sharerPlayerId,
+              shareId,
+              candidate: {
+                candidate: event.candidate.candidate,
+                sdpMLineIndex: event.candidate.sdpMLineIndex,
+                sdpMid: event.candidate.sdpMid,
               },
             });
           }
@@ -204,18 +232,15 @@ class ScreenShareService {
       await pc.setLocalDescription(offer);
 
       // 发送Offer到共享者
-      const offerMessage = {
-        shareId,
-        playerId: this.currentPlayerId,
-        playerName: this.currentPlayerName,
-        requirePassword: !!password,
-        password: password,
-        sdp: offer.sdp!,
-      };
-
       this.sendWebSocketMessage({
         type: 'screen-share-offer',
-        data: offerMessage,
+        from: this.currentPlayerId,
+        to: sharerPlayerId,
+        shareId,
+        offer: {
+          type: offer.type,
+          sdp: offer.sdp!,
+        },
       });
 
       console.log('📤 [ScreenShareService] Offer已发送');
@@ -236,28 +261,22 @@ class ScreenShareService {
   }
 
   /**
-   * 设置WebSocket监听器
-   */
-  private setupWebSocketListeners(): void {
-    if (!this.ws) return;
-
-    // 注意：实际的消息监听应该在WebRTC客户端中统一处理
-    // 这里只是示例，实际实现需要与现有的WebSocket集成
-  }
-
-  /**
    * 广播共享开始
    */
   private broadcastShareStart(share: ScreenShare): void {
+    console.log('📢 [ScreenShareService] 广播共享开始', {
+      shareId: share.id,
+      playerId: share.playerId,
+      playerName: share.playerName,
+      requirePassword: share.requirePassword
+    });
+    
     this.sendWebSocketMessage({
       type: 'screen-share-start',
-      data: {
-        shareId: share.id,
-        playerId: share.playerId,
-        playerName: share.playerName,
-        requirePassword: share.requirePassword,
-        startTime: share.startTime,
-      },
+      from: this.currentPlayerId,
+      shareId: share.id,
+      playerName: share.playerName,
+      hasPassword: share.requirePassword,
     });
   }
 
@@ -267,7 +286,8 @@ class ScreenShareService {
   private broadcastShareStop(shareId: string): void {
     this.sendWebSocketMessage({
       type: 'screen-share-stop',
-      data: { shareId },
+      from: this.currentPlayerId,
+      shareId: shareId,
     });
   }
 
@@ -319,15 +339,15 @@ class ScreenShareService {
       await pc.setLocalDescription(answer);
 
       // 发送Answer
-      const answerMessage: ScreenShareAnswer = {
-        shareId: offer.shareId,
-        sdp: answer.sdp!,
-      };
-
       this.sendWebSocketMessage({
         type: 'screen-share-answer',
-        data: answerMessage,
-        targetPlayerId: offer.playerId,
+        from: this.currentPlayerId,
+        to: offer.playerId,
+        shareId: offer.shareId,
+        answer: {
+          type: answer.type,
+          sdp: answer.sdp!,
+        },
       });
 
       // 监听ICE候选
@@ -335,11 +355,14 @@ class ScreenShareService {
         if (event.candidate) {
           this.sendWebSocketMessage({
             type: 'screen-share-ice-candidate',
-            data: {
-              shareId: offer.shareId,
-              candidate: event.candidate,
+            from: this.currentPlayerId,
+            to: offer.playerId,
+            shareId: offer.shareId,
+            candidate: {
+              candidate: event.candidate.candidate,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+              sdpMid: event.candidate.sdpMid,
             },
-            targetPlayerId: offer.playerId,
           });
         }
       };
@@ -353,19 +376,36 @@ class ScreenShareService {
   /**
    * 处理收到的Answer
    */
-  async handleAnswer(answer: ScreenShareAnswer, viewerPlayerId: string): Promise<void> {
+  async handleAnswer(answer: ScreenShareAnswer, _viewerPlayerId: string): Promise<void> {
     try {
       console.log('📨 [ScreenShareService] 收到Answer');
 
-      const connectionKey = `${answer.shareId}-viewer-${viewerPlayerId}`;
-      const pc = this.peerConnections.get(connectionKey);
+      // 查找对应的PeerConnection
+      // 需要遍历所有连接，找到匹配的viewer连接
+      let foundPc: RTCPeerConnection | null = null;
+      for (const [key, pc] of this.peerConnections.entries()) {
+        if (key.startsWith(`${answer.shareId}-viewer-`)) {
+          foundPc = pc;
+          break;
+        }
+      }
 
-      if (!pc) {
+      if (!foundPc) {
         console.error('❌ [ScreenShareService] 找不到对应的PeerConnection');
         return;
       }
 
-      await pc.setRemoteDescription({
+      // 检查信令状态，只有在'have-local-offer'状态时才能设置Answer
+      const signalingState = foundPc.signalingState;
+      console.log(`🔍 [ScreenShareService] 当前信令状态: ${signalingState}`);
+
+      if (signalingState !== 'have-local-offer') {
+        console.error(`❌ [ScreenShareService] 信令状态错误: ${signalingState}，无法设置Answer`);
+        console.error('💡 只有在have-local-offer状态时才能设置Answer');
+        return;
+      }
+
+      await foundPc.setRemoteDescription({
         type: 'answer',
         sdp: answer.sdp,
       });
@@ -373,6 +413,7 @@ class ScreenShareService {
       console.log('✅ [ScreenShareService] Answer已设置');
     } catch (error) {
       console.error('❌ [ScreenShareService] 处理Answer失败:', error);
+      console.error('错误详情:', error);
     }
   }
 

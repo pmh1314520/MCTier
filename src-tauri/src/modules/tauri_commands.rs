@@ -2413,7 +2413,7 @@ pub async fn open_screen_viewer_window(
     );
     
     // 创建新窗口
-    let _window = WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         &app,
         window_label,
         tauri::WebviewUrl::App(url.into())

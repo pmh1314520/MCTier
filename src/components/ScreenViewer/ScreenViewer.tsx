@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import './ScreenViewer.css';
 
 interface ScreenViewerProps {
@@ -12,56 +11,93 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    // 从全局状态获取媒体流
-    const stream = (window as any).__screenShareStream__;
+    console.log('🎬 [ScreenViewer] 组件已挂载，shareId:', shareId);
     
-    if (stream && videoRef.current) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().then(() => {
-        setIsLoading(false);
-      }).catch((err) => {
-        console.error('播放视频失败:', err);
-        setError('播放视频失败');
-        setIsLoading(false);
-      });
-    } else {
-      setError('未找到屏幕共享流');
-      setIsLoading(false);
+    // 尝试从主窗口获取流（如果是从主窗口打开的）
+    const mainWindowStream = (window.opener as any)?.__screenShareStream__;
+    
+    if (mainWindowStream) {
+      console.log('✅ [ScreenViewer] 从window.opener获取到屏幕流');
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = mainWindowStream;
+        videoRef.current.play().then(() => {
+          setIsLoading(false);
+          console.log('✅ [ScreenViewer] 视频播放成功');
+        }).catch((err) => {
+          console.error('❌ [ScreenViewer] 播放视频失败:', err);
+          setError('播放视频失败');
+          setIsLoading(false);
+        });
+      }
+      return;
+    }
+
+    // 如果window.opener不可用，尝试从全局变量获取
+    let checkInterval: ReturnType<typeof setInterval> | undefined;
+    let attempts = 0;
+    const maxAttempts = 50; // 减少到5秒
+
+    const checkForStream = () => {
+      // 尝试从全局变量获取流
+      const stream = (window as any).__screenShareStream__;
+      
+      if (stream) {
+        console.log('✅ [ScreenViewer] 从全局变量获取到屏幕流');
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().then(() => {
+            setIsLoading(false);
+            console.log('✅ [ScreenViewer] 视频播放成功');
+          }).catch((err) => {
+            console.error('❌ [ScreenViewer] 播放视频失败:', err);
+            setError('播放视频失败');
+            setIsLoading(false);
+          });
+        }
+        
+        if (checkInterval) {
+          clearInterval(checkInterval);
+        }
+      } else {
+        attempts++;
+        console.log(`⏳ [ScreenViewer] 等待屏幕流... (${attempts}/${maxAttempts})`);
+        
+        if (attempts >= maxAttempts) {
+          console.error('❌ [ScreenViewer] 等待屏幕流超时');
+          setError('未找到屏幕共享流');
+          setIsLoading(false);
+          if (checkInterval) {
+            clearInterval(checkInterval);
+          }
+        }
+      }
+    };
+
+    // 立即检查一次
+    checkForStream();
+
+    // 如果没有找到，开始轮询
+    if (!(window as any).__screenShareStream__) {
+      checkInterval = setInterval(checkForStream, 100);
     }
 
     return () => {
+      if (checkInterval) {
+        clearInterval(checkInterval);
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     };
   }, [shareId]);
 
-  // 切换全屏
-  const toggleFullscreen = async () => {
-    const appWindow = getCurrentWindow();
-    const isCurrentlyFullscreen = await appWindow.isFullscreen();
-    
-    if (isCurrentlyFullscreen) {
-      await appWindow.setFullscreen(false);
-      setIsFullscreen(false);
-    } else {
-      await appWindow.setFullscreen(true);
-      setIsFullscreen(true);
-    }
-  };
-
-  // 关闭窗口
-  const handleClose = async () => {
-    const appWindow = getCurrentWindow();
-    await appWindow.close();
-  };
-
   return (
     <div className="screen-viewer">
-      {/* 顶部控制栏 */}
+      {/* 顶部信息栏 */}
       <motion.div
         className="viewer-controls"
         initial={{ y: -100, opacity: 0 }}
@@ -75,39 +111,6 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
           <span>{playerName} 的屏幕</span>
-        </div>
-
-        <div className="viewer-actions">
-          <motion.button
-            className="viewer-btn"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? '退出全屏' : '全屏'}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            {isFullscreen ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-              </svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-              </svg>
-            )}
-          </motion.button>
-
-          <motion.button
-            className="viewer-btn close-btn"
-            onClick={handleClose}
-            title="关闭"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </motion.button>
         </div>
       </motion.div>
 
@@ -124,8 +127,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
           <div className="viewer-error">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
+              <path d="M12 8v5" strokeLinecap="round" />
+              <circle cx="12" cy="16" r="0.8" fill="currentColor" stroke="none" />
             </svg>
             <p>{error}</p>
           </div>

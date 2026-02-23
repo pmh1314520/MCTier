@@ -158,6 +158,19 @@ export class WebRTCClient {
       this.startHeartbeat();
       console.log('✅ 心跳已启动');
 
+      // 初始化屏幕共享服务
+      console.log('正在初始化屏幕共享服务...');
+      try {
+        const { screenShareService } = await import('../screenShare/ScreenShareService');
+        if (this.websocket) {
+          screenShareService.initialize(playerId, playerName, this.websocket);
+          console.log('✅ 屏幕共享服务初始化成功');
+        }
+      } catch (error) {
+        console.error('❌ 屏幕共享服务初始化失败:', error);
+        // 不中断流程，屏幕共享是可选功能
+      }
+
       console.log('✅ WebRTC 客户端初始化完成');
     } catch (error) {
       console.error('❌ WebRTC 初始化失败:', error);
@@ -627,6 +640,87 @@ export class WebRTCClient {
             }
           } catch (error) {
             console.error('❌ 处理远程共享更新失败:', error);
+          }
+          break;
+          
+        case 'screen-share-start':
+          // 收到屏幕共享开始通知
+          console.log(`🖥️ 收到屏幕共享开始通知 from ${message.playerName}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            // 将共享信息添加到本地列表
+            const share = {
+              id: message.shareId,
+              playerId: message.from,
+              playerName: message.playerName,
+              virtualIp: '', // 将由前端填充
+              requirePassword: message.hasPassword,
+              startTime: Date.now(),
+              status: 'active' as const,
+            };
+            // 直接添加到activeShares
+            (screenShareService as any).activeShares.set(share.id, share);
+            console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享开始失败:', error);
+          }
+          break;
+          
+        case 'screen-share-stop':
+          // 收到屏幕共享停止通知
+          console.log(`🖥️ 收到屏幕共享停止通知, shareId: ${message.shareId}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            // 从本地列表移除
+            (screenShareService as any).activeShares.delete(message.shareId);
+            console.log(`✅ 屏幕共享已从列表移除`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享停止失败:', error);
+          }
+          break;
+          
+        case 'screen-share-offer':
+          // 收到屏幕共享Offer
+          console.log(`🖥️ 收到屏幕共享Offer from ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            await screenShareService.handleOffer({
+              shareId: message.shareId,
+              playerId: message.from,
+              playerName: '',
+              requirePassword: false,
+              sdp: message.offer.sdp,
+            });
+            console.log(`✅ 屏幕共享Offer已处理`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享Offer失败:', error);
+          }
+          break;
+          
+        case 'screen-share-answer':
+          // 收到屏幕共享Answer
+          console.log(`🖥️ 收到屏幕共享Answer from ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            await screenShareService.handleAnswer({
+              shareId: message.shareId,
+              sdp: message.answer.sdp,
+            }, message.from);
+            console.log(`✅ 屏幕共享Answer已处理`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享Answer失败:', error);
+          }
+          break;
+          
+        case 'screen-share-ice-candidate':
+          // 收到屏幕共享ICE候选
+          console.log(`🖥️ 收到屏幕共享ICE候选 from ${message.from}`);
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            await screenShareService.handleIceCandidate(message.shareId, message.candidate);
+            console.log(`✅ 屏幕共享ICE候选已处理`);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享ICE候选失败:', error);
           }
           break;
           
@@ -1872,6 +1966,16 @@ export class WebRTCClient {
         console.log('✅ 文件共享服务已清理');
       } catch (error) {
         console.error('❌ 清理文件共享服务失败:', error);
+      }
+
+      // 清理屏幕共享服务
+      console.log('正在清理屏幕共享服务...');
+      try {
+        const { screenShareService } = await import('../screenShare/ScreenShareService');
+        screenShareService.cleanup();
+        console.log('✅ 屏幕共享服务已清理');
+      } catch (error) {
+        console.error('❌ 清理屏幕共享服务失败:', error);
       }
       
       console.log('✅ WebRTC 客户端清理完成');

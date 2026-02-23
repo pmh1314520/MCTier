@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Modal, Input, Switch, message } from 'antd';
+import { Modal, Input, Switch, message, Tooltip } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
@@ -9,14 +9,18 @@ import type { ScreenShare } from '../../types';
 import './ScreenShareManager.css';
 
 interface ScreenShareManagerProps {
-  onSharingStateChange?: (isSharing: boolean) => void;
+  isSharing: boolean;
+  onStartSharing: () => void;
+  onStopSharing: () => void;
 }
 
-export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharingStateChange }) => {
+export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ 
+  isSharing, 
+  onStopSharing 
+}) => {
   const { currentPlayerId } = useAppStore();
   const [activeShares, setActiveShares] = useState<ScreenShare[]>([]);
   const [myShareId, setMyShareId] = useState<string | null>(null);
-  const [isSharing, setIsSharing] = useState(false);
   const [showStartModal, setShowStartModal] = useState(false);
   const [requirePassword, setRequirePassword] = useState(false);
   const [password, setPassword] = useState('');
@@ -40,18 +44,10 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
     return () => clearInterval(interval);
   }, []);
 
-  // 通知父组件共享状态变化
-  useEffect(() => {
-    if (onSharingStateChange) {
-      onSharingStateChange(isSharing);
-    }
-  }, [isSharing, onSharingStateChange]);
-
-  // 开始共享
-  const handleStartSharing = async () => {
+  // 开始共享 - 内部处理
+  const handleStartSharingInternal = async () => {
     try {
       console.log('🖥️ 开始屏幕共享...');
-      setIsSharing(true);
 
       const shareId = await screenShareService.startSharing(
         requirePassword,
@@ -74,66 +70,77 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
       } else {
         message.error('启动屏幕共享失败');
       }
-      
-      setIsSharing(false);
     }
   };
 
-  // 停止共享
-  const handleStopSharing = () => {
+  // 停止共享 - 内部处理
+  const handleStopSharingInternal = () => {
     if (myShareId) {
       screenShareService.stopSharing(myShareId);
       setMyShareId(null);
-      setIsSharing(false);
       message.success('屏幕共享已停止');
     }
   };
 
-  // 查看屏幕
+  // 当父组件调用开始共享时，显示模态框
+  useEffect(() => {
+    if (isSharing && !myShareId) {
+      setShowStartModal(true);
+    } else if (!isSharing && myShareId) {
+      // 父组件要求停止共享
+      handleStopSharingInternal();
+    }
+  }, [isSharing, myShareId]);
+
+  // 查看屏幕 - 使用独立窗口
   const handleViewScreen = async (share: ScreenShare) => {
     try {
-      // 如果需要密码且不是自己的共享
+      // 如果需要密码且不是自己的分享
       if (share.requirePassword && share.playerId !== currentPlayerId) {
         setSelectedShare(share);
         setShowPasswordModal(true);
         return;
       }
 
-      await startViewing(share);
-    } catch (error) {
-      console.error('❌ 查看屏幕失败:', error);
-      message.error('查看屏幕失败');
-    }
-  };
+      console.log('👀 [ScreenShareManager] 开始查看屏幕:', share.id);
+      console.log('👀 [ScreenShareManager] 共享者:', share.playerName);
+      console.log('👀 [ScreenShareManager] 共享者ID:', share.playerId);
 
-  // 开始查看（验证密码后）
-  const startViewing = async (share: ScreenShare, pwd?: string) => {
-    try {
-      console.log('👀 开始查看屏幕:', share.id);
-
-      // 请求查看屏幕
-      await screenShareService.requestViewScreen(share.id, pwd);
-
-      // 打开独立的查看窗口
-      await invoke('open_screen_viewer_window', {
-        shareId: share.id,
-        playerName: share.playerName,
+      // 先请求查看屏幕（建立WebRTC连接并获取流）
+      const stream = await screenShareService.requestViewScreen(share.id);
+      
+      console.log('✅ [ScreenShareManager] 已获取屏幕流');
+      console.log('📺 [ScreenShareManager] 流信息:', {
+        id: stream.id,
+        active: stream.active,
+        tracks: stream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState,
+          label: t.label
+        }))
       });
 
+      // 打开独立窗口显示视频
+      console.log('📺 [ScreenShareManager] 打开独立窗口显示视频');
       setViewingShareId(share.id);
-      setShowPasswordModal(false);
-      setPasswordInput('');
+      
+      // 调用Tauri命令打开屏幕查看窗口
+      await invoke('open_screen_viewer_window', {
+        shareId: share.id,
+        playerName: share.playerName
+      });
+      
       message.success(`正在查看 ${share.playerName} 的屏幕`);
-
-      console.log('✅ 屏幕查看窗口已打开');
+      console.log('✅ [ScreenShareManager] 屏幕查看窗口已打开');
     } catch (error) {
-      console.error('❌ 查看屏幕失败:', error);
+      console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
       message.error('查看屏幕失败');
     }
   };
 
-  // 验证密码并查看
-  const handlePasswordSubmit = () => {
+  // 验证密码并查看 - 使用独立窗口
+  const handlePasswordSubmit = async () => {
     if (!selectedShare) return;
 
     if (!passwordInput.trim()) {
@@ -141,39 +148,48 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
       return;
     }
 
-    startViewing(selectedShare, passwordInput);
+    try {
+      console.log('👀 [ScreenShareManager] 验证密码后开始查看屏幕:', selectedShare.id);
+
+      // 先请求查看屏幕（建立WebRTC连接并获取流）
+      const stream = await screenShareService.requestViewScreen(selectedShare.id, passwordInput);
+      
+      console.log('✅ [ScreenShareManager] 已获取屏幕流');
+      console.log('📺 [ScreenShareManager] 流信息:', {
+        id: stream.id,
+        active: stream.active,
+        tracks: stream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState,
+          label: t.label
+        }))
+      });
+
+      // 打开独立窗口显示视频
+      console.log('📺 [ScreenShareManager] 打开独立窗口显示视频');
+      setViewingShareId(selectedShare.id);
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      
+      // 调用Tauri命令打开屏幕查看窗口
+      await invoke('open_screen_viewer_window', {
+        shareId: selectedShare.id,
+        playerName: selectedShare.playerName
+      });
+      
+      setSelectedShare(null);
+      message.success(`正在查看 ${selectedShare.playerName} 的屏幕`);
+      console.log('✅ [ScreenShareManager] 屏幕查看窗口已打开');
+    } catch (error) {
+      console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
+      message.error('查看屏幕失败');
+    }
   };
 
   return (
     <div className="screen-share-manager">
-      {/* 内部操作栏 */}
-      <div className="screen-share-actions">
-        {!isSharing ? (
-          <motion.button
-            className="start-share-btn"
-            onClick={() => setShowStartModal(true)}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <ScreenShareIcon size={18} />
-            <span>开始共享</span>
-          </motion.button>
-        ) : (
-          <motion.button
-            className="stop-share-btn"
-            onClick={handleStopSharing}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="6" y="6" width="12" height="12" />
-            </svg>
-            <span>停止共享</span>
-          </motion.button>
-        )}
-      </div>
-
-      {/* 共享列表 - 两列布局 */}
+      {/* 共享列表 */}
       <div className="screen-share-list">
         {activeShares.length === 0 ? (
           <div className="empty-state">
@@ -186,39 +202,34 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
             {activeShares.map((share) => {
               const isMyShare = share.playerId === currentPlayerId;
               const isViewing = viewingShareId === share.id;
+              const hasPassword = share.requirePassword && !isMyShare;
 
               return (
                 <motion.div
                   key={share.id}
-                  className={`share-item ${isMyShare ? 'my-share' : ''} ${isViewing ? 'viewing' : ''}`}
+                  className={`share-item ${isMyShare ? 'my-share' : ''} ${isViewing ? 'viewing' : ''} ${hasPassword ? 'has-password' : ''}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.3 }}
                 >
-                  <div className="share-item-header">
-                    <div className="share-player-info">
-                      <div className="share-player-avatar">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                          <circle cx="12" cy="7" r="4" />
-                        </svg>
-                      </div>
-                      <div className="share-player-details">
-                        <span className="share-player-name">
-                          {share.playerName}
-                          {isMyShare && ' (我)'}
-                        </span>
-                        <span className="share-start-time">
-                          {new Date(share.startTime).toLocaleTimeString()}
-                        </span>
-                      </div>
+                  <div className="share-item-content">
+                    <div className="share-player-details">
+                      <span className="share-player-name">
+                        {share.playerName || '未知玩家'}
+                        {isMyShare && ' (我)'}
+                      </span>
+                      <span className="share-start-time">
+                        开始时间: {new Date(share.startTime).toLocaleTimeString()}
+                      </span>
                     </div>
 
                     {share.requirePassword && !isMyShare && (
-                      <div className="password-badge" title="需要密码">
-                        🔒
-                      </div>
+                      <Tooltip title="需要密码" placement="top">
+                        <div className="password-badge">
+                          🔒
+                        </div>
+                      </Tooltip>
                     )}
                   </div>
 
@@ -234,7 +245,7 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                         </svg>
-                        <span>正在查看</span>
+                        <span>查看中</span>
                       </>
                     ) : (
                       <>
@@ -257,11 +268,12 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({ onSharin
       <Modal
         title="开始屏幕共享"
         open={showStartModal}
-        onOk={handleStartSharing}
+        onOk={handleStartSharingInternal}
         onCancel={() => {
           setShowStartModal(false);
           setPassword('');
           setRequirePassword(false);
+          onStopSharing(); // 通知父组件取消
         }}
         okText="开始共享"
         cancelText="取消"

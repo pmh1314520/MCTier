@@ -17,3 +17,6 @@ export type { SoundType } from './audio/AudioService';
 
 // 文件共享服务
 export { fileShareService, fileTransferService } from './fileShare';
+
+// 屏幕共享服务
+export { screenShareService } from './screenShare/ScreenShareService';

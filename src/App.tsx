@@ -8,6 +8,7 @@ import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { ScreenViewer } from './components/ScreenViewer/ScreenViewer';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
+import { screenShareService } from './services/screenShare/ScreenShareService';
 import type { UserConfig } from './types';
 import './App.css';
 
@@ -284,6 +285,13 @@ function App() {
           console.log('  - 将连接到: 10.126.126.1:8445（如果自己是 10.126.126.1 则连接本地）');
 
           await webrtcClient.initialize(playerId, playerName, lobby.name, lobby.password || '', lobby.virtualDomain, lobby.useDomain);
+
+          // 初始化屏幕共享服务
+          const ws = (webrtcClient as any).websocket; // 获取WebSocket实例
+          if (ws) {
+            screenShareService.initialize(playerId, playerName, ws);
+            console.log('✅ 屏幕共享服务已初始化');
+          }
 
           // 设置事件回调
           webrtcClient.onPlayerJoined((playerId, playerName, virtualIp, virtualDomain, useDomain) => {
