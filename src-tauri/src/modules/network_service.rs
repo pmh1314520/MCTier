@@ -343,7 +343,7 @@ impl NetworkService {
             .arg("--config-dir")
             .arg(&config_dir)
             .arg("--rpc-portal")
-            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态查找的RPC端口
+            .arg(format!("{}", rpc_port)) // 只传递端口号，EasyTier会自动在localhost上监听
             .arg("--listeners")
             .arg("udp://0.0.0.0:0") // 只使用UDP监听器，端口0表示随机端口
             .arg("--default-protocol")
