@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal, Input, Switch, message, Tooltip } from 'antd';
-import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
 import { ScreenShareIcon, InfoIcon } from '../icons';
@@ -28,6 +27,7 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
   const [passwordInput, setPasswordInput] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [selectedShare, setSelectedShare] = useState<ScreenShare | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // 轮询获取共享列表
   useEffect(() => {
@@ -92,7 +92,7 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
     }
   }, [isSharing, myShareId]);
 
-  // 查看屏幕 - 使用独立窗口
+  // 查看屏幕 - 在当前窗口全屏显示
   const handleViewScreen = async (share: ScreenShare) => {
     try {
       // 如果需要密码且不是自己的分享
@@ -121,25 +121,24 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
         }))
       });
 
-      // 打开独立窗口显示视频
-      console.log('📺 [ScreenShareManager] 打开独立窗口显示视频');
+      // 设置正在查看的共享ID
       setViewingShareId(share.id);
       
-      // 调用Tauri命令打开屏幕查看窗口
-      await invoke('open_screen_viewer_window', {
-        shareId: share.id,
-        playerName: share.playerName
-      });
+      // 播放视频
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
       
       message.success(`正在查看 ${share.playerName} 的屏幕`);
-      console.log('✅ [ScreenShareManager] 屏幕查看窗口已打开');
+      console.log('✅ [ScreenShareManager] 开始播放屏幕流');
     } catch (error) {
       console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
       message.error('查看屏幕失败');
     }
   };
 
-  // 验证密码并查看 - 使用独立窗口
+  // 验证密码并查看 - 在当前窗口全屏显示
   const handlePasswordSubmit = async () => {
     if (!selectedShare) return;
 
@@ -166,29 +165,83 @@ export const ScreenShareManager: React.FC<ScreenShareManagerProps> = ({
         }))
       });
 
-      // 打开独立窗口显示视频
-      console.log('📺 [ScreenShareManager] 打开独立窗口显示视频');
+      // 设置正在查看的共享ID
       setViewingShareId(selectedShare.id);
       setShowPasswordModal(false);
       setPasswordInput('');
       
-      // 调用Tauri命令打开屏幕查看窗口
-      await invoke('open_screen_viewer_window', {
-        shareId: selectedShare.id,
-        playerName: selectedShare.playerName
-      });
+      // 播放视频
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
       
       setSelectedShare(null);
       message.success(`正在查看 ${selectedShare.playerName} 的屏幕`);
-      console.log('✅ [ScreenShareManager] 屏幕查看窗口已打开');
+      console.log('✅ [ScreenShareManager] 开始播放屏幕流');
     } catch (error) {
       console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
       message.error('查看屏幕失败');
     }
   };
 
+  // 停止查看屏幕
+  const handleStopViewing = () => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setViewingShareId(null);
+    message.info('已停止查看屏幕');
+  };
+
   return (
     <div className="screen-share-manager">
+      {/* 全屏视频播放器 */}
+      <AnimatePresence>
+        {viewingShareId && (
+          <motion.div
+            className="fullscreen-viewer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="viewer-controls-bar">
+              <div className="viewer-info-text">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+                <span>
+                  {activeShares.find(s => s.id === viewingShareId)?.playerName || '未知玩家'} 的屏幕
+                </span>
+              </div>
+              
+              <motion.button
+                className="stop-viewing-btn"
+                onClick={handleStopViewing}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                <span>停止查看</span>
+              </motion.button>
+            </div>
+            
+            <video
+              ref={videoRef}
+              className="fullscreen-video"
+              autoPlay
+              playsInline
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 共享列表 */}
       <div className="screen-share-list">
         {activeShares.length === 0 ? (
