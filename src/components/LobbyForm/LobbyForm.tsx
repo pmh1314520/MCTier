@@ -258,8 +258,21 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
 
-      // 获取当前玩家ID
-      const { currentPlayerId } = useAppStore.getState();
+      // 获取当前玩家ID，如果不存在则生成一个新的
+      let { currentPlayerId } = useAppStore.getState();
+      
+      if (!currentPlayerId) {
+        // 如果 playerId 不存在（可能是因为启动清理导致 Store 重置），生成一个新的
+        const timestamp = Date.now();
+        const randomSuffix = Math.random().toString(36).substring(2, 11);
+        currentPlayerId = `player-${timestamp}-${randomSuffix}`;
+        
+        // 保存到 Store
+        const { setCurrentPlayerId } = useAppStore.getState();
+        setCurrentPlayerId(currentPlayerId);
+        
+        console.log('⚠️ playerId 不存在，已生成新的 ID:', currentPlayerId);
+      }
       
       // 调用后端命令
       const lobby = await invoke<Lobby>(commandName, {
