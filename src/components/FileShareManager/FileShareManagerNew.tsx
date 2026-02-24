@@ -537,14 +537,15 @@ export const FileShareManagerNew: React.FC = () => {
         // 创建一个下载任务用于显示进度
         const taskId = `batch_download_${Date.now()}`;
         const zipFileName = `batch_download_${Date.now()}.zip`;
+        const tempZipPath = `${saveDir}/${zipFileName}`;
         const newTask: DownloadTask = {
           id: taskId,
-          fileName: zipFileName,
+          fileName: `批量下载 (${selectedFileList.length} 个文件)`,
           fileSize: 0, // 未知大小
           downloaded: 0,
           status: 'downloading',
           url: '',
-          savePath: `${saveDir}/${zipFileName}`
+          savePath: tempZipPath
         };
         
         setDownloads(prev => [...prev, newTask]);
@@ -576,7 +577,7 @@ export const FileShareManagerNew: React.FC = () => {
             
             console.log('✅ [FileShareManager] 开始下载压缩包');
             
-            // 【修复】使用流式下载，实时更新进度
+            // 使用流式下载，实时更新进度
             const reader = response.body?.getReader();
             if (!reader) {
               throw new Error('无法读取响应');
@@ -622,7 +623,7 @@ export const FileShareManagerNew: React.FC = () => {
                     ...task, 
                     downloaded, 
                     speed,
-                    fileSize: totalSize > 0 ? totalSize : downloaded, // 如果没有总大小，使用已下载大小
+                    fileSize: totalSize > 0 ? totalSize : downloaded,
                     lastUpdateTime: now,
                     lastDownloaded: downloaded
                   } : task
@@ -640,7 +641,7 @@ export const FileShareManagerNew: React.FC = () => {
             
             console.log('📦 [FileShareManager] 压缩包下载完成，大小:', uint8Array.length, 'bytes');
             
-            // 【修复】显示"正在保存..."提示
+            // 显示"正在保存..."提示
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { 
                 ...task, 
@@ -650,34 +651,58 @@ export const FileShareManagerNew: React.FC = () => {
               } : task
             ));
             
-            message.loading({ content: '正在保存文件到磁盘...', key: 'saving', duration: 0 });
+            message.loading({ content: '正在保存压缩包...', key: 'saving', duration: 0 });
             
-            // 保存文件
+            // 保存临时ZIP文件
             await invoke('save_file', {
-              path: newTask.savePath,
+              path: tempZipPath,
               data: Array.from(uint8Array)
             });
             
             message.destroy('saving');
-            console.log('✅ [FileShareManager] 压缩包已保存:', newTask.savePath);
+            console.log('✅ [FileShareManager] 压缩包已保存:', tempZipPath);
+            
+            // 【新增】自动解压ZIP文件
+            message.loading({ content: '正在解压文件...', key: 'extracting', duration: 0 });
+            console.log('📦 [FileShareManager] 开始解压ZIP文件到:', saveDir);
+            
+            const extractedFiles = await invoke<string[]>('extract_zip', {
+              zipPath: tempZipPath,
+              extractDir: saveDir
+            });
+            
+            message.destroy('extracting');
+            console.log('✅ [FileShareManager] 文件解压完成，共', extractedFiles.length, '个文件');
+            
+            // 【新增】删除临时ZIP文件
+            console.log('🗑️ [FileShareManager] 删除临时ZIP文件:', tempZipPath);
+            await invoke('delete_file', { path: tempZipPath });
+            console.log('✅ [FileShareManager] 临时ZIP文件已删除');
             
             // 更新任务状态为完成
             setDownloads(prev => prev.map(task =>
-              task.id === taskId ? { ...task, status: 'completed' as const, downloaded: uint8Array.length, fileSize: uint8Array.length, speed: 0 } : task
+              task.id === taskId ? { 
+                ...task, 
+                status: 'completed' as const, 
+                downloaded: uint8Array.length, 
+                fileSize: uint8Array.length, 
+                speed: 0,
+                fileName: `${selectedFileList.length} 个文件` // 更新显示名称
+              } : task
             ));
             
-            message.success(`压缩包下载完成 (${selectedFileList.length} 个文件)`);
+            message.success(`下载完成 (${selectedFileList.length} 个文件)`);
             
             // 清空选中状态
             setSelectedFiles(new Set());
           } catch (error) {
-            console.error('❌ [FileShareManager] 批量打包失败:', error);
+            console.error('❌ [FileShareManager] 批量下载失败:', error);
             
             // 更新任务状态为失败
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { ...task, status: 'failed' as const, error: String(error), speed: 0 } : task
             ));
-            message.error(`打包失败: ${error}`);
+            message.error(`下载失败: ${error}`);
           }
         })();
       } catch (error) {

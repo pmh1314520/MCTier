@@ -709,16 +709,13 @@ async fn batch_download(
     let zip_size = zip_data.len();
     log::info!("📦 ZIP文件大小: {} bytes", zip_size);
     
-    // 异步删除临时文件
-    let zip_path_clone = zip_path.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        if let Err(e) = tokio::fs::remove_file(&zip_path_clone).await {
-            log::warn!("⚠️ 删除临时ZIP文件失败: {}", e);
-        } else {
-            log::info!("🗑️ 临时ZIP文件已删除: {:?}", zip_path_clone);
-        }
-    });
+    // 【修复】立即删除临时文件（在发送响应前）
+    // 因为zip_data已经读取到内存中了，可以安全删除文件
+    if let Err(e) = tokio::fs::remove_file(&zip_path).await {
+        log::warn!("⚠️ 删除临时ZIP文件失败: {}", e);
+    } else {
+        log::info!("🗑️ 临时ZIP文件已删除: {:?}", zip_path);
+    }
     
     // 返回ZIP文件
     Response::builder()

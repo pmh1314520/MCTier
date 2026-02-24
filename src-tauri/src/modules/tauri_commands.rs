@@ -2117,6 +2117,89 @@ pub async fn diagnose_file_share_connection(peer_ip: String) -> Result<String, S
 
 // ==================== 文件下载命令 ====================
 
+/// 解压ZIP文件到指定目录
+/// 
+/// # 参数
+/// * `zip_path` - ZIP文件路径
+/// * `extract_dir` - 解压目标目录
+/// 
+/// # 返回
+/// * `Ok(Vec<String>)` - 解压的文件列表
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn extract_zip(zip_path: String, extract_dir: String) -> Result<Vec<String>, String> {
+    log::info!("📦 解压ZIP文件: {} -> {}", zip_path, extract_dir);
+    
+    use std::fs::File;
+    use std::path::Path;
+    use zip::ZipArchive;
+    
+    // 打开ZIP文件
+    let file = File::open(&zip_path)
+        .map_err(|e| format!("打开ZIP文件失败: {}", e))?;
+    
+    let mut archive = ZipArchive::new(file)
+        .map_err(|e| format!("读取ZIP文件失败: {}", e))?;
+    
+    let mut extracted_files = Vec::new();
+    
+    // 解压所有文件
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)
+            .map_err(|e| format!("读取ZIP条目失败: {}", e))?;
+        
+        let outpath = Path::new(&extract_dir).join(file.name());
+        
+        if file.is_dir() {
+            log::info!("📁 创建目录: {:?}", outpath);
+            std::fs::create_dir_all(&outpath)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+        } else {
+            log::info!("📄 解压文件: {:?}", outpath);
+            
+            // 确保父目录存在
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("创建父目录失败: {}", e))?;
+            }
+            
+            // 写入文件
+            let mut outfile = File::create(&outpath)
+                .map_err(|e| format!("创建文件失败: {}", e))?;
+            
+            std::io::copy(&mut file, &mut outfile)
+                .map_err(|e| format!("写入文件失败: {}", e))?;
+            
+            extracted_files.push(outpath.to_string_lossy().to_string());
+        }
+    }
+    
+    log::info!("✅ ZIP文件解压完成，共 {} 个文件", extracted_files.len());
+    Ok(extracted_files)
+}
+
+/// 删除文件
+/// 
+/// # 参数
+/// * `path` - 文件路径
+/// 
+/// # 返回
+/// * `Ok(())` - 成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn delete_file(path: String) -> Result<(), String> {
+    log::info!("🗑️ 删除文件: {}", path);
+    
+    use tokio::fs;
+    
+    fs::remove_file(&path)
+        .await
+        .map_err(|e| format!("删除文件失败: {}", e))?;
+    
+    log::info!("✅ 文件已删除: {}", path);
+    Ok(())
+}
+
 /// 保存文件
 /// 
 /// # 参数
@@ -2220,29 +2303,6 @@ pub async fn read_file(path: String) -> Result<Vec<u8>, String> {
     
     log::info!("✅ 文件读取成功: {}, 大小: {} bytes", path, data.len());
     Ok(data)
-}
-
-/// 删除文件
-/// 
-/// # 参数
-/// * `path` - 文件路径
-/// 
-/// # 返回
-/// * `Ok(())` - 删除成功
-/// * `Err(String)` - 错误信息
-#[tauri::command]
-pub async fn delete_file(path: String) -> Result<(), String> {
-    log::info!("删除文件: {}", path);
-    
-    use tokio::fs;
-    
-    // 删除文件
-    fs::remove_file(&path)
-        .await
-        .map_err(|e| format!("删除文件失败: {}", e))?;
-    
-    log::info!("✅ 文件删除成功: {}", path);
-    Ok(())
 }
 
 // ==================== P2P 聊天命令 ====================

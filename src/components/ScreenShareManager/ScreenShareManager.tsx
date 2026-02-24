@@ -350,13 +350,14 @@ export const ScreenShareManager: React.FC = () => {
     setViewingShareId(null);
     setPendingStream(null);
     
-    // 恢复原窗口大小并禁止调整大小
+    // 恢复原窗口大小，但保持允许调整大小
     if (originalWindowSize) {
       try {
         const appWindow = getCurrentWindow();
         await appWindow.setSize(new PhysicalSize(originalWindowSize.width, originalWindowSize.height));
-        await appWindow.setResizable(false);
-        console.log('✅ [ScreenShareManager] 窗口已恢复原大小并禁止调整');
+        // 【修复】保持窗口可调整大小，不要禁止
+        await appWindow.setResizable(true);
+        console.log('✅ [ScreenShareManager] 窗口已恢复原大小，保持可调整');
       } catch (error) {
         console.error('❌ [ScreenShareManager] 恢复窗口大小失败:', error);
       }
