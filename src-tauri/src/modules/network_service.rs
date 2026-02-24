@@ -336,6 +336,8 @@ impl NetworkService {
             .arg(&config_dir)
             .arg("--rpc-portal")
             .arg(format!("{}", rpc_port)) // 只传递端口号，EasyTier会自动在localhost上监听
+            .arg("--dev-name")
+            .arg("MCTier_Net") // 使用固定的网卡名称，方便识别和清理
             .arg("--listeners")
             .arg("udp://0.0.0.0:0") // 只使用UDP监听器，端口0表示随机端口
             .arg("--default-protocol")
@@ -353,6 +355,7 @@ impl NetworkService {
         cmd.env("PATH", working_dir);
         
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
+        log::info!("虚拟网卡名称: MCTier_Net（固定名称，方便识别和管理）");
         log::info!("启用 UDP 监听器以支持 Minecraft 局域网发现功能");
         log::info!("使用动态检测的RPC端口 {}，避免与其他EasyTier实例冲突", rpc_port);
         log::info!("命令行参数: {:?}", cmd);
@@ -833,10 +836,12 @@ impl NetworkService {
             log::info!("正在清理虚拟网卡...");
             
             // 等待一小段时间，确保进程已完全退出
-            sleep(Duration::from_millis(300)).await;
+            sleep(Duration::from_millis(500)).await;
             
-            // 使用pnputil删除WinTun驱动
-            log::info!("尝试使用pnputil清理WinTun驱动...");
+            // 方法1: 使用 devcon 或 pnputil 强制删除 MCTier_Net 网卡
+            log::info!("尝试使用pnputil强制删除MCTier_Net网卡...");
+            
+            // 首先列出所有网络设备
             match tokio::process::Command::new("pnputil")
                 .args(&["/enum-devices", "/class", "Net"])
                 .creation_flags(CREATE_NO_WINDOW)
@@ -845,34 +850,73 @@ impl NetworkService {
             {
                 Ok(output) => {
                     let output_str = String::from_utf8_lossy(&output.stdout);
+                    log::info!("网络设备列表:\n{}", output_str);
                     
-                    // 查找WinTun设备ID
-                    let mut wintun_device_ids = Vec::new();
+                    // 查找 MCTier_Net 或 WinTun 相关的设备实例ID
+                    let mut device_ids_to_remove = Vec::new();
                     let mut current_instance_id = String::new();
+                    let mut is_target_device = false;
                     
                     for line in output_str.lines() {
+                        // 检查实例ID行
                         if line.contains("Instance ID:") || line.contains("实例 ID:") {
                             current_instance_id = line.split(':').nth(1)
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_default();
+                            is_target_device = false;
                         }
                         
-                        if (line.contains("WinTun") || line.contains("wintun")) && !current_instance_id.is_empty() {
-                            wintun_device_ids.push(current_instance_id.clone());
+                        // 检查设备描述或友好名称
+                        if (line.contains("MCTier_Net") || 
+                            line.contains("WinTun") || 
+                            line.contains("wintun") ||
+                            line.contains("EasyTier")) && 
+                           !current_instance_id.is_empty() {
+                            is_target_device = true;
+                        }
+                        
+                        // 如果找到目标设备，添加到删除列表
+                        if is_target_device && !current_instance_id.is_empty() {
+                            if !device_ids_to_remove.contains(&current_instance_id) {
+                                log::info!("发现需要删除的设备: {}", current_instance_id);
+                                device_ids_to_remove.push(current_instance_id.clone());
+                            }
                             current_instance_id.clear();
+                            is_target_device = false;
                         }
                     }
                     
-                    // 删除找到的WinTun设备
-                    for device_id in wintun_device_ids {
-                        log::info!("尝试删除WinTun设备: {}", device_id);
-                        let _ = tokio::process::Command::new("pnputil")
-                            .args(&["/remove-device", &device_id])
+                    // 删除找到的所有目标设备
+                    for device_id in &device_ids_to_remove {
+                        log::info!("正在删除设备: {}", device_id);
+                        
+                        // 尝试删除设备
+                        match tokio::process::Command::new("pnputil")
+                            .args(&["/remove-device", device_id])
                             .creation_flags(CREATE_NO_WINDOW)
                             .output()
-                            .await;
+                            .await
+                        {
+                            Ok(remove_output) => {
+                                let remove_result = String::from_utf8_lossy(&remove_output.stdout);
+                                log::info!("删除设备结果: {}", remove_result);
+                                
+                                if remove_output.status.success() {
+                                    log::info!("✅ 成功删除设备: {}", device_id);
+                                } else {
+                                    log::warn!("⚠️ 删除设备失败: {}", device_id);
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("执行删除命令失败: {}", e);
+                            }
+                        }
                         
-                        sleep(Duration::from_millis(100)).await;
+                        sleep(Duration::from_millis(200)).await;
+                    }
+                    
+                    if device_ids_to_remove.is_empty() {
+                        log::info!("未发现需要删除的虚拟网卡设备");
                     }
                 }
                 Err(e) => {
@@ -880,8 +924,8 @@ impl NetworkService {
                 }
             }
             
-            // 方法3: 使用netsh禁用网卡
-            log::info!("尝试使用netsh禁用虚拟网卡...");
+            // 方法2: 使用netsh禁用和删除网卡
+            log::info!("尝试使用netsh禁用和删除MCTier_Net网卡...");
             match tokio::process::Command::new("netsh")
                 .args(&["interface", "show", "interface"])
                 .creation_flags(CREATE_NO_WINDOW)
@@ -890,37 +934,48 @@ impl NetworkService {
             {
                 Ok(output) => {
                     let output_str = String::from_utf8_lossy(&output.stdout);
+                    log::info!("网卡列表:\n{}", output_str);
                     
-                    // 查找包含"WinTun"或"EasyTier"的网卡
+                    // 查找包含"MCTier_Net"、"WinTun"或"EasyTier"的网卡
                     for line in output_str.lines() {
-                        if line.contains("WinTun") || line.contains("EasyTier") || line.contains("wintun") {
+                        if line.contains("MCTier_Net") || 
+                           line.contains("WinTun") || 
+                           line.contains("EasyTier") || 
+                           line.contains("wintun") ||
+                           line.contains("et_") { // EasyTier默认网卡名称格式
                             log::info!("发现虚拟网卡: {}", line);
                             
-                            // 尝试提取网卡名称
+                            // 尝试提取网卡名称（通常是最后一列）
                             let parts: Vec<&str> = line.split_whitespace().collect();
                             if parts.len() >= 3 {
                                 let interface_name = parts[parts.len() - 1];
                                 
-                                if !interface_name.is_empty() && interface_name != "Type" && interface_name != "Interface" {
+                                if !interface_name.is_empty() && 
+                                   interface_name != "Type" && 
+                                   interface_name != "Interface" &&
+                                   interface_name != "State" {
                                     log::info!("尝试禁用网卡: {}", interface_name);
                                     
-                                    // 先禁用
-                                    let _ = tokio::process::Command::new("netsh")
+                                    // 先禁用网卡
+                                    match tokio::process::Command::new("netsh")
                                         .args(&["interface", "set", "interface", interface_name, "admin=disable"])
                                         .creation_flags(CREATE_NO_WINDOW)
                                         .output()
-                                        .await;
+                                        .await
+                                    {
+                                        Ok(disable_output) => {
+                                            if disable_output.status.success() {
+                                                log::info!("✅ 成功禁用网卡: {}", interface_name);
+                                            } else {
+                                                log::warn!("⚠️ 禁用网卡失败: {}", interface_name);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!("执行禁用命令失败: {}", e);
+                                        }
+                                    }
                                     
-                                    sleep(Duration::from_millis(100)).await;
-                                    
-                                    // 再尝试删除
-                                    let _ = tokio::process::Command::new("netsh")
-                                        .args(&["interface", "delete", "interface", interface_name])
-                                        .creation_flags(CREATE_NO_WINDOW)
-                                        .output()
-                                        .await;
-                                    
-                                    sleep(Duration::from_millis(100)).await;
+                                    sleep(Duration::from_millis(200)).await;
                                 }
                             }
                         }
@@ -931,8 +986,48 @@ impl NetworkService {
                 }
             }
             
-            // 缩短最终等待时间
+            // 方法3: 使用 PowerShell 强制删除网卡
+            log::info!("尝试使用PowerShell强制删除MCTier_Net网卡...");
+            let ps_script = r#"
+                Get-NetAdapter | Where-Object { 
+                    $_.Name -like '*MCTier_Net*' -or 
+                    $_.Name -like '*WinTun*' -or 
+                    $_.Name -like '*et_*' -or
+                    $_.InterfaceDescription -like '*WinTun*'
+                } | ForEach-Object {
+                    Write-Host "正在删除网卡: $($_.Name)"
+                    try {
+                        Disable-NetAdapter -Name $_.Name -Confirm:$false -ErrorAction Stop
+                        Write-Host "已禁用网卡: $($_.Name)"
+                    } catch {
+                        Write-Host "禁用网卡失败: $_"
+                    }
+                }
+            "#;
+            
+            match tokio::process::Command::new("powershell")
+                .args(&["-NoProfile", "-NonInteractive", "-Command", ps_script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .await
+            {
+                Ok(ps_output) => {
+                    let ps_result = String::from_utf8_lossy(&ps_output.stdout);
+                    log::info!("PowerShell执行结果:\n{}", ps_result);
+                    
+                    if !ps_result.is_empty() {
+                        log::info!("✅ PowerShell清理完成");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("执行PowerShell脚本失败: {}", e);
+                }
+            }
+            
+            // 最终等待，确保所有清理操作完成
             sleep(Duration::from_millis(500)).await;
+            
+            log::info!("✅ 虚拟网卡清理流程完成");
         }
 
         // 清理状态
