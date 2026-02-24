@@ -68,6 +68,7 @@ use modules::tauri_commands::{
     delete_file,
     extract_zip,
     open_file_location,
+    open_folder,
     // HTTP 文件共享命令（新）
     start_file_server,
     stop_file_server,
@@ -241,6 +242,7 @@ pub fn run() {
             delete_file,
             extract_zip,
             open_file_location,
+            open_folder,
             // HTTP 文件共享命令（新）
             start_file_server,
             stop_file_server,

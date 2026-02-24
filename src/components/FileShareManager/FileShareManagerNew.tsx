@@ -34,6 +34,7 @@ interface DownloadTask {
   speed?: number; // 下载速度（bytes/s）
   lastUpdateTime?: number; // 上次更新时间
   lastDownloaded?: number; // 上次下载的字节数
+  isBatchDownload?: boolean; // 是否为批量下载（文件夹）
 }
 
 export const FileShareManagerNew: React.FC = () => {
@@ -545,7 +546,8 @@ export const FileShareManagerNew: React.FC = () => {
           downloaded: 0,
           status: 'downloading',
           url: '',
-          savePath: tempZipPath
+          savePath: tempZipPath,
+          isBatchDownload: true // 标记为批量下载
         };
         
         setDownloads(prev => [...prev, newTask]);
@@ -847,9 +849,15 @@ export const FileShareManagerNew: React.FC = () => {
   };
 
   // 打开文件所在文件夹
-  const handleOpenFileLocation = async (savePath: string) => {
+  const handleOpenFileLocation = async (task: DownloadTask) => {
     try {
-      await invoke('open_file_location', { path: savePath });
+      if (task.isBatchDownload) {
+        // 批量下载：直接打开文件夹
+        await invoke('open_folder', { path: task.savePath });
+      } else {
+        // 单文件下载：打开文件所在位置并选中文件
+        await invoke('open_file_location', { path: task.savePath });
+      }
     } catch (error) {
       message.error(`打开文件夹失败: ${error}`);
     }
@@ -1146,7 +1154,7 @@ export const FileShareManagerNew: React.FC = () => {
                             initial={{ opacity: 0, y: 20 }} 
                             animate={{ opacity: 1, y: 0 }} 
                             exit={{ opacity: 0, y: -20 }}
-                            onClick={() => task.status === 'completed' && handleOpenFileLocation(task.savePath)}
+                            onClick={() => task.status === 'completed' && handleOpenFileLocation(task)}
                             style={{ position: 'relative' }}
                           >
                             {/* 取消按钮 - 右上角 */}

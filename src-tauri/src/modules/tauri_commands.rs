@@ -1722,6 +1722,80 @@ pub async fn open_file_location(path: String) -> Result<(), String> {
     }
 }
 
+/// 直接打开文件夹
+///
+/// # 参数
+/// * `path` - 文件夹路径
+///
+/// # 返回
+/// * `Ok(())` - 成功打开
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn open_folder(path: String) -> Result<(), String> {
+    log::info!("打开文件夹: {}", path);
+    
+    use std::process::Command;
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 直接使用 explorer.exe 打开文件夹
+        match Command::new("explorer.exe")
+            .arg(&path)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("成功打开文件夹");
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("打开文件夹失败: {}", e);
+                Err(format!("打开文件夹失败: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: 使用 open 打开文件夹
+        match Command::new("open")
+            .arg(&path)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("成功打开文件夹");
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("打开文件夹失败: {}", e);
+                Err(format!("打开文件夹失败: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: 使用 xdg-open 打开文件夹
+        match Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("成功打开文件夹");
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("打开文件夹失败: {}", e);
+                Err(format!("打开文件夹失败: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err("不支持的操作系统".to_string())
+    }
+}
+
 // ==================== Rust高性能文件传输命令 ====================
 
 // 注意：由于Rust文件传输模块的复杂性，暂时保留JavaScript实现
