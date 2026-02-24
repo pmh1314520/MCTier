@@ -105,6 +105,20 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 </div>
               </div>
               <div className="tech-item">
+                <span className="tech-icon">💬</span>
+                <div>
+                  <Text strong>HTTP over WireGuard</Text>
+                  <Paragraph className="tech-desc">基于虚拟网络的P2P聊天和文件共享</Paragraph>
+                </div>
+              </div>
+              <div className="tech-item">
+                <span className="tech-icon">📺</span>
+                <div>
+                  <Text strong>WebRTC 屏幕共享</Text>
+                  <Paragraph className="tech-desc">实时屏幕共享，支持查看队友画面</Paragraph>
+                </div>
+              </div>
+              <div className="tech-item">
                 <span className="tech-icon">⚡</span>
                 <div>
                   <Text strong>Tauri + React</Text>
@@ -123,6 +137,9 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
             <ul className="feature-list">
               <li>创建/加入虚拟局域网大厅</li>
               <li>实时语音通信，支持快捷键控制</li>
+              <li>P2P聊天室，支持文本和图片消息</li>
+              <li>文件共享，支持批量下载和先压后发</li>
+              <li>屏幕共享，实时查看队友画面</li>
               <li>自动网络配置，无需手动设置</li>
               <li>迷你悬浮窗，游戏时不遮挡视野</li>
               <li>大厅隔离机制，保护隐私安全</li>

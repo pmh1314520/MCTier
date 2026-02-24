@@ -162,20 +162,26 @@ class P2PChatService {
     }
 
     // 【修改】消息去重：检查该玩家最近一次发送的消息内容是否与当前消息相同
+    // 对于文本消息，比较 content；对于图片消息，比较 image_data
+    const currentContent = msg.message_type === 'image' && msg.image_data 
+      ? JSON.stringify(msg.image_data) // 图片消息：序列化图片数据进行比较
+      : msg.content; // 文本消息：直接比较文本内容
+    
     const lastMessage = this.lastMessageByPlayer.get(msg.player_id);
-    if (lastMessage === msg.content) {
+    if (lastMessage === currentContent) {
       console.log('🚫 [P2PChatService] 跳过重复消息（内容相同）:', {
         playerId: msg.player_id,
         playerName: msg.player_name,
-        content: msg.content.substring(0, 20) + '...',
+        type: msg.message_type,
+        content: msg.message_type === 'text' ? msg.content.substring(0, 20) + '...' : '[图片]',
       });
       return;
     }
 
-    console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
+    console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.message_type === 'text' ? msg.content.substring(0, 20) + '...' : '[图片]'}`);
 
     // 【修改】更新该玩家最近一次发送的消息内容
-    this.lastMessageByPlayer.set(msg.player_id, msg.content);
+    this.lastMessageByPlayer.set(msg.player_id, currentContent);
 
     // 转换为前端消息格式
     const chatMessage: ChatMessage = {
