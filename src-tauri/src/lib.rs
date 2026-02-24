@@ -66,6 +66,7 @@ use modules::tauri_commands::{
     save_chat_image,
     read_file,
     delete_file,
+    extract_zip,
     open_file_location,
     // HTTP 文件共享命令（新）
     start_file_server,
@@ -238,6 +239,7 @@ pub fn run() {
             save_chat_image,
             read_file,
             delete_file,
+            extract_zip,
             open_file_location,
             // HTTP 文件共享命令（新）
             start_file_server,
