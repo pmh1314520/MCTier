@@ -24,6 +24,8 @@ class P2PChatService {
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private myVirtualIp: string = ''; // 自己的虚拟IP，用于过滤
+  private receivedMessageIds: Set<string> = new Set(); // 【新增】已接收的消息ID集合，用于去重
+  private maxReceivedMessageIds: number = 1000; // 【新增】最多保存1000个消息ID
 
   /**
    * 初始化服务
@@ -53,6 +55,7 @@ class P2PChatService {
     this.currentPlayerId = '';
     this.myVirtualIp = '';
     this.onMessageCallback = undefined;
+    this.receivedMessageIds.clear(); // 【新增】清理消息ID集合
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -70,6 +73,12 @@ class P2PChatService {
     console.log('✅ [P2PChatService] 开始监听消息（SSE事件驱动）');
     console.log('📊 [P2PChatService] 当前已有连接数:', this.eventSources.size);
     
+    // 【修复】先完全清理所有旧连接
+    if (this.eventSources.size > 0) {
+      console.log('⚠️ [P2PChatService] 检测到旧连接，先清理所有连接');
+      this.stopListening();
+    }
+    
     // 为每个玩家创建SSE连接
     for (const peerIp of this.peerIps) {
       // 跳过自己的IP（使用虚拟IP比较）
@@ -78,9 +87,9 @@ class P2PChatService {
         continue;
       }
       
-      // 【修复】如果已经有连接，先关闭旧连接再创建新连接
+      // 【双重检查】确保没有重复连接
       if (this.eventSources.has(peerIp)) {
-        console.log(`⚠️ [P2PChatService] 检测到重复连接，关闭旧连接: ${peerIp}`);
+        console.error(`❌ [P2PChatService] 严重错误：清理后仍存在连接: ${peerIp}`);
         const oldEventSource = this.eventSources.get(peerIp);
         if (oldEventSource) {
           oldEventSource.close();
@@ -147,6 +156,12 @@ class P2PChatService {
    * 处理接收到的消息
    */
   private handleMessage(msg: BackendChatMessage): void {
+    // 【新增】消息去重：检查是否已经接收过这条消息
+    if (this.receivedMessageIds.has(msg.id)) {
+      console.log('🚫 [P2PChatService] 跳过重复消息:', msg.id);
+      return;
+    }
+    
     // 跳过自己发送的消息
     if (msg.player_id === this.currentPlayerId) {
       console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
@@ -154,6 +169,17 @@ class P2PChatService {
     }
 
     console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
+
+    // 【新增】记录消息ID
+    this.receivedMessageIds.add(msg.id);
+    
+    // 【新增】如果消息ID集合过大，删除最早的一半
+    if (this.receivedMessageIds.size > this.maxReceivedMessageIds) {
+      const idsArray = Array.from(this.receivedMessageIds);
+      const toDelete = idsArray.slice(0, Math.floor(this.maxReceivedMessageIds / 2));
+      toDelete.forEach(id => this.receivedMessageIds.delete(id));
+      console.log('🧹 [P2PChatService] 清理旧消息ID，当前保留:', this.receivedMessageIds.size);
+    }
 
     // 转换为前端消息格式
     const chatMessage: ChatMessage = {
