@@ -393,10 +393,16 @@ export class WebRTCClient {
             }
           }
           
-          // 【修复】自己加入大厅后，向所有人请求屏幕共享列表
-          console.log('📢 [WebRTCClient] 自己加入大厅，向所有人请求屏幕共享列表...');
+          // 【修复】自己加入大厅后，向所有人请求屏幕共享列表和文件共享列表
+          console.log('📢 [WebRTCClient] 自己加入大厅，向所有人请求屏幕共享列表和文件共享列表...');
           this.sendWebSocketMessage({
             type: 'screen-share-list-request',
+            from: this.localPlayerId,
+          });
+          
+          // 【事件驱动】请求文件共享列表
+          this.sendWebSocketMessage({
+            type: 'file-share-list-request',
             from: this.localPlayerId,
           });
           
@@ -862,6 +868,100 @@ export class WebRTCClient {
           }
           break;
           
+        case 'file-share-added':
+          // 收到文件共享添加通知
+          console.log(`📁 收到文件共享添加通知 from ${message.playerName}`);
+          try {
+            // 【事件驱动】触发自定义事件通知UI更新
+            window.dispatchEvent(new CustomEvent('file-share-added', {
+              detail: {
+                shareId: message.shareId,
+                shareName: message.shareName,
+                playerId: message.from,
+                playerName: message.playerName,
+                hasPassword: message.hasPassword,
+              }
+            }));
+            console.log(`✅ 文件共享添加事件已触发`);
+          } catch (error) {
+            console.error('❌ 处理文件共享添加失败:', error);
+          }
+          break;
+          
+        case 'file-share-removed':
+          // 收到文件共享删除通知
+          console.log(`📁 收到文件共享删除通知, shareId: ${message.shareId}`);
+          try {
+            // 【事件驱动】触发自定义事件通知UI更新
+            window.dispatchEvent(new CustomEvent('file-share-removed', {
+              detail: {
+                shareId: message.shareId,
+                playerId: message.from,
+              }
+            }));
+            console.log(`✅ 文件共享删除事件已触发`);
+          } catch (error) {
+            console.error('❌ 处理文件共享删除失败:', error);
+          }
+          break;
+          
+        case 'file-share-list-request':
+          // 收到文件共享列表请求
+          console.log(`📋 收到文件共享列表请求 from ${message.from}`);
+          try {
+            // 获取本地共享列表
+            const localShares = await invoke<any[]>('get_local_shares');
+            
+            if (localShares && localShares.length > 0) {
+              console.log(`📤 发送 ${localShares.length} 个文件共享信息给 ${message.from}`);
+              
+              // 转换为前端格式
+              const shares = localShares.map(share => ({
+                shareId: share.id,
+                shareName: share.name,
+                playerName: this.localPlayerName,
+                hasPassword: !!share.password,
+              }));
+              
+              // 发送响应
+              this.sendWebSocketMessage({
+                type: 'file-share-list-response',
+                from: this.localPlayerId,
+                to: message.from,
+                shares: shares,
+              });
+            } else {
+              console.log(`📭 我没有活跃的文件共享`);
+            }
+          } catch (error) {
+            console.error('❌ 处理文件共享列表请求失败:', error);
+          }
+          break;
+          
+        case 'file-share-list-response':
+          // 收到文件共享列表响应
+          console.log(`📥 收到文件共享列表响应 from ${message.from}, shares: ${message.shares?.length || 0}`);
+          try {
+            if (message.shares && Array.isArray(message.shares)) {
+              // 为每个共享触发添加事件
+              message.shares.forEach((share: any) => {
+                window.dispatchEvent(new CustomEvent('file-share-added', {
+                  detail: {
+                    shareId: share.shareId,
+                    shareName: share.shareName,
+                    playerId: message.from,
+                    playerName: share.playerName,
+                    hasPassword: share.hasPassword,
+                  }
+                }));
+              });
+              console.log(`✅ 文件共享列表已添加到UI`);
+            }
+          } catch (error) {
+            console.error('❌ 处理文件共享列表响应失败:', error);
+          }
+          break;
+          
         default:
           console.warn(`未知消息类型: ${message.type}`);
       }
@@ -1102,9 +1202,9 @@ export class WebRTCClient {
   }
 
   /**
-   * 发送WebSocket消息
+   * 发送WebSocket消息（公开方法，供外部调用）
    */
-  private sendWebSocketMessage(message: any): void {
+  public sendWebSocketMessage(message: any): void {
     if (!this.websocket) {
       console.error('❌ WebSocket实例不存在，无法发送消息:', message.type);
       return;

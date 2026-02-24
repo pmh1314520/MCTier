@@ -122,19 +122,17 @@ export const MiniWindow: React.FC = () => {
     // 立即执行一次
     loadRemoteShares();
 
-    // 每3秒轮询一次
-    const interval = setInterval(loadRemoteShares, 3000);
-
-    return () => clearInterval(interval);
+    // 【事件驱动】移除轮询，文件共享改为按需加载
+    // const interval = setInterval(loadRemoteShares, 3000);
+    // return () => clearInterval(interval);
   }, [players]); // 依赖players，当玩家列表变化时重新加载
 
-  // 后台加载屏幕共享
+  // 【事件驱动】监听屏幕共享事件，替代轮询
   useEffect(() => {
     const loadScreenShares = async () => {
       try {
         const { screenShareService } = await import('../../services/screenShare/ScreenShareService');
         const shares = screenShareService.getActiveShares();
-        // 【修复】包括自己的共享
         console.log('📊 [MiniWindow] 屏幕共享数量:', shares.length, '包括自己的共享');
         setScreenSharesCount(shares.length);
       } catch (error) {
@@ -145,11 +143,19 @@ export const MiniWindow: React.FC = () => {
     // 立即执行一次
     loadScreenShares();
 
-    // 每2秒轮询一次
-    const interval = setInterval(loadScreenShares, 2000);
+    // 【事件驱动】监听屏幕共享事件
+    const handleShareChange = () => {
+      loadScreenShares();
+    };
 
-    return () => clearInterval(interval);
-  }, [currentPlayerId]); // 依赖currentPlayerId
+    window.addEventListener('screen-share-start', handleShareChange);
+    window.addEventListener('screen-share-stop', handleShareChange);
+
+    return () => {
+      window.removeEventListener('screen-share-start', handleShareChange);
+      window.removeEventListener('screen-share-stop', handleShareChange);
+    };
+  }, [currentPlayerId]);
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {

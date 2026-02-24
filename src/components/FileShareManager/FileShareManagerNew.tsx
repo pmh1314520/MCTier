@@ -144,12 +144,100 @@ export const FileShareManagerNew: React.FC = () => {
     loadLocalShares();
   }, []);
 
-  // 切换到远程共享时加载数据
+  // 【事件驱动】监听文件共享事件
+  useEffect(() => {
+    console.log('📡 [FileShareManager] 设置文件共享事件监听器');
+    
+    // 文件共享添加事件
+    const handleFileShareAdded = (event: any) => {
+      console.log('📁 [FileShareManager] 收到文件共享添加事件:', event.detail);
+      const { shareId, shareName, playerId, playerName, hasPassword } = event.detail;
+      
+      // 查找玩家的虚拟IP
+      const player = players.find(p => p.id === playerId);
+      if (!player || !player.virtualIp) {
+        console.warn('⚠️ [FileShareManager] 找不到玩家或虚拟IP:', playerId);
+        return;
+      }
+      
+      // 添加到远程共享列表
+      const newShare: SimpleRemoteShare = {
+        share: {
+          id: shareId,
+          name: shareName,
+          path: '',
+          password: hasPassword ? 'protected' : undefined,
+          expire_time: undefined,
+          compress_before_send: false,
+          owner_id: playerId,
+          created_at: Date.now() / 1000,
+        },
+        ownerName: playerName,
+        ownerIp: player.virtualIp,
+      };
+      
+      setRemoteShares(prev => {
+        // 检查是否已存在
+        const exists = prev.some(s => s.share.id === shareId && s.ownerIp === player.virtualIp);
+        if (exists) {
+          console.log('📁 [FileShareManager] 共享已存在，跳过添加');
+          return prev;
+        }
+        console.log('✅ [FileShareManager] 添加新共享到列表');
+        return [...prev, newShare];
+      });
+    };
+    
+    // 文件共享删除事件
+    const handleFileShareRemoved = (event: any) => {
+      console.log('🗑️ [FileShareManager] 收到文件共享删除事件:', event.detail);
+      const { shareId, playerId } = event.detail;
+      
+      // 查找玩家的虚拟IP
+      const player = players.find(p => p.id === playerId);
+      if (!player || !player.virtualIp) {
+        console.warn('⚠️ [FileShareManager] 找不到玩家或虚拟IP:', playerId);
+        return;
+      }
+      
+      setRemoteShares(prev => {
+        const filtered = prev.filter(s => !(s.share.id === shareId && s.ownerIp === player.virtualIp));
+        console.log(`✅ [FileShareManager] 从列表移除共享，剩余 ${filtered.length} 个`);
+        return filtered;
+      });
+      
+      // 如果正在浏览被删除的共享，退出浏览
+      if (selectedShare && selectedShare.share.id === shareId && selectedShare.ownerIp === player.virtualIp) {
+        console.log('⚠️ [FileShareManager] 正在浏览的共享被删除，退出浏览');
+        setSelectedShare(null);
+        setCurrentPath('');
+        setFiles([]);
+        setSelectedFiles(new Set());
+        message.warning('该共享文件夹已被删除');
+      }
+    };
+    
+    // 添加事件监听
+    window.addEventListener('file-share-added', handleFileShareAdded);
+    window.addEventListener('file-share-removed', handleFileShareRemoved);
+    
+    console.log('✅ [FileShareManager] 文件共享事件监听器已设置');
+    
+    // 清理函数
+    return () => {
+      console.log('🧹 [FileShareManager] 移除文件共享事件监听器');
+      window.removeEventListener('file-share-added', handleFileShareAdded);
+      window.removeEventListener('file-share-removed', handleFileShareRemoved);
+    };
+  }, [players, selectedShare]);
+
+  // 切换到远程共享时加载数据（只加载一次，不轮询）
   useEffect(() => {
     if (activeTab === 'remote') {
       loadRemoteShares();
-      const interval = setInterval(loadRemoteShares, 3000);
-      return () => clearInterval(interval);
+      // 【事件驱动】移除轮询，改为监听事件
+      // const interval = setInterval(loadRemoteShares, 3000);
+      // return () => clearInterval(interval);
     }
   }, [activeTab, lobby?.virtualIp, players.length]);
 
@@ -164,6 +252,24 @@ export const FileShareManagerNew: React.FC = () => {
   const handleDeleteShare = async (shareId: string) => {
     try {
       await invoke('remove_shared_folder', { shareId });
+      
+      // 【事件驱动】通过信令服务器广播文件共享删除事件
+      try {
+        const { webrtcClient } = await import('../../services/webrtc');
+        const { currentPlayerId } = useAppStore.getState();
+        if (webrtcClient && currentPlayerId) {
+          console.log('📡 [FileShareManager] 广播文件共享删除事件');
+          webrtcClient.sendWebSocketMessage({
+            type: 'file-share-removed',
+            from: currentPlayerId,
+            shareId: shareId,
+          });
+        }
+      } catch (error) {
+        console.error('❌ [FileShareManager] 广播文件共享删除事件失败:', error);
+        // 不影响主流程
+      }
+      
       message.success('删除共享成功');
       loadLocalShares();
     } catch (error) {
@@ -973,6 +1079,9 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
   const [folderName, setFolderName] = useState('');
   const [hasPassword, setHasPassword] = useState(false);
   const [password, setPassword] = useState('');
+  
+  // 从Store获取玩家信息
+  const { currentPlayerId, config } = useAppStore();
   const [hasExpiry, setHasExpiry] = useState(false);
   const [expiryDays, setExpiryDays] = useState(0);
   const [expiryHours, setExpiryHours] = useState(0);
@@ -1024,6 +1133,26 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
         created_at: Math.floor(Date.now() / 1000),
       };
       await invoke('add_shared_folder', { share });
+      
+      // 【事件驱动】通过信令服务器广播文件共享添加事件
+      try {
+        const { webrtcClient } = await import('../../services/webrtc');
+        if (webrtcClient && currentPlayerId) {
+          console.log('📡 [FileShareManager] 广播文件共享添加事件');
+          webrtcClient.sendWebSocketMessage({
+            type: 'file-share-added',
+            from: currentPlayerId,
+            shareId: share.id,
+            shareName: share.name,
+            playerName: config.playerName || '未知玩家',
+            hasPassword: !!share.password,
+          });
+        }
+      } catch (error) {
+        console.error('❌ [FileShareManager] 广播文件共享添加事件失败:', error);
+        // 不影响主流程
+      }
+      
       message.success('共享文件夹已添加');
       onSuccess();
     } catch (error) {

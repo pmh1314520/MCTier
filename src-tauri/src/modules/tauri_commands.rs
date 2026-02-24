@@ -81,20 +81,12 @@ pub async fn create_lobby(
             // 所有客户端都连接到公网信令服务器 (ws://24.233.29.43:8445)
             log::info!("客户端将连接到公网信令服务器: ws://24.233.29.43:8445");
             
-            // 启动HTTP文件服务器
-            log::info!("正在启动HTTP文件服务器...");
+            // 不再在创建大厅时自动启动HTTP文件服务器
+            // HTTP服务器将在第一次添加共享时按需启动
+            log::info!("📝 HTTP文件服务器将在添加共享时按需启动");
             let file_transfer = core.get_file_transfer();
             let ft_service = file_transfer.lock().await;
             ft_service.set_virtual_ip(virtual_ip.clone());
-            match ft_service.start_server().await {
-                Ok(_) => {
-                    log::info!("✅ HTTP文件服务器启动成功");
-                }
-                Err(e) => {
-                    log::error!("❌ HTTP文件服务器启动失败: {}", e);
-                    // 文件服务器启动失败不应该阻止创建大厅
-                }
-            }
             drop(ft_service);
             
             // 启动P2P聊天服务器
@@ -214,20 +206,12 @@ pub async fn join_lobby(
             }
             drop(p2p_svc);
             
-            // 启动HTTP文件服务器
-            log::info!("正在启动HTTP文件服务器...");
+            // 不再在加入大厅时自动启动HTTP文件服务器
+            // HTTP服务器将在第一次添加共享时按需启动
+            log::info!("📝 HTTP文件服务器将在添加共享时按需启动");
             let file_transfer = core.get_file_transfer();
             let ft_service = file_transfer.lock().await;
             ft_service.set_virtual_ip(virtual_ip.clone());
-            match ft_service.start_server().await {
-                Ok(_) => {
-                    log::info!("✅ HTTP文件服务器启动成功");
-                }
-                Err(e) => {
-                    log::error!("❌ HTTP文件服务器启动失败: {}", e);
-                    // 文件服务器启动失败不应该阻止加入大厅
-                }
-            }
             drop(ft_service);
             
             // 启动P2P聊天服务器
@@ -1811,12 +1795,33 @@ pub async fn add_shared_folder(
     share: SharedFolder,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log::debug!("添加共享文件夹: {} ({})", share.name, share.id);
+    log::info!("📁 添加共享文件夹: {} ({})", share.name, share.id);
     
     let core = state.core.lock().await;
     let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
     
+    // 检查HTTP服务器是否已启动
+    let is_running = ft_service.is_running();
+    
+    if !is_running {
+        log::info!("🚀 首次添加共享，启动HTTP文件服务器...");
+        
+        // 启动HTTP服务器
+        match ft_service.start_server().await {
+            Ok(_) => {
+                log::info!("✅ HTTP文件服务器启动成功");
+            }
+            Err(e) => {
+                log::error!("❌ HTTP文件服务器启动失败: {}", e);
+                return Err(format!("启动HTTP文件服务器失败: {}", e));
+            }
+        }
+    } else {
+        log::info!("📡 HTTP文件服务器已在运行中");
+    }
+    
+    // 添加共享
     ft_service.add_share(share)
 }
 
