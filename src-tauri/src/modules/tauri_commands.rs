@@ -2384,8 +2384,14 @@ pub async fn get_p2p_chat_messages(
     
     log::info!("📥 [ChatService] 从 {} 个其他玩家获取消息 (排除自己)", other_peer_ips.len());
     
+    // 【优化】创建HTTP客户端，设置更短的超时时间以减少延迟
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(800)) // 800ms超时
+        .connect_timeout(std::time::Duration::from_millis(300)) // 300ms连接超时
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+    
     // 从所有其他玩家获取消息
-    let client = reqwest::Client::new();
     for peer_ip in other_peer_ips {
         let url = if let Some(ts) = since {
             format!("http://{}:14540/api/chat/messages?since={}", peer_ip, ts)
@@ -2398,16 +2404,20 @@ pub async fn get_p2p_chat_messages(
                 if response.status().is_success() {
                     match response.json::<Vec<ChatServiceMessage>>().await {
                         Ok(messages) => {
+                            log::debug!("✅ 从 {} 获取到 {} 条消息", peer_ip, messages.len());
                             all_messages.extend(messages);
                         }
                         Err(e) => {
                             log::warn!("⚠️ 解析消息失败 ({}): {}", peer_ip, e);
                         }
                     }
+                } else {
+                    log::warn!("⚠️ HTTP请求失败 ({}): 状态码 {}", peer_ip, response.status());
                 }
             }
             Err(e) => {
-                log::warn!("⚠️ 获取消息失败 ({}): {}", peer_ip, e);
+                // 超时或连接失败不打印警告，避免日志刷屏
+                log::debug!("⚠️ 获取消息失败 ({}): {}", peer_ip, e);
             }
         }
     }

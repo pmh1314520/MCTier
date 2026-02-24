@@ -1206,7 +1206,7 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
                     setCurrentView('fileShare');
                   }}
-                  title={remoteSharesCount > 0 ? `文件夹共享 (${remoteSharesCount}个可用)` : "文件夹共享"}
+                  title={remoteSharesCount > 0 ? "文件夹共享 (有人共享了文件夹)" : "文件夹共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1214,7 +1214,7 @@ export const MiniWindow: React.FC = () => {
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                   {remoteSharesCount > 0 && (
-                    <span className="share-count-badge">{remoteSharesCount}</span>
+                    <span className="notification-dot"></span>
                   )}
                 </motion.button>
                 <motion.button
@@ -1223,13 +1223,13 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
                     setCurrentView('screenShare');
                   }}
-                  title={screenSharesCount > 0 ? `屏幕共享 (${screenSharesCount}个可用)` : "屏幕共享"}
+                  title={screenSharesCount > 0 ? "屏幕共享 (有人共享了屏幕)" : "屏幕共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <ScreenShareIcon size={24} />
                   {screenSharesCount > 0 && (
-                    <span className="share-count-badge">{screenSharesCount}</span>
+                    <span className="notification-dot"></span>
                   )}
                 </motion.button>
               </motion.div>

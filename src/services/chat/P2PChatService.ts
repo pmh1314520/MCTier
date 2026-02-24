@@ -39,12 +39,13 @@ class P2PChatService {
     if (!this.isInitialized) {
       this.processedMessageIds.clear();
       this.lastPlayerMessages.clear();
-      // 设置初始时间戳为当前时间，只接收加入后的消息
-      this.lastMessageTimestamp = Math.floor(Date.now() / 1000);
+      // 【修复】设置初始时间戳为0，接收所有历史消息
+      // 这样可以确保后加入的玩家也能看到之前的消息
+      this.lastMessageTimestamp = 0;
       this.isInitialized = true;
       
       console.log('✅ [P2PChatService] 首次初始化完成，玩家IPs:', peerIps);
-      console.log('📅 [P2PChatService] 初始时间戳:', this.lastMessageTimestamp, '（只接收此时间后的消息）');
+      console.log('📅 [P2PChatService] 初始时间戳: 0（接收所有历史消息）');
     } else {
       console.log('🔄 [P2PChatService] 更新配置，玩家IPs:', peerIps);
       console.log('📅 [P2PChatService] 保持现有时间戳:', this.lastMessageTimestamp);
@@ -85,12 +86,12 @@ class P2PChatService {
     // 立即获取一次消息
     this.pollMessages();
     
-    // 每500毫秒轮询一次，实现秒发秒收的低延迟
+    // 【优化】缩短轮询间隔到200毫秒，实现更低延迟的消息接收
     this.pollingInterval = window.setInterval(() => {
       this.pollMessages();
-    }, 500);
+    }, 200);
     
-    console.log('✅ [P2PChatService] 开始轮询消息（500ms间隔）');
+    console.log('✅ [P2PChatService] 开始轮询消息（200ms间隔）');
   }
 
   /**

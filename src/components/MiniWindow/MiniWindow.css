@@ -1215,35 +1215,35 @@
 
 
 
-/* 共享数量徽章样式 */
-.share-count-badge {
+/* 通知小红点样式 */
+.notification-dot {
   position: absolute;
-  top: -4px;
-  right: -4px;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
-  animation: shareCountPulse 2s ease-in-out infinite;
+  border-radius: 50%;
+  box-shadow: 
+    0 0 0 2px rgba(20, 20, 30, 0.9),
+    0 2px 6px rgba(255, 107, 107, 0.6);
+  animation: notificationDotPulse 2s ease-in-out infinite;
   z-index: 10;
 }
 
-@keyframes shareCountPulse {
+@keyframes notificationDotPulse {
   0%, 100% {
     transform: scale(1);
-    box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
+    box-shadow: 
+      0 0 0 2px rgba(20, 20, 30, 0.9),
+      0 2px 6px rgba(255, 107, 107, 0.6);
   }
   50% {
-    transform: scale(1.1);
-    box-shadow: 0 2px 10px rgba(255, 107, 107, 0.6);
+    transform: scale(1.15);
+    box-shadow: 
+      0 0 0 2px rgba(20, 20, 30, 0.9),
+      0 2px 10px rgba(255, 107, 107, 0.8),
+      0 0 0 6px rgba(255, 107, 107, 0.2);
   }
 }
 
