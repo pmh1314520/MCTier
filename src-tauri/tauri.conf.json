@@ -55,8 +55,8 @@
       "allowDowngrades": false,
       "wix": null
     },
-    "externalBin": ["resources/binaries/easytier-core", "resources/binaries/easytier-cli"],
-    "resources": ["resources/binaries/*"],
+    "externalBin": [],
+    "resources": [],
     "copyright": "Copyright © 2024 MCTier Team",
     "category": "Game",
     "shortDescription": "Minecraft 虚拟局域网联机工具",

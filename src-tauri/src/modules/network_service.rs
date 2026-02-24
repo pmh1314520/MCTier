@@ -214,60 +214,51 @@ impl NetworkService {
         
         log::info!("设置工作目录: {:?}", working_dir);
 
-        // 复制必需的 DLL 文件到 easytier-core.exe 所在目录
-        // 这些 DLL 文件是 easytier-core.exe 运行所必需的
-        let dll_files = vec!["Packet.dll", "wintun.dll", "WinDivert64.sys", "Packet.lib"];
-        for dll_name in dll_files {
-            let dll_target = working_dir.join(dll_name);
-            if dll_target.exists() {
-                log::info!("DLL 文件已存在: {:?}", dll_target);
-            } else {
-                log::warn!("DLL 文件不存在: {:?}，尝试从resources目录复制", dll_target);
-                
-                // 尝试从多个可能的位置查找DLL文件
-                let possible_sources = vec![
-                    // 开发模式：从resources/binaries复制
-                    std::env::current_exe()
-                        .ok()
-                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                        .map(|p| p.join("src-tauri").join("resources").join("binaries").join(dll_name)),
-                    // 生产模式：从当前目录的resources复制
-                    std::env::current_exe()
-                        .ok()
-                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                        .map(|p| p.join("resources").join("binaries").join(dll_name)),
-                    // 备选：从当前目录复制
-                    std::env::current_dir()
-                        .ok()
-                        .map(|p| p.join(dll_name)),
-                ];
-                
-                let mut copied = false;
-                for source_opt in possible_sources {
-                    if let Some(source) = source_opt {
-                        if source.exists() {
-                            match std::fs::copy(&source, &dll_target) {
-                                Ok(_) => {
-                                    log::info!("成功从 {:?} 复制 {} 到工作目录", source, dll_name);
-                                    copied = true;
-                                    break;
-                                }
-                                Err(e) => {
-                                    log::warn!("从 {:?} 复制 {} 失败: {}", source, dll_name, e);
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if !copied {
-                    log::error!("无法找到或复制 DLL 文件: {}", dll_name);
-                }
-            }
+        // 【优化】使用ResourceManager提取必需的DLL文件到easytier-core.exe所在目录
+        // 这些DLL文件是easytier-core.exe运行所必需的
+        log::info!("开始提取必需的DLL文件...");
+        
+        // 提取Packet.dll
+        let packet_dll_source = ResourceManager::get_packet_dll_path(app_handle)?;
+        let packet_dll_target = working_dir.join("Packet.dll");
+        if !packet_dll_target.exists() || std::fs::metadata(&packet_dll_target).map(|m| m.len()).unwrap_or(0) 
+            != std::fs::metadata(&packet_dll_source).map(|m| m.len()).unwrap_or(1) {
+            std::fs::copy(&packet_dll_source, &packet_dll_target)
+                .map_err(|e| AppError::ProcessError(format!("复制Packet.dll失败: {}", e)))?;
+            log::info!("✅ 已复制 Packet.dll");
         }
+        
+        // 提取wintun.dll
+        let wintun_dll_source = ResourceManager::get_wintun_dll_path(app_handle)?;
+        let wintun_dll_target = working_dir.join("wintun.dll");
+        if !wintun_dll_target.exists() || std::fs::metadata(&wintun_dll_target).map(|m| m.len()).unwrap_or(0) 
+            != std::fs::metadata(&wintun_dll_source).map(|m| m.len()).unwrap_or(1) {
+            std::fs::copy(&wintun_dll_source, &wintun_dll_target)
+                .map_err(|e| AppError::ProcessError(format!("复制wintun.dll失败: {}", e)))?;
+            log::info!("✅ 已复制 wintun.dll");
+        }
+        
+        // 提取WinDivert64.sys
+        let windivert_sys_source = ResourceManager::get_windivert_sys_path(app_handle)?;
+        let windivert_sys_target = working_dir.join("WinDivert64.sys");
+        if !windivert_sys_target.exists() || std::fs::metadata(&windivert_sys_target).map(|m| m.len()).unwrap_or(0) 
+            != std::fs::metadata(&windivert_sys_source).map(|m| m.len()).unwrap_or(1) {
+            std::fs::copy(&windivert_sys_source, &windivert_sys_target)
+                .map_err(|e| AppError::ProcessError(format!("复制WinDivert64.sys失败: {}", e)))?;
+            log::info!("✅ 已复制 WinDivert64.sys");
+        }
+        
+        // 提取Packet.lib
+        let packet_lib_source = ResourceManager::get_packet_lib_path(app_handle)?;
+        let packet_lib_target = working_dir.join("Packet.lib");
+        if !packet_lib_target.exists() || std::fs::metadata(&packet_lib_target).map(|m| m.len()).unwrap_or(0) 
+            != std::fs::metadata(&packet_lib_source).map(|m| m.len()).unwrap_or(1) {
+            std::fs::copy(&packet_lib_source, &packet_lib_target)
+                .map_err(|e| AppError::ProcessError(format!("复制Packet.lib失败: {}", e)))?;
+            log::info!("✅ 已复制 Packet.lib");
+        }
+        
+        log::info!("✅ 所有必需的DLL文件已准备就绪");
 
         // 生成唯一的实例名称（基于时间戳和随机数）
         let instance_name = format!(
