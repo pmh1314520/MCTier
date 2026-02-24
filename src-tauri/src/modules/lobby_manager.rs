@@ -315,6 +315,7 @@ impl LobbyManager {
         server_node: String,
         use_domain: bool,
         network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
     ) -> Result<Lobby, LobbyError> {
         // 检查是否已经在大厅中
         if self.current_lobby.is_some() {
@@ -338,7 +339,7 @@ impl LobbyManager {
 
         // 启动 EasyTier 服务（统一启用魔法DNS）
         let virtual_ip = network_service
-            .start_easytier(network_name, network_key, server_node, player_name.clone())
+            .start_easytier(network_name, network_key, server_node, player_name.clone(), app_handle)
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
 
@@ -413,6 +414,7 @@ impl LobbyManager {
         server_node: String,
         use_domain: bool,
         network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
     ) -> Result<Lobby, LobbyError> {
         // 检查是否已经在大厅中
         if self.current_lobby.is_some() {
@@ -436,7 +438,7 @@ impl LobbyManager {
 
         // 连接到 EasyTier 网络（统一启用魔法DNS）
         let virtual_ip = network_service
-            .start_easytier(network_name, network_key, server_node, player_name.clone())
+            .start_easytier(network_name, network_key, server_node, player_name.clone(), app_handle)
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
 

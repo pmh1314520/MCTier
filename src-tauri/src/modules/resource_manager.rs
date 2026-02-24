@@ -6,7 +6,6 @@ use tauri::Manager;
 
 // 将二进制文件嵌入到可执行文件中
 static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-core.exe");
-static EASYTIER_CLI_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-cli.exe");
 static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.dll");
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
 static WINDIVERT_SYS_BYTES: &[u8] = include_bytes!("../../resources/binaries/WinDivert64.sys");
@@ -127,44 +126,6 @@ impl ResourceManager {
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES)
-        }
-    }
-    
-    /// 获取 EasyTier CLI 工具的路径
-    /// 
-    /// # 参数
-    /// * `app_handle` - Tauri 应用句柄
-    /// 
-    /// # 返回
-    /// * `Ok(PathBuf)` - EasyTier CLI 工具的完整路径
-    /// * `Err(AppError)` - 获取路径失败
-    pub fn get_easytier_cli_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(debug_assertions)]
-        {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            
-            let cli_path = resource_path
-                .join("binaries")
-                .join("easytier-cli.exe");
-            
-            if !cli_path.exists() {
-                return Err(AppError::ConfigError(format!(
-                    "EasyTier CLI 工具不存在: {:?}",
-                    cli_path
-                )));
-            }
-            
-            Ok(cli_path)
-        }
-        
-        #[cfg(not(debug_assertions))]
-        {
-            Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES)
         }
     }
     

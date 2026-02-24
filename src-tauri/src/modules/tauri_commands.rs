@@ -37,6 +37,7 @@ pub async fn create_lobby(
     player_id: String,
     server_node: String,
     use_domain: Option<bool>,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
     log::info!("收到创建大厅命令: name={}, player={}, player_id={}, use_domain={:?}", name, player_name, player_id, use_domain);
@@ -61,6 +62,7 @@ pub async fn create_lobby(
         server_node,
         use_domain.unwrap_or(false),
         &*network_svc,
+        &app_handle,
     ).await {
         Ok(lobby) => {
             log::info!("大厅创建成功: {}", lobby.name);
@@ -140,6 +142,7 @@ pub async fn join_lobby(
     player_id: String,
     server_node: String,
     use_domain: Option<bool>,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
     log::info!("收到加入大厅命令: name={}, player={}, player_id={}, use_domain={:?}", name, player_name, player_id, use_domain);
@@ -166,6 +169,7 @@ pub async fn join_lobby(
         server_node,
         use_domain.unwrap_or(false),
         &*network_svc,
+        &app_handle,
     ).await {
         Ok(lobby) => {
             log::info!("成功加入大厅: {}", lobby.name);

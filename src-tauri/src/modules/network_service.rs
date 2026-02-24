@@ -172,6 +172,7 @@ impl NetworkService {
         network_key: String,
         server_node: String,
         player_name: String,
+        app_handle: &tauri::AppHandle,
     ) -> Result<String, AppError> {
         // 检查管理员权限（Windows 平台需要）
         #[cfg(windows)]
@@ -1296,6 +1297,7 @@ impl NetworkService {
     /// * `network_key` - 网络密钥
     /// * `server_node` - 服务器节点地址
     /// * `player_name` - 玩家名称（用于设置hostname）
+    /// * `app_handle` - Tauri应用句柄
     /// 
     /// # 返回
     /// * `Ok(String)` - 成功重启，返回虚拟 IP
@@ -1306,6 +1308,7 @@ impl NetworkService {
         network_key: String,
         server_node: String,
         player_name: String,
+        app_handle: &tauri::AppHandle,
     ) -> Result<String, AppError> {
         log::info!("正在重启 EasyTier 服务...");
 
@@ -1316,7 +1319,7 @@ impl NetworkService {
         sleep(Duration::from_secs(1)).await;
 
         // 重新启动服务
-        self.start_easytier(network_name, network_key, server_node, player_name)
+        self.start_easytier(network_name, network_key, server_node, player_name, app_handle)
             .await
     }
 }
