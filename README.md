@@ -4,7 +4,7 @@
 
 # **MCTier**
 
-### Minecraft 虚拟局域网联机工具
+### 虚拟局域网联机工具
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.3.0-blue?style=flat-square" alt="Version">
@@ -25,7 +25,7 @@
 
 ### 让跨网络联机变得简单
 
-MCTier 是一款专为 Minecraft 玩家打造的虚拟局域网联机工具，让您可以轻松与好友跨越网络限制，享受联机游戏的乐趣。
+MCTier 是一款专为玩家打造的虚拟局域网联机工具，让您可以轻松与好友跨越网络限制，享受联机游戏的乐趣。
 
 **🎮 不仅仅是 Minecraft** - 适用于任何支持局域网联机的游戏
 
