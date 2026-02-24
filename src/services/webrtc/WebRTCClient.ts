@@ -393,6 +393,13 @@ export class WebRTCClient {
             }
           }
           
+          // 【修复】自己加入大厅后，向所有人请求屏幕共享列表
+          console.log('📢 [WebRTCClient] 自己加入大厅，向所有人请求屏幕共享列表...');
+          this.sendWebSocketMessage({
+            type: 'screen-share-list-request',
+            from: this.localPlayerId,
+          });
+          
           // HTTP模式：不需要广播共享列表，客户端直接通过HTTP API查询
           break;
           
@@ -426,15 +433,6 @@ export class WebRTCClient {
           // 触发回调
           if (this.onPlayerJoinedCallback) {
             this.onPlayerJoinedCallback(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
-          }
-          
-          // 【新增】如果是自己加入大厅，向所有人请求屏幕共享列表
-          if (message.playerId === this.localPlayerId) {
-            console.log('📢 [WebRTCClient] 自己加入大厅，请求屏幕共享列表...');
-            this.sendWebSocketMessage({
-              type: 'screen-share-list-request',
-              from: this.localPlayerId,
-            });
           }
           
           // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
@@ -670,6 +668,16 @@ export class WebRTCClient {
             // 直接添加到activeShares
             (screenShareService as any).activeShares.set(share.id, share);
             console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
+            
+            // 【事件驱动】触发自定义事件通知UI更新
+            window.dispatchEvent(new CustomEvent('screen-share-start', {
+              detail: {
+                shareId: share.id,
+                playerId: share.playerId,
+                playerName: share.playerName,
+                hasPassword: share.requirePassword,
+              }
+            }));
           } catch (error) {
             console.error('❌ 处理屏幕共享开始失败:', error);
           }
@@ -695,6 +703,13 @@ export class WebRTCClient {
             // 从本地列表移除
             (screenShareService as any).activeShares.delete(message.shareId);
             console.log(`✅ 屏幕共享已从列表移除`);
+            
+            // 【事件驱动】触发自定义事件通知UI更新
+            window.dispatchEvent(new CustomEvent('screen-share-stop', {
+              detail: {
+                shareId: message.shareId,
+              }
+            }));
           } catch (error) {
             console.error('❌ 处理屏幕共享停止失败:', error);
           }
@@ -702,13 +717,13 @@ export class WebRTCClient {
           
         case 'screen-share-offer':
           // 收到屏幕共享Offer
-          console.log(`🖥️ 收到屏幕共享Offer from ${message.from}`);
+          console.log(`🖥️ 收到屏幕共享Offer from ${message.from}, playerName: ${message.playerName}`);
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
             await screenShareService.handleOffer({
               shareId: message.shareId,
               playerId: message.from,
-              playerName: '',
+              playerName: message.playerName || '未知玩家', // 【修复】从消息中获取查看者名字
               requirePassword: false,
               password: message.password, // 【修复】传递密码字段
               sdp: message.offer.sdp,
@@ -763,7 +778,8 @@ export class WebRTCClient {
           console.log(`📋 收到屏幕共享列表请求 from ${message.from}`);
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
-            const myShares = screenShareService.getActiveShares();
+            // 【修复】只返回自己创建的共享，不返回别人的共享
+            const myShares = screenShareService.getMyActiveShares();
             
             // 如果有活跃的共享，发送给请求者
             if (myShares.length > 0) {
@@ -779,7 +795,7 @@ export class WebRTCClient {
                 });
               });
             } else {
-              console.log(`📭 没有活跃的屏幕共享`);
+              console.log(`📭 我没有活跃的屏幕共享`);
             }
           } catch (error) {
             console.error('❌ 处理屏幕共享列表请求失败:', error);
@@ -804,6 +820,16 @@ export class WebRTCClient {
             // 直接添加到activeShares
             (screenShareService as any).activeShares.set(share.id, share);
             console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
+            
+            // 【事件驱动】触发自定义事件通知UI更新
+            window.dispatchEvent(new CustomEvent('screen-share-start', {
+              detail: {
+                shareId: share.id,
+                playerId: share.playerId,
+                playerName: share.playerName,
+                hasPassword: share.requirePassword,
+              }
+            }));
           } catch (error) {
             console.error('❌ 处理屏幕共享列表响应失败:', error);
           }
@@ -821,6 +847,15 @@ export class WebRTCClient {
               share.viewerName = message.viewerName;
               (screenShareService as any).activeShares.set(message.shareId, share);
               console.log(`✅ 共享状态已更新:`, { viewerId: message.viewerId, viewerName: message.viewerName });
+              
+              // 【事件驱动】触发自定义事件通知UI更新
+              window.dispatchEvent(new CustomEvent('screen-share-update', {
+                detail: {
+                  shareId: message.shareId,
+                  viewerId: message.viewerId,
+                  viewerName: message.viewerName,
+                }
+              }));
             }
           } catch (error) {
             console.error('❌ 处理共享状态更新失败:', error);

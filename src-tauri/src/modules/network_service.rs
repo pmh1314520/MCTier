@@ -580,13 +580,14 @@ impl NetworkService {
             PathBuf::from("easytier-cli.exe")
         };
         
+        log::debug!("🔍 使用 CLI 工具查询虚拟IP: {:?}, RPC端口: {}", cli_path, rpc_port);
+        
         // 执行 CLI 命令查询节点信息
+        // 【修复】不使用 --instance-name 参数，直接通过 RPC 端口连接
         #[cfg(windows)]
         let output = tokio::process::Command::new(&cli_path)
             .arg("--rpc-portal")
             .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--instance-name")
-            .arg(instance_name)
             .arg("--output")
             .arg("json")
             .arg("node")
@@ -600,8 +601,6 @@ impl NetworkService {
         let output = tokio::process::Command::new(&cli_path)
             .arg("--rpc-portal")
             .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--instance-name")
-            .arg(instance_name)
             .arg("--output")
             .arg("json")
             .arg("node")
@@ -613,7 +612,7 @@ impl NetworkService {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             log::warn!("CLI 命令执行失败: {}", stderr);
-            return Err(AppError::ProcessError("CLI 命令执行失败".to_string()));
+            return Err(AppError::ProcessError(format!("CLI 命令执行失败: {}", stderr)));
         }
         
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -624,32 +623,28 @@ impl NetworkService {
             .map_err(|e| AppError::ProcessError(format!("解析 JSON 失败: {}", e)))?;
         
         // 从 JSON 中提取虚拟IP
-        // 尝试多个可能的字段名
-        let possible_fields = vec!["virtual_ipv4", "ipv4", "virtual_ip", "ip", "ipv4_addr"];
-        
-        for field in possible_fields {
-            if let Some(ip_value) = json.get(field) {
-                if let Some(ip_str) = ip_value.as_str() {
-                    // 如果IP包含CIDR后缀（如 /24），去掉它
-                    let ip = if let Some(slash_pos) = ip_str.find('/') {
-                        &ip_str[..slash_pos]
-                    } else {
-                        ip_str
-                    };
-                    
-                    // 验证IP格式
-                    if Self::is_valid_ip(ip) {
-                        // 检查是否是有效的主机地址（不是网络地址或广播地址）
-                        let parts: Vec<&str> = ip.split('.').collect();
-                        if parts.len() == 4 {
-                            if let Ok(last_octet) = parts[3].parse::<u8>() {
-                                // 只接受 1-254 的主机地址
-                                if last_octet >= 1 && last_octet <= 254 {
-                                    log::info!("从 CLI 工具成功提取虚拟IP: {}", ip);
-                                    return Ok(ip.to_string());
-                                } else {
-                                    log::warn!("CLI 返回的IP不是有效的主机地址: {} (最后一位: {})", ip, last_octet);
-                                }
+        // 优先使用 ipv4_addr 字段（这是 EasyTier 2.5.0 的标准字段）
+        if let Some(ipv4_addr) = json.get("ipv4_addr") {
+            if let Some(ip_str) = ipv4_addr.as_str() {
+                // 如果IP包含CIDR后缀（如 /24），去掉它
+                let ip = if let Some(slash_pos) = ip_str.find('/') {
+                    &ip_str[..slash_pos]
+                } else {
+                    ip_str
+                };
+                
+                // 验证IP格式
+                if Self::is_valid_ip(ip) {
+                    // 检查是否是有效的主机地址（不是网络地址或广播地址）
+                    let parts: Vec<&str> = ip.split('.').collect();
+                    if parts.len() == 4 {
+                        if let Ok(last_octet) = parts[3].parse::<u8>() {
+                            // 只接受 1-254 的主机地址
+                            if last_octet >= 1 && last_octet <= 254 {
+                                log::info!("✅ 从 CLI 工具成功提取虚拟IP: {}", ip);
+                                return Ok(ip.to_string());
+                            } else {
+                                log::warn!("CLI 返回的IP不是有效的主机地址: {} (最后一位: {})", ip, last_octet);
                             }
                         }
                     }

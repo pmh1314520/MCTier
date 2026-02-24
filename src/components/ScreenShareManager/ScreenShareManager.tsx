@@ -138,7 +138,7 @@ export const ScreenShareManager: React.FC = () => {
       } catch (error) {
         console.error('获取共享列表失败:', error);
       }
-    }, 500); // 【修复】从1秒改为500毫秒,确保更实时的更新
+    }, 100); // 【修复】从500毫秒改为100毫秒,确保更实时的更新
 
     return () => clearInterval(interval);
   }, []);
@@ -414,7 +414,7 @@ export const ScreenShareManager: React.FC = () => {
         {/* 提示信息 */}
         <div className="screen-share-hint">
           <InfoIcon size={14} />
-          <span>每个屏幕同时仅支持一名玩家查看</span>
+          <span>每个屏幕同时仅支持被一名玩家查看</span>
         </div>
         
         {activeShares.length === 0 ? (

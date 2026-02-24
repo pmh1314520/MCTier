@@ -258,6 +258,7 @@ class ScreenShareService {
         from: this.currentPlayerId,
         to: sharerPlayerId,
         shareId,
+        playerName: this.currentPlayerName, // 【修复】发送查看者名字
         password: password, // 【修复】发送密码用于验证
         offer: {
           type: offer.type,
@@ -266,6 +267,7 @@ class ScreenShareService {
       });
 
       console.log('📤 [ScreenShareService] Offer已发送，包含密码:', password ? '***' : 'undefined');
+      console.log('📤 [ScreenShareService] 查看者名字:', this.currentPlayerName);
 
       // 等待流
       return await streamPromise;
@@ -341,6 +343,23 @@ class ScreenShareService {
       hasPassword: !!s.password
     })));
     return shares;
+  }
+
+  /**
+   * 【新增】获取自己创建的共享（用于响应列表请求）
+   */
+  getMyActiveShares(): ScreenShare[] {
+    const myShares = Array.from(this.activeShares.values()).filter(
+      share => share.playerId === this.currentPlayerId
+    );
+    console.log('📋 [ScreenShareService] 获取我的活跃共享列表:', myShares.map(s => ({
+      id: s.id,
+      playerId: s.playerId,
+      playerName: s.playerName,
+      requirePassword: s.requirePassword,
+      hasPassword: !!s.password
+    })));
+    return myShares;
   }
 
   /**
