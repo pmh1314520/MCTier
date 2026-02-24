@@ -23,7 +23,9 @@
         "transparent": true,
         "alwaysOnTop": false,
         "visible": true,
-        "devtools": true
+        "devtools": true,
+        "fullscreen": false,
+        "maximizable": false
       }
     ],
     "security": {

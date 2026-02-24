@@ -144,6 +144,15 @@ export const FileShareManagerNew: React.FC = () => {
     loadLocalShares();
   }, []);
 
+  // 当本地共享或远程共享变化时，发送事件通知 MiniWindow 更新红点
+  useEffect(() => {
+    const totalCount = localShares.length + remoteShares.length;
+    window.dispatchEvent(new CustomEvent('file-share-items-update', { 
+      detail: { count: totalCount } 
+    }));
+    console.log('📊 [FileShareManager] 文件共享条目数量变化，总数:', totalCount);
+  }, [localShares.length, remoteShares.length]);
+
   // 定期清理过期共享（每30秒检查一次）
   useEffect(() => {
     const cleanupExpiredShares = async () => {

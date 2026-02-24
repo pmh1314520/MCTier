@@ -180,6 +180,23 @@ function App() {
     };
   }, []);
 
+  // 全局禁止双击全屏
+  useEffect(() => {
+    const handleDoubleClick = (e: MouseEvent) => {
+      // 阻止双击事件的默认行为（防止全屏）
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+
+    // 在document上监听，确保所有元素都禁止双击全屏
+    document.addEventListener('dblclick', handleDoubleClick, true);
+
+    return () => {
+      document.removeEventListener('dblclick', handleDoubleClick, true);
+    };
+  }, []);
+
   // 全局快捷键：Shift+F1 打开日志文件
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {

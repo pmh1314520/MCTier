@@ -5,7 +5,7 @@ import { Modal, Spin, message, Tooltip } from 'antd';
 import { open } from '@tauri-apps/plugin-shell';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
-import { webrtcClient, fileShareService } from '../../services';
+import { webrtcClient } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import type { ChatMessage } from '../../types';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
@@ -76,142 +76,39 @@ export const MiniWindow: React.FC = () => {
     }
   }, [chatMessages.length, unreadCount, currentView, collapsed]);
 
-  // 后台轮询远程共享
-  const [remoteSharesCount, setRemoteSharesCount] = useState(0);
-  
-  // 后台轮询屏幕共享
-  const [screenSharesCount, setScreenSharesCount] = useState(0);
+  // 文件夹共享和屏幕共享的条目数量（用于显示红点）
+  const [fileShareItemsCount, setFileShareItemsCount] = useState(0);
+  const [screenShareItemsCount, setScreenShareItemsCount] = useState(0);
 
-  // 后台加载远程共享
+  // 监听文件夹共享界面的条目数量变化
   useEffect(() => {
-    const loadRemoteShares = async () => {
-      try {
-        // 获取当前玩家的虚拟IP
-        const currentPlayerIp = lobby?.virtualIp;
-        
-        let totalShares = 0;
-        const now = Math.floor(Date.now() / 1000);
-        
-        // 1. 先加载自己的共享
-        if (currentPlayerIp) {
-          try {
-            const shares = await fileShareService.getRemoteShares(currentPlayerIp);
-            // 过滤掉过期的共享
-            const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
-            totalShares += validShares.length;
-          } catch (error) {
-            console.error('获取自己的共享失败:', error);
-          }
-        }
-        
-        // 2. 再加载其他玩家的共享
-        for (const player of players) {
-          if (player.virtualIp) {
-            try {
-              const shares = await fileShareService.getRemoteShares(player.virtualIp);
-              // 过滤掉过期的共享
-              const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
-              totalShares += validShares.length;
-            } catch (error) {
-              console.error(`获取 ${player.name} 的共享失败:`, error);
-            }
-          }
-        }
-        
-        setRemoteSharesCount(totalShares);
-      } catch (error) {
-        console.error('加载远程共享失败:', error);
-      }
+    const handleFileShareUpdate = (event: any) => {
+      const count = event.detail?.count || 0;
+      console.log('📊 [MiniWindow] 文件夹共享条目数量:', count);
+      setFileShareItemsCount(count);
     };
 
-    // 立即执行一次
-    loadRemoteShares();
-
-    // 【事件驱动】移除轮询，文件共享改为按需加载
-    // const interval = setInterval(loadRemoteShares, 3000);
-    // return () => clearInterval(interval);
-  }, [players]); // 依赖players，当玩家列表变化时重新加载
-
-  // 【事件驱动】监听文件共享事件，实时更新计数
-  useEffect(() => {
-    const handleFileShareChange = () => {
-      // 重新加载远程共享计数
-      const loadRemoteShares = async () => {
-        try {
-          const currentPlayerIp = lobby?.virtualIp;
-          let totalShares = 0;
-          const now = Math.floor(Date.now() / 1000);
-          
-          if (currentPlayerIp) {
-            try {
-              const shares = await fileShareService.getRemoteShares(currentPlayerIp);
-              const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
-              totalShares += validShares.length;
-            } catch (error) {
-              console.error('获取自己的共享失败:', error);
-            }
-          }
-          
-          for (const player of players) {
-            if (player.virtualIp) {
-              try {
-                const shares = await fileShareService.getRemoteShares(player.virtualIp);
-                const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
-                totalShares += validShares.length;
-              } catch (error) {
-                console.error(`获取 ${player.name} 的共享失败:`, error);
-              }
-            }
-          }
-          
-          console.log('📊 [MiniWindow] 文件共享数量更新:', totalShares);
-          setRemoteSharesCount(totalShares);
-        } catch (error) {
-          console.error('加载远程共享失败:', error);
-        }
-      };
-      
-      loadRemoteShares();
-    };
-
-    window.addEventListener('file-share-added', handleFileShareChange);
-    window.addEventListener('file-share-removed', handleFileShareChange);
+    window.addEventListener('file-share-items-update', handleFileShareUpdate);
 
     return () => {
-      window.removeEventListener('file-share-added', handleFileShareChange);
-      window.removeEventListener('file-share-removed', handleFileShareChange);
+      window.removeEventListener('file-share-items-update', handleFileShareUpdate);
     };
-  }, [players, lobby?.virtualIp]);
+  }, []);
 
-  // 【事件驱动】监听屏幕共享事件，替代轮询
+  // 监听屏幕共享界面的条目数量变化
   useEffect(() => {
-    const loadScreenShares = async () => {
-      try {
-        const { screenShareService } = await import('../../services/screenShare/ScreenShareService');
-        const shares = screenShareService.getActiveShares();
-        console.log('📊 [MiniWindow] 屏幕共享数量:', shares.length, '包括自己的共享');
-        setScreenSharesCount(shares.length);
-      } catch (error) {
-        console.error('加载屏幕共享失败:', error);
-      }
+    const handleScreenShareUpdate = (event: any) => {
+      const count = event.detail?.count || 0;
+      console.log('📊 [MiniWindow] 屏幕共享条目数量:', count);
+      setScreenShareItemsCount(count);
     };
 
-    // 立即执行一次
-    loadScreenShares();
-
-    // 【事件驱动】监听屏幕共享事件
-    const handleShareChange = () => {
-      loadScreenShares();
-    };
-
-    window.addEventListener('screen-share-start', handleShareChange);
-    window.addEventListener('screen-share-stop', handleShareChange);
+    window.addEventListener('screen-share-items-update', handleScreenShareUpdate);
 
     return () => {
-      window.removeEventListener('screen-share-start', handleShareChange);
-      window.removeEventListener('screen-share-stop', handleShareChange);
+      window.removeEventListener('screen-share-items-update', handleScreenShareUpdate);
     };
-  }, [currentPlayerId]);
+  }, []);
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {
@@ -1262,14 +1159,14 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
                     setCurrentView('fileShare');
                   }}
-                  title={remoteSharesCount > 0 ? "文件夹共享 (有人共享了文件夹)" : "文件夹共享"}
+                  title={fileShareItemsCount > 0 ? "文件夹共享 (有共享条目)" : "文件夹共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
-                  {remoteSharesCount > 0 && (
+                  {fileShareItemsCount > 0 && (
                     <span className="notification-dot"></span>
                   )}
                 </motion.button>
@@ -1279,12 +1176,12 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
                     setCurrentView('screenShare');
                   }}
-                  title={screenSharesCount > 0 ? "屏幕共享 (有人共享了屏幕)" : "屏幕共享"}
+                  title={screenShareItemsCount > 0 ? "屏幕共享 (有共享条目)" : "屏幕共享"}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <ScreenShareIcon size={24} />
-                  {screenSharesCount > 0 && (
+                  {screenShareItemsCount > 0 && (
                     <span className="notification-dot"></span>
                   )}
                 </motion.button>
