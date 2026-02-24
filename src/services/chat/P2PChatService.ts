@@ -23,16 +23,25 @@ class P2PChatService {
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
+  private myVirtualIp: string = ''; // 自己的虚拟IP，用于过滤
 
   /**
    * 初始化服务
    */
-  initialize(peerIps: string[], currentPlayerId: string): void {
+  initialize(peerIps: string[], currentPlayerId: string, myVirtualIp: string): void {
+    // 【修复】先清理旧的连接，避免重复连接
+    console.log('🔄 [P2PChatService] 清理旧连接...');
+    this.stopListening();
+    
     // 更新玩家IPs和ID
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
+    this.myVirtualIp = myVirtualIp;
     
-    console.log('✅ [P2PChatService] 初始化完成，玩家IPs:', peerIps);
+    console.log('✅ [P2PChatService] 初始化完成');
+    console.log('  - 当前玩家ID:', currentPlayerId);
+    console.log('  - 自己的虚拟IP:', myVirtualIp);
+    console.log('  - 其他玩家IPs:', peerIps);
   }
   
   /**
@@ -42,6 +51,7 @@ class P2PChatService {
     this.stopListening();
     this.peerIps = [];
     this.currentPlayerId = '';
+    this.myVirtualIp = '';
     this.onMessageCallback = undefined;
     console.log('🔄 [P2PChatService] 服务已重置');
   }
@@ -58,21 +68,30 @@ class P2PChatService {
    */
   startPolling(): void {
     console.log('✅ [P2PChatService] 开始监听消息（SSE事件驱动）');
+    console.log('📊 [P2PChatService] 当前已有连接数:', this.eventSources.size);
     
     // 为每个玩家创建SSE连接
     for (const peerIp of this.peerIps) {
-      // 跳过自己的IP
-      if (peerIp === this.currentPlayerId) {
+      // 跳过自己的IP（使用虚拟IP比较）
+      if (peerIp === this.myVirtualIp) {
+        console.log(`🚫 [P2PChatService] 跳过自己的IP: ${peerIp}`);
         continue;
       }
       
-      // 如果已经有连接，跳过
+      // 【修复】如果已经有连接，先关闭旧连接再创建新连接
       if (this.eventSources.has(peerIp)) {
-        continue;
+        console.log(`⚠️ [P2PChatService] 检测到重复连接，关闭旧连接: ${peerIp}`);
+        const oldEventSource = this.eventSources.get(peerIp);
+        if (oldEventSource) {
+          oldEventSource.close();
+        }
+        this.eventSources.delete(peerIp);
       }
       
       this.connectToPlayer(peerIp);
     }
+    
+    console.log('📊 [P2PChatService] 连接建立完成，当前连接数:', this.eventSources.size);
   }
 
   /**

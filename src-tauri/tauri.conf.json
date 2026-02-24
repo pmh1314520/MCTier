@@ -18,14 +18,14 @@
         "minWidth": 320,
         "minHeight": 400,
         "center": true,
-        "resizable": false,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": false,
         "visible": true,
         "devtools": true,
         "fullscreen": false,
-        "maximizable": false
+        "maximizable": true
       }
     ],
     "security": {

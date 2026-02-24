@@ -144,15 +144,6 @@ export const FileShareManagerNew: React.FC = () => {
     loadLocalShares();
   }, []);
 
-  // 当本地共享或远程共享变化时，发送事件通知 MiniWindow 更新红点
-  useEffect(() => {
-    const totalCount = localShares.length + remoteShares.length;
-    window.dispatchEvent(new CustomEvent('file-share-items-update', { 
-      detail: { count: totalCount } 
-    }));
-    console.log('📊 [FileShareManager] 文件共享条目数量变化，总数:', totalCount);
-  }, [localShares.length, remoteShares.length]);
-
   // 【事件驱动】监听文件共享事件
   useEffect(() => {
     console.log('📡 [FileShareManager] 设置文件共享事件监听器');
@@ -215,9 +206,9 @@ export const FileShareManagerNew: React.FC = () => {
         return filtered;
       });
       
-      // 如果正在浏览被删除的共享，退出浏览
+      // 【修复】如果正在浏览被删除的共享，立即退出浏览
       if (selectedShare && selectedShare.share.id === shareId && selectedShare.ownerIp === player.virtualIp) {
-        console.log('⚠️ [FileShareManager] 正在浏览的共享被删除，退出浏览');
+        console.log('⚠️ [FileShareManager] 正在浏览的共享被删除，立即退出浏览');
         setSelectedShare(null);
         setCurrentPath('');
         setFiles([]);
@@ -244,11 +235,40 @@ export const FileShareManagerNew: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'remote') {
       loadRemoteShares();
-      // 【事件驱动】移除轮询，改为监听事件
-      // const interval = setInterval(loadRemoteShares, 3000);
-      // return () => clearInterval(interval);
+      
+      // 【修复】添加定时检查过期共享（每秒检查一次）
+      const expiryCheckInterval = setInterval(() => {
+        const now = Math.floor(Date.now() / 1000);
+        setRemoteShares(prev => {
+          const filtered = prev.filter(s => !s.share.expire_time || s.share.expire_time > now);
+          
+          // 如果有共享被过滤掉，说明有过期的
+          if (filtered.length < prev.length) {
+            console.log(`⏰ [FileShareManager] 检测到 ${prev.length - filtered.length} 个过期共享，已自动移除`);
+            
+            // 如果正在浏览的共享过期了，退出浏览
+            if (selectedShare) {
+              const stillExists = filtered.some(
+                s => s.ownerIp === selectedShare.ownerIp && s.share.id === selectedShare.share.id
+              );
+              if (!stillExists) {
+                console.log('⚠️ [FileShareManager] 正在浏览的共享已过期，自动退出浏览');
+                setSelectedShare(null);
+                setCurrentPath('');
+                setFiles([]);
+                setSelectedFiles(new Set());
+                message.warning('该共享文件夹已过期');
+              }
+            }
+          }
+          
+          return filtered;
+        });
+      }, 1000); // 每秒检查一次
+      
+      return () => clearInterval(expiryCheckInterval);
     }
-  }, [activeTab, lobby?.virtualIp, players.length]);
+  }, [activeTab, lobby?.virtualIp, players.length, selectedShare]);
 
   // 切换到传输列表时，默认显示正在下载分页
   useEffect(() => {
@@ -463,10 +483,15 @@ export const FileShareManagerNew: React.FC = () => {
         const arrayBuffer = await blob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
 
+        // 【修复】显示"正在保存..."提示
+        message.loading({ content: '正在保存文件到磁盘...', key: `saving_${taskId}`, duration: 0 });
+
         await invoke('save_file', {
           path: savePath,
           data: Array.from(uint8Array)
         });
+
+        message.destroy(`saving_${taskId}`);
 
         // 标记为完成
         setDownloads(prev => prev.map(task =>
@@ -551,12 +576,81 @@ export const FileShareManagerNew: React.FC = () => {
             
             console.log('✅ [FileShareManager] 开始下载压缩包');
             
-            // 获取ZIP文件
-            const blob = await response.blob();
+            // 【修复】使用流式下载，实时更新进度
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('无法读取响应');
+            }
+            
+            // 获取文件总大小
+            const contentLength = response.headers.get('Content-Length');
+            const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
+            
+            console.log('📦 [FileShareManager] 压缩包总大小:', totalSize, 'bytes');
+            
+            // 更新任务的文件大小
+            if (totalSize > 0) {
+              setDownloads(prev => prev.map(task =>
+                task.id === taskId ? { ...task, fileSize: totalSize } : task
+              ));
+            }
+            
+            const chunks: Uint8Array[] = [];
+            let downloaded = 0;
+            let lastUpdateTime = Date.now();
+            let lastDownloaded = 0;
+            
+            while (true) {
+              const { done, value } = await reader.read();
+              
+              if (done) break;
+              
+              chunks.push(value);
+              downloaded += value.length;
+              
+              // 计算速度（每500ms更新一次）
+              const now = Date.now();
+              const timeDiff = now - lastUpdateTime;
+              
+              if (timeDiff >= 500) {
+                const byteDiff = downloaded - lastDownloaded;
+                const speed = (byteDiff / timeDiff) * 1000; // bytes/s
+                
+                // 更新进度和速度
+                setDownloads(prev => prev.map(task =>
+                  task.id === taskId ? { 
+                    ...task, 
+                    downloaded, 
+                    speed,
+                    fileSize: totalSize > 0 ? totalSize : downloaded, // 如果没有总大小，使用已下载大小
+                    lastUpdateTime: now,
+                    lastDownloaded: downloaded
+                  } : task
+                ));
+                
+                lastUpdateTime = now;
+                lastDownloaded = downloaded;
+              }
+            }
+            
+            // 合并所有chunks
+            const blob = new Blob(chunks as BlobPart[]);
             const arrayBuffer = await blob.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
             
-            console.log('📦 [FileShareManager] 压缩包大小:', uint8Array.length, 'bytes');
+            console.log('📦 [FileShareManager] 压缩包下载完成，大小:', uint8Array.length, 'bytes');
+            
+            // 【修复】显示"正在保存..."提示
+            setDownloads(prev => prev.map(task =>
+              task.id === taskId ? { 
+                ...task, 
+                downloaded: uint8Array.length,
+                fileSize: uint8Array.length,
+                speed: 0
+              } : task
+            ));
+            
+            message.loading({ content: '正在保存文件到磁盘...', key: 'saving', duration: 0 });
             
             // 保存文件
             await invoke('save_file', {
@@ -564,11 +658,12 @@ export const FileShareManagerNew: React.FC = () => {
               data: Array.from(uint8Array)
             });
             
+            message.destroy('saving');
             console.log('✅ [FileShareManager] 压缩包已保存:', newTask.savePath);
             
             // 更新任务状态为完成
             setDownloads(prev => prev.map(task =>
-              task.id === taskId ? { ...task, status: 'completed' as const, downloaded: uint8Array.length, fileSize: uint8Array.length } : task
+              task.id === taskId ? { ...task, status: 'completed' as const, downloaded: uint8Array.length, fileSize: uint8Array.length, speed: 0 } : task
             ));
             
             message.success(`压缩包下载完成 (${selectedFileList.length} 个文件)`);
@@ -580,7 +675,7 @@ export const FileShareManagerNew: React.FC = () => {
             
             // 更新任务状态为失败
             setDownloads(prev => prev.map(task =>
-              task.id === taskId ? { ...task, status: 'failed' as const, error: String(error) } : task
+              task.id === taskId ? { ...task, status: 'failed' as const, error: String(error), speed: 0 } : task
             ));
             message.error(`打包失败: ${error}`);
           }

@@ -705,7 +705,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               ✗ 不建议使用校园网、手机流量或热点
               <br />
               <br />
-              <strong>虚拟域名：</strong>使用虚拟域名功能时，请务必关闭代理工具（如梯子、VPN等），否则域名解析将失效
+              <strong>虚拟域名：</strong>虚拟域名仅能用于访问网站使用，Minecraft 多人游戏不支持使用虚拟域名。加入 Minecraft 服务器时，请使用虚拟IP+端口号（例如：10.126.126.1:25565）
+              <br />
+              <br />
+              <strong>代理工具：</strong>使用虚拟域名功能时，请务必关闭代理工具（如梯子、VPN等），否则域名解析将失效
             </div>
           </div>
         </motion.div>

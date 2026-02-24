@@ -106,9 +106,14 @@ export const ScreenShareManager: React.FC = () => {
           
           // 清空pendingStream，避免重复播放
           setPendingStream(null);
-        } catch (playError) {
-          console.error('❌ [ScreenShareManager] 视频播放失败:', playError);
-          message.error('视频播放失败');
+        } catch (playError: any) {
+          // 忽略 AbortError，这是正常的中断行为
+          if (playError.name === 'AbortError') {
+            console.log('⚠️ [ScreenShareManager] 视频播放被中断（正常行为）');
+          } else {
+            console.error('❌ [ScreenShareManager] 视频播放失败:', playError);
+            message.error('视频播放失败');
+          }
         }
       };
 

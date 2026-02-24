@@ -1215,43 +1215,6 @@
 
 
 
-/* 通知小红点样式 */
-.notification-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
-  border-radius: 50%;
-  box-shadow: 
-    0 0 0 2px rgba(20, 20, 30, 0.9),
-    0 2px 4px rgba(255, 107, 107, 0.6);
-  animation: notificationDotPulse 2s ease-in-out infinite;
-  z-index: 10;
-}
-
-@keyframes notificationDotPulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 
-      0 0 0 2px rgba(20, 20, 30, 0.9),
-      0 2px 4px rgba(255, 107, 107, 0.6);
-  }
-  50% {
-    transform: scale(1.08);
-    box-shadow: 
-      0 0 0 2px rgba(20, 20, 30, 0.9),
-      0 2px 6px rgba(255, 107, 107, 0.7),
-      0 0 0 3px rgba(255, 107, 107, 0.15);
-  }
-}
-
-/* 文件夹共享按钮需要相对定位以支持徽章 */
-.mini-voice-btn.file-share-btn {
-  position: relative;
-}
-
 /* 屏幕共享视图样式 */
 .screen-share-view {
   width: 100%;

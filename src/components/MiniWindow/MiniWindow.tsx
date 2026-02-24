@@ -76,39 +76,7 @@ export const MiniWindow: React.FC = () => {
     }
   }, [chatMessages.length, unreadCount, currentView, collapsed]);
 
-  // 文件夹共享和屏幕共享的条目数量（用于显示红点）
-  const [fileShareItemsCount, setFileShareItemsCount] = useState(0);
-  const [screenShareItemsCount, setScreenShareItemsCount] = useState(0);
 
-  // 监听文件夹共享界面的条目数量变化
-  useEffect(() => {
-    const handleFileShareUpdate = (event: any) => {
-      const count = event.detail?.count || 0;
-      console.log('📊 [MiniWindow] 文件夹共享条目数量:', count);
-      setFileShareItemsCount(count);
-    };
-
-    window.addEventListener('file-share-items-update', handleFileShareUpdate);
-
-    return () => {
-      window.removeEventListener('file-share-items-update', handleFileShareUpdate);
-    };
-  }, []);
-
-  // 监听屏幕共享界面的条目数量变化
-  useEffect(() => {
-    const handleScreenShareUpdate = (event: any) => {
-      const count = event.detail?.count || 0;
-      console.log('📊 [MiniWindow] 屏幕共享条目数量:', count);
-      setScreenShareItemsCount(count);
-    };
-
-    window.addEventListener('screen-share-items-update', handleScreenShareUpdate);
-
-    return () => {
-      window.removeEventListener('screen-share-items-update', handleScreenShareUpdate);
-    };
-  }, []);
 
   // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
   useEffect(() => {
@@ -159,25 +127,18 @@ export const MiniWindow: React.FC = () => {
   }, []); // 只在组件挂载时执行一次
 
   // 初始化P2P聊天服务 - 在大厅界面就启动，不需要打开聊天室
+  // 【修复】移除players依赖，避免玩家列表更新时重复初始化
   useEffect(() => {
     if (!lobby || !currentPlayerId) {
       console.log('⚠️ 大厅或玩家ID未就绪，跳过P2P聊天服务初始化');
       return;
     }
 
-    // 获取所有玩家的虚拟IP（包括自己）
-    const playerIPs = players.map(p => p.virtualIp).filter(Boolean) as string[];
-    // 添加自己的虚拟IP
-    if (lobby.virtualIp && !playerIPs.includes(lobby.virtualIp)) {
-      playerIPs.push(lobby.virtualIp);
-    }
+    console.log('🚀 [MiniWindow] 初始化P2P聊天服务（仅初始化一次）');
+    console.log('  - 当前玩家ID:', currentPlayerId);
+    console.log('  - 自己的虚拟IP:', lobby.virtualIp);
 
-    console.log('🚀 [MiniWindow] 初始化P2P聊天服务，玩家IPs:', playerIPs);
-
-    // 初始化P2P聊天服务
-    p2pChatService.initialize(playerIPs, currentPlayerId);
-
-    // 设置消息接收回调
+    // 设置消息接收回调（只设置一次）
     p2pChatService.onMessage((message) => {
       console.log('📨 [MiniWindow] 收到P2P消息:', message);
       
@@ -186,7 +147,9 @@ export const MiniWindow: React.FC = () => {
       if (message.playerId === currentPlayerId) {
         senderName = config.playerName || '我';
       } else {
-        const sender = players.find(p => p.id === message.playerId);
+        // 从当前的players列表中查找
+        const currentPlayers = useAppStore.getState().players;
+        const sender = currentPlayers.find(p => p.id === message.playerId);
         senderName = sender?.name || '未知玩家';
       }
 
@@ -210,16 +173,32 @@ export const MiniWindow: React.FC = () => {
       }
     });
 
-    // 开始轮询消息
-    p2pChatService.startPolling();
-    console.log('✅ [MiniWindow] P2P聊天服务已启动轮询');
-
     return () => {
       // 停止轮询
       p2pChatService.stopPolling();
       console.log('✅ [MiniWindow] 已停止P2P聊天服务轮询');
     };
-  }, [lobby, currentPlayerId, players, config.playerName, addChatMessage]);
+  }, [lobby, currentPlayerId, config.playerName, addChatMessage]);
+
+  // 【新增】单独监听玩家列表变化，动态更新SSE连接
+  useEffect(() => {
+    if (!lobby || !currentPlayerId || players.length === 0) {
+      return;
+    }
+
+    // 获取所有玩家的虚拟IP（不包括自己）
+    const playerIPs = players.map(p => p.virtualIp).filter(Boolean) as string[];
+    
+    console.log('🔄 [MiniWindow] 玩家列表变化，更新P2P聊天连接');
+    console.log('  - 其他玩家IPs:', playerIPs);
+
+    // 初始化P2P聊天服务（传入自己的虚拟IP用于过滤）
+    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp);
+
+    // 开始轮询消息
+    p2pChatService.startPolling();
+    console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
+  }, [players.length, lobby?.virtualIp, currentPlayerId]);
 
   // 监听ESC键返回大厅
   useEffect(() => {
@@ -1159,16 +1138,13 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
                     setCurrentView('fileShare');
                   }}
-                  title={fileShareItemsCount > 0 ? "文件夹共享 (有共享条目)" : "文件夹共享"}
+                  title="文件夹共享"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
-                  {fileShareItemsCount > 0 && (
-                    <span className="notification-dot"></span>
-                  )}
                 </motion.button>
                 <motion.button
                   className="mini-voice-btn screen-share-btn"
@@ -1176,14 +1152,11 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
                     setCurrentView('screenShare');
                   }}
-                  title={screenShareItemsCount > 0 ? "屏幕共享 (有共享条目)" : "屏幕共享"}
+                  title="屏幕共享"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <ScreenShareIcon size={24} />
-                  {screenShareItemsCount > 0 && (
-                    <span className="notification-dot"></span>
-                  )}
                 </motion.button>
               </motion.div>
             </motion.div>
