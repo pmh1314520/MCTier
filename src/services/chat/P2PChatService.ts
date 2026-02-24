@@ -24,8 +24,7 @@ class P2PChatService {
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private myVirtualIp: string = ''; // 自己的虚拟IP，用于过滤
-  private receivedMessageIds: Set<string> = new Set(); // 【新增】已接收的消息ID集合，用于去重
-  private maxReceivedMessageIds: number = 1000; // 【新增】最多保存1000个消息ID
+  private lastMessageByPlayer: Map<string, string> = new Map(); // 【修改】记录每个玩家最近一次发送的消息内容
 
   /**
    * 初始化服务
@@ -55,7 +54,7 @@ class P2PChatService {
     this.currentPlayerId = '';
     this.myVirtualIp = '';
     this.onMessageCallback = undefined;
-    this.receivedMessageIds.clear(); // 【新增】清理消息ID集合
+    this.lastMessageByPlayer.clear(); // 【修改】清理玩家消息记录
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -156,30 +155,27 @@ class P2PChatService {
    * 处理接收到的消息
    */
   private handleMessage(msg: BackendChatMessage): void {
-    // 【新增】消息去重：检查是否已经接收过这条消息
-    if (this.receivedMessageIds.has(msg.id)) {
-      console.log('🚫 [P2PChatService] 跳过重复消息:', msg.id);
-      return;
-    }
-    
     // 跳过自己发送的消息
     if (msg.player_id === this.currentPlayerId) {
       console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
       return;
     }
 
+    // 【修改】消息去重：检查该玩家最近一次发送的消息内容是否与当前消息相同
+    const lastMessage = this.lastMessageByPlayer.get(msg.player_id);
+    if (lastMessage === msg.content) {
+      console.log('🚫 [P2PChatService] 跳过重复消息（内容相同）:', {
+        playerId: msg.player_id,
+        playerName: msg.player_name,
+        content: msg.content.substring(0, 20) + '...',
+      });
+      return;
+    }
+
     console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
 
-    // 【新增】记录消息ID
-    this.receivedMessageIds.add(msg.id);
-    
-    // 【新增】如果消息ID集合过大，删除最早的一半
-    if (this.receivedMessageIds.size > this.maxReceivedMessageIds) {
-      const idsArray = Array.from(this.receivedMessageIds);
-      const toDelete = idsArray.slice(0, Math.floor(this.maxReceivedMessageIds / 2));
-      toDelete.forEach(id => this.receivedMessageIds.delete(id));
-      console.log('🧹 [P2PChatService] 清理旧消息ID，当前保留:', this.receivedMessageIds.size);
-    }
+    // 【修改】更新该玩家最近一次发送的消息内容
+    this.lastMessageByPlayer.set(msg.player_id, msg.content);
 
     // 转换为前端消息格式
     const chatMessage: ChatMessage = {
