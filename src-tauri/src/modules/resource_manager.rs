@@ -5,10 +5,15 @@ use std::io::Write;
 use tauri::Manager;
 
 // 将二进制文件嵌入到可执行文件中
+#[allow(dead_code)]
 static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-core.exe");
+#[allow(dead_code)]
 static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.dll");
+#[allow(dead_code)]
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
+#[allow(dead_code)]
 static WINDIVERT_SYS_BYTES: &[u8] = include_bytes!("../../resources/binaries/WinDivert64.sys");
+#[allow(dead_code)]
 static PACKET_LIB_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.lib");
 
 /// 资源管理器
@@ -26,6 +31,7 @@ impl ResourceManager {
     /// # 返回
     /// * `Ok(PathBuf)` - 运行时目录路径
     /// * `Err(AppError)` - 获取路径失败
+    #[allow(dead_code)]
     fn get_runtime_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         let runtime_dir = app_handle
             .path()
@@ -55,6 +61,7 @@ impl ResourceManager {
     /// # 返回
     /// * `Ok(PathBuf)` - 提取后的文件路径
     /// * `Err(AppError)` - 提取失败
+    #[allow(dead_code)]
     fn extract_binary(
         app_handle: &tauri::AppHandle,
         filename: &str,

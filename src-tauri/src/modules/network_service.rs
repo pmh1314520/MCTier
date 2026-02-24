@@ -418,8 +418,6 @@ impl NetworkService {
         // 等待获取虚拟 IP（最多等待 60 秒）
         let timeout_duration = Duration::from_secs(60);
         let start_time = std::time::Instant::now();
-        let mut last_check_time = std::time::Instant::now();
-        let mut cli_check_count = 0;
         let mut last_log_time = std::time::Instant::now();
 
         loop {
@@ -460,30 +458,9 @@ impl NetworkService {
                 return Ok(ip_addr);
             }
             
-            // 每2秒尝试使用 CLI 工具查询虚拟IP
-            if last_check_time.elapsed() > Duration::from_secs(2) && cli_check_count < 30 {
-                cli_check_count += 1;
-                log::info!("🔍 尝试使用 CLI 工具查询虚拟IP（第{}次）...", cli_check_count);
-                
-                // 获取保存的RPC端口
-                if let Some(saved_rpc_port) = *self.rpc_port.lock().await {
-                    match self.query_virtual_ip_from_cli(&instance_name, saved_rpc_port).await {
-                        Ok(found_ip) => {
-                            log::info!("✅ 从 CLI 工具获取到虚拟IP: {}", found_ip);
-                            *self.virtual_ip.lock().await = Some(found_ip.clone());
-                            *self.status.lock().await = ConnectionStatus::Connected(found_ip.clone());
-                            return Ok(found_ip);
-                        }
-                        Err(e) => {
-                            log::debug!("CLI查询失败（第{}次）: {}", cli_check_count, e);
-                        }
-                    }
-                } else {
-                    log::warn!("⚠️ RPC端口未初始化，跳过CLI查询");
-                }
-                
-                last_check_time = std::time::Instant::now();
-            }
+            // 【已废弃】不再使用 CLI 工具查询虚拟IP
+            // easytier-cli已移除，完全依赖从标准输出解析虚拟IP
+            // 如果超时仍未获取到IP，将在下面的超时检查中返回错误
 
             // 检查进程是否崩溃
             let is_running = *self.is_running.lock().await;
@@ -555,97 +532,6 @@ impl NetworkService {
         )))
     }
     
-    /// 使用 CLI 工具查询虚拟IP
-    /// 
-    /// # 参数
-    /// * `instance_name` - 实例名称
-    /// * `rpc_port` - RPC端口号
-    /// 
-    /// # 返回
-    /// * `Ok(String)` - 查询到的虚拟IP
-    /// * `Err(AppError)` - 查询失败
-    async fn query_virtual_ip_from_cli(&self, instance_name: &str, rpc_port: u16) -> Result<String, AppError> {
-        // 获取 CLI 工具路径
-        let cli_path = if let Some(ref app_handle) = self.app_handle {
-            ResourceManager::get_easytier_cli_path(app_handle)?
-        } else {
-            PathBuf::from("easytier-cli.exe")
-        };
-        
-        log::debug!("🔍 使用 CLI 工具查询虚拟IP: {:?}, RPC端口: {}", cli_path, rpc_port);
-        
-        // 执行 CLI 命令查询节点信息
-        // 【修复】不使用 --instance-name 参数，直接通过 RPC 端口连接
-        #[cfg(windows)]
-        let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-portal")
-            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--output")
-            .arg("json")
-            .arg("node")
-            .arg("info")
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .await
-            .map_err(|e| AppError::ProcessError(format!("执行 CLI 命令失败: {}", e)))?;
-        
-        #[cfg(not(windows))]
-        let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-portal")
-            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--output")
-            .arg("json")
-            .arg("node")
-            .arg("info")
-            .output()
-            .await
-            .map_err(|e| AppError::ProcessError(format!("执行 CLI 命令失败: {}", e)))?;
-        
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            log::warn!("CLI 命令执行失败: {}", stderr);
-            return Err(AppError::ProcessError(format!("CLI 命令执行失败: {}", stderr)));
-        }
-        
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        log::debug!("CLI 输出: {}", stdout);
-        
-        // 解析 JSON 输出
-        let json: serde_json::Value = serde_json::from_str(&stdout)
-            .map_err(|e| AppError::ProcessError(format!("解析 JSON 失败: {}", e)))?;
-        
-        // 从 JSON 中提取虚拟IP
-        // 优先使用 ipv4_addr 字段（这是 EasyTier 2.5.0 的标准字段）
-        if let Some(ipv4_addr) = json.get("ipv4_addr") {
-            if let Some(ip_str) = ipv4_addr.as_str() {
-                // 如果IP包含CIDR后缀（如 /24），去掉它
-                let ip = if let Some(slash_pos) = ip_str.find('/') {
-                    &ip_str[..slash_pos]
-                } else {
-                    ip_str
-                };
-                
-                // 验证IP格式
-                if Self::is_valid_ip(ip) {
-                    // 检查是否是有效的主机地址（不是网络地址或广播地址）
-                    let parts: Vec<&str> = ip.split('.').collect();
-                    if parts.len() == 4 {
-                        if let Ok(last_octet) = parts[3].parse::<u8>() {
-                            // 只接受 1-254 的主机地址
-                            if last_octet >= 1 && last_octet <= 254 {
-                                log::info!("✅ 从 CLI 工具成功提取虚拟IP: {}", ip);
-                                return Ok(ip.to_string());
-                            } else {
-                                log::warn!("CLI 返回的IP不是有效的主机地址: {} (最后一位: {})", ip, last_octet);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        Err(AppError::NetworkError("未能从 CLI 输出中提取有效的虚拟IP".to_string()))
-    }
     
     
     /// 监控标准输出，解析虚拟 IP
@@ -875,17 +761,6 @@ impl NetworkService {
     pub async fn stop_easytier(&self) -> Result<(), AppError> {
         log::info!("正在停止 EasyTier 服务...");
 
-        // 获取实例名称（用于后续清理）
-        let instance_name = {
-            let config_dir = self.instance_config_dir.lock().await.clone();
-            config_dir.and_then(|dir| {
-                dir.file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| name.strip_prefix("config_"))
-                    .map(|name| name.to_string())
-            })
-        };
-
         let mut process_guard = self.easytier_process.lock().await;
         let mut graceful_shutdown_success = false;
 
@@ -948,49 +823,9 @@ impl NetworkService {
         // 等待一小段时间确保进程完全退出
         sleep(Duration::from_millis(300)).await;
 
-        // 使用CLI工具清理实例（如果有实例名称）
-        if let Some(ref inst_name) = instance_name {
-            log::info!("正在使用CLI工具清理实例: {}", inst_name);
-            
-            if let Some(ref app_handle) = self.app_handle {
-                if let Ok(cli_path) = ResourceManager::get_easytier_cli_path(app_handle) {
-                    // 尝试停止实例
-                    #[cfg(windows)]
-                    let output = tokio::process::Command::new(&cli_path)
-                        .arg("--instance-name")
-                        .arg(inst_name)
-                        .arg("stop")
-                        .creation_flags(CREATE_NO_WINDOW)
-                        .output()
-                        .await;
-                    
-                    #[cfg(not(windows))]
-                    let output = tokio::process::Command::new(&cli_path)
-                        .arg("--instance-name")
-                        .arg(inst_name)
-                        .arg("stop")
-                        .output()
-                        .await;
-                    
-                    match output {
-                        Ok(output) => {
-                            if output.status.success() {
-                                log::info!("CLI工具成功停止实例");
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                log::warn!("CLI工具停止实例失败: {}", stderr);
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("执行CLI停止命令失败: {}", e);
-                        }
-                    }
-                    
-                    // 缩短等待时间
-                    sleep(Duration::from_millis(200)).await;
-                }
-            }
-        }
+        // 【已废弃】不再使用CLI工具清理实例
+        // easytier-cli已移除，通过taskkill直接终止进程
+        log::info!("跳过CLI工具清理（已废弃）");
 
         // 在Windows上清理虚拟网卡
         #[cfg(target_os = "windows")]
@@ -1151,134 +986,6 @@ impl NetworkService {
     /// * `None` - 未连接或未获取到 IP
     pub async fn get_virtual_ip(&self) -> Option<String> {
         self.virtual_ip.lock().await.clone()
-    }
-
-    /// 获取网络中的其他节点（Peers）
-    /// 
-    /// # 返回
-    /// * `Ok(Vec<String>)` - 节点虚拟IP列表
-    /// * `Err(AppError)` - 获取失败
-    pub async fn get_peers(&self) -> Result<Vec<String>, AppError> {
-        // 检查是否正在运行
-        if !self.is_running().await {
-            return Err(AppError::NetworkError("EasyTier 服务未运行".to_string()));
-        }
-
-        // 获取实例名称
-        let config_dir = self.instance_config_dir.lock().await.clone();
-        let instance_name = if let Some(dir) = config_dir {
-            // 从配置目录路径中提取实例名称
-            dir.file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_prefix("config_"))
-                .map(|name| name.to_string())
-                .ok_or_else(|| AppError::ProcessError("无法获取实例名称".to_string()))?
-        } else {
-            return Err(AppError::NetworkError("实例未初始化".to_string()));
-        };
-
-        log::info!("正在查询网络节点，实例名称: {}", instance_name);
-
-        // 获取保存的RPC端口
-        let rpc_port = self.rpc_port.lock().await
-            .ok_or_else(|| AppError::NetworkError("RPC端口未初始化".to_string()))?;
-        
-        log::info!("使用RPC端口: {}", rpc_port);
-
-        // 获取 CLI 工具路径
-        let cli_path = if let Some(ref app_handle) = self.app_handle {
-            ResourceManager::get_easytier_cli_path(app_handle)?
-        } else {
-            PathBuf::from("easytier-cli.exe")
-        };
-
-        // 执行 CLI 命令查询节点列表
-        #[cfg(windows)]
-        let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-portal")
-            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--instance-name")
-            .arg(&instance_name)
-            .arg("--output")
-            .arg("json")
-            .arg("peer")
-            .arg("list")
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .await
-            .map_err(|e| AppError::ProcessError(format!("执行 CLI 命令失败: {}", e)))?;
-        
-        #[cfg(not(windows))]
-        let output = tokio::process::Command::new(&cli_path)
-            .arg("--rpc-portal")
-            .arg(format!("127.0.0.1:{}", rpc_port)) // 使用动态的RPC端口
-            .arg("--instance-name")
-            .arg(&instance_name)
-            .arg("--output")
-            .arg("json")
-            .arg("peer")
-            .arg("list")
-            .output()
-            .await
-            .map_err(|e| AppError::ProcessError(format!("执行 CLI 命令失败: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            log::warn!("CLI 命令执行失败: {}", stderr);
-            return Ok(Vec::new()); // 返回空列表而不是错误
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        log::debug!("Peer list CLI 输出: {}", stdout);
-
-        // 解析 JSON 输出
-        let json: serde_json::Value = serde_json::from_str(&stdout)
-            .map_err(|e| AppError::ProcessError(format!("解析 JSON 失败: {}", e)))?;
-
-        let mut peers = Vec::new();
-
-        // 尝试从不同的 JSON 结构中提取节点信息
-        if let Some(peer_list) = json.as_array() {
-            // 如果是数组，遍历每个节点
-            for peer in peer_list {
-                if let Some(ip_value) = peer.get("virtual_ipv4").or_else(|| peer.get("ipv4")) {
-                    if let Some(ip_str) = ip_value.as_str() {
-                        // 去掉 CIDR 后缀
-                        let ip = if let Some(slash_pos) = ip_str.find('/') {
-                            &ip_str[..slash_pos]
-                        } else {
-                            ip_str
-                        };
-
-                        if Self::is_valid_ip(ip) {
-                            peers.push(ip.to_string());
-                        }
-                    }
-                }
-            }
-        } else if let Some(peers_obj) = json.get("peers") {
-            // 如果有 peers 字段
-            if let Some(peer_list) = peers_obj.as_array() {
-                for peer in peer_list {
-                    if let Some(ip_value) = peer.get("virtual_ipv4").or_else(|| peer.get("ipv4")) {
-                        if let Some(ip_str) = ip_value.as_str() {
-                            let ip = if let Some(slash_pos) = ip_str.find('/') {
-                                &ip_str[..slash_pos]
-                            } else {
-                                ip_str
-                            };
-
-                            if Self::is_valid_ip(ip) {
-                                peers.push(ip.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        log::info!("发现 {} 个节点: {:?}", peers.len(), peers);
-        Ok(peers)
     }
 
     /// 检查服务是否正在运行

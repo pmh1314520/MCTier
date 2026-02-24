@@ -90,12 +90,15 @@ export const MiniWindow: React.FC = () => {
         const currentPlayerIp = lobby?.virtualIp;
         
         let totalShares = 0;
+        const now = Math.floor(Date.now() / 1000);
         
         // 1. 先加载自己的共享
         if (currentPlayerIp) {
           try {
             const shares = await fileShareService.getRemoteShares(currentPlayerIp);
-            totalShares += shares.length;
+            // 过滤掉过期的共享
+            const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
+            totalShares += validShares.length;
           } catch (error) {
             console.error('获取自己的共享失败:', error);
           }
@@ -106,7 +109,9 @@ export const MiniWindow: React.FC = () => {
           if (player.virtualIp) {
             try {
               const shares = await fileShareService.getRemoteShares(player.virtualIp);
-              totalShares += shares.length;
+              // 过滤掉过期的共享
+              const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
+              totalShares += validShares.length;
             } catch (error) {
               console.error(`获取 ${player.name} 的共享失败:`, error);
             }
@@ -126,6 +131,57 @@ export const MiniWindow: React.FC = () => {
     // const interval = setInterval(loadRemoteShares, 3000);
     // return () => clearInterval(interval);
   }, [players]); // 依赖players，当玩家列表变化时重新加载
+
+  // 【事件驱动】监听文件共享事件，实时更新计数
+  useEffect(() => {
+    const handleFileShareChange = () => {
+      // 重新加载远程共享计数
+      const loadRemoteShares = async () => {
+        try {
+          const currentPlayerIp = lobby?.virtualIp;
+          let totalShares = 0;
+          const now = Math.floor(Date.now() / 1000);
+          
+          if (currentPlayerIp) {
+            try {
+              const shares = await fileShareService.getRemoteShares(currentPlayerIp);
+              const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
+              totalShares += validShares.length;
+            } catch (error) {
+              console.error('获取自己的共享失败:', error);
+            }
+          }
+          
+          for (const player of players) {
+            if (player.virtualIp) {
+              try {
+                const shares = await fileShareService.getRemoteShares(player.virtualIp);
+                const validShares = shares.filter(share => !share.expire_time || share.expire_time > now);
+                totalShares += validShares.length;
+              } catch (error) {
+                console.error(`获取 ${player.name} 的共享失败:`, error);
+              }
+            }
+          }
+          
+          console.log('📊 [MiniWindow] 文件共享数量更新:', totalShares);
+          setRemoteSharesCount(totalShares);
+        } catch (error) {
+          console.error('加载远程共享失败:', error);
+        }
+      };
+      
+      loadRemoteShares();
+    };
+
+    window.addEventListener('file-share-added', handleFileShareChange);
+    window.addEventListener('file-share-removed', handleFileShareChange);
+
+    return () => {
+      window.removeEventListener('file-share-added', handleFileShareChange);
+      window.removeEventListener('file-share-removed', handleFileShareChange);
+    };
+  }, [players, lobby?.virtualIp]);
 
   // 【事件驱动】监听屏幕共享事件，替代轮询
   useEffect(() => {
