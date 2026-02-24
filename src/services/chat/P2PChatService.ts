@@ -23,9 +23,6 @@ class P2PChatService {
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
-  private processedMessageIds: Set<string> = new Set(); // 存储已处理的消息ID
-  private lastPlayerMessages: Map<string, string> = new Map(); // 存储每个玩家的最后一条消息内容
-  private isInitialized: boolean = false; // 标记是否已初始化
 
   /**
    * 初始化服务
@@ -35,16 +32,7 @@ class P2PChatService {
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
     
-    // 只在第一次初始化时清空消息ID
-    if (!this.isInitialized) {
-      this.processedMessageIds.clear();
-      this.lastPlayerMessages.clear();
-      this.isInitialized = true;
-      
-      console.log('✅ [P2PChatService] 首次初始化完成，玩家IPs:', peerIps);
-    } else {
-      console.log('🔄 [P2PChatService] 更新配置，玩家IPs:', peerIps);
-    }
+    console.log('✅ [P2PChatService] 初始化完成，玩家IPs:', peerIps);
   }
   
   /**
@@ -52,12 +40,9 @@ class P2PChatService {
    */
   reset(): void {
     this.stopListening();
-    this.processedMessageIds.clear();
-    this.lastPlayerMessages.clear();
     this.peerIps = [];
     this.currentPlayerId = '';
     this.onMessageCallback = undefined;
-    this.isInitialized = false;
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -149,23 +134,6 @@ class P2PChatService {
       return;
     }
 
-    // 去重：跳过已处理的消息ID
-    if (this.processedMessageIds.has(msg.id)) {
-      console.log('📭 [P2PChatService] 跳过已处理的消息ID:', msg.id);
-      return;
-    }
-
-    // 增强去重：判断新消息是否与该玩家最后一条消息内容重复
-    const lastContent = this.lastPlayerMessages.get(msg.player_name);
-    if (lastContent === msg.content) {
-      console.log('📭 [P2PChatService] 跳过重复内容的消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
-      this.processedMessageIds.add(msg.id);
-      return;
-    }
-    
-    // 记录消息ID和该玩家的最后一条消息内容
-    this.processedMessageIds.add(msg.id);
-    this.lastPlayerMessages.set(msg.player_name, msg.content);
     console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.content.substring(0, 20)}...`);
 
     // 转换为前端消息格式
@@ -286,21 +254,11 @@ class P2PChatService {
   async clearMessages(): Promise<void> {
     try {
       await invoke('clear_p2p_chat_messages');
-      this.processedMessageIds.clear();
-      this.lastPlayerMessages.clear();
       console.log('✅ [P2PChatService] 本地消息已清空');
     } catch (error) {
       console.error('❌ [P2PChatService] 清空消息失败:', error);
       throw error;
     }
-  }
-
-  /**
-   * 重置时间戳（用于重新加载所有消息）
-   */
-  resetTimestamp(): void {
-    this.processedMessageIds.clear();
-    this.lastPlayerMessages.clear();
   }
 
   /**
