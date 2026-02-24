@@ -11,11 +11,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
+    response::sse::{Event, Sse},
     routing::{get, post},
     Json, Router,
 };
+use futures_util::stream::Stream;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 use tower_http::cors::CorsLayer;
 
 const CHAT_SERVER_PORT: u16 = 14540; // 聊天服务端口
@@ -65,14 +70,20 @@ pub struct ChatService {
     virtual_ip: Arc<RwLock<Option<String>>>,
     /// 服务器句柄
     server_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// 消息广播通道（用于SSE推送）
+    message_tx: broadcast::Sender<ChatMessage>,
 }
 
 impl ChatService {
     pub fn new() -> Self {
+        // 创建广播通道，容量为100条消息
+        let (tx, _rx) = broadcast::channel(100);
+        
         Self {
             local_messages: Arc::new(RwLock::new(VecDeque::new())),
             virtual_ip: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
+            message_tx: tx,
         }
     }
 
@@ -125,14 +136,17 @@ impl ChatService {
         log::info!("📍 [ChatService] 聊天服务器将监听: {}", addr);
 
         let local_messages = self.local_messages.clone();
+        let message_tx = self.message_tx.clone();
 
         // 创建路由
         let app = Router::new()
             .route("/api/chat/messages", get(get_messages))
             .route("/api/chat/send", post(send_message))
+            .route("/api/chat/stream", get(stream_messages)) // 新增SSE端点
             .layer(CorsLayer::permissive())
             .with_state(AppState {
                 local_messages: local_messages.clone(),
+                message_tx: message_tx.clone(),
             });
 
         log::info!("🚀 [ChatService] 正在启动聊天服务器...");
@@ -187,12 +201,15 @@ impl ChatService {
     /// 添加本地消息
     pub fn add_local_message(&self, message: ChatMessage) {
         let mut messages = self.local_messages.write();
-        messages.push_back(message);
+        messages.push_back(message.clone());
         
         // 限制消息数量
         while messages.len() > MAX_MESSAGES_PER_PLAYER {
             messages.pop_front();
         }
+        
+        // 广播消息到所有SSE订阅者
+        let _ = self.message_tx.send(message);
     }
 
     /// 获取本地消息
@@ -221,6 +238,7 @@ impl ChatService {
 #[derive(Clone)]
 struct AppState {
     local_messages: Arc<RwLock<VecDeque<ChatMessage>>>,
+    message_tx: broadcast::Sender<ChatMessage>,
 }
 
 /// 获取消息列表
@@ -271,5 +289,43 @@ async fn send_message(
         messages.pop_front();
     }
     
+    // 广播消息到所有SSE订阅者
+    let _ = state.message_tx.send(message.clone());
+    
     Ok(Json(message))
+}
+
+/// SSE流式推送消息
+async fn stream_messages(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    log::info!("📡 [ChatService] 新的SSE连接建立");
+    
+    let rx = state.message_tx.subscribe();
+    let stream = BroadcastStream::new(rx);
+    
+    let stream = stream.filter_map(|result| {
+        match result {
+            Ok(message) => {
+                // 将消息序列化为JSON
+                match serde_json::to_string(&message) {
+                    Ok(json) => Some(Ok(Event::default().data(json))),
+                    Err(e) => {
+                        log::error!("❌ [ChatService] 序列化消息失败: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("⚠️ [ChatService] 广播接收错误: {}", e);
+                None
+            }
+        }
+    });
+    
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keep-alive")
+    )
 }

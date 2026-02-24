@@ -92,6 +92,8 @@ pub struct FileTransferService {
     virtual_ip: Arc<RwLock<Option<String>>>,
     /// 服务器句柄
     server_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// 过期定时器句柄
+    expiry_timers: Arc<DashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 impl FileTransferService {
@@ -100,6 +102,7 @@ impl FileTransferService {
             shared_folders: Arc::new(DashMap::new()),
             virtual_ip: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
+            expiry_timers: Arc::new(DashMap::new()),
         }
     }
 
@@ -234,8 +237,44 @@ impl FileTransferService {
             return Err("文件夹不存在".to_string());
         }
 
-        self.shared_folders.insert(share.id.clone(), share.clone());
-        log::debug!("📁 添加共享: {} ({})", share.name, share.id);
+        let share_id = share.id.clone();
+        self.shared_folders.insert(share_id.clone(), share.clone());
+        log::debug!("📁 添加共享: {} ({})", share.name, share_id);
+        
+        // 如果设置了过期时间,创建定时器
+        if let Some(expire_time) = share.expire_time {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            
+            if expire_time > now {
+                let delay_secs = expire_time - now;
+                log::info!("⏰ 为共享 {} 设置过期定时器: {}秒后过期", share_id, delay_secs);
+                
+                let shared_folders = self.shared_folders.clone();
+                let expiry_timers = self.expiry_timers.clone();
+                let share_id_clone = share_id.clone();
+                
+                let timer_handle = tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
+                    
+                    // 删除过期共享
+                    if shared_folders.remove(&share_id_clone).is_some() {
+                        log::info!("⏰ 共享已过期并自动删除: {}", share_id_clone);
+                    }
+                    
+                    // 清理定时器
+                    expiry_timers.remove(&share_id_clone);
+                });
+                
+                self.expiry_timers.insert(share_id.clone(), timer_handle);
+            } else {
+                log::warn!("⚠️ 共享 {} 的过期时间已过,不添加", share_id);
+                return Err("共享已过期".to_string());
+            }
+        }
+        
         Ok(())
     }
 
@@ -244,6 +283,13 @@ impl FileTransferService {
         self.shared_folders
             .remove(share_id)
             .ok_or_else(|| "共享不存在".to_string())?;
+        
+        // 取消过期定时器
+        if let Some((_, timer_handle)) = self.expiry_timers.remove(share_id) {
+            timer_handle.abort();
+            log::debug!("⏰ 取消共享 {} 的过期定时器", share_id);
+        }
+        
         log::debug!("🗑️ 删除共享: {}", share_id);
         Ok(())
     }

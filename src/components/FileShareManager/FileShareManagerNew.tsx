@@ -153,63 +153,6 @@ export const FileShareManagerNew: React.FC = () => {
     console.log('📊 [FileShareManager] 文件共享条目数量变化，总数:', totalCount);
   }, [localShares.length, remoteShares.length]);
 
-  // 定期清理过期共享（每30秒检查一次）
-  useEffect(() => {
-    const cleanupExpiredShares = async () => {
-      try {
-        // 获取清理前的共享列表
-        const sharesBefore = await invoke<SharedFolder[]>('get_local_shares');
-        
-        // 执行清理
-        await invoke('cleanup_expired_shares');
-        
-        // 获取清理后的共享列表
-        const sharesAfter = await invoke<SharedFolder[]>('get_local_shares');
-        
-        // 找出被删除的共享
-        const deletedShares = sharesBefore.filter(
-          before => !sharesAfter.some(after => after.id === before.id)
-        );
-        
-        // 如果有共享被删除，广播删除事件
-        if (deletedShares.length > 0) {
-          console.log(`🗑️ [FileShareManager] 清理了 ${deletedShares.length} 个过期共享`);
-          
-          // 重新加载本地共享列表
-          loadLocalShares();
-          
-          // 广播删除事件
-          try {
-            const { webrtcClient } = await import('../../services/webrtc');
-            const { currentPlayerId } = useAppStore.getState();
-            if (webrtcClient && currentPlayerId) {
-              for (const share of deletedShares) {
-                console.log('📡 [FileShareManager] 广播过期共享删除事件:', share.id);
-                webrtcClient.sendWebSocketMessage({
-                  type: 'file-share-removed',
-                  from: currentPlayerId,
-                  shareId: share.id,
-                });
-              }
-            }
-          } catch (error) {
-            console.error('❌ [FileShareManager] 广播过期共享删除事件失败:', error);
-          }
-        }
-      } catch (error) {
-        console.error('❌ [FileShareManager] 清理过期共享失败:', error);
-      }
-    };
-    
-    // 立即执行一次
-    cleanupExpiredShares();
-    
-    // 每30秒检查一次
-    const interval = setInterval(cleanupExpiredShares, 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
-
   // 【事件驱动】监听文件共享事件
   useEffect(() => {
     console.log('📡 [FileShareManager] 设置文件共享事件监听器');
