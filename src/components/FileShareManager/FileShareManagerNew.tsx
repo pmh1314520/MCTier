@@ -679,7 +679,7 @@ export const FileShareManagerNew: React.FC = () => {
             await invoke('delete_file', { path: tempZipPath });
             console.log('✅ [FileShareManager] 临时ZIP文件已删除');
             
-            // 更新任务状态为完成
+            // 更新任务状态为完成，并更新savePath为实际的解压目录
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { 
                 ...task, 
@@ -687,7 +687,8 @@ export const FileShareManagerNew: React.FC = () => {
                 downloaded: uint8Array.length, 
                 fileSize: uint8Array.length, 
                 speed: 0,
-                fileName: `${selectedFileList.length} 个文件` // 更新显示名称
+                fileName: `${selectedFileList.length} 个文件`, // 更新显示名称
+                savePath: saveDir // 【修复】更新为实际的解压目录，而不是临时ZIP路径
               } : task
             ));
             
