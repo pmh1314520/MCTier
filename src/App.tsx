@@ -228,6 +228,16 @@ function App() {
     
     const init = async () => {
       try {
+        // 【新增】应用启动时检查并清理残留的虚拟网卡
+        console.log('🔍 检查是否有残留的虚拟网卡...');
+        try {
+          await invoke('force_stop_easytier');
+          console.log('✅ 虚拟网卡清理完成');
+        } catch (error) {
+          console.warn('⚠️ 清理虚拟网卡时出现警告（可能没有残留）:', error);
+          // 不影响应用启动，继续执行
+        }
+        
         // 初始化状态管理（同步）
         initializeStore();
 
