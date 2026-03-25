@@ -1152,7 +1152,13 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
             .replace("/", "\\");
 
         if enable {
-            let reg_value = format!("\"{}\"", app_path);
+            // 获取exe所在目录，确保开机自启时工作目录正确（避免便携版找不到相对路径资源）
+            let exe_dir = std::path::Path::new(&app_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // 用 cmd /c "cd /d <dir> && start "" <exe>" 方式启动，保证工作目录正确
+            let reg_value = format!("cmd /c \"cd /d \"{}\" && start \"\" \"{}\"\"", exe_dir, app_path);
             let output = Command::new("reg")
                 .args([
                     "add",
