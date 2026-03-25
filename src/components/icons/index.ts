@@ -33,3 +33,4 @@ export { ImageIcon } from './ImageIcon';
 export { ScreenShareIcon } from './ScreenShareIcon';
 export { StarIcon } from './StarIcon';
 export { DiceIcon } from './DiceIcon';
+export { SettingsIcon } from './SettingsIcon';

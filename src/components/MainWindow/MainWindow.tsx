@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Space, Typography, Modal } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { LobbyForm } from '../LobbyForm/LobbyForm';
 import { AboutWindow } from '../AboutWindow/AboutWindow';
+import { SettingsWindow } from '../SettingsWindow';
+import { SettingsIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import './MainWindow.css';
 
 const { Title, Paragraph } = Typography;
 
 // 软件版本号
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.2';
 
 /**
  * 主窗口组件
@@ -22,6 +24,7 @@ export const MainWindow: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'join'>('create');
   const [showAbout, setShowAbout] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   const versionError = useAppStore((state) => state.versionError);
   const setVersionError = useAppStore((state) => state.setVersionError);
@@ -32,8 +35,41 @@ export const MainWindow: React.FC = () => {
       handleCloseForm();
     } else if (showAbout) {
       handleCloseAbout();
+    } else if (showSettings) {
+      handleCloseSettings();
     }
-  }, showForm || showAbout);
+  }, showForm || showAbout || showSettings);
+
+  // 组件加载时主动拉取自动大厅配置，仅应用启动后首次触发一次
+  useEffect(() => {
+    // 用全局标志确保整个应用生命周期内只触发一次，避免从大厅返回主界面时重复触发
+    if ((window as any).__autoLobbyTriggered) return;
+    const checkAutoLobby = async () => {
+      try {
+        const settings = await invoke<any>('get_settings');
+        if (settings.autoLobbyEnabled && settings.lobbyName && settings.lobbyPassword && settings.playerName) {
+          console.log('检测到自动大厅配置，自动创建大厅:', settings.lobbyName);
+          (window as any).__autoLobbyTriggered = true;
+          setFormMode('create');
+          (window as any).__autoLobbyConfig = {
+            lobbyName: settings.lobbyName,
+            lobbyPassword: settings.lobbyPassword,
+            playerName: settings.playerName,
+            useDomain: settings.useDomain || false,
+          };
+          setShowForm(true);
+        } else {
+          // 未触发也标记，避免反复查询
+          (window as any).__autoLobbyTriggered = true;
+        }
+      } catch (e) {
+        console.error('检查自动大厅配置失败:', e);
+      }
+    };
+    // 延迟500ms等待窗口完全渲染
+    const timer = setTimeout(checkAutoLobby, 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 监听版本错误并显示弹窗
   useEffect(() => {
@@ -63,23 +99,18 @@ export const MainWindow: React.FC = () => {
         onOk: async () => {
           console.log('用户点击了"前往官网"按钮');
           try {
-            // 确保URL以https://开头
             let url = versionError.downloadUrl;
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
               url = `https://${url}`;
-              console.log('自动添加https://前缀:', url);
             }
-            
             await open(url);
           } catch (error) {
             console.error('打开官网失败:', error);
           }
-          // 清除版本错误状态
           setVersionError(null);
         },
         onCancel: () => {
           console.log('用户关闭了版本错误弹窗');
-          // 清除版本错误状态
           setVersionError(null);
         },
       });
@@ -108,7 +139,13 @@ export const MainWindow: React.FC = () => {
     setShowAbout(false);
   };
 
+  const handleShowSettings = () => {
+    setShowSettings(true);
+  };
 
+  const handleCloseSettings = () => {
+    setShowSettings(false);
+  };
 
   const handleCloseApp = async () => {
     try {
@@ -134,7 +171,19 @@ export const MainWindow: React.FC = () => {
   return (
     <div className="main-window">
       {/* 拖拽区域 - 只在顶部 */}
-      <div className="main-window-drag-area" data-tauri-drag-region />
+      <div className="main-window-drag-area" data-tauri-drag-region>
+        {/* 右上角设置按钮 */}
+        <motion.button
+          className="settings-button"
+          onClick={handleShowSettings}
+          whileHover={{ scale: 1.1, rotate: 30 }}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+          title="设置"
+        >
+          <SettingsIcon size={20} color="rgba(255, 255, 255, 0.7)" />
+        </motion.button>
+      </div>
       
       <motion.div
         className="main-window-content"
@@ -181,10 +230,7 @@ export const MainWindow: React.FC = () => {
             <motion.div
               whileHover={{ scale: 1.008 }}
               whileTap={{ scale: 0.96 }}
-              transition={{ 
-                duration: 0.08,
-                ease: [0.4, 0, 0.2, 1]
-              }}
+              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
             >
               <Button
                 type="primary"
@@ -200,10 +246,7 @@ export const MainWindow: React.FC = () => {
             <motion.div
               whileHover={{ scale: 1.008 }}
               whileTap={{ scale: 0.96 }}
-              transition={{ 
-                duration: 0.08,
-                ease: [0.4, 0, 0.2, 1]
-              }}
+              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
             >
               <Button
                 size="large"
@@ -218,10 +261,7 @@ export const MainWindow: React.FC = () => {
             <motion.div
               whileHover={{ scale: 1.008 }}
               whileTap={{ scale: 0.96 }}
-              transition={{ 
-                duration: 0.08,
-                ease: [0.4, 0, 0.2, 1]
-              }}
+              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
             >
               <Button
                 size="large"
@@ -236,10 +276,7 @@ export const MainWindow: React.FC = () => {
             <motion.div
               whileHover={{ scale: 1.008 }}
               whileTap={{ scale: 0.96 }}
-              transition={{ 
-                duration: 0.08,
-                ease: [0.4, 0, 0.2, 1]
-              }}
+              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
             >
               <Button
                 size="large"
@@ -262,6 +299,22 @@ export const MainWindow: React.FC = () => {
           v{APP_VERSION}
         </motion.div>
       </motion.div>
+
+      {/* 设置界面 - 作为overlay覆盖在主界面上，避免透明闪烁 */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            key="settings-overlay"
+            className="settings-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <SettingsWindow onClose={handleCloseSettings} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

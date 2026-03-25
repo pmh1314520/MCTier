@@ -372,3 +372,43 @@ a,
   letter-spacing: 0.8px;
   user-select: none;
 }
+
+/* 设置界面遮罩层 - 覆盖在主界面上，避免透明闪烁 */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+/* 设置按钮样式 */
+.settings-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.settings-button:active {
+  background: rgba(255, 255, 255, 0.15);
+}

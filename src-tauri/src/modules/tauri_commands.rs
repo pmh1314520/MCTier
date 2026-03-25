@@ -1140,71 +1140,59 @@ pub async fn check_udp_port(port: u16) -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_auto_start(enable: bool) -> Result<(), String> {
     log::info!("设置开机自启动: {}", enable);
-    
+
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+        use std::os::windows::process::CommandExt;
         let app_name = "MCTier";
         let app_path = std::env::current_exe()
             .map_err(|e| format!("获取程序路径失败: {}", e))?
             .to_string_lossy()
             .replace("/", "\\");
-        
+
         if enable {
-            // 创建任务计划：启用自启
-            let task_command = format!("\"{}\" --auto-start", app_path);
-            let args = vec![
-                "/create",
-                "/tn", app_name,
-                "/tr", &task_command,
-                "/sc", "onlogon",
-                "/delay", "0000:02",
-                "/rl", "highest",
-                "/f",
-            ];
-            
-            log::info!("执行命令: schtasks.exe {}", args.join(" "));
-            
-            let output = Command::new("schtasks.exe")
-                .args(&args)
+            let reg_value = format!("\"{}\"", app_path);
+            let output = Command::new("reg")
+                .args([
+                    "add",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v", app_name,
+                    "/t", "REG_SZ",
+                    "/d", &reg_value,
+                    "/f",
+                ])
+                .creation_flags(0x08000000)
                 .output()
-                .map_err(|e| format!("执行 schtasks 命令失败: {}", e))?;
-            
+                .map_err(|e| format!("写入注册表失败: {}", e))?;
+
             if !output.status.success() {
                 let error = String::from_utf8_lossy(&output.stderr);
-                log::error!("创建自启任务失败: {}", error);
-                return Err(format!("创建自启任务失败: {}", error));
+                log::error!("写入注册表开机自启失败: {}", error);
+                return Err(format!("写入注册表失败: {}", error));
             }
-            
-            log::info!("开机自启动已启用");
+            log::info!("开机自启动已启用，路径: {}", app_path);
             Ok(())
         } else {
-            // 删除任务计划：禁用自启
-            let args = vec![
-                "/delete",
-                "/tn", app_name,    // 任务名称
-                "/f",               // 强制删除
-            ];
-            
-            log::info!("执行命令: schtasks.exe {}", args.join(" "));
-            
-            let output = Command::new("schtasks.exe")
-                .args(&args)
+            let output = Command::new("reg")
+                .args([
+                    "delete",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v", app_name,
+                    "/f",
+                ])
+                .creation_flags(0x08000000)
                 .output()
-                .map_err(|e| format!("执行 schtasks 命令失败: {}", e))?;
-            
+                .map_err(|e| format!("删除注册表失败: {}", e))?;
+
             if !output.status.success() {
-                let error = String::from_utf8_lossy(&output.stderr);
-                log::error!("删除自启任务失败: {}", error);
-                return Err(format!("删除自启任务失败: {}", error));
+                log::warn!("删除注册表开机自启项时出现警告（可能本就不存在）");
             }
-            
             log::info!("开机自启动已禁用");
             Ok(())
         }
     }
-    
+
     #[cfg(not(windows))]
     {
         log::warn!("当前平台不支持开机自启动设置");
@@ -1213,42 +1201,35 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
 }
 
 /// 检查开机自启动状态
-/// 
+///
 /// # 返回
-/// * `Ok(bool)` - true=已启用自启动，false=未启用自启动
-/// * `Err(String)` - 错误信息
+/// * `Ok(bool)` - true=已启用，false=未启用
 #[tauri::command]
 pub async fn check_auto_start() -> Result<bool, String> {
     log::info!("检查开机自启动状态");
-    
+
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+        use std::os::windows::process::CommandExt;
         let app_name = "MCTier";
-        
-        // 查询任务计划
-        let args = vec![
-            "/query",
-            "/tn", app_name,
-            "/fo", "list",
-        ];
-        
-        let output = Command::new("schtasks.exe")
-            .args(&args)
+        let output = Command::new("reg")
+            .args([
+                "query",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v", app_name,
+            ])
+            .creation_flags(0x08000000)
             .output()
-            .map_err(|e| format!("执行 schtasks 命令失败: {}", e))?;
-        
-        // 如果任务存在，exitCode 为 0
+            .map_err(|e| format!("查询注册表失败: {}", e))?;
+
         let is_enabled = output.status.success();
-        
-        log::info!("开机自启动状态: {}", is_enabled);
+        log::info!("开机自启动状态（注册表）: {}", is_enabled);
         Ok(is_enabled)
     }
-    
+
     #[cfg(not(windows))]
     {
-        log::warn!("当前平台不支持开机自启动检查");
         Ok(false)
     }
 }
@@ -2767,5 +2748,98 @@ pub async fn get_log_file_path() -> Result<String, String> {
     };
     
     Ok(log_path.to_string_lossy().to_string())
+}
+
+/// 保存设置配置（开机自启 + 自动大厅）
+///
+/// # 参数
+/// * `auto_startup` - 是否开机自启
+/// * `auto_lobby_enabled` - 是否启用自动大厅
+/// * `lobby_name` - 大厅名称
+/// * `lobby_password` - 大厅密码
+/// * `player_name` - 玩家名称
+/// * `use_domain` - 是否使用虚拟域名
+#[tauri::command]
+pub async fn save_settings(
+    auto_startup: bool,
+    auto_lobby_enabled: bool,
+    lobby_name: Option<String>,
+    lobby_password: Option<String>,
+    player_name: Option<String>,
+    use_domain: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::modules::config_manager::AutoLobbyConfig;
+    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}", auto_startup, auto_lobby_enabled);
+
+    // 1. 保存配置到文件
+    {
+        let core = state.core.lock().await;
+        let config_manager = core.get_config_manager();
+        let mut cfg_mgr = config_manager.lock().await;
+        cfg_mgr.update_config(|config| {
+            config.auto_startup = Some(auto_startup);
+            // 读取已有的auto_lobby配置，只更新非None的字段
+            let existing = config.auto_lobby.clone().unwrap_or_default();
+            config.auto_lobby = Some(AutoLobbyConfig {
+                enabled: auto_lobby_enabled,
+                lobby_name: lobby_name.clone().or(existing.lobby_name),
+                lobby_password: lobby_password.clone().or(existing.lobby_password),
+                player_name: player_name.clone().or(existing.player_name),
+                use_domain: if lobby_name.is_some() || lobby_password.is_some() || player_name.is_some() {
+                    use_domain
+                } else {
+                    existing.use_domain
+                },
+            });
+        }).await.map_err(|e| format!("保存配置失败: {}", e))?;
+    }
+
+    // 2. 处理开机自启
+    match set_auto_start(auto_startup).await {
+        Ok(_) => log::info!("开机自启设置成功: {}", auto_startup),
+        Err(e) => log::warn!("开机自启设置失败（非致命）: {}", e),
+    }
+
+    log::info!("设置保存完成");
+    Ok(())
+}
+
+/// 读取当前设置配置
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let cfg_mgr = config_manager.lock().await;
+    let config = cfg_mgr.get_config();
+
+    let _auto_startup = config.auto_startup.unwrap_or(false);
+    let auto_lobby = config.auto_lobby.clone().unwrap_or_default();
+
+    // 同时读取实际的开机自启状态
+    // 直接查询注册表，不通过command函数（避免嵌套async调用死锁）
+    let actual_auto_start = {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            std::process::Command::new("reg")
+                .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "MCTier"])
+                .creation_flags(0x08000000)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+        #[cfg(not(windows))]
+        { false }
+    };
+
+    Ok(serde_json::json!({
+        "autoStartup": actual_auto_start,
+        "autoLobbyEnabled": auto_lobby.enabled,
+        "lobbyName": auto_lobby.lobby_name,
+        "lobbyPassword": auto_lobby.lobby_password,
+        "playerName": auto_lobby.player_name,
+        "useDomain": auto_lobby.use_domain,
+    }))
 }
 

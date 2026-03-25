@@ -1,0 +1,360 @@
+/* ============================
+   设置窗口 - 完整样式
+   ============================ */
+
+.settings-window {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(150deg, #111827 0%, #0f1a2e 50%, #141a14 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 拖拽区域 */
+.settings-drag-area {
+  height: 28px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* 背景装饰光球 */
+.settings-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+.settings-bg-orb-1 {
+  width: 200px;
+  height: 200px;
+  top: -60px;
+  right: -40px;
+  background: radial-gradient(circle, rgba(106, 164, 56, 0.18) 0%, transparent 70%);
+  animation: orbFloat1 8s ease-in-out infinite;
+}
+.settings-bg-orb-2 {
+  width: 160px;
+  height: 160px;
+  bottom: -40px;
+  left: -30px;
+  background: radial-gradient(circle, rgba(139, 111, 71, 0.15) 0%, transparent 70%);
+  animation: orbFloat2 10s ease-in-out infinite;
+}
+@keyframes orbFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-10px, 15px) scale(1.1); }
+}
+@keyframes orbFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(10px, -12px) scale(1.08); }
+}
+
+/* 滚动区域 */
+.settings-window-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+}
+.settings-window-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.settings-window-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.settings-window-scroll::-webkit-scrollbar-thumb {
+  background: rgba(126, 211, 33, 0.2);
+  border-radius: 2px;
+}
+.settings-window-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(126, 211, 33, 0.35);
+}
+
+/* 内容容器 */
+.settings-window-inner {
+  padding: 4px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- 头部 ---- */
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid rgba(126, 211, 33, 0.12);
+  margin-bottom: 2px;
+}
+.settings-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-header-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(126, 211, 33, 0.1);
+  border: 1px solid rgba(126, 211, 33, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.settings-title-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.5px;
+}
+.settings-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.5);
+  transition: background 0.2s, color 0.2s;
+  -webkit-app-region: no-drag;
+}
+.settings-close-btn:hover {
+  background: rgba(220, 60, 60, 0.2);
+  color: rgba(255, 120, 120, 0.9);
+}
+
+/* ---- 卡片 ---- */
+.settings-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.25s;
+}
+.settings-card:hover {
+  border-color: rgba(126, 211, 33, 0.15);
+}
+
+.settings-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.settings-card-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.settings-card-icon-green {
+  background: rgba(106, 164, 56, 0.15);
+  color: rgba(126, 211, 33, 0.9);
+}
+.settings-card-icon-brown {
+  background: rgba(139, 111, 71, 0.15);
+  color: rgba(212, 165, 116, 0.9);
+}
+.settings-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+/* ---- Toggle行 ---- */
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  gap: 12px;
+  transition: background 0.2s;
+}
+.settings-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.settings-toggle-row-sub {
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.settings-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.settings-toggle-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.settings-toggle-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Switch 样式覆盖 */
+.settings-switch.ant-switch-checked {
+  background: linear-gradient(90deg, #5a9428, #7ed321) !important;
+}
+.settings-switch {
+  flex-shrink: 0;
+}
+
+/* ---- 子表单 ---- */
+.settings-sub-form {
+  padding: 12px 14px 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Ant Design Form Label */
+.settings-sub-form :global(.ant-form-item) {
+  margin-bottom: 12px;
+}
+.settings-sub-form :global(.ant-form-item-label > label) {
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+}
+
+/* Input样式 */
+.settings-sub-form :global(.ant-input),
+.settings-sub-form :global(.ant-input-affix-wrapper) {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 7px !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease !important;
+}
+.settings-sub-form :global(.ant-input-password input) {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-size: 13px !important;
+}
+.settings-sub-form :global(.ant-input::placeholder),
+.settings-sub-form :global(.ant-input-password input::placeholder) {
+  color: rgba(255, 255, 255, 0.28) !important;
+}
+.settings-sub-form :global(.ant-input:hover),
+.settings-sub-form :global(.ant-input-affix-wrapper:hover) {
+  border-color: rgba(126, 211, 33, 0.3) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.settings-sub-form :global(.ant-input:focus),
+.settings-sub-form :global(.ant-input-affix-wrapper-focused) {
+  border-color: rgba(126, 211, 33, 0.55) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  box-shadow: 0 0 0 2px rgba(126, 211, 33, 0.12) !important;
+}
+.settings-sub-form :global(.ant-input-password-icon) {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+.settings-sub-form :global(.ant-input-password-icon:hover) {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+.settings-sub-form :global(.ant-form-item-explain-error) {
+  font-size: 11px !important;
+  margin-top: 2px !important;
+}
+
+/* ---- 底部按钮 ---- */
+.settings-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.settings-btn {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.18s ease;
+  letter-spacing: 0.3px;
+}
+
+.settings-btn-cancel {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.settings-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-btn-save {
+  background: linear-gradient(135deg, #5a9428 0%, #7ed321 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(90, 148, 40, 0.35);
+}
+.settings-btn-save:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(90, 148, 40, 0.5);
+  filter: brightness(1.08);
+}
+.settings-btn-save:disabled,
+.settings-btn-loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* 加载动画 */
+.settings-btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: settingsSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes settingsSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 加载中占位状态 */
+.settings-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-loading .settings-btn-spinner {
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
+  border-color: rgba(126, 211, 33, 0.2);
+  border-top-color: rgba(126, 211, 33, 0.8);
+}

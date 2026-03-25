@@ -66,6 +66,22 @@ export interface WindowPosition {
 }
 
 /**
+ * 自动创建大厅配置
+ */
+export interface AutoLobbyConfig {
+  /** 是否启用自动创建/加入大厅 */
+  enabled: boolean;
+  /** 大厅名称 */
+  lobbyName?: string;
+  /** 大厅密码 */
+  lobbyPassword?: string;
+  /** 玩家名称 */
+  playerName?: string;
+  /** 是否使用虚拟域名 */
+  useDomain?: boolean;
+}
+
+/**
  * 用户配置
  */
 export interface UserConfig {
@@ -85,6 +101,10 @@ export interface UserConfig {
   opacity?: number;
   /** 高级网络配置 */
   advancedNetwork?: AdvancedNetworkConfig;
+  /** 是否开机自启 */
+  autoStartup?: boolean;
+  /** 自动创建大厅配置 */
+  autoLobby?: AutoLobbyConfig;
 }
 
 /**

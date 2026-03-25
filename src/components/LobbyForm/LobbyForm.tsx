@@ -144,6 +144,26 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
     autoFillFromClipboard();
   }, [form, mode]);
+
+  // 检测自动大厅配置，自动填充并提交
+  useEffect(() => {
+    const autoConfig = (window as any).__autoLobbyConfig;
+    // 没有配置或不是创建模式就跳过
+    if (!autoConfig || mode !== 'create') return;
+    // 立即清除，防止重复触发
+    delete (window as any).__autoLobbyConfig;
+    const { lobbyName, lobbyPassword, playerName, useDomain } = autoConfig;
+    form.setFieldsValue({
+      lobbyName,
+      password: lobbyPassword,
+      playerName,
+      useDomain: useDomain || false,
+      serverNode: config.preferredServer || SERVER_NODES[0].value,
+    });
+    setTimeout(() => {
+      form.submit();
+    }, 300);
+  }, [form, mode, config.preferredServer]);
   
   // 从剪贴板识别大厅信息的函数
   const recognizeClipboard = async (isAuto = false) => {

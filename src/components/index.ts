@@ -43,3 +43,6 @@ export { FileShareManager } from './FileShareManager';
 
 // 屏幕共享管理组件
 export { ScreenShareManager } from './ScreenShareManager';
+
+// 设置窗口组件
+export { SettingsWindow } from './SettingsWindow';

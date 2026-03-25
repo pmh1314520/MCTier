@@ -28,6 +28,21 @@ impl Default for WindowPosition {
     }
 }
 
+/// 自动大厅配置
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AutoLobbyConfig {
+    /// 是否启用自动创建/加入大厅
+    pub enabled: bool,
+    /// 大厅名称
+    pub lobby_name: Option<String>,
+    /// 大厅密码
+    pub lobby_password: Option<String>,
+    /// 玩家名称
+    pub player_name: Option<String>,
+    /// 是否使用虚拟域名
+    pub use_domain: bool,
+}
+
 /// 用户配置结构
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserConfig {
@@ -43,6 +58,10 @@ pub struct UserConfig {
     pub audio_device_id: Option<String>,
     /// 窗口透明度 (0.0-1.0)，默认 0.95
     pub opacity: Option<f64>,
+    /// 是否开机自启
+    pub auto_startup: Option<bool>,
+    /// 自动大厅配置
+    pub auto_lobby: Option<AutoLobbyConfig>,
 }
 
 impl Default for UserConfig {
@@ -54,6 +73,8 @@ impl Default for UserConfig {
             window_position: Some(WindowPosition::default()),
             audio_device_id: None,
             opacity: Some(0.95),
+            auto_startup: Some(false),
+            auto_lobby: Some(AutoLobbyConfig::default()),
         }
     }
 }

@@ -145,6 +145,14 @@ const defaultConfig: UserConfig = {
   globalMuteHotkey: 'Ctrl+T',
   windowPosition: undefined,
   audioDeviceId: undefined,
+  autoStartup: false,
+  autoLobby: {
+    enabled: false,
+    lobbyName: undefined,
+    lobbyPassword: undefined,
+    playerName: undefined,
+    useDomain: false,
+  },
 };
 
 /**
