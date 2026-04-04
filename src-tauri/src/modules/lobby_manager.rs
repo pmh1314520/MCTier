@@ -195,6 +195,25 @@ impl LobbyManager {
         Ok(())
     }
 
+    /// 标准化服务器节点地址
+    ///
+    /// 将历史官方地址统一迁移到 EasyTier 官方域名节点
+    fn normalize_server_node(server_node: &str) -> String {
+        let trimmed = server_node.trim();
+
+        if trimmed == "tcp://mctiers.pmhs.top:11010"
+            || trimmed == "udp://mctiers.pmhs.top:11010"
+            || trimmed == "ws://mctiers.pmhs.top:11011"
+            || trimmed == "tcp://mctier.pmhs.top:11010"
+            || trimmed == "udp://mctier.pmhs.top:11010"
+            || trimmed == "ws://mctier.pmhs.top/signaling"
+            || trimmed == "wss://mctier.pmhs.top/signaling"
+        {
+            return "wss://mctiers.pmhs.top".to_string();
+        }
+
+        trimmed.to_string()
+    }
     /// 验证大厅名称
     /// 
     /// # 参数
@@ -337,9 +356,12 @@ impl LobbyManager {
 
         log::info!("EasyTier 网络号: {}", network_name);
 
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
         // 启动 EasyTier 服务（统一启用魔法DNS）
         let virtual_ip = network_service
-            .start_easytier(network_name, network_key, server_node, player_name.clone(), app_handle)
+            .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
 
@@ -436,9 +458,12 @@ impl LobbyManager {
 
         log::info!("EasyTier 网络号: {}", network_name);
 
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
         // 连接到 EasyTier 网络（统一启用魔法DNS）
         let virtual_ip = network_service
-            .start_easytier(network_name, network_key, server_node, player_name.clone(), app_handle)
+            .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
 
@@ -1305,3 +1330,5 @@ mod tests {
         assert_eq!(manager1.get_player_count(), manager2.get_player_count());
     }
 }
+
+

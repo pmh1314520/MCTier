@@ -47,11 +47,6 @@ export const ScreenShareManager: React.FC = () => {
     const handleScreenShareError = (event: any) => {
       const { error } = event.detail;
       console.error('❌ [ScreenShareManager] 屏幕共享错误:', error);
-      message.error(error || '查看屏幕失败');
-      // 关闭密码输入框
-      setShowPasswordModal(false);
-      setPasswordInput('');
-      setSelectedShare(null);
     };
 
     window.addEventListener('screen-share-error', handleScreenShareError);
@@ -143,7 +138,7 @@ export const ScreenShareManager: React.FC = () => {
       } catch (error) {
         console.error('获取共享列表失败:', error);
       }
-    }, 100); // 【修复】从500毫秒改为100毫秒,确保更实时的更新
+    }, 1000); // 【修复】改为1秒轮询，避免过高频率导致时序抖动
 
     return () => clearInterval(interval);
   }, []);
@@ -619,3 +614,4 @@ export const ScreenShareManager: React.FC = () => {
     </div>
   );
 };
+

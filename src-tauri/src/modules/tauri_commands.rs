@@ -79,9 +79,8 @@ pub async fn create_lobby(
             
             log::info!("使用前端提供的玩家ID: {}", player_id);
             
-            // 不再启动本地 WebSocket 信令服务器
-            // 所有客户端都连接到公网信令服务器 (ws://24.233.29.43:8445)
-            log::info!("客户端将连接到公网信令服务器: ws://24.233.29.43:8445");
+            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://mctier.pmhs.top/signaling)
+            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://mctier.pmhs.top/signaling");
             
             // 不再在创建大厅时自动启动HTTP文件服务器
             // HTTP服务器将在第一次添加共享时按需启动
@@ -189,9 +188,8 @@ pub async fn join_lobby(
             
             log::info!("使用前端提供的玩家ID: {}", player_id);
             
-            // 不再启动本地 WebSocket 信令服务器
-            // 所有客户端都连接到公网信令服务器 (ws://24.233.29.43:8445)
-            log::info!("客户端将连接到公网信令服务器: ws://24.233.29.43:8445");
+            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://mctier.pmhs.top/signaling)
+            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://mctier.pmhs.top/signaling");
             
             // 启动P2P信令服务
             log::info!("正在启动P2P信令服务（加入大厅）...");
@@ -1157,8 +1155,8 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
-            // 用 cmd /c "cd /d <dir> && start "" <exe>" 方式启动，保证工作目录正确
-            let reg_value = format!("cmd /c \"cd /d \"{}\" && start \"\" \"{}\"\"", exe_dir, app_path);
+            // 使用隐藏窗口的 PowerShell 启动，并切换到 exe 目录，避免便携版自启时找不到相对路径资源
+            let reg_value = format!("powershell -WindowStyle Hidden -Command \"Set-Location '{}'; Start-Process '{}'\"", exe_dir, app_path);
             let output = Command::new("reg")
                 .args([
                     "add",
@@ -2436,10 +2434,16 @@ pub async fn send_p2p_chat_message(
         })
         .collect();
     
-    log::info!("📤 [ChatService] 向 {} 个其他玩家发送消息 (排除自己)", other_peer_ips.len());
+    log::info!("📤 [ChatService] 向 {} 个其他玩家并发发送消息 (排除自己)", other_peer_ips.len());
     
-    // 向所有其他玩家发送消息（不包括自己）
-    let client = reqwest::Client::new();
+    // 【优化】使用并发发送，提高图片传输速度
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10)) // 设置超时
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+    
+    let mut tasks = Vec::new();
+    
     for peer_ip in other_peer_ips {
         let url = format!("http://{}:14540/api/chat/send", peer_ip);
         let request = SendMessageRequest {
@@ -2450,20 +2454,40 @@ pub async fn send_p2p_chat_message(
             image_data: image_data.clone(),
         };
         
-        // 异步发送，不等待响应
         let client_clone = client.clone();
         let url_clone = url.clone();
-        tokio::spawn(async move {
+        
+        // 创建并发任务
+        let task = tokio::spawn(async move {
+            let start = std::time::Instant::now();
             match client_clone.post(&url_clone).json(&request).send().await {
-                Ok(_) => {
-                    log::info!("✅ 消息已发送到: {}", url_clone);
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+                    if response.status().is_success() {
+                        log::info!("✅ 消息已发送到: {} (耗时: {:?})", url_clone, elapsed);
+                    } else {
+                        log::warn!("⚠️ 发送消息失败 ({}): HTTP {}", url_clone, response.status());
+                    }
                 }
                 Err(e) => {
-                    log::warn!("⚠️ 发送消息失败 ({}): {}", url_clone, e);
+                    let elapsed = start.elapsed();
+                    log::warn!("⚠️ 发送消息失败 ({}, 耗时: {:?}): {}", url_clone, elapsed, e);
                 }
             }
         });
+        
+        tasks.push(task);
     }
+    
+    // 等待所有发送任务完成（但不阻塞主线程）
+    tokio::spawn(async move {
+        let start = std::time::Instant::now();
+        for task in tasks {
+            let _ = task.await;
+        }
+        let total_elapsed = start.elapsed();
+        log::info!("🎉 [ChatService] 所有消息发送完成，总耗时: {:?}", total_elapsed);
+    });
     
     Ok(())
 }

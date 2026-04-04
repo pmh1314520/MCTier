@@ -318,6 +318,11 @@ impl NetworkService {
         
         log::info!("使用主机名: {}", sanitized_hostname);
         
+        // 根据服务器节点协议自动选择监听器和默认协议
+        let is_ws_peer = server_node.starts_with("ws://") || server_node.starts_with("wss://");
+        let listener = if is_ws_peer { "ws://0.0.0.0:0/" } else { "udp://0.0.0.0:0" };
+        let default_protocol = if is_ws_peer { "ws" } else { "udp" };
+
         // 构建命令行参数
         let mut cmd = Command::new(&easytier_path);
         cmd.arg("--network-name")
@@ -339,9 +344,9 @@ impl NetworkService {
             .arg("--dev-name")
             .arg("MCTier_Net") // 使用固定的网卡名称，方便识别和清理
             .arg("--listeners")
-            .arg("udp://0.0.0.0:0") // 只使用UDP监听器，端口0表示随机端口
+            .arg(listener)
             .arg("--default-protocol")
-            .arg("udp") // 默认使用 UDP 协议
+            .arg(default_protocol)
             .arg("--multi-thread")
             .arg("true") // 启用多线程
             .arg("--latency-first")
@@ -356,7 +361,11 @@ impl NetworkService {
         
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
         log::info!("虚拟网卡名称: MCTier_Net（固定名称，方便识别和管理）");
-        log::info!("启用 UDP 监听器以支持 Minecraft 局域网发现功能");
+        if is_ws_peer {
+            log::info!("启用 WebSockets 监听器以匹配官方 WS 节点");
+        } else {
+            log::info!("启用 UDP 监听器以支持 Minecraft 局域网发现功能");
+        }
         log::info!("使用动态检测的RPC端口 {}，避免与其他EasyTier实例冲突", rpc_port);
         log::info!("命令行参数: {:?}", cmd);
 
@@ -550,12 +559,25 @@ impl NetworkService {
             // 打印所有输出用于调试
             log::info!("EasyTier stdout: {}", line);
 
+            // WebSocket 节点升级失败（通常是反向代理/上游配置问题）
+            if line.contains("DidNotSwitchProtocols(502)") {
+                log::error!("检测到官方 WebSocket 节点返回 502: {}", line);
+                *status.lock().await = ConnectionStatus::Error(
+                    "官方 WebSocket 节点连接失败（HTTP 502）：请检查服务器反向代理与 EasyTier WS 上游".to_string(),
+                );
+                continue;
+            }
+
+            if line.contains("connect to peer error") {
+                log::warn!("检测到 peer 连接错误: {}", line);
+            }
+
             // 解析虚拟 IP
             // 查找 DHCP 分配的 IP 或明确标记为虚拟IP的行
             let line_lower = line.to_lowercase();
             
             // 检查是否包含虚拟IP相关的关键词
-            let is_virtual_ip_line = line_lower.contains("virtual ip") 
+            let _is_virtual_ip_line = line_lower.contains("virtual ip") 
                 || line_lower.contains("assigned ip")
                 || line_lower.contains("dhcp")
                 || line_lower.contains("got ip")
@@ -568,9 +590,10 @@ impl NetworkService {
             let is_excluded = line.contains("local_addr") 
                 || line.contains("local:")
                 || line.contains("ipv4 = \"")  // 配置行
-                || line.contains("listeners");
+                || line.contains("listeners")
+                || line.contains("rpc_portal =");
             
-            if is_virtual_ip_line && !is_excluded {
+            if !is_excluded {
                 if let Some(ip) = Self::extract_ip_from_line(&line) {
                     // 排除网络地址（最后一位是0）和广播地址（最后一位是255）
                     let parts: Vec<&str> = ip.split('.').collect();

@@ -157,6 +157,47 @@ export const ChatRoom: React.FC = () => {
     }
   };
 
+  // 优化图片质量（保持原图尺寸，压缩质量）
+  const optimizeImage = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // 创建canvas
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('无法创建canvas上下文'));
+            return;
+          }
+
+          // 保持原图尺寸
+          canvas.width = img.width;
+          canvas.height = img.height;
+
+          // 绘制图片
+          ctx.drawImage(img, 0, 0);
+
+          // 转换为JPEG格式，质量0.92（高质量压缩）
+          const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+          
+          console.log('🖼️ 图片优化完成:', {
+            原始大小: file.size,
+            优化后大小: Math.round(optimizedDataUrl.length * 0.75), // Base64大约是原始的1.33倍
+            压缩率: Math.round((1 - (optimizedDataUrl.length * 0.75) / file.size) * 100) + '%'
+          });
+          
+          resolve(optimizedDataUrl);
+        };
+        img.onerror = () => reject(new Error('图片加载失败'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
+    });
+  };
+
   // 处理图片上传
   const handleImageUpload = async () => {
     if (isUploading) return;
@@ -194,56 +235,48 @@ export const ChatRoom: React.FC = () => {
           return;
         }
 
-        // 检查文件大小（限制5MB）
-        if (file.size > 5 * 1024 * 1024) {
-          antdMessage.error('图片大小不能超过5MB');
+        // 检查文件大小（限制10MB，因为会压缩）
+        if (file.size > 10 * 1024 * 1024) {
+          antdMessage.error('图片大小不能超过10MB');
           setIsUploading(false);
           return;
         }
 
         console.log('📁 选择的图片文件:', file.name, '大小:', file.size);
 
-        // 读取文件为Base64
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const dataUrl = event.target?.result as string;
+        try {
+          // 优化图片
+          const optimizedDataUrl = await optimizeImage(file);
           
-          console.log('📤 发送图片消息');
+          console.log('📤 发送优化后的图片消息');
 
-          try {
-            // 乐观更新：立即在本地显示自己发送的图片
-            const optimisticMessage: ChatMessage = {
-              id: `msg-${currentPlayerId}-${Date.now()}`,
-              playerId: currentPlayerId!,
-              playerName: config.playerName || '我',
-              content: '[图片]',
-              timestamp: Date.now(),
-              type: 'image',
-              imageData: dataUrl,
-            };
-            
-            // 立即添加到本地消息列表
-            addChatMessage(optimisticMessage);
-            console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
-            
-            // 发送图片消息到P2P网络
-            await p2pChatService.sendImageMessage(dataUrl);
-            antdMessage.success('图片发送成功');
-            
-            // 滚动到底部
-            setTimeout(() => scrollToBottom(), 100);
-          } catch (error) {
-            console.error('发送图片失败:', error);
-            antdMessage.error('发送图片失败');
-          } finally {
-            setIsUploading(false);
-          }
-        };
-        reader.onerror = () => {
-          antdMessage.error('读取图片失败');
+          // 乐观更新：立即在本地显示自己发送的图片
+          const optimisticMessage: ChatMessage = {
+            id: `msg-${currentPlayerId}-${Date.now()}`,
+            playerId: currentPlayerId!,
+            playerName: config.playerName || '我',
+            content: '[图片]',
+            timestamp: Date.now(),
+            type: 'image',
+            imageData: optimizedDataUrl,
+          };
+          
+          // 立即添加到本地消息列表
+          addChatMessage(optimisticMessage);
+          console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
+          
+          // 发送图片消息到P2P网络
+          await p2pChatService.sendImageMessage(optimizedDataUrl);
+          antdMessage.success('图片发送成功');
+          
+          // 滚动到底部
+          setTimeout(() => scrollToBottom(), 100);
+        } catch (error) {
+          console.error('发送图片失败:', error);
+          antdMessage.error('发送图片失败');
+        } finally {
           setIsUploading(false);
-        };
-        reader.readAsDataURL(file);
+        }
       };
 
       input.click();
@@ -268,51 +301,43 @@ export const ChatRoom: React.FC = () => {
         if (!file) continue;
 
         // 检查文件大小
-        if (file.size > 5 * 1024 * 1024) {
-          antdMessage.error('图片大小不能超过5MB');
+        if (file.size > 10 * 1024 * 1024) {
+          antdMessage.error('图片大小不能超过10MB');
           return;
         }
 
         try {
           setIsUploading(true);
 
-          // 读取文件为Base64
-          const reader = new FileReader();
-          reader.onload = async (event) => {
-            const dataUrl = event.target?.result as string;
-            
-            console.log('📤 发送粘贴的图片');
+          // 优化图片
+          const optimizedDataUrl = await optimizeImage(file);
+          
+          console.log('📤 发送粘贴的优化图片');
 
-            // 乐观更新：立即在本地显示自己发送的图片
-            const optimisticMessage: ChatMessage = {
-              id: `msg-${currentPlayerId}-${Date.now()}`,
-              playerId: currentPlayerId!,
-              playerName: config.playerName || '我',
-              content: '[图片]',
-              timestamp: Date.now(),
-              type: 'image',
-              imageData: dataUrl,
-            };
-            
-            // 立即添加到本地消息列表
-            addChatMessage(optimisticMessage);
-            console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
-
-            // 发送图片消息到P2P网络
-            await p2pChatService.sendImageMessage(dataUrl);
-
-            antdMessage.success('图片发送成功');
-            
-            // 滚动到底部
-            setTimeout(() => scrollToBottom(), 100);
-            
-            setIsUploading(false);
+          // 乐观更新：立即在本地显示自己发送的图片
+          const optimisticMessage: ChatMessage = {
+            id: `msg-${currentPlayerId}-${Date.now()}`,
+            playerId: currentPlayerId!,
+            playerName: config.playerName || '我',
+            content: '[图片]',
+            timestamp: Date.now(),
+            type: 'image',
+            imageData: optimizedDataUrl,
           };
-          reader.onerror = () => {
-            antdMessage.error('读取图片失败');
-            setIsUploading(false);
-          };
-          reader.readAsDataURL(file);
+          
+          // 立即添加到本地消息列表
+          addChatMessage(optimisticMessage);
+          console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
+
+          // 发送图片消息到P2P网络
+          await p2pChatService.sendImageMessage(optimizedDataUrl);
+
+          antdMessage.success('图片发送成功');
+          
+          // 滚动到底部
+          setTimeout(() => scrollToBottom(), 100);
+          
+          setIsUploading(false);
         } catch (error) {
           console.error('粘贴图片失败:', error);
           antdMessage.error('粘贴图片失败');
@@ -341,51 +366,43 @@ export const ChatRoom: React.FC = () => {
     }
 
     // 检查文件大小
-    if (file.size > 5 * 1024 * 1024) {
-      antdMessage.error('图片大小不能超过5MB');
+    if (file.size > 10 * 1024 * 1024) {
+      antdMessage.error('图片大小不能超过10MB');
       return;
     }
 
     try {
       setIsUploading(true);
 
-      // 读取文件为Base64
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const dataUrl = event.target?.result as string;
-        
-        console.log('📤 发送拖拽的图片');
+      // 优化图片
+      const optimizedDataUrl = await optimizeImage(file);
+      
+      console.log('📤 发送拖拽的优化图片');
 
-        // 乐观更新：立即在本地显示自己发送的图片
-        const optimisticMessage: ChatMessage = {
-          id: `msg-${currentPlayerId}-${Date.now()}`,
-          playerId: currentPlayerId!,
-          playerName: config.playerName || '我',
-          content: '[图片]',
-          timestamp: Date.now(),
-          type: 'image',
-          imageData: dataUrl,
-        };
-        
-        // 立即添加到本地消息列表
-        addChatMessage(optimisticMessage);
-        console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
-
-        // 发送图片消息到P2P网络
-        await p2pChatService.sendImageMessage(dataUrl);
-
-        antdMessage.success('图片发送成功');
-        
-        // 滚动到底部
-        setTimeout(() => scrollToBottom(), 100);
-        
-        setIsUploading(false);
+      // 乐观更新：立即在本地显示自己发送的图片
+      const optimisticMessage: ChatMessage = {
+        id: `msg-${currentPlayerId}-${Date.now()}`,
+        playerId: currentPlayerId!,
+        playerName: config.playerName || '我',
+        content: '[图片]',
+        timestamp: Date.now(),
+        type: 'image',
+        imageData: optimizedDataUrl,
       };
-      reader.onerror = () => {
-        antdMessage.error('读取图片失败');
-        setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
+      
+      // 立即添加到本地消息列表
+      addChatMessage(optimisticMessage);
+      console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
+
+      // 发送图片消息到P2P网络
+      await p2pChatService.sendImageMessage(optimizedDataUrl);
+
+      antdMessage.success('图片发送成功');
+      
+      // 滚动到底部
+      setTimeout(() => scrollToBottom(), 100);
+      
+      setIsUploading(false);
     } catch (error) {
       console.error('拖拽图片失败:', error);
       antdMessage.error('拖拽图片失败');

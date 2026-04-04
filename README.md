@@ -7,10 +7,11 @@
 ### 虚拟局域网联机工具
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.3.2-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.5-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
 </p>
+
 
 
 
@@ -433,6 +434,12 @@ mctier/
 - 检查共享是否已过期
 - 确认共享者是否在线
 - 检查网络连接是否正常
+
+### Windows智能应用控制阻止运行？
+
+- 按键盘上的Win键
+- 搜索并打开“智能应用控制”
+- 选择“关闭”选项即可
 
 ---
 

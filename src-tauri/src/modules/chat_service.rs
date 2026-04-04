@@ -76,8 +76,8 @@ pub struct ChatService {
 
 impl ChatService {
     pub fn new() -> Self {
-        // 创建广播通道，容量为100条消息
-        let (tx, _rx) = broadcast::channel(100);
+        // 【优化】创建广播通道，容量增加到500条消息，支持大图片传输
+        let (tx, _rx) = broadcast::channel(500);
         
         Self {
             local_messages: Arc::new(RwLock::new(VecDeque::new())),

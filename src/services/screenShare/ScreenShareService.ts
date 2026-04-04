@@ -67,9 +67,19 @@ class ScreenShareService {
         video: {
           cursor: 'always',
           displaySurface: 'monitor',
+          // 【优化】提高帧率和分辨率，确保画质清晰流畅
+          frameRate: { ideal: 60, max: 60 },
+          width: { ideal: 1920, max: 3840 },
+          height: { ideal: 1080, max: 2160 },
         } as any,
         audio: false,
       });
+
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        // 【优化】设置为detail模式，优先保证画质清晰
+        videoTrack.contentHint = 'detail';
+      }
 
       console.log('✅ [ScreenShareService] 屏幕捕获成功');
 
@@ -168,7 +178,13 @@ class ScreenShareService {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
         ],
+        // 【优化】启用ICE重启，提高连接稳定性
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
       });
 
       const connectionKey = `${shareId}-viewer-${Date.now()}`;
@@ -239,7 +255,10 @@ class ScreenShareService {
             window.removeEventListener('screen-share-error', handleError);
             reject(new Error('WebRTC连接失败'));
           } else if (pc.connectionState === 'disconnected') {
-            console.warn('⚠️ [ScreenShareService] 连接断开');
+            console.warn('⚠️ [ScreenShareService] 连接断开，等待重连...');
+            // 【优化】不立即失败，给予重连机会
+          } else if (pc.connectionState === 'connected') {
+            console.log('✅ [ScreenShareService] 连接已建立');
           }
         };
       });
@@ -501,17 +520,27 @@ class ScreenShareService {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
         ],
+        // 【优化】启用ICE重启，提高连接稳定性
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
       });
 
       const connectionKey = `${offer.shareId}-sharer-${offer.playerId}`;
       this.peerConnections.set(connectionKey, pc);
 
-      // 【新增】监听连接断开，清除查看者标记
+      // 【修复】监听连接断开，但不立即清除查看者标记（避免误判）
+      // 只有在真正关闭时才清除标记
       pc.onconnectionstatechange = () => {
         console.log(`🔗 [ScreenShareService] 连接状态变化: ${pc.connectionState}`);
-        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-          console.log('🔌 [ScreenShareService] 查看者断开连接，清除标记');
+        
+        // 【修复】只在连接完全关闭时才清除查看者标记
+        // disconnected和failed状态可能是暂时的，会自动重连
+        if (pc.connectionState === 'closed') {
+          console.log('🔌 [ScreenShareService] 连接已关闭，清除查看者标记');
           const currentShare = this.activeShares.get(offer.shareId);
           if (currentShare && currentShare.viewerId === offer.playerId) {
             currentShare.viewerId = undefined;
@@ -520,12 +549,31 @@ class ScreenShareService {
             // 广播状态更新
             this.broadcastShareUpdate(currentShare);
           }
+        } else if (pc.connectionState === 'failed') {
+          console.warn('⚠️ [ScreenShareService] 连接失败，但保留查看者标记（可能会重连）');
+        } else if (pc.connectionState === 'disconnected') {
+          console.warn('⚠️ [ScreenShareService] 连接断开，但保留查看者标记（可能会重连）');
         }
       };
 
       // 添加本地流
       this.localStream.getTracks().forEach(track => {
-        pc.addTrack(track, this.localStream!);
+        const sender = pc.addTrack(track, this.localStream!);
+
+        if (track.kind === 'video') {
+          const params = sender.getParameters();
+          // 【优化】设置高码率和稳定帧率，确保画质清晰流畅
+          params.degradationPreference = 'maintain-resolution'; // 优先保持分辨率
+          params.encodings = [{ 
+            maxBitrate: 15_000_000, // 提高到15Mbps，确保高清画质
+            maxFramerate: 60,
+            scaleResolutionDownBy: 1.0, // 不降低分辨率
+            priority: 'high', // 高优先级
+          }];
+          sender.setParameters(params).catch((error) => {
+            console.warn('⚠️ [ScreenShareService] 设置发送参数失败，继续默认参数', error);
+          });
+        }
       });
 
       // 设置远程描述

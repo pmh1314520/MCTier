@@ -4,7 +4,7 @@
  * 支持多选批量下载、断点续传、先压后发
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
@@ -29,6 +29,7 @@ interface DownloadTask {
   status: 'downloading' | 'completed' | 'failed';
   url: string;
   savePath: string;
+  headers?: HeadersInit;
   error?: string;
   abortController?: AbortController; // 用于取消下载
   speed?: number; // 下载速度（bytes/s）
@@ -59,6 +60,8 @@ export const FileShareManagerNew: React.FC = () => {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [pendingShare, setPendingShare] = useState<SimpleRemoteShare | null>(null);
+  const [sharePasswordMap, setSharePasswordMap] = useState<Record<string, string>>({});
+  const pendingBrowsePathRef = useRef<string>('');
 
   // 从Store获取数据
   const { lobby, players, config } = useAppStore();
@@ -71,6 +74,18 @@ export const FileShareManagerNew: React.FC = () => {
     } catch (error) {
       console.error('加载本地共享失败:', error);
     }
+  };
+
+  const getShareKey = (ownerIp: string, shareId: string): string => `${ownerIp}__${shareId}`;
+
+  const getSharePasswordHeader = (ownerIp: string, shareId: string, passwordOverride?: string): HeadersInit => {
+    const shareKey = getShareKey(ownerIp, shareId);
+    const password = passwordOverride ?? sharePasswordMap[shareKey];
+    if (!password) return {};
+
+    return {
+      'x-share-password': password,
+    };
   };
 
   // 加载远程共享 - 简化版本
@@ -309,6 +324,8 @@ export const FileShareManagerNew: React.FC = () => {
 
   // 浏览共享
   const handleBrowseShare = async (remoteShare: SimpleRemoteShare) => {
+    pendingBrowsePathRef.current = '';
+
     if (remoteShare.share.password) {
       setPendingShare(remoteShare);
       setShowPasswordModal(true);
@@ -320,42 +337,80 @@ export const FileShareManagerNew: React.FC = () => {
   // 打开共享
   const openShare = async (remoteShare: SimpleRemoteShare, password?: string) => {
     try {
-      if (remoteShare.share.password && password) {
+      const targetPath = pendingBrowsePathRef.current || '';
+      let verifiedPassword: string | undefined;
+
+      if (remoteShare.share.password) {
+        const passwordToVerify = password ?? sharePasswordMap[getShareKey(remoteShare.ownerIp, remoteShare.share.id)] ?? '';
         const valid = await invoke<boolean>('verify_share_password', {
           peerIp: remoteShare.ownerIp,
           shareId: remoteShare.share.id,
-          password
+          password: passwordToVerify,
         });
         if (!valid) {
           message.error('密码错误');
           return;
         }
+
+        verifiedPassword = passwordToVerify;
+        setSharePasswordMap(prev => ({
+          ...prev,
+          [getShareKey(remoteShare.ownerIp, remoteShare.share.id)]: passwordToVerify,
+        }));
       }
+
       setSelectedShare(remoteShare);
-      setCurrentPath('');
       setSelectedFiles(new Set());
-      await loadFiles(remoteShare, '');
+      await loadFiles(remoteShare, targetPath, verifiedPassword);
       setShowPasswordModal(false);
       setPasswordInput('');
+      setPendingShare(null);
+      pendingBrowsePathRef.current = '';
     } catch (error) {
       message.error('打开共享失败');
     }
   };
 
   // 加载文件列表
-  const loadFiles = async (remoteShare: SimpleRemoteShare, path: string) => {
+  const loadFiles = async (remoteShare: SimpleRemoteShare, path: string, passwordOverride?: string) => {
     setLoadingFiles(true);
     try {
-      const fileList = await invoke<FileInfo[]>('get_remote_files', {
-        peerIp: remoteShare.ownerIp,
-        shareId: remoteShare.share.id,
-        path: path || null
-      });
+      const response = await fetch(
+        `http://${remoteShare.ownerIp}:14539/api/shares/${remoteShare.share.id}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`,
+        {
+          headers: getSharePasswordHeader(remoteShare.ownerIp, remoteShare.share.id, passwordOverride),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          const retryPath = path;
+          message.error('访问被拒绝，请重新输入密码');
+          setSharePasswordMap(prev => {
+            const next = { ...prev };
+            delete next[getShareKey(remoteShare.ownerIp, remoteShare.share.id)];
+            return next;
+          });
+
+          pendingBrowsePathRef.current = retryPath;
+          setPendingShare(remoteShare);
+          setShowPasswordModal(true);
+          setPasswordInput('');
+          return;
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const fileList = (payload?.files ?? []) as FileInfo[];
       setFiles(fileList);
       setCurrentPath(path);
       setSelectedFiles(new Set());
     } catch (error) {
-      message.error('加载文件列表失败');
+      const errorMessage = String(error);
+      if (!errorMessage.includes('HTTP 401')) {
+        message.error('加载文件列表失败');
+      }
     } finally {
       setLoadingFiles(false);
     }
@@ -376,6 +431,7 @@ export const FileShareManagerNew: React.FC = () => {
       }
       
       const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
       
       // 创建下载任务
       const taskId = `download_${Date.now()}_${Math.random()}`;
@@ -386,6 +442,7 @@ export const FileShareManagerNew: React.FC = () => {
         downloaded: 0,
         status: 'downloading',
         url: downloadUrl,
+        headers: downloadHeaders,
         savePath
       };
       
@@ -393,7 +450,7 @@ export const FileShareManagerNew: React.FC = () => {
       // 不自动跳转到传输列表，让用户继续浏览
       
       // 开始下载
-      startDownload(taskId, downloadUrl, savePath, file.size);
+      startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       
       message.success('开始下载文件');
     } catch (error) {
@@ -402,7 +459,7 @@ export const FileShareManagerNew: React.FC = () => {
   };
 
   // 实际执行下载
-  const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number) => {
+  const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number, headers?: HeadersInit) => {
       const abortController = new AbortController();
       const startTime = Date.now();
       let lastUpdateTime = startTime;
@@ -415,7 +472,8 @@ export const FileShareManagerNew: React.FC = () => {
 
       try {
         const response = await fetch(url, {
-          signal: abortController.signal
+          signal: abortController.signal,
+          headers: headers || {},
         });
 
         if (!response.ok) {
@@ -565,6 +623,7 @@ export const FileShareManagerNew: React.FC = () => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                ...getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id),
               },
               body: JSON.stringify({
                 file_paths: selectedFileList.map(f => f.path)
@@ -720,6 +779,7 @@ export const FileShareManagerNew: React.FC = () => {
       for (const file of selectedFileList) {
         const savePath = `${saveDir}/${file.name}`;
         const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
         
         const taskId = `download_${Date.now()}_${Math.random()}`;
         const newTask: DownloadTask = {
@@ -729,11 +789,12 @@ export const FileShareManagerNew: React.FC = () => {
           downloaded: 0,
           status: 'downloading',
           url: downloadUrl,
+          headers: downloadHeaders,
           savePath
         };
         
         setDownloads(prev => [...prev, newTask]);
-        startDownload(taskId, downloadUrl, savePath, file.size);
+        startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       }
       
       message.success(`开始下载 ${selectedFileList.length} 个文件`);
@@ -745,6 +806,7 @@ export const FileShareManagerNew: React.FC = () => {
       const file = selectedFileList[0];
       const savePath = `${saveDir}/${file.name}`;
       const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
       
       const taskId = `download_${Date.now()}_${Math.random()}`;
       const newTask: DownloadTask = {
@@ -754,11 +816,12 @@ export const FileShareManagerNew: React.FC = () => {
         downloaded: 0,
         status: 'downloading',
         url: downloadUrl,
+        headers: downloadHeaders,
         savePath
       };
       
       setDownloads(prev => [...prev, newTask]);
-      startDownload(taskId, downloadUrl, savePath, file.size);
+      startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       
       message.success('开始下载');
       
@@ -790,7 +853,22 @@ export const FileShareManagerNew: React.FC = () => {
     await loadFiles(selectedShare, '');
   };
 
-  // 切换文件选中状态
+  const handleExitShareBrowser = () => {
+    if (!selectedShare) return;
+
+    const shareKey = getShareKey(selectedShare.ownerIp, selectedShare.share.id);
+    setSharePasswordMap(prev => {
+      const next = { ...prev };
+      delete next[shareKey];
+      return next;
+    });
+
+    setSelectedShare(null);
+    setCurrentPath('');
+    setFiles([]);
+    setSelectedFiles(new Set());
+    pendingBrowsePathRef.current = '';
+  };
   const toggleFileSelection = (filePath: string) => {
     setSelectedFiles(prev => {
       const newSet = new Set(prev);
@@ -992,7 +1070,7 @@ export const FileShareManagerNew: React.FC = () => {
                           {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? '取消全选' : '全选'}
                         </Button>
                       </div>
-                      <Button size="small" onClick={() => setSelectedShare(null)} icon={<CloseIcon size={16} />} title="关闭" style={{ marginLeft: 'auto' }} />
+                      <Button size="small" onClick={handleExitShareBrowser} icon={<CloseIcon size={16} />} title="关闭" style={{ marginLeft: 'auto' }} />
                     </div>
                     <div className="file-list">
                       {loadingFiles ? <div className="loading-state">加载中...</div> : (
@@ -1198,7 +1276,7 @@ export const FileShareManagerNew: React.FC = () => {
         </div>
       </div>
       {showAddShare && <AddShareDialog visible={showAddShare} onClose={() => setShowAddShare(false)} onSuccess={() => { setShowAddShare(false); loadLocalShares(); }} />}
-      <Modal title="输入密码" open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); }} okText="确定" cancelText="取消" centered width={400}>
+      <Modal title="输入密码" open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText="确定" cancelText="取消" centered width={400}>
         <div style={{ marginTop: 16 }}><Input.Password autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder="请输入共享密码" /></div>
       </Modal>
     </div>
@@ -1346,3 +1424,8 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
     </Modal>
   );
 };
+
+
+
+
+

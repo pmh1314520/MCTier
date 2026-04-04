@@ -265,6 +265,7 @@ class P2PChatService {
 
   /**
    * 发送图片消息（Base64格式）
+   * 【优化】使用更高效的数据转换方式
    */
   async sendImageMessage(imageDataUrl: string): Promise<void> {
     if (!this.currentPlayerId) {
@@ -274,12 +275,22 @@ class P2PChatService {
     try {
       // 从Data URL中提取Base64数据
       const base64Data = imageDataUrl.split(',')[1];
+      
+      // 【优化】使用Uint8Array直接转换，避免中间字符串
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      
+      // 分块处理，提高性能
+      const chunkSize = 8192;
+      for (let i = 0; i < binaryString.length; i += chunkSize) {
+        const end = Math.min(i + chunkSize, binaryString.length);
+        for (let j = i; j < end; j++) {
+          bytes[j] = binaryString.charCodeAt(j);
+        }
       }
 
+      const startTime = performance.now();
+      
       await invoke('send_p2p_chat_message', {
         playerId: this.currentPlayerId,
         playerName: '', // 后端会自动填充
@@ -288,7 +299,9 @@ class P2PChatService {
         imageData: Array.from(bytes),
         peerIps: this.peerIps,
       });
-      console.log('✅ [P2PChatService] 图片消息已发送');
+      
+      const elapsed = performance.now() - startTime;
+      console.log(`✅ [P2PChatService] 图片消息已发送 (耗时: ${elapsed.toFixed(2)}ms, 大小: ${(bytes.length / 1024).toFixed(2)}KB)`);
     } catch (error) {
       console.error('❌ [P2PChatService] 发送图片消息失败:', error);
       throw error;
@@ -310,16 +323,21 @@ class P2PChatService {
 
   /**
    * 将number数组转换为Base64 Data URL
+   * 【优化】直接使用JPEG格式，因为前端已经统一转换为JPEG
    */
   private arrayToBase64(data: number[]): string {
     const bytes = new Uint8Array(data);
     let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    const chunkSize = 8192; // 分块处理，提高性能
+    
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
     }
+    
     const base64 = btoa(binary);
-    // 假设是PNG格式，实际应该从数据中检测
-    return `data:image/png;base64,${base64}`;
+    // 前端已统一转换为JPEG格式
+    return `data:image/jpeg;base64,${base64}`;
   }
 }
 

@@ -335,6 +335,19 @@ struct AppState {
     shared_folders: Arc<DashMap<String, SharedFolder>>,
 }
 
+fn is_share_access_allowed(share: &SharedFolder, headers: &HeaderMap) -> bool {
+    if let Some(expected_password) = &share.password {
+        let provided_password = headers
+            .get("x-share-password")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        return provided_password == expected_password;
+    }
+
+    true
+}
+
 /// 获取共享列表
 async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
     let shares: Vec<SharedFolder> = state
@@ -353,12 +366,17 @@ async fn list_files(
     State(state): State<AppState>,
     AxumPath(share_id): AxumPath<String>,
     Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
 ) -> Result<Json<FileListResponse>, StatusCode> {
     // 获取共享信息
     let share = state
         .shared_folders
         .get(&share_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !is_share_access_allowed(&share, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let base_path = PathBuf::from(&share.path);
     let sub_path = params.get("path").map(|s| s.as_str()).unwrap_or("");
@@ -467,6 +485,10 @@ async fn download_file(
         .shared_folders
         .get(&share_id)
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !is_share_access_allowed(&share, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let base_path = PathBuf::from(&share.path);
     let full_path = base_path.join(&file_path);
@@ -606,6 +628,7 @@ fn create_file_stream(
 async fn batch_download(
     State(state): State<AppState>,
     AxumPath(share_id): AxumPath<String>,
+    headers: HeaderMap,
     Json(req): Json<BatchDownloadRequest>,
 ) -> Result<Response, StatusCode> {
     log::info!("📦 收到批量打包下载请求: share_id={}, files={}", share_id, req.file_paths.len());
@@ -618,6 +641,10 @@ async fn batch_download(
             log::error!("❌ 共享不存在: {}", share_id);
             StatusCode::NOT_FOUND
         })?;
+
+    if !is_share_access_allowed(&share, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     // 检查是否启用了"先压后发"
     if !share.compress_before_send.unwrap_or(false) {
@@ -732,3 +759,6 @@ async fn batch_download(
             StatusCode::INTERNAL_SERVER_ERROR
         })
 }
+
+
+

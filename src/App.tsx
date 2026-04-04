@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -64,7 +64,9 @@ function App() {
             },
           }}
         >
+        <AntdApp>
           <ScreenViewer shareId={shareId} playerName={playerName} />
+        </AntdApp>
         </ConfigProvider>
       </ErrorBoundary>
     );
@@ -505,21 +507,23 @@ function App() {
           },
         }}
       >
-        <div className="app-container">
-          {/* 根据应用状态显示不同的界面 */}
-          {appState === 'in-lobby' && lobby ? <MiniWindow /> : <MainWindow />}
-        </div>
+        <AntdApp>
+          <div className="app-container">
+            {/* 根据应用状态显示不同的界面 */}
+            {appState === 'in-lobby' && lobby ? <MiniWindow /> : <MainWindow />}
+          </div>
 
-        {/* 版本更新提示弹窗 */}
-        {versionInfo && (
-          <VersionUpdateModal
-            visible={showVersionModal}
-            latestVersion={versionInfo.latestVersion}
-            currentVersion={versionInfo.currentVersion}
-            updateMessage={versionInfo.updateMessage}
-            onClose={() => setShowVersionModal(false)}
-          />
-        )}
+          {/* 版本更新提示弹窗 */}
+          {versionInfo && (
+            <VersionUpdateModal
+              visible={showVersionModal}
+              latestVersion={versionInfo.latestVersion}
+              currentVersion={versionInfo.currentVersion}
+              updateMessage={versionInfo.updateMessage}
+              onClose={() => setShowVersionModal(false)}
+            />
+          )}
+        </AntdApp>
       </ConfigProvider>
     </ErrorBoundary>
   );

@@ -33,6 +33,7 @@ export interface PeerConnection {
   remoteDescriptionSet: boolean; // 远程描述是否已设置
   connectionTimeout?: number; // 连接超时定时器
   isNegotiating: boolean; // 是否正在协商中
+  createdAt: number; // 连接创建时间
 }
 
 /**
@@ -51,6 +52,11 @@ export class WebRTCClient {
   private maxReconnectAttempts: number = 5;
   private reconnectTimeout: number | null = null;
   private isIntentionalDisconnect: boolean = false;
+  private reconnectingPeers: Set<string> = new Set();
+  private reconnectTimers: Map<string, number> = new Map();
+  private knownPlayers: Set<string> = new Set();
+  private pendingPlayerLeaveTimers: Map<string, number> = new Map();
+  private readonly transientLeaveConfirmMs: number = 10000;
 
   // ICE 服务器配置
   private iceServers: RTCIceServer[] = [
@@ -119,6 +125,11 @@ export class WebRTCClient {
       // 重置断开标志
       this.isIntentionalDisconnect = false;
       this.reconnectAttempts = 0;
+      this.reconnectingPeers.clear();
+      this.reconnectTimers.forEach(timer => clearTimeout(timer));
+      this.reconnectTimers.clear();
+      this.knownPlayers.clear();
+      this.clearAllPendingPlayerLeaves();
 
       // 获取虚拟IP
       console.log('正在获取虚拟IP...');
@@ -135,9 +146,8 @@ export class WebRTCClient {
       }
 
       // 设置信令服务器地址
-      // 直接使用 IP 地址连接（避免 DNS 解析问题）
-      this.signalingServerUrl = `ws://24.233.29.43:8445`;
-      console.log('📡 连接到公网信令服务器:', this.signalingServerUrl);
+      this.signalingServerUrl = `wss://mctier.pmhs.top/signaling`;
+      console.log('📡 连接到官方信令服务器:', this.signalingServerUrl);
 
       // 不再在初始化时获取麦克风，只有在用户开启麦克风时才获取
       console.log('⏭️ 跳过麦克风初始化，等待用户手动开启');
@@ -204,7 +214,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '1.3.0',
+              clientVersion: '1.3.5',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
@@ -271,6 +281,17 @@ export class WebRTCClient {
       
       // 重新连接
       await this.connectToSignalingServer();
+
+      // 刷新屏幕共享服务使用的WebSocket
+      try {
+        const { screenShareService } = await import('../screenShare/ScreenShareService');
+        if (this.websocket) {
+          screenShareService.initialize(this.localPlayerId, this.localPlayerName, this.websocket);
+          console.log('✅ 屏幕共享服务WebSocket已刷新');
+        }
+      } catch (error) {
+        console.error('❌ 刷新屏幕共享服务WebSocket失败:', error);
+      }
       
       // 重连成功，重置重连计数
       this.reconnectAttempts = 0;
@@ -290,6 +311,31 @@ export class WebRTCClient {
         }, delay);
       }
     }
+  }
+
+  private clearPendingPlayerLeave(playerId: string): boolean {
+    const pendingTimer = this.pendingPlayerLeaveTimers.get(playerId);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.pendingPlayerLeaveTimers.delete(playerId);
+      return true;
+    }
+    return false;
+  }
+
+  private clearAllPendingPlayerLeaves(): void {
+    this.pendingPlayerLeaveTimers.forEach((timer) => clearTimeout(timer));
+    this.pendingPlayerLeaveTimers.clear();
+  }
+
+  private isExpectedChannelCloseError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const rtcError = (error as { error?: { message?: string } }).error;
+    const message = rtcError?.message || '';
+    return message.includes('User-Initiated Abort') || message.includes('on-close called');
   }
 
   /**
@@ -338,6 +384,18 @@ export class WebRTCClient {
           console.log(`当前在线玩家: ${message.players.length} 人`);
           for (const player of message.players) {
             console.log(`  - ${player.playerName} (${player.playerId})`);
+
+            if (player.playerId === this.localPlayerId) {
+              continue;
+            }
+
+            const wasPendingLeave = this.clearPendingPlayerLeave(player.playerId);
+            if (wasPendingLeave) {
+              console.log(`♻️ 玩家 ${player.playerId} 在players-list中恢复在线，取消离线确认`);
+            }
+
+            const isKnownPlayer = this.knownPlayers.has(player.playerId);
+            this.knownPlayers.add(player.playerId);
             
             // 如果启用了域名访问且有虚拟域名，添加到hosts文件
             if (player.useDomain && player.virtualDomain && player.virtualIp) {
@@ -354,9 +412,13 @@ export class WebRTCClient {
               }
             }
             
-            // 触发回调，添加玩家到前端列表
-            if (this.onPlayerJoinedCallback) {
+            // 触发回调，添加玩家到前端列表（避免重连时重复触发）
+            if (!isKnownPlayer && this.onPlayerJoinedCallback) {
               this.onPlayerJoinedCallback(player.playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
+            }
+            
+            if (isKnownPlayer) {
+              continue;
             }
             
             // 使用字符串比较决定谁主动发起连接，避免双方同时发送Offer
@@ -376,17 +438,11 @@ export class WebRTCClient {
                 const offer = await pc.connection.createOffer();
                 await pc.connection.setLocalDescription(offer);
                 
-                // 发送 Offer 通过 WebSocket
-                this.sendWebSocketMessage({
-                  type: 'offer',
-                  from: this.localPlayerId,
-                  to: player.playerId,
-                  offer: {
-                    type: offer.type,
-                    sdp: offer.sdp,
-                  },
-                });
-                console.log(`✅ Offer 已发送 to ${player.playerId}`);
+                // 发送 Offer（失败自动重试一次）
+                await this.sendOfferWithRetry(player.playerId, {
+                  type: offer.type,
+                  sdp: offer.sdp,
+                }, '初次连接');
               }
             } else {
               console.log(`⏳ 等待 ${player.playerId} 主动发起连接（ID字典序较小）`);
@@ -412,13 +468,32 @@ export class WebRTCClient {
         case 'player-joined':
           // 有新玩家加入
           console.log(`🎮 新玩家加入: ${message.playerName} (${message.playerId})`);
+
+          if (message.playerId === this.localPlayerId) {
+            break;
+          }
+
+          const isRecoveredPlayer = this.clearPendingPlayerLeave(message.playerId);
+          if (isRecoveredPlayer) {
+            console.log(`♻️ 玩家 ${message.playerId} 在短时断线窗口内恢复，跳过离开/加入提示音`);
+          }
+
+          const alreadyKnown = this.knownPlayers.has(message.playerId);
+          if (alreadyKnown) {
+            console.log(`⏳ ${message.playerId} 已在players-list中处理过，跳过重复加入事件`);
+            break;
+          }
+
+          this.knownPlayers.add(message.playerId);
           
-          // 播放玩家加入音效
-          try {
-            const { audioService } = await import('../audio/AudioService');
-            await audioService.play('userJoined');
-          } catch (error) {
-            console.error('播放玩家加入音效失败:', error);
+          // 播放玩家加入音效（短时断线恢复不播放）
+          if (!isRecoveredPlayer) {
+            try {
+              const { audioService } = await import('../audio/AudioService');
+              await audioService.play('userJoined');
+            } catch (error) {
+              console.error('播放玩家加入音效失败:', error);
+            }
           }
           
           // 如果启用了域名访问且有虚拟域名，添加到hosts文件
@@ -442,8 +517,6 @@ export class WebRTCClient {
           }
           
           // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
-          
-          // 使用字符串比较决定谁主动发起连接
           // 只有当本地玩家ID字典序大于对方时才主动发起连接
           if (this.localPlayerId > message.playerId) {
             console.log(`📡 主动向新玩家 ${message.playerId} 发起连接（ID字典序较大）`);
@@ -463,17 +536,11 @@ export class WebRTCClient {
               const offer = await pc.connection.createOffer();
               await pc.connection.setLocalDescription(offer);
               
-              // 发送 Offer 通过 WebSocket
-              this.sendWebSocketMessage({
-                type: 'offer',
-                from: this.localPlayerId,
-                to: message.playerId,
-                offer: {
-                  type: offer.type,
-                  sdp: offer.sdp,
-                },
-              });
-              console.log(`✅ Offer 已发送给新玩家 ${message.playerId}`);
+              // 发送 Offer（失败自动重试一次）
+              await this.sendOfferWithRetry(message.playerId, {
+                type: offer.type,
+                sdp: offer.sdp,
+              }, '新玩家连接');
             }
           } else {
             console.log(`⏳ 等待新玩家 ${message.playerId} 主动发起连接（ID字典序较小）`);
@@ -481,40 +548,63 @@ export class WebRTCClient {
           break;
           
         case 'player-left':
-          // 有玩家离开
-          console.log(`👋 玩家离开: ${message.playerId}`);
-          
-          // 播放玩家离开音效
-          try {
-            const { audioService } = await import('../audio/AudioService');
-            await audioService.play('userLeft');
-          } catch (error) {
-            console.error('播放玩家离开音效失败:', error);
+          // 有玩家离开（增加短时断线缓冲，避免误报提示音）
+          console.log(`👋 玩家离开事件: ${message.playerId}`);
+
+          if (!message.playerId || message.playerId === this.localPlayerId) {
+            break;
           }
-          
-          // 如果有虚拟域名，从hosts文件中删除
-          if (message.virtualDomain) {
-            try {
-              console.log(`🗑️ 删除玩家域名映射: ${message.virtualDomain}`);
-              await invoke('remove_player_domain', {
-                domain: message.virtualDomain,
-              });
-              console.log(`✅ 玩家域名映射已删除: ${message.virtualDomain}`);
-            } catch (error) {
-              console.error(`❌ 删除玩家域名映射失败:`, error);
-              // 不中断流程，继续处理玩家离开
+
+          const existingLeaveTimer = this.pendingPlayerLeaveTimers.get(message.playerId);
+          if (existingLeaveTimer) {
+            clearTimeout(existingLeaveTimer);
+          }
+
+          const leaveTimer = window.setTimeout(async () => {
+            this.pendingPlayerLeaveTimers.delete(message.playerId);
+
+            if (!this.knownPlayers.has(message.playerId)) {
+              return;
             }
-          }
-          
-          // 清理该玩家的文件共享
-          try {
-            fileShareService.handlePlayerLeft(message.playerId);
-            console.log(`✅ 已清理玩家 ${message.playerId} 的文件共享`);
-          } catch (error) {
-            console.error(`❌ 清理玩家文件共享失败:`, error);
-          }
-          
-          this.removePeer(message.playerId);
+
+            console.log(`🚪 玩家确认离开: ${message.playerId}`);
+
+            // 播放玩家离开音效（仅在确认离开后）
+            try {
+              const { audioService } = await import('../audio/AudioService');
+              await audioService.play('userLeft');
+            } catch (error) {
+              console.error('播放玩家离开音效失败:', error);
+            }
+
+            // 如果有虚拟域名，从hosts文件中删除
+            if (message.virtualDomain) {
+              try {
+                console.log(`🗑️ 删除玩家域名映射: ${message.virtualDomain}`);
+                await invoke('remove_player_domain', {
+                  domain: message.virtualDomain,
+                });
+                console.log(`✅ 玩家域名映射已删除: ${message.virtualDomain}`);
+              } catch (error) {
+                console.error(`❌ 删除玩家域名映射失败:`, error);
+                // 不中断流程，继续处理玩家离开
+              }
+            }
+
+            // 清理该玩家的文件共享
+            try {
+              fileShareService.handlePlayerLeft(message.playerId);
+              console.log(`✅ 已清理玩家 ${message.playerId} 的文件共享`);
+            } catch (error) {
+              console.error(`❌ 清理玩家文件共享失败:`, error);
+            }
+
+            this.knownPlayers.delete(message.playerId);
+            this.removePeer(message.playerId);
+          }, this.transientLeaveConfirmMs);
+
+          this.pendingPlayerLeaveTimers.set(message.playerId, leaveTimer);
+          console.log(`⏳ 玩家 ${message.playerId} 进入离线确认窗口: ${this.transientLeaveConfirmMs}ms`);
           break;
           
         case 'offer':
@@ -1012,23 +1102,27 @@ export class WebRTCClient {
             // 标记正在协商
             peer.isNegotiating = true;
             
-            // 检查信令状态，只有在 stable 状态才能设置远程描述
+            // 检查信令状态，优先处理 offer 冲突（glare）
             if (signalingState !== 'stable') {
-              console.warn(`⚠️ 信令状态不是 stable (${signalingState})，等待状态恢复...`);
-              // 等待最多2秒让状态恢复到 stable
-              let waitCount = 0;
-              while (peer.connection.signalingState !== 'stable' && waitCount < 20) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                waitCount++;
-              }
-              
-              if (peer.connection.signalingState !== 'stable') {
-                console.error(`❌ 信令状态未恢复到 stable，无法处理重新协商`);
-                peer.isNegotiating = false;
-                return;
+              if (signalingState === 'have-local-offer') {
+                console.warn(`⚠️ 信令状态为 have-local-offer，执行 rollback 后处理远端 Offer`);
+                await peer.connection.setLocalDescription({ type: 'rollback' });
+              } else {
+                console.warn(`⚠️ 信令状态不是 stable (${signalingState})，等待状态恢复...`);
+                let waitCount = 0;
+                while (peer.connection.signalingState !== 'stable' && waitCount < 20) {
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  waitCount++;
+                }
+
+                if (peer.connection.signalingState !== 'stable') {
+                  console.error(`❌ 信令状态未恢复到 stable，无法处理重新协商`);
+                  peer.isNegotiating = false;
+                  return;
+                }
               }
             }
-            
+
             // 设置远程描述（重新协商）
             await peer.connection.setRemoteDescription(new RTCSessionDescription(message.offer));
             console.log(`✅ 已设置重新协商的 Remote Description from ${peerId}`);
@@ -1038,7 +1132,7 @@ export class WebRTCClient {
             await peer.connection.setLocalDescription(answer);
             
             // 发送 answer 通过 WebSocket
-            this.sendWebSocketMessage({
+            const answerSent = this.sendWebSocketMessage({
               type: 'answer',
               from: this.localPlayerId,
               to: peerId,
@@ -1047,8 +1141,12 @@ export class WebRTCClient {
                 sdp: answer.sdp,
               },
             });
-            
-            console.log(`✅ 重新协商的 Answer 已发送 to ${peerId}`);
+
+            if (answerSent) {
+              console.log(`✅ 重新协商的 Answer 已发送 to ${peerId}`);
+            } else {
+              console.warn(`⚠️ 重新协商的 Answer 发送失败 to ${peerId}`);
+            }
             
             // 标记协商完成
             peer.isNegotiating = false;
@@ -1108,7 +1206,7 @@ export class WebRTCClient {
       await peer.connection.setLocalDescription(answer);
       
       // 发送 answer 通过 WebSocket
-      this.sendWebSocketMessage({
+      const answerSent = this.sendWebSocketMessage({
         type: 'answer',
         from: this.localPlayerId,
         to: peerId,
@@ -1117,8 +1215,12 @@ export class WebRTCClient {
           sdp: answer.sdp,
         },
       });
-      
-      console.log(`✅ Answer 已发送 to ${peerId}`);
+
+      if (answerSent) {
+        console.log(`✅ Answer 已发送 to ${peerId}`);
+      } else {
+        console.warn(`⚠️ Answer 发送失败 to ${peerId}`);
+      }
       
       // 标记协商完成
       peer.isNegotiating = false;
@@ -1204,23 +1306,102 @@ export class WebRTCClient {
   /**
    * 发送WebSocket消息（公开方法，供外部调用）
    */
-  public sendWebSocketMessage(message: any): void {
+  public sendWebSocketMessage(message: any): boolean {
     if (!this.websocket) {
       console.error('❌ WebSocket实例不存在，无法发送消息:', message.type);
-      return;
+      return false;
     }
-    
+
     if (this.websocket.readyState === WebSocket.OPEN) {
       try {
         this.websocket.send(JSON.stringify(message));
+        return true;
       } catch (error) {
         console.error('❌ 发送WebSocket消息失败:', error, message.type);
+        return false;
       }
-    } else {
-      const stateNames = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
-      const stateName = stateNames[this.websocket.readyState] || 'UNKNOWN';
-      console.error(`❌ WebSocket未就绪(${stateName})，无法发送消息:`, message.type);
     }
+
+    const stateNames = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+    const stateName = stateNames[this.websocket.readyState] || 'UNKNOWN';
+    console.error(`❌ WebSocket未就绪(${stateName})，无法发送消息:`, message.type);
+    return false;
+  }
+
+  private async renegotiatePeer(peerId: string, pc: PeerConnection): Promise<void> {
+    if (pc.connection.signalingState !== 'stable') {
+      console.warn('⚠️ 跳过重协商 ' + peerId + '，当前信令状态:', pc.connection.signalingState);
+      return;
+    }
+
+    if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+      console.warn('⚠️ 跳过重协商 ' + peerId + '，WebSocket未就绪');
+      return;
+    }
+
+    pc.isNegotiating = true;
+    try {
+      const offer = await pc.connection.createOffer();
+      await pc.connection.setLocalDescription(offer);
+
+      const sent = this.sendWebSocketMessage({
+        type: 'offer',
+        from: this.localPlayerId,
+        to: peerId,
+        offer: {
+          type: offer.type,
+          sdp: offer.sdp,
+        },
+      });
+
+      if (sent) {
+        console.log('✅ 已发送重新协商 offer to ' + peerId);
+      } else {
+        console.warn('⚠️ 重新协商 offer 发送失败 to ' + peerId);
+      }
+    } catch (error) {
+      console.error('❌ 重新协商失败 (' + peerId + '):', error);
+    } finally {
+      pc.isNegotiating = false;
+    }
+  }
+
+  private async sendOfferWithRetry(peerId: string, offer: RTCSessionDescriptionInit, context: string): Promise<boolean> {
+    const sent = this.sendWebSocketMessage({
+      type: 'offer',
+      from: this.localPlayerId,
+      to: peerId,
+      offer: {
+        type: offer.type,
+        sdp: offer.sdp,
+      },
+    });
+
+    if (sent) {
+      console.log(`✅ ${context} Offer 已发送 to ${peerId}`);
+      return true;
+    }
+
+    console.warn(`⚠️ ${context} Offer 首次发送失败，500ms 后重试: ${peerId}`);
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const retrySent = this.sendWebSocketMessage({
+      type: 'offer',
+      from: this.localPlayerId,
+      to: peerId,
+      offer: {
+        type: offer.type,
+        sdp: offer.sdp,
+      },
+    });
+
+    if (retrySent) {
+      console.log(`✅ ${context} Offer 重试发送成功 to ${peerId}`);
+      return true;
+    }
+
+    console.warn(`⚠️ ${context} Offer 重试仍失败 to ${peerId}`);
+    return false;
   }
 
   /**
@@ -1251,6 +1432,55 @@ export class WebRTCClient {
   /**
    * 移除对等连接（内部方法，不触发回调）
    */
+  private schedulePeerReconnect(peerId: string, reason: string, delayMs: number): void {
+    if (this.isIntentionalDisconnect) {
+      return;
+    }
+
+    if (this.reconnectTimers.has(peerId)) {
+      console.log(`[WebRTC] ${peerId} 已存在重连定时器，跳过重复调度（${reason}）`);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      this.reconnectTimers.delete(peerId);
+
+      const currentPc = this.peerConnections.get(peerId);
+      if (currentPc && (currentPc.connection.connectionState === 'connected' || currentPc.connection.connectionState === 'connecting')) {
+        console.log(`[WebRTC] ${peerId} 连接已恢复，取消重连（${reason}）`);
+        return;
+      }
+
+      if (this.localPlayerId <= peerId) {
+        console.log(`[WebRTC] 等待 ${peerId} 主动重连（ID字典序较小）`);
+        return;
+      }
+
+      if (this.reconnectingPeers.has(peerId)) {
+        console.log(`[WebRTC] ${peerId} 正在重连中，跳过重复重连（${reason}）`);
+        return;
+      }
+
+      this.reconnectingPeers.add(peerId);
+      try {
+        console.log(`[WebRTC] 触发重连 ${peerId}，原因: ${reason}`);
+        await this.handleReconnect(peerId);
+      } finally {
+        this.reconnectingPeers.delete(peerId);
+      }
+    }, delayMs);
+
+    this.reconnectTimers.set(peerId, timer);
+  }
+
+  private clearPeerReconnectState(peerId: string): void {
+    const timer = this.reconnectTimers.get(peerId);
+    if (timer) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(peerId);
+    }
+    this.reconnectingPeers.delete(peerId);
+  }
   private removePeerConnection(peerId: string): void {
     const pc = this.peerConnections.get(peerId);
     if (pc) {
@@ -1385,17 +1615,10 @@ export class WebRTCClient {
         const offer = await pc.connection.createOffer({ iceRestart: true });
         await pc.connection.setLocalDescription(offer);
         
-        this.sendWebSocketMessage({
-          type: 'offer',
-          from: this.localPlayerId,
-          to: peerId,
-          offer: {
-            type: offer.type,
-            sdp: offer.sdp,
-          },
-        });
-        
-        console.log(`✅ 重连 offer 已发送 to ${peerId}`);
+        await this.sendOfferWithRetry(peerId, {
+          type: offer.type,
+          sdp: offer.sdp,
+        }, '重连');
       } else {
         console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
       }
@@ -1520,38 +1743,29 @@ export class WebRTCClient {
             peer.connectionTimeout = undefined;
           }
           
+          // 清除旧的重连定时器
+          this.clearPeerReconnectState(peerId);
+          
           // 只有ID字典序较大的一方才主动重连，避免双方同时重连
           if (this.localPlayerId > peerId) {
-            console.log(`🔄 连接失败，准备重连 ${peerId}...`);
-            // 等待一段时间后尝试重连
-            setTimeout(async () => {
-              const currentPc = this.peerConnections.get(peerId);
-              if (currentPc && currentPc.connection.connectionState === 'failed') {
-                console.log(`🔄 开始重连 ${peerId}...`);
-                await this.handleReconnect(peerId);
-              }
-            }, 2000);
+            console.log(`🔄 连接失败，调度重连 ${peerId}...`);
+            this.schedulePeerReconnect(peerId, '连接失败', 2000);
           } else {
             console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
           }
         } else if (pc.connectionState === 'disconnected') {
           console.warn(`⚠️ 与 ${peerId} 的连接断开`);
           
+          // 清除旧的重连定时器
+          this.clearPeerReconnectState(peerId);
+          
           // 等待8秒看是否能自动恢复（给ICE更多时间尝试重连）
-          setTimeout(async () => {
-            const currentPc = this.peerConnections.get(peerId);
-            if (currentPc && currentPc.connection.connectionState === 'disconnected') {
-              console.warn(`⚠️ 与 ${peerId} 的连接仍然断开，准备重连...`);
-              
-              // 只有ID字典序较大的一方才主动重连
-              if (this.localPlayerId > peerId) {
-                console.log(`🔄 开始重连 ${peerId}...`);
-                await this.handleReconnect(peerId);
-              } else {
-                console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
-              }
-            }
-          }, 8000);
+          if (this.localPlayerId > peerId) {
+            console.log(`🔄 连接断开，调度重连 ${peerId}...`);
+            this.schedulePeerReconnect(peerId, '连接断开', 8000);
+          } else {
+            console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
+          }
         } else if (pc.connectionState === 'closed') {
           console.log(`🔒 与 ${peerId} 的连接已关闭`);
           this.removePeerConnection(peerId);
@@ -1630,6 +1844,11 @@ export class WebRTCClient {
       };
       
       dataChannel.onerror = (error) => {
+        if (this.isExpectedChannelCloseError(error)) {
+          console.log(`ℹ️ 数据通道正常关闭 with ${peerId}`);
+          return;
+        }
+
         console.error(`❌ 数据通道错误 with ${peerId}:`, error);
         // 数据通道错误不应该导致整个连接失败
         // 只记录错误，不触发重连
@@ -1653,6 +1872,11 @@ export class WebRTCClient {
       };
       
       fileTransferChannel.onerror = (error) => {
+        if (this.isExpectedChannelCloseError(error)) {
+          console.log(`ℹ️ 文件传输通道正常关闭 with ${peerId}`);
+          return;
+        }
+
         console.error(`❌ 文件传输通道错误 with ${peerId}:`, error);
       };
       
@@ -1679,6 +1903,11 @@ export class WebRTCClient {
           };
           
           receivedChannel.onerror = (error) => {
+            if (this.isExpectedChannelCloseError(error)) {
+              console.log(`ℹ️ 接收的文件传输通道正常关闭 with ${peerId}`);
+              return;
+            }
+
             console.error(`❌ 接收的文件传输通道错误 with ${peerId}:`, error);
           };
           
@@ -1701,6 +1930,11 @@ export class WebRTCClient {
           };
           
           receivedChannel.onerror = (error) => {
+            if (this.isExpectedChannelCloseError(error)) {
+              console.log(`ℹ️ 接收的数据通道正常关闭 with ${peerId}`);
+              return;
+            }
+
             console.error(`❌ 接收的数据通道错误 with ${peerId}:`, error);
           };
           
@@ -1720,6 +1954,7 @@ export class WebRTCClient {
         iceCandidateQueue: [],
         remoteDescriptionSet: false,
         isNegotiating: false,
+        createdAt: Date.now(),
       };
       
       this.peerConnections.set(peerId, peerConnection);
@@ -1730,10 +1965,10 @@ export class WebRTCClient {
         if (currentPc && currentPc.connection.connectionState !== 'connected') {
           console.warn(`⏰ 连接超时 (${peerId})，状态: ${currentPc.connection.connectionState}`);
           
-          // 如果是ID字典序较大的一方，尝试重连
+          // 如果是ID字典序较大的一方，调度重连（避免立即重连导致频繁失败）
           if (this.localPlayerId > peerId) {
-            console.log(`🔄 连接超时，尝试重连 ${peerId}...`);
-            this.handleReconnect(peerId);
+            console.log(`🔄 连接超时，调度重连 ${peerId}...`);
+            this.schedulePeerReconnect(peerId, '连接超时', 2000);
           }
         }
       }, 30000);
@@ -1750,173 +1985,96 @@ export class WebRTCClient {
    * 第一次开麦时获取麦克风，之后只启用/禁用轨道，不释放资源
    */
   async setMicEnabled(enabled: boolean): Promise<void> {
-      try {
-        console.log(`🎤 设置麦克风状态: ${enabled ? '开启' : '关闭'}`);
+    try {
+      console.log('🎤 设置麦克风状态:', enabled ? '开启' : '关闭');
 
-        if (enabled) {
-          // 开启麦克风
-          console.log('正在获取麦克风权限...');
+      if (enabled) {
+        console.log('正在获取麦克风权限...');
 
-          try {
-            // 重新获取麦克风
-            const newStream = await navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-              },
-              video: false,
-            });
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
 
-            console.log('✅ 麦克风权限已获取');
+        console.log('✅ 麦克风权限已获取');
+        const newAudioTrack = newStream.getAudioTracks()[0];
 
-            const newAudioTrack = newStream.getAudioTracks()[0];
-
-            // 使用 replaceTrack 更新所有现有的 peer 连接
-            for (const [peerId, pc] of this.peerConnections) {
-              // 等待当前协商完成
-              if (pc.isNegotiating) {
-                console.log(`⏳ 等待 ${peerId} 的协商完成...`);
-                let waitCount = 0;
-                while (pc.isNegotiating && waitCount < 30) {
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                  waitCount++;
-                }
-              }
-              
-              // 获取所有 transceivers 并查找 audio 类型的
-              const transceivers = pc.connection.getTransceivers();
-              const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
-              
-              if (audioTransceiver && audioTransceiver.sender) {
-                // 替换音频轨道
-                await audioTransceiver.sender.replaceTrack(newAudioTrack);
-                console.log(`✅ 已替换 peer ${peerId} 的音频轨道`);
-                
-                // 触发重新协商以通知对方音频轨道已更新
-                try {
-                  // 标记正在协商
-                  pc.isNegotiating = true;
-                  
-                  const offer = await pc.connection.createOffer();
-                  await pc.connection.setLocalDescription(offer);
-                  
-                  this.sendWebSocketMessage({
-                    type: 'offer',
-                    from: this.localPlayerId,
-                    to: peerId,
-                    offer: {
-                      type: offer.type,
-                      sdp: offer.sdp,
-                    },
-                  });
-                  
-                  console.log(`✅ 已发送重新协商 offer to ${peerId}`);
-                  
-                  // 等待一小段时间让协商完成
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                  
-                  // 标记协商完成
-                  pc.isNegotiating = false;
-                } catch (renegError) {
-                  console.error(`重新协商失败 (${peerId}):`, renegError);
-                  pc.isNegotiating = false;
-                }
-              } else {
-                // 如果没有找到 audio transceiver，添加新轨道
-                pc.connection.addTrack(newAudioTrack, newStream);
-                console.log(`✅ 已添加 peer ${peerId} 的音频轨道`);
-              }
+        for (const [peerId, pc] of this.peerConnections) {
+          if (pc.isNegotiating) {
+            console.log('⏳ 等待 ' + peerId + ' 的协商完成...');
+            let waitCount = 0;
+            while (pc.isNegotiating && waitCount < 30) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+              waitCount++;
             }
-
-            // 释放旧的音频流
-            if (this.localStream) {
-              const oldTracks = this.localStream.getAudioTracks();
-              oldTracks.forEach(track => track.stop());
-            }
-
-            // 保存新的音频流
-            this.localStream = newStream;
-
-          } catch (error) {
-            console.error('❌ 获取麦克风失败:', error);
-            throw error;
           }
-        } else {
-          // 关闭麦克风 - 停止并释放资源
-          if (this.localStream) {
-            const audioTracks = this.localStream.getAudioTracks();
-            console.log(`正在停止并释放 ${audioTracks.length} 个音频轨道...`);
 
-            audioTracks.forEach((track, index) => {
-              track.stop();
-              console.log(`轨道 ${index + 1} 已停止并释放`);
-            });
+          const transceivers = pc.connection.getTransceivers();
+          const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
 
-            // 将所有 peer 连接的音频轨道替换为 null
-            for (const [peerId, pc] of this.peerConnections) {
-              // 等待当前协商完成
-              if (pc.isNegotiating) {
-                console.log(`⏳ 等待 ${peerId} 的协商完成...`);
-                let waitCount = 0;
-                while (pc.isNegotiating && waitCount < 30) {
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                  waitCount++;
-                }
-              }
-              
-              const senders = pc.connection.getSenders();
-              const audioSender = senders.find(sender => sender.track?.kind === 'audio');
-
-              if (audioSender) {
-                await audioSender.replaceTrack(null);
-                console.log(`✅ 已移除 peer ${peerId} 的音频轨道`);
-                
-                // 触发重新协商以通知对方音频轨道已移除
-                try {
-                  // 标记正在协商
-                  pc.isNegotiating = true;
-                  
-                  const offer = await pc.connection.createOffer();
-                  await pc.connection.setLocalDescription(offer);
-                  
-                  this.sendWebSocketMessage({
-                    type: 'offer',
-                    from: this.localPlayerId,
-                    to: peerId,
-                    offer: {
-                      type: offer.type,
-                      sdp: offer.sdp,
-                    },
-                  });
-                  
-                  console.log(`✅ 已发送重新协商 offer to ${peerId}`);
-                  
-                  // 等待一小段时间让协商完成
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                  
-                  // 标记协商完成
-                  pc.isNegotiating = false;
-                } catch (renegError) {
-                  console.error(`重新协商失败 (${peerId}):`, renegError);
-                  pc.isNegotiating = false;
-                }
-              }
-            }
-
-            this.localStream = null;
-            console.log('✅ 麦克风已关闭，资源已释放');
+          if (audioTransceiver && audioTransceiver.sender) {
+            await audioTransceiver.sender.replaceTrack(newAudioTrack);
+            console.log('✅ 已替换 peer ' + peerId + ' 的音频轨道');
+            await this.renegotiatePeer(peerId, pc);
+          } else {
+            pc.connection.addTrack(newAudioTrack, newStream);
+            console.log('✅ 已添加 peer ' + peerId + ' 的音频轨道');
+            await this.renegotiatePeer(peerId, pc);
           }
         }
 
-        // 广播状态更新
-        this.broadcastStatusUpdate(enabled);
-        console.log(`✅ 麦克风状态已更新并广播`);
-      } catch (error) {
-        console.error('❌ 设置麦克风状态失败:', error);
-        throw error;
+        if (this.localStream) {
+          const oldTracks = this.localStream.getAudioTracks();
+          oldTracks.forEach(track => track.stop());
+        }
+
+        this.localStream = newStream;
+      } else {
+        if (this.localStream) {
+          const audioTracks = this.localStream.getAudioTracks();
+          console.log('正在停止并释放', audioTracks.length, '个音频轨道...');
+
+          audioTracks.forEach((track, index) => {
+            track.stop();
+            console.log('轨道 ' + (index + 1) + ' 已停止并释放');
+          });
+
+          for (const [peerId, pc] of this.peerConnections) {
+            if (pc.isNegotiating) {
+              console.log('⏳ 等待 ' + peerId + ' 的协商完成...');
+              let waitCount = 0;
+              while (pc.isNegotiating && waitCount < 30) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                waitCount++;
+              }
+            }
+
+            const senders = pc.connection.getSenders();
+            const audioSender = senders.find(sender => sender.track?.kind === 'audio');
+
+            if (audioSender) {
+              await audioSender.replaceTrack(null);
+              console.log('✅ 已移除 peer ' + peerId + ' 的音频轨道');
+              await this.renegotiatePeer(peerId, pc);
+            }
+          }
+
+          this.localStream = null;
+          console.log('✅ 麦克风已关闭，资源已释放');
+        }
       }
+
+      await this.broadcastStatusUpdate(enabled);
+      console.log('✅ 麦克风状态已更新并广播');
+    } catch (error) {
+      console.error('❌ 设置麦克风状态失败:', error);
+      throw error;
     }
+  }
 
 
   /**
@@ -1986,17 +2144,22 @@ export class WebRTCClient {
    */
   private async broadcastStatusUpdate(micEnabled: boolean): Promise<void> {
     try {
-      // 通过WebSocket发送状态更新
-      this.sendWebSocketMessage({
+      const sent = this.sendWebSocketMessage({
         type: 'status-update',
         clientId: this.localPlayerId,
         micEnabled,
       });
-      console.log(`✅ 状态更新已通过WebSocket广播: 麦克风${micEnabled ? '开启' : '关闭'}`);
+
+      if (sent) {
+        console.log('✅ 状态更新已通过WebSocket广播: 麦克风' + (micEnabled ? '开启' : '关闭'));
+      } else {
+        console.warn('⚠️ 状态更新发送失败: 麦克风' + (micEnabled ? '开启' : '关闭'));
+      }
     } catch (error) {
       console.error('❌ 广播状态更新失败:', error);
     }
   }
+
 
   /**
    * 启动心跳
@@ -2011,7 +2174,7 @@ export class WebRTCClient {
       } catch (error) {
         console.error('发送心跳失败:', error);
       }
-    }, 30000); // 每 30 秒发送一次心跳
+    }, 15000); // 【优化】改为每15秒发送一次心跳，提高检测频率，避免误判离开
   }
 
   /**
@@ -2120,6 +2283,12 @@ export class WebRTCClient {
         this.reconnectTimeout = null;
       }
       
+      // 清理所有peer重连状态
+      this.reconnectTimers.forEach(timer => clearTimeout(timer));
+      this.reconnectTimers.clear();
+      this.reconnectingPeers.clear();
+      this.knownPlayers.clear();
+      
       // 重置重连计数
       this.reconnectAttempts = 0;
       
@@ -2225,3 +2394,16 @@ export class WebRTCClient {
 
 // 导出单例实例
 export const webrtcClient = new WebRTCClient();
+
+
+
+
+
+
+
+
+
+
+
+
+

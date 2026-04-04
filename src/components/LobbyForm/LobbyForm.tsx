@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Form, Input, Button, Select, Space, Typography, message, Modal, Switch } from 'antd';
+import { Form, Input, Button, Select, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
@@ -26,11 +26,23 @@ interface LobbyFormValues {
   useDomain: boolean;
 }
 
+// 官方 EasyTier 服务器节点（仅保留 CDN WebSockets）
+const OFFICIAL_EASYTIER_SERVER = 'wss://mctiers.pmhs.top';
+
+// 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
+const isLegacyOfficialServer = (server?: string) => {
+  if (!server) return false;
+  return (
+    server === 'tcp://mctier.pmhs.top:11010' ||
+    server === 'udp://mctier.pmhs.top:11010' ||
+    server === 'wss://mctier.pmhs.top/signaling' ||
+    server === 'ws://mctier.pmhs.top/signaling'
+  );
+};
+
 // 服务器节点列表
 const SERVER_NODES = [
-  { value: 'tcp://24.233.29.43:11010', label: 'MCTier 官方服务器 (TCP)' },
-  { value: 'udp://24.233.29.43:11010', label: 'MCTier 官方服务器 (UDP)' },
-  { value: 'ws://24.233.29.43:11011', label: 'MCTier 官方服务器 (WebSocket)' },
+  { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
   { value: 'custom', label: '自定义服务器地址' },
 ];
 
@@ -90,11 +102,12 @@ const generateRandomPassword = (): string => {
  * 用于创建或加入大厅
  */
 export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
+  const { message } = AntdApp.useApp();
+  const { setAppState, setLobby, config } = useAppStore();
   const [form] = Form.useForm<LobbyFormValues>();
   const [loading, setLoading] = useState(false);
-  const [showCustomServer, setShowCustomServer] = useState(false);
+  const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
-  const { setAppState, setLobby, config } = useAppStore();
   
   // ESC键返回
   useEscapeKey(() => {
@@ -126,10 +139,18 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     });
   };
 
-  // 从配置中加载默认值
+  const resolvedPreferredServer =
+    config.preferredServer === 'custom'
+      ? 'custom'
+      : isLegacyOfficialServer(config.preferredServer)
+        ? OFFICIAL_EASYTIER_SERVER
+        : config.preferredServer === OFFICIAL_EASYTIER_SERVER
+          ? OFFICIAL_EASYTIER_SERVER
+          : OFFICIAL_EASYTIER_SERVER;
+
   const initialValues: Partial<LobbyFormValues> = {
     playerName: config.playerName || '',
-    serverNode: config.preferredServer || SERVER_NODES[0].value,
+    serverNode: resolvedPreferredServer,
     // 不设置 useDomain 的初始值，让 Switch 组件自己管理状态（默认为 false）
   };
 
@@ -158,7 +179,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       password: lobbyPassword,
       playerName,
       useDomain: useDomain || false,
-      serverNode: config.preferredServer || SERVER_NODES[0].value,
+      serverNode: resolvedPreferredServer,
     });
     setTimeout(() => {
       form.submit();
@@ -663,13 +684,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 rules={[
                   { required: true, message: '请输入自定义服务器地址' },
                   { 
-                    pattern: /^(tcp|udp|ws|wss):\/\/.+:\d+$/,
-                    message: '请输入有效的服务器地址，格式：tcp://地址:端口、udp://地址:端口 或 ws://地址:端口'
+                    pattern: /^(tcp|udp|ws|wss):\/\/.+$/,
+                    message: '请输入有效的服务器地址，格式示例：tcp://域名:端口、udp://域名:端口、ws://地址 或 wss://地址'
                   }
                 ]}
               >
                 <Input
-                  placeholder="例如：tcp://your-server.com:11010 或 ws://your-server.com:11011"
+                  placeholder="例如：tcp://mctier.pmhs.top:11010 或 udp://your-server.com:11010"
                   size="large"
                   disabled={loading}
                 />

@@ -23,6 +23,31 @@ static PACKET_LIB_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet
 pub struct ResourceManager;
 
 impl ResourceManager {
+    #[cfg(debug_assertions)]
+    fn find_debug_binary(app_handle: &tauri::AppHandle, filename: &str) -> Option<PathBuf> {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        if let Ok(resource_path) = app_handle.path().resource_dir() {
+            candidates.push(resource_path.join("binaries").join(filename));
+        }
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.join("binaries").join(filename));
+                candidates.push(exe_dir.join("..\\..\\..\\binaries").join(filename));
+                candidates.push(exe_dir.join("..\\..\\..\\resources\\binaries").join(filename));
+            }
+        }
+
+        for candidate in candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        None
+    }
+
     /// 获取运行时目录（用于存放提取的二进制文件）
     /// 
     /// # 参数
@@ -103,30 +128,16 @@ impl ResourceManager {
     /// * `Ok(PathBuf)` - EasyTier 可执行文件的完整路径
     /// * `Err(AppError)` - 获取路径失败
     pub fn get_easytier_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        // 在开发模式下，使用相对路径
+        // 在开发模式下，优先使用 target 目录中的 binaries；不存在时退回到嵌入提取
         #[cfg(debug_assertions)]
         {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            
-            let easytier_path = resource_path
-                .join("binaries")
-                .join("easytier-core.exe");
-            
-            log::info!("开发模式 - EasyTier 路径: {:?}", easytier_path);
-            
-            if !easytier_path.exists() {
-                return Err(AppError::ConfigError(format!(
-                    "EasyTier 可执行文件不存在: {:?}",
-                    easytier_path
-                )));
+            if let Some(path) = Self::find_debug_binary(app_handle, "easytier-core.exe") {
+                log::info!("开发模式 - 使用 EasyTier 路径: {:?}", path);
+                return Ok(path);
             }
-            
-            Ok(easytier_path)
+
+            log::warn!("开发模式 - 未找到外部 easytier-core.exe，回退到内嵌资源提取");
+            return Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES);
         }
         
         // 在生产模式下，从嵌入的二进制文件中提取
@@ -140,13 +151,10 @@ impl ResourceManager {
     pub fn get_packet_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            Ok(resource_path.join("binaries").join("Packet.dll"))
+            if let Some(path) = Self::find_debug_binary(app_handle, "Packet.dll") {
+                return Ok(path);
+            }
+            return Self::extract_binary(app_handle, "Packet.dll", PACKET_DLL_BYTES);
         }
         
         #[cfg(not(debug_assertions))]
@@ -159,13 +167,10 @@ impl ResourceManager {
     pub fn get_wintun_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            Ok(resource_path.join("binaries").join("wintun.dll"))
+            if let Some(path) = Self::find_debug_binary(app_handle, "wintun.dll") {
+                return Ok(path);
+            }
+            return Self::extract_binary(app_handle, "wintun.dll", WINTUN_DLL_BYTES);
         }
         
         #[cfg(not(debug_assertions))]
@@ -178,13 +183,10 @@ impl ResourceManager {
     pub fn get_windivert_sys_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            Ok(resource_path.join("binaries").join("WinDivert64.sys"))
+            if let Some(path) = Self::find_debug_binary(app_handle, "WinDivert64.sys") {
+                return Ok(path);
+            }
+            return Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES);
         }
         
         #[cfg(not(debug_assertions))]
@@ -197,13 +199,10 @@ impl ResourceManager {
     pub fn get_packet_lib_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
-            let resource_path = app_handle
-                .path()
-                .resource_dir()
-                .map_err(|e| {
-                    AppError::ConfigError(format!("无法获取资源目录: {}", e))
-                })?;
-            Ok(resource_path.join("binaries").join("Packet.lib"))
+            if let Some(path) = Self::find_debug_binary(app_handle, "Packet.lib") {
+                return Ok(path);
+            }
+            return Self::extract_binary(app_handle, "Packet.lib", PACKET_LIB_BYTES);
         }
         
         #[cfg(not(debug_assertions))]
