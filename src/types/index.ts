@@ -27,6 +27,8 @@ export interface Lobby {
   virtualDomain?: string;
   /** 是否使用域名访问 */
   useDomain?: boolean;
+  /** 信令服务器地址 */
+  signalingServer?: string;
 }
 
 /**

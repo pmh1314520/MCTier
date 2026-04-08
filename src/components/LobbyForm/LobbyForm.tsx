@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Form, Input, Button, Select, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
@@ -23,6 +23,8 @@ interface LobbyFormValues {
   password: string;
   playerName: string;
   serverNode: string;
+  customEasytierServer?: string;
+  customSignalingServer?: string;
   useDomain: boolean;
 }
 
@@ -108,6 +110,20 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
+  const [privateServerConfig, setPrivateServerConfig] = useState<{
+    usePrivateServer: boolean;
+    privateEasytierServer: string;
+    privateSignalingServer: string;
+  }>({
+    usePrivateServer: false,
+    privateEasytierServer: 'wss://mctiers.pmhs.top',
+    privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
+  });
+  
+  // 滚动提示相关状态
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const [canScroll, setCanScroll] = useState(false);
   
   // ESC键返回
   useEscapeKey(() => {
@@ -115,6 +131,50 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       handleCancel();
     }
   });
+  
+  // 检查是否可以滚动
+  useEffect(() => {
+    const checkScroll = () => {
+      if (scrollContainerRef.current) {
+        const { scrollHeight, clientHeight } = scrollContainerRef.current;
+        const hasScroll = scrollHeight > clientHeight;
+        setCanScroll(hasScroll);
+        setShowScrollHint(hasScroll);
+      }
+    };
+    
+    // 初始检查
+    checkScroll();
+    
+    // 监听窗口大小变化
+    window.addEventListener('resize', checkScroll);
+    
+    // 延迟检查，确保内容已渲染
+    const timer = setTimeout(checkScroll, 500);
+    
+    return () => {
+      window.removeEventListener('resize', checkScroll);
+      clearTimeout(timer);
+    };
+  }, [showCustomServer, privateServerConfig.usePrivateServer]);
+  
+  // 监听滚动事件，滚动后隐藏提示
+  useEffect(() => {
+    const handleScroll = () => {
+      if (scrollContainerRef.current) {
+        const { scrollTop } = scrollContainerRef.current;
+        if (scrollTop > 20) {
+          setShowScrollHint(false);
+        }
+      }
+    };
+    
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
   
   // 一键随机生成大厅名称和密码
   const handleRandomGenerate = () => {
@@ -165,6 +225,26 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
     autoFillFromClipboard();
   }, [form, mode]);
+
+  // 加载私有服务器配置
+  useEffect(() => {
+    const loadPrivateServerConfig = async () => {
+      try {
+        const settings = await invoke<any>('get_settings');
+        setPrivateServerConfig({
+          usePrivateServer: settings.usePrivateServer || false,
+          // 使用 ?? 运算符，只在 null/undefined 时使用默认值
+          privateEasytierServer: settings.privateEasytierServer ?? 'wss://mctiers.pmhs.top',
+          privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
+        });
+        console.log('已加载私有服务器配置:', settings);
+      } catch (error) {
+        console.error('加载私有服务器配置失败:', error);
+      }
+    };
+
+    loadPrivateServerConfig();
+  }, []);
 
   // 检测自动大厅配置，自动填充并提交
   useEffect(() => {
@@ -268,7 +348,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }
   };
 
-  const handleSubmit = async (values: LobbyFormValues & { customServerNode?: string }) => {
+  const handleSubmit = async (values: LobbyFormValues) => {
     try {
       setLoading(true);
       setAppState('connecting');
@@ -289,12 +369,35 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
       // 确定实际使用的服务器地址
       let serverNode = values.serverNode;
-      if (values.serverNode === 'custom') {
-        if (!values.customServerNode?.trim()) {
-          message.error('请输入自定义服务器地址');
+      let signalingServer = 'wss://mctier.pmhs.top/signaling'; // 默认官方信令服务器
+      
+      // 如果启用了私有服务器，使用私有服务器配置
+      if (privateServerConfig.usePrivateServer) {
+        serverNode = privateServerConfig.privateEasytierServer;
+        signalingServer = privateServerConfig.privateSignalingServer;
+        console.log('使用私有服务器配置');
+        console.log('  EasyTier:', serverNode);
+        console.log('  信令服务器:', signalingServer);
+      } else if (values.serverNode === 'custom') {
+        // 使用自定义服务器
+        if (!values.customEasytierServer?.trim()) {
+          message.error('请输入 EasyTier 节点服务器地址');
           return;
         }
-        serverNode = values.customServerNode.trim();
+        if (!values.customSignalingServer?.trim()) {
+          message.error('请输入信令服务器地址');
+          return;
+        }
+        serverNode = values.customEasytierServer.trim();
+        signalingServer = values.customSignalingServer.trim();
+        console.log('使用自定义服务器');
+        console.log('  EasyTier:', serverNode);
+        console.log('  信令服务器:', signalingServer);
+      } else {
+        // 使用官方服务器
+        console.log('使用官方服务器');
+        console.log('  EasyTier:', serverNode);
+        console.log('  信令服务器:', signalingServer);
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
@@ -322,6 +425,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         playerName: values.playerName.trim(),
         playerId: currentPlayerId,
         serverNode: serverNode,
+        signalingServer: signalingServer,
         useDomain: values.useDomain === true, // 明确转换为布尔值
       });
 
@@ -464,6 +568,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       <div className="lobby-form-drag-area" data-tauri-drag-region />
       
       <motion.div
+        ref={scrollContainerRef}
         className="lobby-form-card"
         initial={{ opacity: 0, y: 30, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -663,10 +768,11 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               label="服务器节点"
               name="serverNode"
               rules={[{ required: true, message: '请选择服务器节点' }]}
+              tooltip={privateServerConfig.usePrivateServer ? '已启用私有服务器，将使用设置中配置的服务器地址' : undefined}
             >
               <Select 
                 size="large" 
-                disabled={loading}
+                disabled={loading || privateServerConfig.usePrivateServer}
                 onChange={(value) => setShowCustomServer(value === 'custom')}
               >
                 {SERVER_NODES.map((node) => (
@@ -677,24 +783,62 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               </Select>
             </Form.Item>
 
-            {showCustomServer && (
-              <Form.Item
-                label="自定义服务器地址"
-                name="customServerNode"
-                rules={[
-                  { required: true, message: '请输入自定义服务器地址' },
-                  { 
-                    pattern: /^(tcp|udp|ws|wss):\/\/.+$/,
-                    message: '请输入有效的服务器地址，格式示例：tcp://域名:端口、udp://域名:端口、ws://地址 或 wss://地址'
-                  }
-                ]}
-              >
-                <Input
-                  placeholder="例如：tcp://mctier.pmhs.top:11010 或 udp://your-server.com:11010"
-                  size="large"
-                  disabled={loading}
-                />
-              </Form.Item>
+            {showCustomServer && !privateServerConfig.usePrivateServer && (
+              <>
+                <Form.Item
+                  label="自定义 EasyTier 节点服务器"
+                  name="customEasytierServer"
+                  rules={[
+                    { required: true, message: '请输入 EasyTier 节点服务器地址' },
+                    { 
+                      pattern: /^(tcp|udp|ws|wss|txt):\/\/.+$/,
+                      message: '格式：tcp://、udp://、ws://、wss:// 或 txt:// 开头'
+                    }
+                  ]}
+                >
+                  <Input
+                    placeholder="例如：wss://mctiers.pmhs.top 或 tcp://your-server.com:11010"
+                    size="large"
+                    disabled={loading}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="自定义 WebRTC 信令服务器"
+                  name="customSignalingServer"
+                  rules={[
+                    { required: true, message: '请输入信令服务器地址' },
+                    { 
+                      pattern: /^wss?:\/\/.+$/,
+                      message: '格式：ws://域名/path 或 wss://域名/path'
+                    }
+                  ]}
+                >
+                  <Input
+                    placeholder="例如：wss://mctier.pmhs.top/signaling"
+                    size="large"
+                    disabled={loading}
+                  />
+                </Form.Item>
+              </>
+            )}
+
+            {privateServerConfig.usePrivateServer && (
+              <div style={{
+                padding: '12px',
+                background: 'rgba(126, 211, 33, 0.1)',
+                border: '1px solid rgba(126, 211, 33, 0.3)',
+                borderRadius: '8px',
+                marginBottom: '16px',
+              }}>
+                <div style={{ fontSize: '14px', color: 'rgba(126, 211, 33, 0.9)', marginBottom: '8px' }}>
+                  ✓ 已启用私有服务器
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+                  EasyTier: {privateServerConfig.privateEasytierServer}
+                  <br />
+                  信令服务器: {privateServerConfig.privateSignalingServer}
+                </div>
+              </div>
             )}
 
             <Form.Item
@@ -767,6 +911,28 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
           </div>
         </motion.div>
       </motion.div>
+
+      {/* 滚动提示 - 悬浮在底部 */}
+      <AnimatePresence>
+        {showScrollHint && canScroll && (
+          <motion.div
+            className="scroll-hint-floating"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.div
+              animate={{ y: [0, 6, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M19 12l-7 7-7-7"/>
+              </svg>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 常用大厅信息管理弹窗 */}
       <FavoriteLobbyManager

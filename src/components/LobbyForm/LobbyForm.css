@@ -79,6 +79,37 @@
   overflow-x: hidden;
 }
 
+/* 滚动提示 - 悬浮在底部 */
+.scroll-hint-floating {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  margin-left: -24px; /* 圆形宽度的一半，确保完全居中 */
+  z-index: 1000;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.95) 0%, rgba(74, 122, 32, 0.95) 100%);
+  border-radius: 50%;
+  box-shadow: 0 6px 20px rgba(90, 148, 40, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  animation: floatingPulse 2s ease-in-out infinite;
+  color: rgba(255, 255, 255, 1);
+}
+
+@keyframes floatingPulse {
+  0%, 100% {
+    box-shadow: 0 6px 20px rgba(90, 148, 40, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 8px 28px rgba(90, 148, 40, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  }
+}
+
 .lobby-form-title {
   text-align: center;
   margin-bottom: 20px !important;

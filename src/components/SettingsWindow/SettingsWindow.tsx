@@ -11,6 +11,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [autoLobbyEnabled, setAutoLobbyEnabled] = useState(false);
   const [autoStartup, setAutoStartup] = useState(false);
   const [useDomain, setUseDomain] = useState(false);
+  const [usePrivateServer, setUsePrivateServer] = useState(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [rememberWindowPosition, setRememberWindowPosition] = useState(false);
   // 用ref保存完整设置，避免Switch切换时丢失输入框的已填数据
   const settingsRef = useRef<Record<string, any>>({});
 
@@ -18,14 +21,32 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
   useEffect(() => {
     const loadSettings = async () => {
+      // 设置超时保护
+      const timeoutId = setTimeout(() => {
+        console.error('加载设置超时');
+        message.error('加载设置超时，请重试');
+        setLoading(false);
+      }, 5000); // 5秒超时
+
       try {
+        console.log('开始加载设置...');
         const settings = await invoke<any>('get_settings');
+        console.log('设置加载成功:', settings);
+        
+        clearTimeout(timeoutId); // 清除超时定时器
+        
         const as_ = settings.autoStartup || false;
         const al = settings.autoLobbyEnabled || false;
         const ud = settings.useDomain || false;
+        const ups = settings.usePrivateServer || false;
+        const aot = settings.alwaysOnTop ?? true;
+        const rwp = settings.rememberWindowPosition ?? false;
         setAutoStartup(as_);
         setAutoLobbyEnabled(al);
         setUseDomain(ud);
+        setUsePrivateServer(ups);
+        setAlwaysOnTop(aot);
+        setRememberWindowPosition(rwp);
         settingsRef.current = {
           autoStartup: as_,
           autoLobbyEnabled: al,
@@ -33,10 +54,45 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
           lobbyPassword: settings.lobbyPassword || '',
           playerName: settings.playerName || '',
           useDomain: ud,
+          usePrivateServer: ups,
+          // 只在后端返回 null/undefined 时使用默认值
+          privateEasytierServer: settings.privateEasytierServer ?? 'wss://mctiers.pmhs.top',
+          privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
+          alwaysOnTop: aot,
+          rememberWindowPosition: rwp,
         };
         form.setFieldsValue(settingsRef.current);
       } catch (e) {
+        clearTimeout(timeoutId); // 清除超时定时器
         console.error('加载设置失败:', e);
+        message.error({
+          content: '加载设置失败，将使用默认配置',
+          duration: 3,
+        });
+        
+        // 使用默认配置
+        const defaultSettings = {
+          autoStartup: false,
+          autoLobbyEnabled: false,
+          lobbyName: '',
+          lobbyPassword: '',
+          playerName: '',
+          useDomain: false,
+          usePrivateServer: false,
+          privateEasytierServer: 'wss://mctiers.pmhs.top',
+          privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
+          alwaysOnTop: true,
+          rememberWindowPosition: false,
+        };
+        
+        setAutoStartup(false);
+        setAutoLobbyEnabled(false);
+        setUseDomain(false);
+        setUsePrivateServer(false);
+        setAlwaysOnTop(true);
+        setRememberWindowPosition(false);
+        settingsRef.current = defaultSettings;
+        form.setFieldsValue(defaultSettings);
       } finally {
         setLoading(false);
       }
@@ -57,6 +113,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         lobbyPassword: merged.lobbyPassword || null,
         playerName: merged.playerName || null,
         useDomain: merged.useDomain ?? false,
+        usePrivateServer: merged.usePrivateServer ?? false,
+        // 私有服务器配置：如果有值就保存，没有值就保存 null
+        privateEasytierServer: merged.privateEasytierServer?.trim() || null,
+        privateSignalingServer: merged.privateSignalingServer?.trim() || null,
+        alwaysOnTop: merged.alwaysOnTop ?? true,
+        rememberWindowPosition: merged.rememberWindowPosition ?? false,
       });
       message.success('已保存', 1);
     } catch (e) {
@@ -79,11 +141,28 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   };
 
   const handleFieldBlur = async () => {
-    if (!autoLobbyEnabled) return;
-    try {
-      await form.validateFields(['lobbyName', 'lobbyPassword', 'playerName']);
-      await saveAll();
-    } catch (_) {}
+    // 如果启用了自动大厅，验证自动大厅字段
+    if (autoLobbyEnabled) {
+      try {
+        await form.validateFields(['lobbyName', 'lobbyPassword', 'playerName']);
+      } catch (_) {
+        // 验证失败，不保存
+        return;
+      }
+    }
+    
+    // 如果启用了私有服务器，验证私有服务器字段
+    if (usePrivateServer) {
+      try {
+        await form.validateFields(['privateEasytierServer', 'privateSignalingServer']);
+      } catch (_) {
+        // 验证失败，不保存
+        return;
+      }
+    }
+    
+    // 验证通过，保存所有设置
+    await saveAll();
   };
 
   const containerVariants = {
@@ -147,6 +226,28 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 </div>
                 <Switch checked={autoStartup} onChange={handleAutoStartupChange} className="settings-switch" />
               </div>
+              <div className="settings-toggle-row">
+                <div className="settings-toggle-info">
+                  <span className="settings-toggle-label">窗口置顶</span>
+                  <span className="settings-toggle-desc">保持窗口始终显示在最前面</span>
+                </div>
+                <Switch checked={alwaysOnTop} onChange={async (v) => {
+                  setAlwaysOnTop(v);
+                  form.setFieldValue('alwaysOnTop', v);
+                  await saveAll({ alwaysOnTop: v });
+                }} className="settings-switch" />
+              </div>
+              <div className="settings-toggle-row">
+                <div className="settings-toggle-info">
+                  <span className="settings-toggle-label">记住窗口位置</span>
+                  <span className="settings-toggle-desc">启动时恢复上次关闭时的窗口位置</span>
+                </div>
+                <Switch checked={rememberWindowPosition} onChange={async (v) => {
+                  setRememberWindowPosition(v);
+                  form.setFieldValue('rememberWindowPosition', v);
+                  await saveAll({ rememberWindowPosition: v });
+                }} className="settings-switch" />
+              </div>
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
@@ -208,6 +309,51 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           }}
                         />
                       </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-blue">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">私有服务器</span>
+              </div>
+              <div className="settings-toggle-row">
+                <div className="settings-toggle-info">
+                  <span className="settings-toggle-label">使用私有服务器</span>
+                  <span className="settings-toggle-desc">启用后可配置自己部署的服务器</span>
+                </div>
+                <Switch checked={usePrivateServer} onChange={async (v) => {
+                  setUsePrivateServer(v);
+                  form.setFieldValue('usePrivateServer', v);
+                  await saveAll({ usePrivateServer: v });
+                }} className="settings-switch" />
+              </div>
+              <AnimatePresence>
+                {usePrivateServer && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} style={{ overflow: 'hidden' }}>
+                    <div className="settings-sub-form">
+                      <Form.Item name="privateEasytierServer" label="EasyTier 节点服务器"
+                        rules={[
+                          { required: true, message: '请输入 EasyTier 节点服务器地址' },
+                          { pattern: /^(tcp|udp|ws|wss|txt):\/\/.+$/, message: '格式：tcp://、udp://、ws://、wss:// 或 txt:// 开头' },
+                        ]}>
+                        <Input placeholder="wss://mctiers.pmhs.top" onBlur={handleFieldBlur} />
+                      </Form.Item>
+                      <Form.Item name="privateSignalingServer" label="WebRTC 信令服务器"
+                        rules={[
+                          { required: true, message: '请输入信令服务器地址' },
+                          { pattern: /^wss?:\/\/.+$/, message: '格式：ws://域名/path 或 wss://域名/path' },
+                        ]}>
+                        <Input placeholder="wss://mctier.pmhs.top/signaling" onBlur={handleFieldBlur} />
+                      </Form.Item>
                     </div>
                   </motion.div>
                 )}

@@ -62,6 +62,16 @@ pub struct UserConfig {
     pub auto_startup: Option<bool>,
     /// 自动大厅配置
     pub auto_lobby: Option<AutoLobbyConfig>,
+    /// 是否使用私有服务器
+    pub use_private_server: Option<bool>,
+    /// 私有 EasyTier 节点服务器地址
+    pub private_easytier_server: Option<String>,
+    /// 私有信令服务器地址
+    pub private_signaling_server: Option<String>,
+    /// 窗口是否置顶，默认 true
+    pub always_on_top: Option<bool>,
+    /// 是否记住窗口位置，默认 false
+    pub remember_window_position: Option<bool>,
 }
 
 impl Default for UserConfig {
@@ -75,6 +85,11 @@ impl Default for UserConfig {
             opacity: Some(0.95),
             auto_startup: Some(false),
             auto_lobby: Some(AutoLobbyConfig::default()),
+            use_private_server: Some(false),
+            private_easytier_server: Some("wss://mctiers.pmhs.top".to_string()),
+            private_signaling_server: Some("wss://mctier.pmhs.top/signaling".to_string()),
+            always_on_top: Some(true),
+            remember_window_position: Some(false),
         }
     }
 }
@@ -362,6 +377,34 @@ impl ConfigManager {
         
         self.update_config(|config| {
             config.opacity = Some(clamped_opacity);
+        }).await
+    }
+
+    /// 设置窗口是否置顶
+    /// 
+    /// # 参数
+    /// * `always_on_top` - 是否置顶
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 设置成功
+    /// * `Err(AppError)` - 设置失败
+    pub async fn set_always_on_top(&mut self, always_on_top: bool) -> Result<(), AppError> {
+        self.update_config(|config| {
+            config.always_on_top = Some(always_on_top);
+        }).await
+    }
+
+    /// 设置是否记住窗口位置
+    /// 
+    /// # 参数
+    /// * `remember` - 是否记住
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 设置成功
+    /// * `Err(AppError)` - 设置失败
+    pub async fn set_remember_window_position(&mut self, remember: bool) -> Result<(), AppError> {
+        self.update_config(|config| {
+            config.remember_window_position = Some(remember);
         }).await
     }
 

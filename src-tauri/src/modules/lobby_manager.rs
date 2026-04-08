@@ -27,6 +27,9 @@ pub struct Lobby {
     /// 是否使用域名访问
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_domain: Option<bool>,
+    /// 信令服务器地址
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signaling_server: Option<String>,
 }
 
 impl Lobby {
@@ -39,6 +42,7 @@ impl Lobby {
     /// * `creator_virtual_ip` - 创建者的虚拟 IP 地址
     /// * `virtual_domain` - 虚拟域名（可选）
     /// * `use_domain` - 是否使用域名访问（可选）
+    /// * `signaling_server` - 信令服务器地址（可选）
     /// 
     /// # 返回
     /// 新的大厅实例
@@ -49,6 +53,7 @@ impl Lobby {
         creator_virtual_ip: String,
         virtual_domain: Option<String>,
         use_domain: Option<bool>,
+        signaling_server: Option<String>,
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -59,6 +64,7 @@ impl Lobby {
             creator_virtual_ip,
             virtual_domain,
             use_domain,
+            signaling_server,
         }
     }
 }
@@ -320,6 +326,7 @@ impl LobbyManager {
     /// * `password` - 大厅密码
     /// * `player_name` - 玩家名称
     /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
     /// * `use_domain` - 是否使用域名访问
     /// * `network_service` - 网络服务引用（用于启动 EasyTier）
     /// 
@@ -332,6 +339,7 @@ impl LobbyManager {
         password: String,
         player_name: String,
         server_node: String,
+        signaling_server: String,
         use_domain: bool,
         network_service: &crate::modules::network_service::NetworkService,
         app_handle: &tauri::AppHandle,
@@ -401,6 +409,7 @@ impl LobbyManager {
             creator_virtual_ip,
             virtual_domain,
             Some(use_domain),
+            Some(signaling_server),
         );
 
         // 创建当前玩家
@@ -422,6 +431,7 @@ impl LobbyManager {
     /// * `password` - 大厅密码
     /// * `player_name` - 玩家名称
     /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
     /// * `use_domain` - 是否使用域名访问
     /// * `network_service` - 网络服务引用（用于连接 EasyTier）
     /// 
@@ -434,6 +444,7 @@ impl LobbyManager {
         password: String,
         player_name: String,
         server_node: String,
+        signaling_server: String,
         use_domain: bool,
         network_service: &crate::modules::network_service::NetworkService,
         app_handle: &tauri::AppHandle,
@@ -508,6 +519,7 @@ impl LobbyManager {
             creator_virtual_ip,
             virtual_domain,
             Some(use_domain),
+            Some(signaling_server),
         );
 
         // 创建当前玩家
@@ -756,7 +768,7 @@ mod tests {
 
     #[test]
     fn test_lobby_creation() {
-        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true));
+        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
         
         assert_eq!(lobby.name, "测试大厅");
         assert_eq!(lobby.password, Some("test1234".to_string()));
@@ -979,7 +991,7 @@ mod tests {
 
     #[test]
     fn test_lobby_serialization() {
-        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true));
+        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
         
         // 序列化
         let json = serde_json::to_string(&lobby).unwrap();
@@ -1161,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_lobby_struct_fields() {
-        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true));
+        let lobby = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
         
         // 验证所有字段都已正确设置
         assert!(!lobby.id.is_empty(), "大厅 ID 不应为空");
@@ -1227,8 +1239,8 @@ mod tests {
 
     #[test]
     fn test_lobby_id_uniqueness() {
-        let lobby1 = Lobby::new("大厅1".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("player1.mct.net".to_string()), Some(true));
-        let lobby2 = Lobby::new("大厅2".to_string(), Some("test5678".to_string()), "10.144.144.2".to_string(), "10.144.144.2".to_string(), Some("player2.mct.net".to_string()), Some(true));
+        let lobby1 = Lobby::new("大厅1".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("player1.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
+        let lobby2 = Lobby::new("大厅2".to_string(), Some("test5678".to_string()), "10.144.144.2".to_string(), "10.144.144.2".to_string(), Some("player2.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
         
         // 验证每个大厅都有唯一的 ID
         assert_ne!(lobby1.id, lobby2.id, "大厅 ID 应该是唯一的");
@@ -1236,7 +1248,7 @@ mod tests {
 
     #[test]
     fn test_lobby_equality() {
-        let lobby1 = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true));
+        let lobby1 = Lobby::new("测试大厅".to_string(), Some("test1234".to_string()), "10.144.144.1".to_string(), "10.144.144.1".to_string(), Some("testplayer.mct.net".to_string()), Some(true), Some("wss://mctier.pmhs.top/signaling".to_string()));
         let lobby2 = lobby1.clone();
         
         // 验证克隆的大厅相等

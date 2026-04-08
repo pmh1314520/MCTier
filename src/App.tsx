@@ -146,26 +146,9 @@ function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 监听应用状态变化，控制窗口置顶
-  useEffect(() => {
-    const handleWindowAlwaysOnTop = async () => {
-      try {
-        if (appState === 'in-lobby') {
-          // 进入大厅时设置窗口置顶
-          await invoke('set_always_on_top', { alwaysOnTop: true });
-          console.log('✅ 窗口已设置为置顶');
-        } else {
-          // 退出大厅时取消窗口置顶
-          await invoke('set_always_on_top', { alwaysOnTop: false });
-          console.log('✅ 窗口已取消置顶');
-        }
-      } catch (error) {
-        console.error('❌ 设置窗口置顶状态失败:', error);
-      }
-    };
-
-    handleWindowAlwaysOnTop();
-  }, [appState]);
+  // 应用启动时应用窗口置顶配置（不再根据应用状态动态切换）
+  // 窗口置顶状态完全由用户在设置中配置，应用于整个应用生命周期
+  // 注意：lib.rs 中已经在应用启动时设置了初始置顶状态，这里不需要重复设置
 
   // 全局禁用右键菜单
   useEffect(() => {
@@ -395,14 +378,16 @@ function App() {
           });
 
           // 初始化WebRTC客户端
-          // 所有节点都连接到 10.126.126.1:8445
-          // 如果自己是 10.126.126.1，就连接到本地
+          // 从 lobby 对象中获取信令服务器地址，如果没有则使用默认值
+          const signalingServer = lobby.signalingServer || 'wss://mctier.pmhs.top/signaling';
+          console.log('使用信令服务器:', signalingServer);
+
           console.log('WebRTC初始化参数:');
           console.log('  - 当前玩家虚拟IP:', lobby.virtualIp);
           console.log('  - 大厅名称:', lobby.name);
-          console.log('  - 将连接到: 10.126.126.1:8445（如果自己是 10.126.126.1 则连接本地）');
+          console.log('  - 信令服务器:', signalingServer);
 
-          await webrtcClient.initialize(playerId, playerName, lobby.name, lobby.password || '', lobby.virtualDomain, lobby.useDomain);
+          await webrtcClient.initialize(playerId, playerName, lobby.name, lobby.password || '', lobby.virtualDomain, lobby.useDomain, signalingServer);
 
           // 初始化屏幕共享服务
           const ws = (webrtcClient as any).websocket; // 获取WebSocket实例
@@ -485,6 +470,60 @@ function App() {
     // 注意：不在这里添加cleanup，因为退出大厅时会在MiniWindow中手动调用cleanup
     // 这样可以确保cleanup在正确的时机执行，避免状态不一致
   }, [appState, lobby, addPlayer, removePlayer, updatePlayerStatus, setCurrentPlayerId, addChatMessage]);
+
+  // 监听窗口位置变化并保存
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    
+    const savePosition = async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const window = getCurrentWindow();
+        const position = await window.outerPosition();
+        const size = await window.outerSize();
+        
+        await invoke('save_window_position', {
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height,
+        });
+      } catch (error) {
+        console.error('保存窗口位置失败:', error);
+      }
+    };
+    
+    const handleMove = () => {
+      // 防抖：窗口移动停止 500ms 后再保存
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(savePosition, 500);
+    };
+    
+    // 监听窗口移动事件
+    let unlisten: (() => void) | null = null;
+    const setupListener = async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const window = getCurrentWindow();
+        unlisten = await window.onMoved(handleMove);
+      } catch (error) {
+        console.error('设置窗口移动监听失败:', error);
+      }
+    };
+    
+    setupListener();
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   return (
     <ErrorBoundary>

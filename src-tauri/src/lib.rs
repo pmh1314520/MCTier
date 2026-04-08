@@ -21,7 +21,7 @@ use modules::tauri_commands::{
     send_signaling_message, broadcast_status_update, send_heartbeat,
     force_stop_easytier,
     check_virtual_adapter, check_firewall_rules, ping_virtual_ip, check_udp_port,
-    exit_app,
+    save_window_position, exit_app,
     add_player_domain, remove_player_domain,
     get_folder_name, get_folder_info, list_directory_files,
     read_file_bytes, write_file_bytes, select_folder, select_save_location,
@@ -35,6 +35,7 @@ use modules::tauri_commands::{
     open_screen_viewer_window,
     open_log_folder, open_log_file, get_log_file_path,
     save_settings, get_settings, set_auto_start, check_auto_start,
+    reset_config_to_default,
 };
 
 #[tauri::command]
@@ -109,7 +110,7 @@ pub fn run() {
             send_signaling_message, broadcast_status_update, send_heartbeat,
             force_stop_easytier,
             check_virtual_adapter, check_firewall_rules, ping_virtual_ip, check_udp_port,
-            exit_app,
+            save_window_position, exit_app,
             add_player_domain, remove_player_domain,
             get_folder_name, get_folder_info, list_directory_files,
             read_file_bytes, write_file_bytes, select_folder, select_save_location,
@@ -123,6 +124,7 @@ pub fn run() {
             open_screen_viewer_window,
             open_log_folder, open_log_file, get_log_file_path,
             save_settings, get_settings, set_auto_start, check_auto_start,
+            reset_config_to_default,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");
@@ -181,6 +183,38 @@ pub fn run() {
                             let _ = SetLayeredWindowAttributes(hwnd, windows::Win32::Foundation::COLORREF(0), 255, LWA_ALPHA);
                         }
                     }
+                }
+                
+                // 应用窗口配置
+                if let Some(state) = app.try_state::<AppState>() {
+                    let core = Arc::clone(&state.core);
+                    let win = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let config_manager = core.lock().await.get_config_manager();
+                        let cfg_mgr = config_manager.lock().await;
+                        let config = cfg_mgr.get_config();
+                        
+                        // 应用窗口置顶设置
+                        let always_on_top = config.always_on_top.unwrap_or(true);
+                        if let Err(e) = win.set_always_on_top(always_on_top) {
+                            error!("设置窗口置顶失败: {}", e);
+                        } else {
+                            info!("窗口置顶设置成功: {}", always_on_top);
+                        }
+                        
+                        // 应用窗口位置设置
+                        let remember_position = config.remember_window_position.unwrap_or(false);
+                        if remember_position {
+                            if let Some(pos) = &config.window_position {
+                                use tauri::PhysicalPosition;
+                                if let Err(e) = win.set_position(PhysicalPosition::new(pos.x, pos.y)) {
+                                    error!("设置窗口位置失败: {}", e);
+                                } else {
+                                    info!("窗口位置已恢复: x={}, y={}", pos.x, pos.y);
+                                }
+                            }
+                        }
+                    });
                 }
             }
             let ah2 = app.handle().clone();

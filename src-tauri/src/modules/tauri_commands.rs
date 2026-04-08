@@ -3,6 +3,7 @@
 
 use tauri::State;
 use tauri::Emitter;
+use tauri::Manager;
 use crate::modules::app_core::{AppCore, AppState as CoreAppState};
 use crate::modules::lobby_manager::{Lobby, Player};
 use crate::modules::voice_service::AudioDevice;
@@ -25,6 +26,7 @@ pub struct AppState {
 /// * `player_name` - 玩家名称
 /// * `player_id` - 玩家ID（由前端生成）
 /// * `server_node` - 服务器节点地址
+/// * `signaling_server` - 信令服务器地址
 /// 
 /// # 返回
 /// * `Ok(Lobby)` - 成功创建的大厅信息
@@ -36,11 +38,12 @@ pub async fn create_lobby(
     player_name: String,
     player_id: String,
     server_node: String,
+    signaling_server: String,
     use_domain: Option<bool>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
-    log::info!("收到创建大厅命令: name={}, player={}, player_id={}, use_domain={:?}", name, player_name, player_id, use_domain);
+    log::info!("收到创建大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}", name, player_name, player_id, signaling_server, use_domain);
     
     let core = state.core.lock().await;
     
@@ -60,6 +63,7 @@ pub async fn create_lobby(
         password,
         player_name.clone(),
         server_node,
+        signaling_server.clone(),
         use_domain.unwrap_or(false),
         &*network_svc,
         &app_handle,
@@ -129,6 +133,7 @@ pub async fn create_lobby(
 /// * `player_name` - 玩家名称
 /// * `player_id` - 玩家ID（由前端生成）
 /// * `server_node` - 服务器节点地址
+/// * `signaling_server` - 信令服务器地址
 /// 
 /// # 返回
 /// * `Ok(Lobby)` - 成功加入的大厅信息
@@ -140,11 +145,12 @@ pub async fn join_lobby(
     player_name: String,
     player_id: String,
     server_node: String,
+    signaling_server: String,
     use_domain: Option<bool>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
-    log::info!("收到加入大厅命令: name={}, player={}, player_id={}, use_domain={:?}", name, player_name, player_id, use_domain);
+    log::info!("收到加入大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}", name, player_name, player_id, signaling_server, use_domain);
     
     let core = state.core.lock().await;
     
@@ -166,6 +172,7 @@ pub async fn join_lobby(
         password,
         player_name.clone(),
         server_node,
+        signaling_server.clone(),
         use_domain.unwrap_or(false),
         &*network_svc,
         &app_handle,
@@ -610,6 +617,48 @@ pub async fn is_player_muted(
     let is_muted = voice_svc.is_player_muted(&player_id).await;
     
     Ok(is_muted)
+}
+
+/// 保存窗口位置
+/// 
+/// # 参数
+/// * `x` - X 坐标
+/// * `y` - Y 坐标
+/// * `width` - 窗口宽度
+/// * `height` - 窗口高度
+/// 
+/// # 返回
+/// * `Ok(())` - 保存成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn save_window_position(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::modules::config_manager::WindowPosition;
+    
+    log::info!("保存窗口位置: x={}, y={}, width={}, height={}", x, y, width, height);
+    
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    
+    // 检查是否启用了记住窗口位置
+    let remember = cfg_mgr.get_config().remember_window_position.unwrap_or(false);
+    
+    if remember {
+        let position = WindowPosition { x, y, width, height };
+        cfg_mgr.set_window_position(position).await
+            .map_err(|e| format!("保存窗口位置失败: {}", e))?;
+        log::info!("窗口位置已保存");
+    } else {
+        log::debug!("未启用记住窗口位置，跳过保存");
+    }
+    
+    Ok(())
 }
 
 /// 退出应用程序
@@ -2787,8 +2836,20 @@ pub async fn get_log_file_path() -> Result<String, String> {
 /// * `auto_lobby_enabled` - 是否启用自动大厅
 /// * `lobby_name` - 大厅名称
 /// * `lobby_password` - 大厅密码
+/// 保存设置
+/// 
+/// # 参数
+/// * `auto_startup` - 开机自启
+/// * `auto_lobby_enabled` - 自动大厅启用
+/// * `lobby_name` - 大厅名称
+/// * `lobby_password` - 大厅密码
 /// * `player_name` - 玩家名称
 /// * `use_domain` - 是否使用虚拟域名
+/// * `use_private_server` - 是否使用私有服务器
+/// * `private_easytier_server` - 私有 EasyTier 节点服务器地址
+/// * `private_signaling_server` - 私有信令服务器地址
+/// * `always_on_top` - 窗口是否置顶
+/// * `remember_window_position` - 是否记住窗口位置
 #[tauri::command]
 pub async fn save_settings(
     auto_startup: bool,
@@ -2797,10 +2858,17 @@ pub async fn save_settings(
     lobby_password: Option<String>,
     player_name: Option<String>,
     use_domain: bool,
+    use_private_server: bool,
+    private_easytier_server: Option<String>,
+    private_signaling_server: Option<String>,
+    always_on_top: Option<bool>,
+    remember_window_position: Option<bool>,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     use crate::modules::config_manager::AutoLobbyConfig;
-    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}", auto_startup, auto_lobby_enabled);
+    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}, use_private_server={}, always_on_top={:?}, remember_window_position={:?}", 
+        auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position);
 
     // 1. 保存配置到文件
     {
@@ -2822,10 +2890,37 @@ pub async fn save_settings(
                     existing.use_domain
                 },
             });
+            // 保存私有服务器配置
+            config.use_private_server = Some(use_private_server);
+            config.private_easytier_server = private_easytier_server.clone();
+            config.private_signaling_server = private_signaling_server.clone();
+            // 保存窗口置顶配置
+            if let Some(on_top) = always_on_top {
+                config.always_on_top = Some(on_top);
+            }
+            // 保存记住窗口位置配置
+            if let Some(remember) = remember_window_position {
+                config.remember_window_position = Some(remember);
+                // 如果关闭记住位置，清除已保存的位置
+                if !remember {
+                    config.window_position = None;
+                }
+            }
         }).await.map_err(|e| format!("保存配置失败: {}", e))?;
     }
 
-    // 2. 处理开机自启
+    // 2. 应用窗口置顶设置到主窗口
+    if let Some(on_top) = always_on_top {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            if let Err(e) = window.set_always_on_top(on_top) {
+                log::warn!("设置主窗口置顶失败: {}", e);
+            } else {
+                log::info!("主窗口置顶设置成功: {}", on_top);
+            }
+        }
+    }
+
+    // 3. 处理开机自启
     match set_auto_start(auto_startup).await {
         Ok(_) => log::info!("开机自启设置成功: {}", auto_startup),
         Err(e) => log::warn!("开机自启设置失败（非致命）: {}", e),
@@ -2838,6 +2933,8 @@ pub async fn save_settings(
 /// 读取当前设置配置
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    log::info!("开始读取设置配置");
+    
     let core = state.core.lock().await;
     let config_manager = core.get_config_manager();
     let cfg_mgr = config_manager.lock().await;
@@ -2848,20 +2945,48 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
 
     // 同时读取实际的开机自启状态
     // 直接查询注册表，不通过command函数（避免嵌套async调用死锁）
+    // 添加超时保护，避免 reg 命令卡住
     let actual_auto_start = {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            std::process::Command::new("reg")
-                .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "MCTier"])
-                .creation_flags(0x08000000)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
+            use std::time::Duration;
+            
+            log::info!("查询注册表中的开机自启状态");
+            
+            // 使用 tokio::time::timeout 添加超时保护
+            let result = tokio::time::timeout(
+                Duration::from_secs(2), // 2秒超时
+                tokio::task::spawn_blocking(|| {
+                    std::process::Command::new("reg")
+                        .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "MCTier"])
+                        .creation_flags(0x08000000)
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                })
+            ).await;
+            
+            match result {
+                Ok(Ok(status)) => {
+                    log::info!("注册表查询成功: {}", status);
+                    status
+                }
+                Ok(Err(e)) => {
+                    log::warn!("注册表查询任务失败: {}", e);
+                    false
+                }
+                Err(_) => {
+                    log::warn!("注册表查询超时，使用默认值 false");
+                    false
+                }
+            }
         }
         #[cfg(not(windows))]
         { false }
     };
+
+    log::info!("设置配置读取完成");
 
     Ok(serde_json::json!({
         "autoStartup": actual_auto_start,
@@ -2870,6 +2995,40 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "lobbyPassword": auto_lobby.lobby_password,
         "playerName": auto_lobby.player_name,
         "useDomain": auto_lobby.use_domain,
+        "usePrivateServer": config.use_private_server.unwrap_or(false),
+        // 返回实际保存的值，如果是 None 就返回 null，让前端决定默认值
+        "privateEasytierServer": config.private_easytier_server.clone(),
+        "privateSignalingServer": config.private_signaling_server.clone(),
+        "alwaysOnTop": config.always_on_top.unwrap_or(true),
+        "rememberWindowPosition": config.remember_window_position.unwrap_or(false),
     }))
 }
 
+
+
+// ==================== 配置重置命令 ====================
+
+/// 重置配置为默认值
+/// 
+/// # 返回
+/// * `Ok(())` - 重置成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn reset_config_to_default(state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("收到重置配置命令");
+    
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    
+    match cfg_mgr.reset_to_default().await {
+        Ok(_) => {
+            log::info!("配置已重置为默认值");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("重置配置失败: {}", e);
+            Err(format!("重置配置失败: {}", e))
+        }
+    }
+}

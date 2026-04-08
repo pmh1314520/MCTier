@@ -87,7 +87,7 @@ export class WebRTCClient {
   /**
    * 初始化 WebRTC 客户端
    */
-  async initialize(playerId: string, playerName: string, lobbyName: string, lobbyPassword: string, virtualDomain?: string, useDomain?: boolean): Promise<void> {
+  async initialize(playerId: string, playerName: string, lobbyName: string, lobbyPassword: string, virtualDomain?: string, useDomain?: boolean, signalingServer?: string): Promise<void> {
     try {
       console.log('🚀 开始初始化 WebRTC 客户端...');
       console.log('玩家ID:', playerId);
@@ -145,9 +145,9 @@ export class WebRTCClient {
         console.error('❌ 获取虚拟IP失败:', error);
       }
 
-      // 设置信令服务器地址
-      this.signalingServerUrl = `wss://mctier.pmhs.top/signaling`;
-      console.log('📡 连接到官方信令服务器:', this.signalingServerUrl);
+      // 设置信令服务器地址（优先使用传入的参数，否则使用默认值）
+      this.signalingServerUrl = signalingServer || 'wss://mctier.pmhs.top/signaling';
+      console.log('📡 连接到信令服务器:', this.signalingServerUrl);
 
       // 不再在初始化时获取麦克风，只有在用户开启麦克风时才获取
       console.log('⏭️ 跳过麦克风初始化，等待用户手动开启');
@@ -214,7 +214,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '1.3.5',
+              clientVersion: '1.4.0',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
