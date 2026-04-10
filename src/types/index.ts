@@ -101,6 +101,10 @@ export interface UserConfig {
   audioDeviceId?: string;
   /** 窗口透明度 (0.0-1.0)，默认 0.95 */
   opacity?: number;
+  /** 语音音量 (0.0-1.0)，默认 1.0 */
+  voiceVolume?: number;
+  /** 是否启用 GPU 渲染，默认 true */
+  enableGpuRendering?: boolean;
   /** 高级网络配置 */
   advancedNetwork?: AdvancedNetworkConfig;
   /** 是否开机自启 */

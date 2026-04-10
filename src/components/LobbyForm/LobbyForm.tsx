@@ -42,11 +42,30 @@ const isLegacyOfficialServer = (server?: string) => {
   );
 };
 
-// 服务器节点列表
-const SERVER_NODES = [
-  { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
-  { value: 'custom', label: '自定义服务器地址' },
-];
+// 自定义节点接口
+interface CustomEasyTierNode {
+  name: string;
+  address: string;
+}
+
+// 获取服务器节点列表（包含官方节点和自定义节点）
+const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
+  const nodes = [
+    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
+  ];
+  
+  // 添加自定义节点
+  customNodes.forEach((node) => {
+    nodes.push({
+      value: node.address,
+      label: `${node.name} (自定义)`,
+    });
+  });
+  
+  nodes.push({ value: 'custom', label: '临时自定义服务器地址' });
+  
+  return nodes;
+};
 
 // 随机生成大厅名称的词库
 const LOBBY_NAME_ADJECTIVES = [
@@ -119,6 +138,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     privateEasytierServer: 'wss://mctiers.pmhs.top',
     privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
   });
+  const [customNodes, setCustomNodes] = useState<CustomEasyTierNode[]>([]);
+  const [serverNodes, setServerNodes] = useState(getServerNodes([]));
   
   // 滚动提示相关状态
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -226,7 +247,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     autoFillFromClipboard();
   }, [form, mode]);
 
-  // 加载私有服务器配置
+  // 加载私有服务器配置和自定义节点
   useEffect(() => {
     const loadPrivateServerConfig = async () => {
       try {
@@ -237,7 +258,14 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
           privateEasytierServer: settings.privateEasytierServer ?? 'wss://mctiers.pmhs.top',
           privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
         });
+        
+        // 加载自定义节点
+        const nodes = settings.customEasytierNodes || [];
+        setCustomNodes(nodes);
+        setServerNodes(getServerNodes(nodes));
+        
         console.log('已加载私有服务器配置:', settings);
+        console.log('已加载自定义节点:', nodes);
       } catch (error) {
         console.error('加载私有服务器配置失败:', error);
       }
@@ -371,15 +399,15 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       let serverNode = values.serverNode;
       let signalingServer = 'wss://mctier.pmhs.top/signaling'; // 默认官方信令服务器
       
-      // 如果启用了私有服务器，使用私有服务器配置
+      // 如果启用了私有服务器，使用私有服务器配置（不添加默认备用节点）
       if (privateServerConfig.usePrivateServer) {
         serverNode = privateServerConfig.privateEasytierServer;
         signalingServer = privateServerConfig.privateSignalingServer;
-        console.log('使用私有服务器配置');
+        console.log('使用私有服务器配置（不添加默认备用节点）');
         console.log('  EasyTier:', serverNode);
         console.log('  信令服务器:', signalingServer);
       } else if (values.serverNode === 'custom') {
-        // 使用自定义服务器
+        // 使用临时自定义服务器（不添加默认备用节点）
         if (!values.customEasytierServer?.trim()) {
           message.error('请输入 EasyTier 节点服务器地址');
           return;
@@ -390,14 +418,48 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         }
         serverNode = values.customEasytierServer.trim();
         signalingServer = values.customSignalingServer.trim();
-        console.log('使用自定义服务器');
+        console.log('使用临时自定义服务器（不添加默认备用节点）');
         console.log('  EasyTier:', serverNode);
         console.log('  信令服务器:', signalingServer);
       } else {
-        // 使用官方服务器
-        console.log('使用官方服务器');
-        console.log('  EasyTier:', serverNode);
+        // 使用官方服务器或自定义节点
+        // 【重要改进】无论选择哪个节点，都将所有可用节点组合传递给EasyTier
+        // 这样EasyTier可以自动进行故障转移和负载均衡
+        const allAvailableNodes: string[] = [];
+        
+        // 1. 添加选中的节点（优先级最高）
+        allAvailableNodes.push(values.serverNode);
+        
+        // 2. 添加所有自定义节点（如果有的话）
+        if (customNodes.length > 0) {
+          customNodes.forEach(node => {
+            // 避免重复添加
+            if (!allAvailableNodes.includes(node.address)) {
+              allAvailableNodes.push(node.address);
+            }
+          });
+        }
+        
+        // 3. 添加默认内置备用节点（仅在使用官方服务器或自定义节点时）
+        const DEFAULT_BACKUP_NODE = 'wss://qtet-public.070219.xyz';
+        if (!allAvailableNodes.includes(DEFAULT_BACKUP_NODE)) {
+          allAvailableNodes.push(DEFAULT_BACKUP_NODE);
+        }
+        
+        // 4. 如果选中的不是官方节点，也添加官方节点作为备用
+        if (values.serverNode !== OFFICIAL_EASYTIER_SERVER && !allAvailableNodes.includes(OFFICIAL_EASYTIER_SERVER)) {
+          allAvailableNodes.push(OFFICIAL_EASYTIER_SERVER);
+        }
+        
+        // 将所有节点用逗号连接
+        serverNode = allAvailableNodes.join(',');
+        
+        console.log('✅ 启用多节点高可用模式');
+        console.log('  主节点:', values.serverNode);
+        console.log('  所有节点:', allAvailableNodes);
+        console.log('  节点数量:', allAvailableNodes.length);
         console.log('  信令服务器:', signalingServer);
+        console.log('💡 EasyTier将自动选择最优节点并在节点故障时自动切换');
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
@@ -775,7 +837,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 disabled={loading || privateServerConfig.usePrivateServer}
                 onChange={(value) => setShowCustomServer(value === 'custom')}
               >
-                {SERVER_NODES.map((node) => (
+                {serverNodes.map((node) => (
                   <Option key={node.value} value={node.value}>
                     {node.label}
                   </Option>
@@ -786,7 +848,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             {showCustomServer && !privateServerConfig.usePrivateServer && (
               <>
                 <Form.Item
-                  label="自定义 EasyTier 节点服务器"
+                  label="临时 EasyTier 节点服务器"
                   name="customEasytierServer"
                   rules={[
                     { required: true, message: '请输入 EasyTier 节点服务器地址' },
@@ -803,7 +865,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   />
                 </Form.Item>
                 <Form.Item
-                  label="自定义 WebRTC 信令服务器"
+                  label="临时 WebRTC 信令服务器"
                   name="customSignalingServer"
                   rules={[
                     { required: true, message: '请输入信令服务器地址' },

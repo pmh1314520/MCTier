@@ -64,8 +64,9 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
               软件简介
             </Title>
             <Paragraph className="section-text">
-              MCTier 是一款专为 Minecraft 玩家打造的虚拟局域网联机工具，
-              让您可以轻松与好友跨越网络限制，享受联机游戏的乐趣。
+              MCTier 是一款通用的虚拟局域网联机工具，支持所有局域网联机游戏。
+              基于 EasyTier 和 WebRTC 技术，让您可以轻松与好友跨越网络限制，
+              享受联机游戏的乐趣。支持实时语音通话、P2P聊天、文件共享和屏幕共享等功能。
             </Paragraph>
             <div className="game-scope-tip">
               <GamepadIcon size={18} className="game-scope-icon" />
@@ -135,14 +136,17 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
               主要功能
             </Title>
             <ul className="feature-list">
-              <li>创建/加入虚拟局域网大厅</li>
-              <li>实时语音通信，支持快捷键控制</li>
-              <li>P2P聊天室，支持文本和图片消息</li>
-              <li>文件共享，支持批量下载和先压后发</li>
-              <li>屏幕共享，实时查看队友画面</li>
-              <li>自动网络配置，无需手动设置</li>
-              <li>迷你悬浮窗，游戏时不遮挡视野</li>
-              <li>大厅隔离机制，保护隐私安全</li>
+              <li>🌐 虚拟局域网组网 - 基于 EasyTier 的 P2P 组网技术</li>
+              <li>🎙️ 实时语音通信 - WebRTC 低延迟语音，支持快捷键控制</li>
+              <li>💬 P2P 聊天室 - 支持文本和图片消息，基于虚拟网络传输</li>
+              <li>📁 文件夹共享 - HTTP 文件服务器，支持批量下载和先压后发</li>
+              <li>📺 屏幕共享 - WebRTC 实时屏幕共享，支持密码保护</li>
+              <li>🔧 多节点高可用 - 支持配置多个 EasyTier 节点，自动故障转移</li>
+              <li>🪟 迷你悬浮窗 - 游戏时不遮挡视野，可调节透明度和听筒音量</li>
+              <li>🔒 大厅隔离机制 - 不同大厅之间完全隔离，保护隐私安全</li>
+              <li>🚀 开机自启动 - 支持自动创建/加入大厅，一键启动</li>
+              <li>🌍 虚拟域名 - 支持 Magic DNS，使用域名代替 IP 地址</li>
+              <li>⚙️ 私有化部署 - 支持自建 EasyTier 节点和信令服务器</li>
             </ul>
           </div>
 

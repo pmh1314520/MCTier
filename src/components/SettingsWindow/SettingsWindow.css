@@ -164,9 +164,13 @@
   background: rgba(106, 164, 56, 0.15);
   color: rgba(126, 211, 33, 0.9);
 }
-.settings-card-icon-brown {
-  background: rgba(139, 111, 71, 0.15);
-  color: rgba(212, 165, 116, 0.9);
+.settings-card-icon-orange {
+  background: rgba(255, 152, 0, 0.15);
+  color: rgba(255, 167, 38, 0.9);
+}
+.settings-card-icon-cyan {
+  background: rgba(0, 188, 212, 0.15);
+  color: rgba(0, 229, 255, 0.9);
 }
 .settings-card-title {
   font-size: 12px;
@@ -174,6 +178,28 @@
   color: rgba(255, 255, 255, 0.6);
   text-transform: uppercase;
   letter-spacing: 0.8px;
+}
+
+/* 提示图标 */
+.settings-info-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.settings-info-icon:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.1);
+}
+
+.settings-info-icon svg {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* ---- Toggle行 ---- */
@@ -418,4 +444,280 @@
 
 .settings-reset-btn svg {
   flex-shrink: 0;
+}
+
+/* 自定义节点管理 */
+.settings-card-desc {
+  padding: 0 14px;
+  margin-top: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+.settings-card-icon-purple {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.settings-card-icon-blue {
+  background: rgba(139, 111, 71, 0.2);
+  color: rgba(255, 215, 0, 0.95);
+}
+
+.settings-card-icon-cyan {
+  background: rgba(0, 188, 212, 0.2);
+  color: rgba(0, 229, 255, 0.9);
+}
+
+.custom-node-manager {
+  margin-top: 12px;
+}
+
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.node-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: all 0.3s ease;
+}
+
+.node-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-builtin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(0, 188, 212, 0.2));
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(0, 229, 255, 0.9);
+  letter-spacing: 0.5px;
+}
+
+.node-address {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Consolas', 'Monaco', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.node-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.node-btn-edit {
+  background: rgba(24, 144, 255, 0.15);
+  color: #1890ff;
+}
+
+.node-btn-edit:hover {
+  background: rgba(24, 144, 255, 0.25);
+}
+
+.node-btn-delete {
+  background: rgba(255, 77, 79, 0.15);
+  color: #ff4d4f;
+}
+
+.node-btn-delete:hover {
+  background: rgba(255, 77, 79, 0.25);
+}
+
+.node-edit-form {
+  width: 100%;
+}
+
+.node-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.node-btn-save,
+.node-btn-cancel {
+  flex: 1;
+  height: 36px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.node-btn-save {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  color: #fff;
+}
+
+.node-btn-save:hover {
+  background: linear-gradient(135deg, #0d8074 0%, #2dd46b 100%);
+}
+
+.node-btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.node-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.node-add-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 8px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.node-add-btn:hover {
+  border-color: rgba(126, 211, 33, 0.5);
+  background: rgba(126, 211, 33, 0.1);
+  color: rgba(126, 211, 33, 0.9);
+}
+
+/* 配置管理器样式 */
+.config-manager {
+  margin-top: 12px;
+}
+
+.config-manager-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.config-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.config-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.config-btn svg {
+  flex-shrink: 0;
+}
+
+.config-btn-export {
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.15) 0%, rgba(90, 148, 40, 0.08) 100%);
+  color: rgba(150, 200, 100, 0.95);
+  border: 1.5px solid rgba(90, 148, 40, 0.3);
+}
+
+.config-btn-export:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.2) 0%, rgba(90, 148, 40, 0.12) 100%);
+  border-color: rgba(90, 148, 40, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(90, 148, 40, 0.2);
+}
+
+.config-btn-import {
+  background: linear-gradient(135deg, rgba(0, 188, 212, 0.15) 0%, rgba(0, 188, 212, 0.08) 100%);
+  color: rgba(0, 229, 255, 0.9);
+  border: 1.5px solid rgba(0, 188, 212, 0.3);
+}
+
+.config-btn-import:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 188, 212, 0.2) 0%, rgba(0, 188, 212, 0.12) 100%);
+  border-color: rgba(0, 188, 212, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 188, 212, 0.2);
+}
+
+.config-btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 紫色图标样式 */
+.settings-card-icon-purple {
+  background: rgba(156, 39, 176, 0.2);
+}
+
+.settings-card-icon-purple svg {
+  color: rgba(186, 104, 200, 0.95);
 }

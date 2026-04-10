@@ -43,6 +43,15 @@ pub struct AutoLobbyConfig {
     pub use_domain: bool,
 }
 
+/// EasyTier 节点配置
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EasyTierNode {
+    /// 节点名称
+    pub name: String,
+    /// 节点地址
+    pub address: String,
+}
+
 /// 用户配置结构
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserConfig {
@@ -72,6 +81,12 @@ pub struct UserConfig {
     pub always_on_top: Option<bool>,
     /// 是否记住窗口位置，默认 false
     pub remember_window_position: Option<bool>,
+    /// 自定义 EasyTier 节点列表
+    pub custom_easytier_nodes: Option<Vec<EasyTierNode>>,
+    /// 语音音量 (0.0-1.0)，默认 1.0
+    pub voice_volume: Option<f64>,
+    /// 是否启用 GPU 渲染，默认 true
+    pub enable_gpu_rendering: Option<bool>,
 }
 
 impl Default for UserConfig {
@@ -90,6 +105,9 @@ impl Default for UserConfig {
             private_signaling_server: Some("wss://mctier.pmhs.top/signaling".to_string()),
             always_on_top: Some(true),
             remember_window_position: Some(false),
+            custom_easytier_nodes: Some(Vec::new()),
+            voice_volume: Some(1.0),
+            enable_gpu_rendering: Some(true),
         }
     }
 }
@@ -408,6 +426,51 @@ impl ConfigManager {
         }).await
     }
 
+    /// 设置语音音量
+    /// 
+    /// # 参数
+    /// * `volume` - 音量值 (0.0-1.0)
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 设置成功
+    /// * `Err(AppError)` - 设置失败
+    pub async fn set_voice_volume(&mut self, volume: f64) -> Result<(), AppError> {
+        // 验证音量范围
+        let clamped_volume = volume.clamp(0.0, 1.0);
+        
+        self.update_config(|config| {
+            config.voice_volume = Some(clamped_volume);
+        }).await
+    }
+
+    /// 设置是否启用 GPU 渲染
+    /// 
+    /// # 参数
+    /// * `enable` - 是否启用
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 设置成功
+    /// * `Err(AppError)` - 设置失败
+    pub async fn set_enable_gpu_rendering(&mut self, enable: bool) -> Result<(), AppError> {
+        self.update_config(|config| {
+            config.enable_gpu_rendering = Some(enable);
+        }).await
+    }
+
+    /// 设置自定义 EasyTier 节点列表
+    /// 
+    /// # 参数
+    /// * `nodes` - 节点列表
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 设置成功
+    /// * `Err(AppError)` - 设置失败
+    pub async fn set_custom_easytier_nodes(&mut self, nodes: Vec<EasyTierNode>) -> Result<(), AppError> {
+        self.update_config(|config| {
+            config.custom_easytier_nodes = Some(nodes);
+        }).await
+    }
+
     /// 重置为默认配置
     /// 
     /// # 返回
@@ -446,6 +509,60 @@ impl ConfigManager {
         log::info!("配置已备份到: {:?}", backup_path);
 
         Ok(backup_path)
+    }
+
+    /// 导出配置到指定路径
+    /// 
+    /// # 参数
+    /// * `export_path` - 导出文件路径
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 导出成功
+    /// * `Err(AppError)` - 导出失败
+    pub async fn export_config(&self, export_path: PathBuf) -> Result<(), AppError> {
+        // 序列化配置为 JSON（格式化输出）
+        let json_content = serde_json::to_string_pretty(&self.config).map_err(|e| {
+            AppError::ConfigError(format!("序列化配置失败: {}", e))
+        })?;
+
+        // 写入文件
+        fs::write(&export_path, json_content).await.map_err(|e| {
+            AppError::ConfigError(format!("导出配置文件失败: {}", e))
+        })?;
+
+        log::info!("配置已导出到: {:?}", export_path);
+
+        Ok(())
+    }
+
+    /// 从指定路径导入配置
+    /// 
+    /// # 参数
+    /// * `import_path` - 导入文件路径
+    /// 
+    /// # 返回
+    /// * `Ok(())` - 导入成功
+    /// * `Err(AppError)` - 导入失败
+    pub async fn import_config(&mut self, import_path: PathBuf) -> Result<(), AppError> {
+        // 读取文件内容
+        let content = fs::read_to_string(&import_path).await.map_err(|e| {
+            AppError::ConfigError(format!("读取导入文件失败: {}", e))
+        })?;
+
+        // 解析 JSON
+        let imported_config: UserConfig = serde_json::from_str(&content).map_err(|e| {
+            AppError::ConfigError(format!("解析导入文件失败: {}", e))
+        })?;
+
+        // 更新配置
+        self.config = imported_config;
+        
+        // 保存到配置文件
+        self.save().await?;
+
+        log::info!("配置已从 {:?} 导入", import_path);
+
+        Ok(())
     }
 }
 

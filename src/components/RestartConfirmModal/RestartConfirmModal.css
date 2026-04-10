@@ -1,0 +1,204 @@
+/* 重启确认弹窗样式 */
+
+.restart-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.restart-modal-container {
+  max-width: 90%;
+  width: 420px;
+  pointer-events: auto;
+}
+
+.restart-modal-content {
+  background: linear-gradient(135deg, rgba(30, 30, 35, 0.98) 0%, rgba(20, 20, 25, 0.98) 100%);
+  border: 1px solid rgba(126, 211, 33, 0.2);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
+              0 0 40px rgba(126, 211, 33, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 背景光晕效果 */
+.restart-modal-content::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(126, 211, 33, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 图标容器 */
+.restart-modal-icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(126, 211, 33, 0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  position: relative;
+  animation: pulse-icon 2s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(126, 211, 33, 0.2);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px rgba(126, 211, 33, 0.3);
+  }
+}
+
+.restart-modal-icon svg {
+  filter: drop-shadow(0 0 8px rgba(126, 211, 33, 0.4));
+}
+
+/* 标题 */
+.restart-modal-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* 描述文本 */
+.restart-modal-description {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+  text-align: center;
+  line-height: 1.6;
+  max-width: 320px;
+}
+
+/* 按钮组 */
+.restart-modal-buttons {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.restart-modal-btn {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 取消按钮 */
+.restart-modal-btn-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.restart-modal-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.restart-modal-btn-cancel:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 确认按钮 */
+.restart-modal-btn-confirm {
+  background: linear-gradient(135deg, rgba(126, 211, 33, 0.9) 0%, rgba(106, 191, 13, 0.9) 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(126, 211, 33, 0.3);
+}
+
+.restart-modal-btn-confirm::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.restart-modal-btn-confirm:hover {
+  background: linear-gradient(135deg, rgba(126, 211, 33, 1) 0%, rgba(106, 191, 13, 1) 100%);
+  box-shadow: 0 6px 20px rgba(126, 211, 33, 0.4);
+}
+
+.restart-modal-btn-confirm:hover::before {
+  left: 100%;
+}
+
+.restart-modal-btn-confirm:active {
+  transform: scale(0.98);
+  box-shadow: 0 2px 8px rgba(126, 211, 33, 0.3);
+}
+
+.restart-modal-btn svg {
+  flex-shrink: 0;
+}
+
+/* 响应式 */
+@media (max-width: 480px) {
+  .restart-modal-container {
+    width: 90%;
+  }
+
+  .restart-modal-content {
+    padding: 24px;
+  }
+
+  .restart-modal-title {
+    font-size: 20px;
+  }
+
+  .restart-modal-description {
+    font-size: 14px;
+  }
+
+  .restart-modal-buttons {
+    flex-direction: column;
+  }
+
+  .restart-modal-btn {
+    width: 100%;
+  }
+}

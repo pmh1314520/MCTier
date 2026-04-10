@@ -14,7 +14,7 @@ import './MainWindow.css';
 const { Title, Paragraph } = Typography;
 
 // 软件版本号
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.5';
 
 /**
  * 主窗口组件
@@ -25,9 +25,24 @@ export const MainWindow: React.FC = () => {
   const [formMode, setFormMode] = useState<'create' | 'join'>('create');
   const [showAbout, setShowAbout] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [enableGpuRendering, setEnableGpuRendering] = useState(true);
   
   const versionError = useAppStore((state) => state.versionError);
   const setVersionError = useAppStore((state) => state.setVersionError);
+
+  // 监听 GPU 渲染设置变化的全局事件
+  useEffect(() => {
+    const handleGpuRenderingChange = (event: CustomEvent) => {
+      console.log('GPU 渲染设置已更改:', event.detail.enabled);
+      setEnableGpuRendering(event.detail.enabled);
+    };
+
+    window.addEventListener('gpuRenderingChanged', handleGpuRenderingChange as EventListener);
+
+    return () => {
+      window.removeEventListener('gpuRenderingChanged', handleGpuRenderingChange as EventListener);
+    };
+  }, []);
 
   // ESC键返回 - 在表单或关于页面时返回主界面
   useEscapeKey(() => {
@@ -47,6 +62,12 @@ export const MainWindow: React.FC = () => {
     const checkAutoLobby = async () => {
       try {
         const settings = await invoke<any>('get_settings');
+        
+        // 加载 GPU 渲染设置
+        const gpuEnabled = settings.enableGpuRendering ?? true;
+        setEnableGpuRendering(gpuEnabled);
+        console.log('GPU 渲染设置:', gpuEnabled);
+        
         if (settings.autoLobbyEnabled && settings.lobbyName && settings.lobbyPassword && settings.playerName) {
           console.log('检测到自动大厅配置，自动创建大厅:', settings.lobbyName);
           (window as any).__autoLobbyTriggered = true;
@@ -169,7 +190,7 @@ export const MainWindow: React.FC = () => {
   }
 
   return (
-    <div className="main-window">
+    <div className={`main-window ${!enableGpuRendering ? 'gpu-rendering-disabled' : ''}`}>
       {/* 拖拽区域 - 只在顶部 */}
       <div className="main-window-drag-area" data-tauri-drag-region>
         {/* 右上角设置按钮 */}
@@ -216,7 +237,7 @@ export const MainWindow: React.FC = () => {
           transition={{ delay: 0.3, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
         >
           <Paragraph className="main-window-subtitle">
-            Minecraft 虚拟局域网联机工具
+            虚拟局域网通用联机工具
           </Paragraph>
         </motion.div>
 
@@ -297,6 +318,15 @@ export const MainWindow: React.FC = () => {
           transition={{ delay: 0.6, duration: 0.4 }}
         >
           v{APP_VERSION}
+        </motion.div>
+
+        <motion.div
+          className="main-window-hint"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.7, duration: 0.4 }}
+        >
+          按 ESC 可快速返回上一页
         </motion.div>
       </motion.div>
 

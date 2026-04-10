@@ -182,3 +182,54 @@
     height: 14px;
   }
 }
+
+/* 音量滑块容器 */
+.volume-slider-container {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.volume-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.volume-slider {
+  margin: 0 !important;
+}
+
+/* 自定义滑块样式 */
+.volume-slider .ant-slider-rail {
+  background: rgba(255, 255, 255, 0.1) !important;
+  height: 6px !important;
+}
+
+.volume-slider .ant-slider-track {
+  background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%) !important;
+  height: 6px !important;
+}
+
+.volume-slider .ant-slider-handle {
+  width: 16px !important;
+  height: 16px !important;
+  border: 2px solid #11998e !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(17, 153, 142, 0.3) !important;
+}
+
+.volume-slider .ant-slider-handle:hover,
+.volume-slider .ant-slider-handle:focus {
+  border-color: #38ef7d !important;
+  box-shadow: 0 4px 12px rgba(17, 153, 142, 0.5) !important;
+}
+
+.volume-slider .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px rgba(17, 153, 142, 0.2) !important;
+}

@@ -194,10 +194,17 @@ impl NetworkService {
             ));
         }
 
+        // 解析多个节点地址（用逗号分隔）
+        let server_nodes: Vec<String> = server_node
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
         log::info!(
-            "正在启动 EasyTier 服务: network={}, server={}",
+            "正在启动 EasyTier 服务: network={}, servers={:?}",
             network_name,
-            server_node
+            server_nodes
         );
 
         // 更新状态为连接中
@@ -319,7 +326,9 @@ impl NetworkService {
         log::info!("使用主机名: {}", sanitized_hostname);
         
         // 根据服务器节点协议自动选择监听器和默认协议
-        let is_ws_peer = server_node.starts_with("ws://") || server_node.starts_with("wss://");
+        // 检查第一个节点的协议类型
+        let first_node = server_nodes.first().cloned().unwrap_or_default();
+        let is_ws_peer = first_node.starts_with("ws://") || first_node.starts_with("wss://");
         let listener = if is_ws_peer { "ws://0.0.0.0:0/" } else { "udp://0.0.0.0:0" };
         let default_protocol = if is_ws_peer { "ws" } else { "udp" };
 
@@ -328,10 +337,14 @@ impl NetworkService {
         cmd.arg("--network-name")
             .arg(&network_name)
             .arg("--network-secret")
-            .arg(&network_key)
-            .arg("--peers")
-            .arg(&server_node)
-            .arg("--dhcp")
+            .arg(&network_key);
+        
+        // 添加多个节点地址（每个节点使用一个 --peers 参数）
+        for node in &server_nodes {
+            cmd.arg("--peers").arg(node);
+        }
+        
+        cmd.arg("--dhcp")
             .arg("true") // 使用 DHCP 自动分配 IP
             .arg("--hostname")
             .arg(&sanitized_hostname) // 设置主机名用于Magic DNS
@@ -361,6 +374,7 @@ impl NetworkService {
         
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
         log::info!("虚拟网卡名称: MCTier_Net（固定名称，方便识别和管理）");
+        log::info!("配置了 {} 个 EasyTier 节点，支持自动故障转移", server_nodes.len());
         if is_ws_peer {
             log::info!("启用 WebSockets 监听器以匹配官方 WS 节点");
         } else {

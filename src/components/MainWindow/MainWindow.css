@@ -46,7 +46,7 @@ a,
   app-region: no-drag;
 }
 
-/* 动态背景效果 */
+/* 动态背景效果 - 可通过 .gpu-rendering-disabled 类禁用 */
 .main-window::before {
   content: '';
   position: absolute;
@@ -58,6 +58,13 @@ a,
     radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
     radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
   animation: particleFloat 20s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* 禁用 GPU 渲染时停止背景动画 */
+.main-window.gpu-rendering-disabled::before {
+  animation: none;
+  opacity: 0.5;
 }
 
 @keyframes particleFloat {
@@ -92,7 +99,7 @@ a,
   position: relative;
 }
 
-/* 图标背后的渐变光晕效果 */
+/* 图标背后的渐变光晕效果 - 可通过 .gpu-rendering-disabled 类禁用 */
 .main-window-logo::before {
   content: '';
   position: absolute;
@@ -112,6 +119,13 @@ a,
   opacity: 0.6;
   animation: glowPulse 4s ease-in-out infinite;
   z-index: -1;
+  will-change: transform, opacity;
+}
+
+/* 禁用 GPU 渲染时停止光晕动画 */
+.main-window.gpu-rendering-disabled .main-window-logo::before {
+  animation: none;
+  opacity: 0.4;
 }
 
 @keyframes glowPulse {
@@ -160,6 +174,15 @@ a,
           drop-shadow(0 0 25px rgba(212, 165, 116, 0.4))
           drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
   animation: titleShine 4s ease-in-out infinite;
+  will-change: filter;
+}
+
+/* 禁用 GPU 渲染时停止标题动画 */
+.main-window.gpu-rendering-disabled .main-window-title {
+  animation: none;
+  filter: drop-shadow(0 0 15px rgba(126, 211, 33, 0.6))
+          drop-shadow(0 0 25px rgba(212, 165, 116, 0.4))
+          drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 @keyframes titleShine {
@@ -199,6 +222,14 @@ a,
   filter: blur(8px);
   z-index: -1;
   animation: titleGlow 3s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+
+/* 禁用 GPU 渲染时停止标题光晕动画 */
+.main-window.gpu-rendering-disabled .main-window-title::before {
+  animation: none;
+  opacity: 0.5;
+  filter: blur(8px);
 }
 
 @keyframes titleGlow {
@@ -370,6 +401,16 @@ a,
   color: rgba(255, 255, 255, 0.5);
   font-weight: 600;
   letter-spacing: 0.8px;
+  user-select: none;
+}
+
+.main-window-hint {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
   user-select: none;
 }
 

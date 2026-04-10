@@ -2140,6 +2140,24 @@ export class WebRTCClient {
   }
 
   /**
+   * 设置所有玩家的音量
+   * @param volume 音量值 (0.0-1.0)
+   */
+  setVolume(volume: number): void {
+    try {
+      const clampedVolume = Math.max(0, Math.min(1, volume));
+      this.peerConnections.forEach((pc) => {
+        if (pc.audioElement && !pc.audioElement.muted) {
+          pc.audioElement.volume = clampedVolume;
+        }
+      });
+      console.log(`已设置所有玩家音量: ${Math.round(clampedVolume * 100)}%`);
+    } catch (error) {
+      console.error('设置音量失败:', error);
+    }
+  }
+
+  /**
    * 广播状态更新（通过WebSocket信令服务器）
    */
   private async broadcastStatusUpdate(micEnabled: boolean): Promise<void> {

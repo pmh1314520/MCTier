@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button, Tooltip, message } from 'antd';
+import { Button, Tooltip, message, Slider } from 'antd';
+import { invoke } from '@tauri-apps/api/core';
 import { MicrophoneIcon, VolumeIcon } from '../icons';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
@@ -19,6 +20,26 @@ export const VoiceControls: React.FC = () => {
   
   const [micLoading, setMicLoading] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
+  const [volume, setVolume] = useState(100); // 音量百分比 (0-100)
+  const [volumeLoading, setVolumeLoading] = useState(true);
+
+  // 加载音量设置
+  useEffect(() => {
+    const loadVolume = async () => {
+      try {
+        const settings = await invoke<any>('get_settings');
+        const savedVolume = settings.voiceVolume ?? 1.0;
+        setVolume(Math.round(savedVolume * 100));
+        // 应用音量到 WebRTC 客户端
+        webrtcClient.setVolume(savedVolume);
+      } catch (error) {
+        console.error('加载音量设置失败:', error);
+      } finally {
+        setVolumeLoading(false);
+      }
+    };
+    loadVolume();
+  }, []);
 
   // 同步麦克风状态到WebRTC客户端
   useEffect(() => {
@@ -78,8 +99,47 @@ export const VoiceControls: React.FC = () => {
     }
   };
 
+  // 处理音量变化
+  const handleVolumeChange = async (value: number) => {
+    setVolume(value);
+    const volumeValue = value / 100;
+    
+    // 应用音量到 WebRTC 客户端
+    webrtcClient.setVolume(volumeValue);
+    
+    // 保存音量设置
+    try {
+      await invoke('save_voice_volume', { volume: volumeValue });
+    } catch (error) {
+      console.error('保存音量设置失败:', error);
+    }
+  };
+
   return (
     <div className="voice-controls">
+      {/* 音量控制滑块 */}
+      {!volumeLoading && (
+        <motion.div
+          className="voice-control-item volume-slider-container"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="volume-slider-label">
+            <VolumeIcon muted={volume === 0} size={16} />
+            <span>音量: {volume}%</span>
+          </div>
+          <Slider
+            min={0}
+            max={100}
+            value={volume}
+            onChange={handleVolumeChange}
+            tooltip={{ formatter: (value) => `${value}%` }}
+            className="volume-slider"
+          />
+        </motion.div>
+      )}
+
       {/* 麦克风控制 */}
       <motion.div
         className="voice-control-item"

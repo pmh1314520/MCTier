@@ -1199,13 +1199,20 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
             .replace("/", "\\");
 
         if enable {
-            // 获取exe所在目录，确保开机自启时工作目录正确（避免便携版找不到相对路径资源）
+            // 获取exe所在目录
             let exe_dir = std::path::Path::new(&app_path)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
-            // 使用隐藏窗口的 PowerShell 启动，并切换到 exe 目录，避免便携版自启时找不到相对路径资源
-            let reg_value = format!("powershell -WindowStyle Hidden -Command \"Set-Location '{}'; Start-Process '{}'\"", exe_dir, app_path);
+            
+            // 使用 PowerShell 的 -WindowStyle Hidden 参数实现完全无窗口启动
+            // 同时设置工作目录，确保便携版能找到资源文件
+            let reg_value = format!(
+                "powershell -WindowStyle Hidden -Command \"Set-Location '{}'; Start-Process '{}'\"",
+                exe_dir.replace("\\", "\\\\"),
+                app_path.replace("\\", "\\\\")
+            );
+            
             let output = Command::new("reg")
                 .args([
                     "add",
@@ -1224,9 +1231,10 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
                 log::error!("写入注册表开机自启失败: {}", error);
                 return Err(format!("写入注册表失败: {}", error));
             }
-            log::info!("开机自启动已启用，路径: {}", app_path);
+            log::info!("开机自启动已启用（无窗口模式），路径: {}", app_path);
             Ok(())
         } else {
+            // 删除注册表项
             let output = Command::new("reg")
                 .args([
                     "delete",
@@ -1241,6 +1249,7 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
             if !output.status.success() {
                 log::warn!("删除注册表开机自启项时出现警告（可能本就不存在）");
             }
+            
             log::info!("开机自启动已禁用");
             Ok(())
         }
@@ -1665,6 +1674,35 @@ pub async fn select_save_location(default_name: String) -> Result<Option<String>
             Ok(Some(path_str.to_string()))
         } else {
             Err("无法转换保存路径".to_string())
+        }
+    } else {
+        log::info!("用户取消了选择");
+        Ok(None)
+    }
+}
+
+/// 选择文件
+///
+/// # 返回
+/// * `Ok(Option<String>)` - 选择的文件路径，None表示取消
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn select_file() -> Result<Option<String>, String> {
+    log::info!("打开文件选择对话框");
+    
+    use rfd::FileDialog;
+    
+    let result = FileDialog::new()
+        .set_title("选择配置文件")
+        .add_filter("JSON 文件", &["json"])
+        .pick_file();
+    
+    if let Some(path) = result {
+        if let Some(path_str) = path.to_str() {
+            log::info!("用户选择了文件: {}", path_str);
+            Ok(Some(path_str.to_string()))
+        } else {
+            Err("无法转换文件路径".to_string())
         }
     } else {
         log::info!("用户取消了选择");
@@ -2850,6 +2888,7 @@ pub async fn get_log_file_path() -> Result<String, String> {
 /// * `private_signaling_server` - 私有信令服务器地址
 /// * `always_on_top` - 窗口是否置顶
 /// * `remember_window_position` - 是否记住窗口位置
+/// * `enable_gpu_rendering` - 是否启用 GPU 渲染
 #[tauri::command]
 pub async fn save_settings(
     auto_startup: bool,
@@ -2863,12 +2902,15 @@ pub async fn save_settings(
     private_signaling_server: Option<String>,
     always_on_top: Option<bool>,
     remember_window_position: Option<bool>,
+    custom_easytier_nodes: Option<Vec<serde_json::Value>>,
+    voice_volume: Option<f64>,
+    enable_gpu_rendering: Option<bool>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use crate::modules::config_manager::AutoLobbyConfig;
-    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}, use_private_server={}, always_on_top={:?}, remember_window_position={:?}", 
-        auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position);
+    use crate::modules::config_manager::{AutoLobbyConfig, EasyTierNode};
+    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}, use_private_server={}, always_on_top={:?}, remember_window_position={:?}, voice_volume={:?}, enable_gpu_rendering={:?}", 
+        auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position, voice_volume, enable_gpu_rendering);
 
     // 1. 保存配置到文件
     {
@@ -2905,6 +2947,28 @@ pub async fn save_settings(
                 if !remember {
                     config.window_position = None;
                 }
+            }
+            // 保存自定义 EasyTier 节点
+            if let Some(nodes_json) = custom_easytier_nodes.clone() {
+                let nodes: Vec<EasyTierNode> = nodes_json.iter().filter_map(|n| {
+                    if let (Some(name), Some(address)) = (n.get("name").and_then(|v| v.as_str()), n.get("address").and_then(|v| v.as_str())) {
+                        Some(EasyTierNode {
+                            name: name.to_string(),
+                            address: address.to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                }).collect();
+                config.custom_easytier_nodes = Some(nodes);
+            }
+            // 保存语音音量
+            if let Some(volume) = voice_volume {
+                config.voice_volume = Some(volume.clamp(0.0, 1.0));
+            }
+            // 保存 GPU 渲染设置
+            if let Some(enable) = enable_gpu_rendering {
+                config.enable_gpu_rendering = Some(enable);
             }
         }).await.map_err(|e| format!("保存配置失败: {}", e))?;
     }
@@ -3001,10 +3065,35 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "privateSignalingServer": config.private_signaling_server.clone(),
         "alwaysOnTop": config.always_on_top.unwrap_or(true),
         "rememberWindowPosition": config.remember_window_position.unwrap_or(false),
+        "customEasytierNodes": config.custom_easytier_nodes.clone().unwrap_or_default(),
+        "voiceVolume": config.voice_volume.unwrap_or(1.0),
+        "enableGpuRendering": config.enable_gpu_rendering.unwrap_or(true),
     }))
 }
 
-
+/// 保存语音音量
+/// 
+/// # 参数
+/// * `volume` - 音量值 (0.0-1.0)
+/// * `state` - 应用状态
+/// 
+/// # 返回
+/// * `Ok(())` - 保存成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn save_voice_volume(volume: f64, state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("保存语音音量: {}", volume);
+    
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    
+    cfg_mgr.set_voice_volume(volume).await
+        .map_err(|e| format!("保存音量失败: {}", e))?;
+    
+    log::info!("语音音量保存成功");
+    Ok(())
+}
 
 // ==================== 配置重置命令 ====================
 
@@ -3032,3 +3121,131 @@ pub async fn reset_config_to_default(state: State<'_, AppState>) -> Result<(), S
         }
     }
 }
+
+// ==================== 配置导入导出命令 ====================
+
+/// 导出配置到文件
+/// 
+/// # 参数
+/// * `export_path` - 导出文件路径
+/// * `state` - 应用状态
+/// 
+/// # 返回
+/// * `Ok(())` - 导出成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn export_config(export_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("导出配置到: {}", export_path);
+
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let cfg_mgr = config_manager.lock().await;
+
+    cfg_mgr.export_config(std::path::PathBuf::from(export_path)).await
+        .map_err(|e| format!("导出配置失败: {}", e))?;
+
+    log::info!("配置导出成功");
+    Ok(())
+}
+
+/// 从文件导入配置
+/// 
+/// # 参数
+/// * `import_path` - 导入文件路径
+/// * `state` - 应用状态
+/// 
+/// # 返回
+/// * `Ok(())` - 导入成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn import_config(import_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("从文件导入配置: {}", import_path);
+
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+
+    cfg_mgr.import_config(std::path::PathBuf::from(import_path)).await
+        .map_err(|e| format!("导入配置失败: {}", e))?;
+
+    log::info!("配置导入成功");
+    Ok(())
+}
+
+// ==================== GPU 设置命令 ====================
+
+/// 重启应用并应用 GPU 设置
+/// 
+/// # 参数
+/// * `enable_gpu` - 是否启用 GPU 渲染
+/// * `app` - 应用句柄
+/// 
+/// # 返回
+/// * `Ok(())` - 重启成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn restart_app_with_gpu_settings(enable_gpu: bool, app: tauri::AppHandle) -> Result<(), String> {
+    log::info!("重启应用以应用 GPU 设置: enable_gpu={}", enable_gpu);
+    
+    use std::process::Command;
+    
+    // 获取当前可执行文件路径
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("获取程序路径失败: {}", e))?;
+    
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        
+        // 使用 PowerShell 启动新进程，确保环境变量正确传递
+        let ps_script = if !enable_gpu {
+            // 完全禁用 GPU（包括GPU进程）
+            format!(
+                "$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--disable-gpu --disable-software-rasterizer --disable-gpu-compositing --disable-gpu-process-crash-limit --in-process-gpu'; Start-Process -FilePath '{}' -WindowStyle Hidden",
+                exe_path.to_string_lossy().replace("\\", "\\\\")
+            )
+        } else {
+            // 启用 GPU，明确设置启用硬件加速的参数
+            format!(
+                "$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist'; Start-Process -FilePath '{}' -WindowStyle Hidden",
+                exe_path.to_string_lossy().replace("\\", "\\\\")
+            )
+        };
+        
+        log::info!("执行 PowerShell 脚本启动新进程");
+        
+        // 使用 PowerShell 启动新进程
+        Command::new("powershell")
+            .args(["-WindowStyle", "Hidden", "-Command", &ps_script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("启动新进程失败: {}", e))?;
+    }
+    
+    #[cfg(not(windows))]
+    {
+        // 非 Windows 平台的实现
+        let mut cmd = Command::new(&exe_path);
+        
+        if !enable_gpu {
+            cmd.env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing --disable-gpu-process-crash-limit --in-process-gpu");
+        } else {
+            cmd.env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist");
+        }
+        
+        cmd.spawn()
+            .map_err(|e| format!("启动新进程失败: {}", e))?;
+    }
+    
+    log::info!("新进程已启动，准备退出当前进程");
+    
+    // 延迟退出当前进程，确保新进程已启动
+    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+    app.exit(0);
+    
+    Ok(())
+}
+
+
+
+

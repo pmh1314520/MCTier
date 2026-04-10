@@ -10,6 +10,46 @@ use tauri::Manager;
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+/// 在应用启动时应用 GPU 设置
+fn apply_gpu_settings_on_startup() {
+    // 尝试加载配置文件
+    let config_path = if let Some(config_dir) = dirs::config_dir() {
+        config_dir.join("mctier").join("mctier_config.json")
+    } else {
+        return;
+    };
+    
+    if !config_path.exists() {
+        println!("配置文件不存在，使用默认GPU设置（启用）");
+        return;
+    }
+    
+    // 读取配置文件
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+            // 检查 GPU 渲染设置（配置文件使用 snake_case）
+            let enable_gpu = config.get("enable_gpu_rendering")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            
+            if !enable_gpu {
+                // 设置环境变量完全禁用 GPU（包括GPU进程）
+                std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
+                    "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing --disable-gpu-process-crash-limit --in-process-gpu");
+                println!("✅ GPU 渲染已完全禁用（包括GPU进程）");
+            } else {
+                // 启用 GPU 时，明确设置启用硬件加速的参数
+                std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
+                    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist");
+                println!("✅ GPU 渲染已启用（通过环境变量）");
+            }
+        }
+    } else {
+        println!("无法读取配置文件，使用默认GPU设置（启用）");
+    }
+}
+
+
 use modules::tauri_commands::{
     create_lobby, join_lobby, leave_lobby,
     toggle_mic, mute_player, mute_all,
@@ -24,7 +64,7 @@ use modules::tauri_commands::{
     save_window_position, exit_app,
     add_player_domain, remove_player_domain,
     get_folder_name, get_folder_info, list_directory_files,
-    read_file_bytes, write_file_bytes, select_folder, select_save_location,
+    read_file_bytes, write_file_bytes, select_folder, select_file, select_save_location,
     save_file, save_chat_image, read_file, delete_file, extract_zip,
     open_file_location, open_folder,
     start_file_server, stop_file_server, check_file_server_status,
@@ -35,7 +75,9 @@ use modules::tauri_commands::{
     open_screen_viewer_window,
     open_log_folder, open_log_file, get_log_file_path,
     save_settings, get_settings, set_auto_start, check_auto_start,
-    reset_config_to_default,
+    reset_config_to_default, save_voice_volume,
+    export_config, import_config,
+    restart_app_with_gpu_settings,
 };
 
 #[tauri::command]
@@ -61,6 +103,9 @@ fn open_devtools(_app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 在应用启动时检查并应用 GPU 设置
+    apply_gpu_settings_on_startup();
+    
     use std::fs::OpenOptions;
     let log_path = if let Some(data_dir) = dirs::data_local_dir() {
         let mctier_dir = data_dir.join("MCTier");
@@ -113,7 +158,7 @@ pub fn run() {
             save_window_position, exit_app,
             add_player_domain, remove_player_domain,
             get_folder_name, get_folder_info, list_directory_files,
-            read_file_bytes, write_file_bytes, select_folder, select_save_location,
+            read_file_bytes, write_file_bytes, select_folder, select_file, select_save_location,
             save_file, save_chat_image, read_file, delete_file, extract_zip,
             open_file_location, open_folder,
             start_file_server, stop_file_server, check_file_server_status,
@@ -124,7 +169,9 @@ pub fn run() {
             open_screen_viewer_window,
             open_log_folder, open_log_file, get_log_file_path,
             save_settings, get_settings, set_auto_start, check_auto_start,
-            reset_config_to_default,
+            reset_config_to_default, save_voice_volume,
+            export_config, import_config,
+            restart_app_with_gpu_settings,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

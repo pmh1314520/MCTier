@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MCTier",
-  "version": "1.4.0",
+  "version": "1.4.5",
   "identifier": "com.mctier.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "MCTier - Minecraft 虚拟局域网联机工具",
+        "title": "MCTier - 虚拟局域网通用联机工具",
         "width": 320,
         "height": 520,
         "minWidth": 320,
@@ -25,7 +25,8 @@
         "visible": true,
         "devtools": true,
         "fullscreen": false,
-        "maximizable": true
+        "maximizable": true,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
@@ -47,7 +48,9 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser",
-        "languages": ["SimpChinese"],
+        "languages": [
+          "SimpChinese"
+        ],
         "displayLanguageSelector": false
       },
       "webviewInstallMode": {
@@ -59,9 +62,9 @@
     },
     "externalBin": [],
     "resources": [],
-    "copyright": "Copyright \u00a9 2024 MCTier Team",
+    "copyright": "Copyright © 2024 MCTier Team",
     "category": "Game",
-    "shortDescription": "Minecraft 虚拟局域网联机工具",
-    "longDescription": "MCTier 是一款桌面应用程序，允许 Minecraft 玩家通过虚拟局域网（VLAN）技术实现跨物理网络的联机游戏。该应用集成了虚拟网络组建、实时语音通信和玩家状态管理功能，为玩家提供流畅的联机体验。"
+    "shortDescription": "虚拟局域网通用联机工具",
+    "longDescription": "MCTier 是一款桌面应用程序，允许玩家通过虚拟局域网（VLAN）技术实现跨物理网络的联机游戏。该应用集成了虚拟网络组建、实时语音通信和玩家状态管理功能，为玩家提供流畅的联机体验。"
   }
 }
