@@ -194,17 +194,10 @@ impl NetworkService {
             ));
         }
 
-        // 解析多个节点地址（用逗号分隔）
-        let server_nodes: Vec<String> = server_node
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-
         log::info!(
-            "正在启动 EasyTier 服务: network={}, servers={:?}",
+            "正在启动 EasyTier 服务: network={}, server={}",
             network_name,
-            server_nodes
+            server_node
         );
 
         // 更新状态为连接中
@@ -326,9 +319,7 @@ impl NetworkService {
         log::info!("使用主机名: {}", sanitized_hostname);
         
         // 根据服务器节点协议自动选择监听器和默认协议
-        // 检查第一个节点的协议类型
-        let first_node = server_nodes.first().cloned().unwrap_or_default();
-        let is_ws_peer = first_node.starts_with("ws://") || first_node.starts_with("wss://");
+        let is_ws_peer = server_node.starts_with("ws://") || server_node.starts_with("wss://");
         let listener = if is_ws_peer { "ws://0.0.0.0:0/" } else { "udp://0.0.0.0:0" };
         let default_protocol = if is_ws_peer { "ws" } else { "udp" };
 
@@ -337,14 +328,10 @@ impl NetworkService {
         cmd.arg("--network-name")
             .arg(&network_name)
             .arg("--network-secret")
-            .arg(&network_key);
-        
-        // 添加多个节点地址（每个节点使用一个 --peers 参数）
-        for node in &server_nodes {
-            cmd.arg("--peers").arg(node);
-        }
-        
-        cmd.arg("--dhcp")
+            .arg(&network_key)
+            .arg("--peers")
+            .arg(&server_node) // 单个节点地址
+            .arg("--dhcp")
             .arg("true") // 使用 DHCP 自动分配 IP
             .arg("--hostname")
             .arg(&sanitized_hostname) // 设置主机名用于Magic DNS
@@ -373,8 +360,10 @@ impl NetworkService {
         cmd.env("PATH", working_dir);
         
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
+        log::info!("虚拟IP由DHCP服务器自动分配");
         log::info!("虚拟网卡名称: MCTier_Net（固定名称，方便识别和管理）");
-        log::info!("配置了 {} 个 EasyTier 节点，支持自动故障转移", server_nodes.len());
+        log::info!("使用单节点模式连接到: {}", server_node);
+        log::info!("启用低延迟优先模式以降低延迟");
         if is_ws_peer {
             log::info!("启用 WebSockets 监听器以匹配官方 WS 节点");
         } else {

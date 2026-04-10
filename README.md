@@ -7,10 +7,11 @@
 ### 虚拟局域网通用联机工具
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.5-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.5.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
 </p>
+
 
 <p align="center">
   <a href="https://github.com/pmh1314520/MCTier">GitHub</a> •

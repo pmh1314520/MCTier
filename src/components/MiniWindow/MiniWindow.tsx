@@ -32,11 +32,12 @@ export const MiniWindow: React.FC = () => {
     chatMessages,
     currentPlayerId,
     addChatMessage,
+    setPlayerVolume,
+    getPlayerVolume,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
   const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
-  const [voiceVolume, setVoiceVolume] = useState(config.voiceVolume ?? 1.0);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
@@ -86,7 +87,7 @@ export const MiniWindow: React.FC = () => {
     }
   }, [versionError]);
 
-  // 组件加载时从配置中读取透明度和语音音量并设置（进入大厅）
+  // 组件加载时从配置中读取透明度并设置（进入大厅）
   // 组件卸载时恢复完全不透明（退出大厅）
   useEffect(() => {
     const setupOpacity = async () => {
@@ -98,16 +99,8 @@ export const MiniWindow: React.FC = () => {
         // 设置窗口透明度
         await invoke('set_window_opacity', { opacity: initialOpacity });
         console.log('进入大厅，透明度已设置为:', initialOpacity);
-        
-        // 从配置中获取语音音量，如果没有则使用默认值1.0
-        const initialVolume = config.voiceVolume ?? 1.0;
-        setVoiceVolume(initialVolume);
-        
-        // 应用音量到 WebRTC 客户端
-        webrtcClient.setVolume(initialVolume);
-        console.log('进入大厅，语音音量已设置为:', initialVolume);
       } catch (error) {
-        console.error('设置透明度或语音音量失败:', error);
+        console.error('设置透明度失败:', error);
       }
     };
 
@@ -125,7 +118,7 @@ export const MiniWindow: React.FC = () => {
       };
       restoreOpacity();
     };
-  }, [config.opacity, config.voiceVolume]);
+  }, [config.opacity]);
 
   // 进入大厅时取消全局静音（听筒默认开启）
   useEffect(() => {
@@ -381,26 +374,10 @@ export const MiniWindow: React.FC = () => {
     }
   };
 
-  const handleVoiceVolumeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
-    setVoiceVolume(newVolume);
-    
-    try {
-      // 应用音量到 WebRTC 客户端
-      webrtcClient.setVolume(newVolume);
-      console.log('语音音量已更改为:', newVolume);
-      
-      // 保存音量到配置文件
-      await invoke('save_voice_volume', { volume: newVolume });
-      console.log('语音音量已保存到配置文件');
-      
-      // 更新前端 store 中的配置
-      const { updateConfig } = useAppStore.getState();
-      updateConfig({ voiceVolume: newVolume });
-      console.log('前端 store 中的语音音量已更新');
-    } catch (error) {
-      console.error('设置或保存语音音量失败:', error);
-    }
+  // 处理玩家音量变化
+  const handlePlayerVolumeChange = (playerId: string, volume: number) => {
+    setPlayerVolume(playerId, volume);
+    console.log(`玩家 ${playerId} 音量已设置为: ${Math.round(volume * 100)}%`);
   };
 
   // 打开聊天室（从聊天室按钮）
@@ -1030,6 +1007,8 @@ export const MiniWindow: React.FC = () => {
                     {players.map((player) => {
                       // 判断该玩家是否被静音（考虑全局静音和单独静音）
                       const isPlayerMuted = globalMuted || mutedPlayers.has(player.id);
+                      // 获取该玩家的音量设置
+                      const playerVolume = getPlayerVolume(player.id);
                       
                       return (
                         <motion.div
@@ -1077,6 +1056,22 @@ export const MiniWindow: React.FC = () => {
                                   : `虚拟IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                 }
                               </motion.button>
+                              {/* 玩家独立音量控制 */}
+                              <div className="player-volume-control">
+                                <SpeakerIcon muted={isPlayerMuted} size={12} />
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="1"
+                                  step="0.05"
+                                  value={playerVolume}
+                                  onChange={(e) => handlePlayerVolumeChange(player.id, parseFloat(e.target.value))}
+                                  className="player-volume-slider"
+                                  title={`音量: ${Math.round(playerVolume * 100)}%`}
+                                  disabled={isPlayerMuted}
+                                />
+                                <span className="player-volume-value">{Math.round(playerVolume * 100)}%</span>
+                              </div>
                             </div>
                           </div>
                           <div className="mini-player-actions">
@@ -1106,33 +1101,12 @@ export const MiniWindow: React.FC = () => {
                 </div>
               </motion.div>
 
-              {/* 听筒音量控制 */}
-              <motion.div
-                className="mini-opacity-control"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.3 }}
-              >
-                <label className="mini-opacity-label">
-                  听筒音量
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={voiceVolume}
-                  onChange={handleVoiceVolumeChange}
-                  className="mini-opacity-slider"
-                />
-              </motion.div>
-
               {/* 透明度控制 */}
               <motion.div
                 className="mini-opacity-control"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25, duration: 0.3 }}
+                transition={{ delay: 0.2, duration: 0.3 }}
               >
                 <label className="mini-opacity-label">
                   透明度
@@ -1148,12 +1122,12 @@ export const MiniWindow: React.FC = () => {
                 />
               </motion.div>
 
-              {/* 底部控制按钮 - 只有3个按钮 */}
+              {/* 底部控制按钮 - 只有5个按钮 */}
               <motion.div
                 className="mini-voice-controls"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35, duration: 0.3 }}
+                transition={{ delay: 0.25, duration: 0.3 }}
               >
                 <motion.button
                   className={`mini-voice-btn ${micEnabled ? 'active' : 'muted'}`}

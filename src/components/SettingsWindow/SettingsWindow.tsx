@@ -437,13 +437,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
               </div>
               <div className="settings-card-desc">
                 <div style={{ marginBottom: '8px' }}>
-                  配置多个自定义 EasyTier 节点，实现高可用组网
+                  配置自定义 EasyTier 节点，可在创建/加入大厅时选择使用
                 </div>
                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.6' }}>
-                  • 创建/加入大厅时，MCTier 会自动将所有节点传递给 EasyTier<br />
-                  • EasyTier 会自动选择延迟最低、质量最好的节点<br />
-                  • 当节点离线或网络波动时，自动切换到其他健康节点<br />
-                  • 支持多路径并行，提升连接稳定性和速度
+                  • 在创建/加入大厅界面的服务器下拉列表中选择节点<br />
+                  • 每次组网只使用一个选定的节点<br />
+                  • 可添加多个备用节点供选择使用
                 </div>
               </div>
               <CustomNodeManager />
@@ -498,7 +497,7 @@ interface EasyTierNode {
 
 // 默认内置节点（不可删除）
 const DEFAULT_BUILTIN_NODE: EasyTierNode = {
-  name: '默认备用节点',
+  name: '明月清风节点',
   address: 'wss://qtet-public.070219.xyz'
 };
 

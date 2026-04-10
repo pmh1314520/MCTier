@@ -56,7 +56,7 @@ export class WebRTCClient {
   private reconnectTimers: Map<string, number> = new Map();
   private knownPlayers: Set<string> = new Set();
   private pendingPlayerLeaveTimers: Map<string, number> = new Map();
-  private readonly transientLeaveConfirmMs: number = 10000;
+  private readonly transientLeaveConfirmMs: number = 3000; // 减少到3秒，加快响应速度
 
   // ICE 服务器配置
   private iceServers: RTCIceServer[] = [
@@ -122,12 +122,15 @@ export class WebRTCClient {
       this.virtualDomain = virtualDomain || null;
       this.useDomain = useDomain || false;
       
-      // 重置断开标志
+      // 重置断开标志和重连相关状态
       this.isIntentionalDisconnect = false;
       this.reconnectAttempts = 0;
       this.reconnectingPeers.clear();
       this.reconnectTimers.forEach(timer => clearTimeout(timer));
       this.reconnectTimers.clear();
+      
+      // 【优化】只在首次初始化时清空已知玩家列表
+      // 信令服务器重连时不应该清空，避免重复建立连接
       this.knownPlayers.clear();
       this.clearAllPendingPlayerLeaves();
 
@@ -214,7 +217,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '1.4.0',
+              clientVersion: '1.5.0',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
@@ -417,8 +420,24 @@ export class WebRTCClient {
               this.onPlayerJoinedCallback(player.playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
             }
             
+            // 【优化】如果已经是已知玩家，检查WebRTC连接状态
             if (isKnownPlayer) {
-              continue;
+              const existingPeer = this.peerConnections.get(player.playerId);
+              if (existingPeer) {
+                const state = existingPeer.connection.connectionState;
+                if (state === 'connected' || state === 'connecting') {
+                  console.log(`✅ 玩家 ${player.playerId} 的WebRTC连接已存在且状态正常 (${state})，跳过重复连接`);
+                  continue;
+                } else {
+                  console.log(`⚠️ 玩家 ${player.playerId} 的WebRTC连接状态异常 (${state})，将重新建立连接`);
+                  // 清理旧连接
+                  this.removePeer(player.playerId);
+                  this.knownPlayers.delete(player.playerId);
+                }
+              } else {
+                console.log(`⚠️ 玩家 ${player.playerId} 在已知列表中但WebRTC连接不存在，将重新建立连接`);
+                this.knownPlayers.delete(player.playerId);
+              }
             }
             
             // 使用字符串比较决定谁主动发起连接，避免双方同时发送Offer
@@ -2154,6 +2173,24 @@ export class WebRTCClient {
       console.log(`已设置所有玩家音量: ${Math.round(clampedVolume * 100)}%`);
     } catch (error) {
       console.error('设置音量失败:', error);
+    }
+  }
+
+  /**
+   * 设置指定玩家的音量
+   * @param playerId 玩家ID
+   * @param volume 音量值 (0.0-1.0)
+   */
+  setPlayerVolume(playerId: string, volume: number): void {
+    try {
+      const clampedVolume = Math.max(0, Math.min(1, volume));
+      const pc = this.peerConnections.get(playerId);
+      if (pc && pc.audioElement) {
+        pc.audioElement.volume = clampedVolume;
+        console.log(`已设置玩家 ${playerId} 音量: ${Math.round(clampedVolume * 100)}%`);
+      }
+    } catch (error) {
+      console.error(`设置玩家 ${playerId} 音量失败:`, error);
     }
   }
 

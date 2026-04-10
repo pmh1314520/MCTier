@@ -80,6 +80,13 @@ interface AppStore {
   /** 检查玩家是否被静音 */
   isPlayerMuted: (playerId: string) => boolean;
 
+  /** 每个玩家的独立音量设置 (playerId -> volume 0.0-1.0) */
+  playerVolumes: Map<string, number>;
+  /** 设置指定玩家的音量 */
+  setPlayerVolume: (playerId: string, volume: number) => void;
+  /** 获取指定玩家的音量 */
+  getPlayerVolume: (playerId: string) => number;
+
   /** 全局静音状态 */
   globalMuted: boolean;
   /** 切换全局静音 */
@@ -185,6 +192,7 @@ const initialState = {
   micEnabled: false, // 麦克风默认关闭（保护隐私）
   mutedPlayers: new Set<string>(),
   globalMuted: false,
+  playerVolumes: new Map<string, number>(), // 每个玩家的独立音量
 
   // UI 状态
   statusWindowCollapsed: false,
@@ -241,7 +249,8 @@ export const useAppStore = create<AppStore>()(
         set({ 
           micEnabled: false,  // 麦克风默认关闭
           globalMuted: false, // 全局静音默认关闭
-          mutedPlayers: new Set<string>() // 清空静音列表
+          mutedPlayers: new Set<string>(), // 清空静音列表
+          playerVolumes: new Map<string, number>() // 清空玩家音量设置
         }, false, 'clearLobby/resetVoiceState');
         console.log('✅ 语音状态已重置为默认值');
       },
@@ -299,6 +308,8 @@ export const useAppStore = create<AppStore>()(
         set({ players: [] }, false, 'clearPlayers');
         // 清除静音列表
         set({ mutedPlayers: new Set() }, false, 'clearPlayers/clearMuted');
+        // 清除玩家音量设置
+        set({ playerVolumes: new Map() }, false, 'clearPlayers/clearVolumes');
       },
 
       getPlayerById: (playerId: string) => {
@@ -430,6 +441,32 @@ export const useAppStore = create<AppStore>()(
         set({ globalMuted: muted }, false, 'setGlobalMuted');
       },
 
+      // ==================== 玩家音量操作 ====================
+      setPlayerVolume: (playerId: string, volume: number) => {
+        set(
+          (state) => {
+            const playerVolumes = new Map(state.playerVolumes);
+            const clampedVolume = Math.max(0, Math.min(1, volume));
+            playerVolumes.set(playerId, clampedVolume);
+            
+            // 同步到 WebRTC 客户端
+            try {
+              webrtcClient.setPlayerVolume(playerId, clampedVolume);
+            } catch (error) {
+              console.error('同步玩家音量到WebRTC失败:', error);
+            }
+            
+            return { playerVolumes };
+          },
+          false,
+          'setPlayerVolume'
+        );
+      },
+
+      getPlayerVolume: (playerId: string) => {
+        return get().playerVolumes.get(playerId) ?? 1.0; // 默认100%
+      },
+
       // ==================== UI 状态操作 ====================
       toggleStatusWindowCollapsed: () => {
         set(
@@ -515,6 +552,7 @@ export const useAppStore = create<AppStore>()(
             ...initialState,
             // 重新创建 Set 对象，避免引用问题
             mutedPlayers: new Set<string>(),
+            playerVolumes: new Map<string, number>(),
             // 确保语音状态重置为默认值
             micEnabled: false,
             globalMuted: false,

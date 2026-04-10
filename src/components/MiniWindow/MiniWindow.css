@@ -401,7 +401,7 @@
 .player-details {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
 }
@@ -444,6 +444,86 @@
 .player-virtual-ip-btn:hover {
   background: rgba(0, 0, 0, 0.5);
   color: #73d13d;
+}
+
+/* 玩家独立音量控制 */
+.player-volume-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.player-volume-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.player-volume-slider:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.player-volume-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.player-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #52c41a;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 0 4px rgba(82, 196, 26, 0.5);
+}
+
+.player-volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(82, 196, 26, 0.8);
+}
+
+.player-volume-slider:disabled::-webkit-slider-thumb {
+  background: #666;
+  box-shadow: none;
+}
+
+.player-volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #52c41a;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 0 4px rgba(82, 196, 26, 0.5);
+}
+
+.player-volume-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(82, 196, 26, 0.8);
+}
+
+.player-volume-slider:disabled::-moz-range-thumb {
+  background: #666;
+  box-shadow: none;
+}
+
+.player-volume-value {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+  min-width: 32px;
+  text-align: right;
 }
 
 .mini-player-actions {

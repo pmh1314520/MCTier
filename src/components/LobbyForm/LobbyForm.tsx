@@ -31,6 +31,12 @@ interface LobbyFormValues {
 // 官方 EasyTier 服务器节点（仅保留 CDN WebSockets）
 const OFFICIAL_EASYTIER_SERVER = 'wss://mctiers.pmhs.top';
 
+// 默认备用节点（与SettingsWindow中的定义保持一致）
+const DEFAULT_BUILTIN_NODE = {
+  name: '明月清风节点',
+  address: 'wss://qtet-public.070219.xyz'
+};
+
 // 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
 const isLegacyOfficialServer = (server?: string) => {
   if (!server) return false;
@@ -48,10 +54,11 @@ interface CustomEasyTierNode {
   address: string;
 }
 
-// 获取服务器节点列表（包含官方节点和自定义节点）
+// 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
     { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
+    { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
   ];
   
   // 添加自定义节点
@@ -138,6 +145,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     privateEasytierServer: 'wss://mctiers.pmhs.top',
     privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
   });
+  // @ts-ignore - customNodes is used in useEffect to load custom nodes
   const [customNodes, setCustomNodes] = useState<CustomEasyTierNode[]>([]);
   const [serverNodes, setServerNodes] = useState(getServerNodes([]));
   
@@ -422,44 +430,11 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.log('  EasyTier:', serverNode);
         console.log('  信令服务器:', signalingServer);
       } else {
-        // 使用官方服务器或自定义节点
-        // 【重要改进】无论选择哪个节点，都将所有可用节点组合传递给EasyTier
-        // 这样EasyTier可以自动进行故障转移和负载均衡
-        const allAvailableNodes: string[] = [];
-        
-        // 1. 添加选中的节点（优先级最高）
-        allAvailableNodes.push(values.serverNode);
-        
-        // 2. 添加所有自定义节点（如果有的话）
-        if (customNodes.length > 0) {
-          customNodes.forEach(node => {
-            // 避免重复添加
-            if (!allAvailableNodes.includes(node.address)) {
-              allAvailableNodes.push(node.address);
-            }
-          });
-        }
-        
-        // 3. 添加默认内置备用节点（仅在使用官方服务器或自定义节点时）
-        const DEFAULT_BACKUP_NODE = 'wss://qtet-public.070219.xyz';
-        if (!allAvailableNodes.includes(DEFAULT_BACKUP_NODE)) {
-          allAvailableNodes.push(DEFAULT_BACKUP_NODE);
-        }
-        
-        // 4. 如果选中的不是官方节点，也添加官方节点作为备用
-        if (values.serverNode !== OFFICIAL_EASYTIER_SERVER && !allAvailableNodes.includes(OFFICIAL_EASYTIER_SERVER)) {
-          allAvailableNodes.push(OFFICIAL_EASYTIER_SERVER);
-        }
-        
-        // 将所有节点用逗号连接
-        serverNode = allAvailableNodes.join(',');
-        
-        console.log('✅ 启用多节点高可用模式');
-        console.log('  主节点:', values.serverNode);
-        console.log('  所有节点:', allAvailableNodes);
-        console.log('  节点数量:', allAvailableNodes.length);
+        // 使用官方服务器或自定义节点（单节点模式）
+        serverNode = values.serverNode;
+        console.log('使用单节点模式');
+        console.log('  EasyTier节点:', serverNode);
         console.log('  信令服务器:', signalingServer);
-        console.log('💡 EasyTier将自动选择最优节点并在节点故障时自动切换');
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
