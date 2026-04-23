@@ -333,7 +333,25 @@ impl LobbyManager {
     /// # 返回
     /// * `Ok(Lobby)` - 成功创建的大厅信息
     /// * `Err(LobbyError)` - 创建失败
-    pub async fn create_lobby(
+    /// 创建大厅（带配置参数，避免死锁）
+    /// 
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `virtual_domain` - 虚拟域名
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    /// * `global_config` - 全局 EasyTier 高级配置
+    /// * `lobby_config` - 大厅 EasyTier 高级配置
+    /// 
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功创建的大厅信息
+    /// * `Err(LobbyError)` - 创建失败
+    pub async fn create_lobby_with_config(
         &mut self,
         name: String,
         password: String,
@@ -341,8 +359,11 @@ impl LobbyManager {
         server_node: String,
         signaling_server: String,
         use_domain: bool,
+        virtual_domain: Option<String>,
         network_service: &crate::modules::network_service::NetworkService,
         app_handle: &tauri::AppHandle,
+        global_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        lobby_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
     ) -> Result<Lobby, LobbyError> {
         // 检查是否已经在大厅中
         if self.current_lobby.is_some() {
@@ -355,7 +376,7 @@ impl LobbyManager {
         Self::validate_input(&player_name, "玩家名称")?;
         Self::validate_input(&server_node, "服务器节点")?;
 
-        log::info!("正在创建大厅: {}, 使用域名: {}", name, use_domain);
+        log::info!("正在创建大厅: {}, 使用域名: {}, 虚拟域名: {:?}", name, use_domain, virtual_domain);
 
         // 构建 EasyTier 网络凭证
         // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
@@ -367,15 +388,31 @@ impl LobbyManager {
         let normalized_server_node = Self::normalize_server_node(&server_node);
         log::info!("使用服务器节点: {}", normalized_server_node);
 
-        // 启动 EasyTier 服务（统一启用魔法DNS）
+        // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
         let virtual_ip = network_service
-            .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
+            .start_easytier_with_config(
+                network_name, 
+                network_key, 
+                normalized_server_node, 
+                player_name.clone(), 
+                app_handle,
+                Some(global_config),
+                Some(lobby_config),
+            )
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
 
-        // 生成虚拟域名（格式：玩家名.mct.net）
-        let virtual_domain = Some(format!("{}.mct.net", player_name));
-        log::info!("虚拟域名: {:?}", virtual_domain);
+        // 使用传入的虚拟域名，如果没有则生成默认的（格式：玩家名.mct.net）
+        let final_virtual_domain = if let Some(domain) = virtual_domain {
+            if domain.is_empty() {
+                Some(format!("{}.mct.net", player_name))
+            } else {
+                Some(domain)
+            }
+        } else {
+            Some(format!("{}.mct.net", player_name))
+        };
+        log::info!("虚拟域名: {:?}", final_virtual_domain);
 
         // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
         if use_domain {
@@ -383,7 +420,7 @@ impl LobbyManager {
             let hosts_manager = HostsManager::new(&name);
             
             // 添加当前玩家的域名映射
-            if let Some(ref domain) = virtual_domain {
+            if let Some(ref domain) = final_virtual_domain {
                 log::info!("添加当前玩家的域名映射: {} -> {}", domain, virtual_ip);
                 if let Err(e) = hosts_manager.add_entry(domain, &virtual_ip) {
                     log::error!("添加hosts记录失败: {}", e);
@@ -407,7 +444,123 @@ impl LobbyManager {
             Some(password), 
             virtual_ip.clone(), 
             creator_virtual_ip,
-            virtual_domain,
+            final_virtual_domain,
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip.clone());
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("大厅创建成功: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 创建大厅
+    /// 
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `virtual_domain` - 虚拟域名
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    /// 
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功创建的大厅信息
+    /// * `Err(LobbyError)` - 创建失败
+    pub async fn create_lobby(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        virtual_domain: Option<String>,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+
+        log::info!("正在创建大厅: {}, 使用域名: {}, 虚拟域名: {:?}", name, use_domain, virtual_domain);
+
+        // 构建 EasyTier 网络凭证
+        // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        // 启动 EasyTier 服务（统一启用魔法DNS）
+        let virtual_ip = network_service
+            .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
+            .await
+            .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+
+        // 使用传入的虚拟域名，如果没有则生成默认的（格式：玩家名.mct.net）
+        let final_virtual_domain = if let Some(domain) = virtual_domain {
+            if domain.is_empty() {
+                Some(format!("{}.mct.net", player_name))
+            } else {
+                Some(domain)
+            }
+        } else {
+            Some(format!("{}.mct.net", player_name))
+        };
+        log::info!("虚拟域名: {:?}", final_virtual_domain);
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+            
+            // 添加当前玩家的域名映射
+            if let Some(ref domain) = final_virtual_domain {
+                log::info!("添加当前玩家的域名映射: {} -> {}", domain, virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续创建大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+            
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // 创建大厅实例
+        // 约定：所有节点都连接到 10.126.126.1:8445
+        // 在 EasyTier DHCP 模式下，第一个加入网络的节点通常会获得 10.126.126.1
+        let creator_virtual_ip = "10.126.126.1".to_string();
+        log::info!("约定的信令服务器地址: {}:8445", creator_virtual_ip);
+        let lobby = Lobby::new(
+            name, 
+            Some(password), 
+            virtual_ip.clone(), 
+            creator_virtual_ip,
+            final_virtual_domain,
             Some(use_domain),
             Some(signaling_server),
         );
@@ -438,6 +591,145 @@ impl LobbyManager {
     /// # 返回
     /// * `Ok(Lobby)` - 成功加入的大厅信息
     /// * `Err(LobbyError)` - 加入失败
+    /// 加入大厅（带配置参数，避免死锁）
+    /// 
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `virtual_domain` - 虚拟域名
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    /// * `global_config` - 全局 EasyTier 高级配置
+    /// * `lobby_config` - 大厅 EasyTier 高级配置
+    /// 
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功加入的大厅信息
+    /// * `Err(LobbyError)` - 加入失败
+    pub async fn join_lobby_with_config(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        virtual_domain: Option<String>,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+        global_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        lobby_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+
+        log::info!("正在加入大厅: {}, 使用域名: {}, 虚拟域名: {:?}", name, use_domain, virtual_domain);
+
+        // 构建 EasyTier 网络凭证
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
+        let virtual_ip = network_service
+            .start_easytier_with_config(
+                network_name, 
+                network_key, 
+                normalized_server_node, 
+                player_name.clone(), 
+                app_handle,
+                Some(global_config),
+                Some(lobby_config),
+            )
+            .await
+            .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+
+        // 使用传入的虚拟域名，如果没有则生成默认的（格式：玩家名.mct.net）
+        let final_virtual_domain = if let Some(domain) = virtual_domain {
+            if domain.is_empty() {
+                Some(format!("{}.mct.net", player_name))
+            } else {
+                Some(domain)
+            }
+        } else {
+            Some(format!("{}.mct.net", player_name))
+        };
+        log::info!("虚拟域名: {:?}", final_virtual_domain);
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+            
+            // 添加当前玩家的域名映射
+            if let Some(ref domain) = final_virtual_domain {
+                log::info!("添加当前玩家的域名映射: {} -> {}", domain, virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续加入大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+            
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // 创建大厅实例
+        let creator_virtual_ip = "10.126.126.1".to_string();
+        log::info!("约定的信令服务器地址: {}:8445", creator_virtual_ip);
+        let lobby = Lobby::new(
+            name, 
+            Some(password), 
+            virtual_ip.clone(), 
+            creator_virtual_ip,
+            final_virtual_domain,
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip.clone());
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("成功加入大厅: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 加入大厅
+    /// 
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// 
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功加入的大厅信息
+    /// * `Err(LobbyError)` - 加入失败
     pub async fn join_lobby(
         &mut self,
         name: String,
@@ -446,6 +738,7 @@ impl LobbyManager {
         server_node: String,
         signaling_server: String,
         use_domain: bool,
+        virtual_domain: Option<String>,
         network_service: &crate::modules::network_service::NetworkService,
         app_handle: &tauri::AppHandle,
     ) -> Result<Lobby, LobbyError> {
@@ -460,7 +753,7 @@ impl LobbyManager {
         Self::validate_input(&player_name, "玩家名称")?;
         Self::validate_input(&server_node, "服务器节点")?;
 
-        log::info!("正在加入大厅: {}, 使用域名: {}", name, use_domain);
+        log::info!("正在加入大厅: {}, 使用域名: {}, 虚拟域名: {:?}", name, use_domain, virtual_domain);
 
         // 构建 EasyTier 网络凭证
         // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
@@ -480,9 +773,17 @@ impl LobbyManager {
 
         log::info!("已连接到 EasyTier 网络，虚拟IP: {}", virtual_ip);
 
-        // 生成虚拟域名（格式：玩家名.mct.net）
-        let virtual_domain = Some(format!("{}.mct.net", player_name));
-        log::info!("虚拟域名: {:?}", virtual_domain);
+        // 使用传入的虚拟域名，如果没有则生成默认的（格式：玩家名.mct.net）
+        let final_virtual_domain = if let Some(domain) = virtual_domain {
+            if domain.is_empty() {
+                Some(format!("{}.mct.net", player_name))
+            } else {
+                Some(domain)
+            }
+        } else {
+            Some(format!("{}.mct.net", player_name))
+        };
+        log::info!("虚拟域名: {:?}", final_virtual_domain);
 
         // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
         if use_domain {
@@ -490,7 +791,7 @@ impl LobbyManager {
             let hosts_manager = HostsManager::new(&name);
             
             // 添加当前玩家的域名映射
-            if let Some(ref domain) = virtual_domain {
+            if let Some(ref domain) = final_virtual_domain {
                 log::info!("添加当前玩家的域名映射: {} -> {}", domain, virtual_ip);
                 if let Err(e) = hosts_manager.add_entry(domain, &virtual_ip) {
                     log::error!("添加hosts记录失败: {}", e);
@@ -517,7 +818,7 @@ impl LobbyManager {
             Some(password), 
             virtual_ip.clone(),  // clone一份，因为后面还要用
             creator_virtual_ip,
-            virtual_domain,
+            final_virtual_domain,
             Some(use_domain),
             Some(signaling_server),
         );

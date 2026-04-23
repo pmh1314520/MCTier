@@ -172,6 +172,14 @@
   background: rgba(0, 188, 212, 0.15);
   color: rgba(0, 229, 255, 0.9);
 }
+.settings-card-icon-yellow {
+  background: rgba(255, 193, 7, 0.15);
+  color: rgba(255, 213, 79, 0.9);
+}
+.settings-card-icon-red {
+  background: rgba(244, 67, 54, 0.15);
+  color: rgba(255, 87, 34, 0.9);
+}
 .settings-card-title {
   font-size: 12px;
   font-weight: 600;

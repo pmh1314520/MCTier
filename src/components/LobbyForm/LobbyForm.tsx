@@ -411,9 +411,11 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (privateServerConfig.usePrivateServer) {
         serverNode = privateServerConfig.privateEasytierServer;
         signalingServer = privateServerConfig.privateSignalingServer;
-        console.log('使用私有服务器配置（不添加默认备用节点）');
-        console.log('  EasyTier:', serverNode);
+        console.log('========================================');
+        console.log('✅ 使用私有服务器配置（不添加默认备用节点）');
+        console.log('  EasyTier 节点服务器:', serverNode);
         console.log('  信令服务器:', signalingServer);
+        console.log('========================================');
       } else if (values.serverNode === 'custom') {
         // 使用临时自定义服务器（不添加默认备用节点）
         if (!values.customEasytierServer?.trim()) {
@@ -426,15 +428,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         }
         serverNode = values.customEasytierServer.trim();
         signalingServer = values.customSignalingServer.trim();
-        console.log('使用临时自定义服务器（不添加默认备用节点）');
-        console.log('  EasyTier:', serverNode);
+        console.log('========================================');
+        console.log('✅ 使用临时自定义服务器（不添加默认备用节点）');
+        console.log('  EasyTier 节点服务器:', serverNode);
         console.log('  信令服务器:', signalingServer);
+        console.log('========================================');
       } else {
         // 使用官方服务器或自定义节点（单节点模式）
         serverNode = values.serverNode;
-        console.log('使用单节点模式');
-        console.log('  EasyTier节点:', serverNode);
+        console.log('========================================');
+        console.log('✅ 使用单节点模式');
+        console.log('  EasyTier 节点服务器:', serverNode);
         console.log('  信令服务器:', signalingServer);
+        console.log('========================================');
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
@@ -455,6 +461,35 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.log('⚠️ playerId 不存在，已生成新的 ID:', currentPlayerId);
       }
       
+      // 从配置中读取虚拟域名（添加超时保护）
+      let virtualDomain: string | undefined = undefined;
+      try {
+        console.log('正在读取虚拟域名配置...');
+        const settingsPromise = invoke<any>('get_settings');
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('读取配置超时')), 3000)
+        );
+        
+        const settings = await Promise.race([settingsPromise, timeoutPromise]) as any;
+        virtualDomain = settings.virtualDomain || undefined;
+        console.log('从配置中读取虚拟域名:', virtualDomain);
+      } catch (error) {
+        console.warn('读取虚拟域名配置失败:', error);
+        // 使用默认值
+        virtualDomain = undefined;
+      }
+      
+      console.log('准备调用后端命令:', commandName);
+      console.log('参数:', {
+        name: values.lobbyName.trim(),
+        playerName: values.playerName.trim(),
+        playerId: currentPlayerId,
+        serverNode: serverNode,
+        signalingServer: signalingServer,
+        useDomain: values.useDomain === true,
+        virtualDomain: virtualDomain,
+      });
+      
       // 调用后端命令
       const lobby = await invoke<Lobby>(commandName, {
         name: values.lobbyName.trim(),
@@ -464,7 +499,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         serverNode: serverNode,
         signalingServer: signalingServer,
         useDomain: values.useDomain === true, // 明确转换为布尔值
+        virtualDomain: virtualDomain, // 传递虚拟域名
       });
+      
+      console.log('✅ 后端命令调用成功，返回的大厅信息:', lobby);
 
       // 保存玩家名称到前端store
       const { updateConfig } = useAppStore.getState();

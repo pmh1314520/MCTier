@@ -4,6 +4,8 @@
  */
 
 export type HotkeyCallback = () => void | Promise<void>;
+export type HotkeyKeyDownCallback = () => void | Promise<void>;
+export type HotkeyKeyUpCallback = () => void | Promise<void>;
 
 interface HotkeyRegistration {
   key: string;
@@ -11,6 +13,11 @@ interface HotkeyRegistration {
   description: string;
   handler: (event: KeyboardEvent) => void;
   enabled: boolean;
+  // 支持按下和松开事件
+  onKeyDown?: HotkeyKeyDownCallback;
+  onKeyUp?: HotkeyKeyUpCallback;
+  keyDownHandler?: (event: KeyboardEvent) => void;
+  keyUpHandler?: (event: KeyboardEvent) => void;
 }
 
 /**
@@ -96,12 +103,23 @@ export class HotkeyManager {
   }
 
   /**
-   * 注册快捷键
+   * 注册快捷键（支持按下和松开事件）
+   * 
+   * @param key 快捷键字符串
+   * @param options 配置选项
+   * @param options.onPress 按下时的回调（可选）
+   * @param options.onKeyDown 按键按下时的回调（可选）
+   * @param options.onKeyUp 按键松开时的回调（可选）
+   * @param options.description 描述
    */
-  async registerHotkey(
+  async registerHotkeyWithEvents(
     key: string,
-    callback: HotkeyCallback,
-    description: string = ''
+    options: {
+      onPress?: HotkeyCallback;
+      onKeyDown?: HotkeyKeyDownCallback;
+      onKeyUp?: HotkeyKeyUpCallback;
+      description?: string;
+    }
   ): Promise<boolean> {
     try {
       if (!this.isInitialized) {
@@ -118,26 +136,66 @@ export class HotkeyManager {
       // 解析快捷键
       const parsedHotkey = this.parseHotkey(key);
 
-      // 创建事件处理器
-      const handler = async (event: KeyboardEvent) => {
-        // 检查全局是否启用
-        if (!this.globalEnabled) {
-          return;
-        }
+      // 创建按下事件处理器
+      const keyDownHandler = async (event: KeyboardEvent) => {
+        if (!this.globalEnabled) return;
 
-        // 检查当前快捷键是否启用
         const registration = this.registrations.get(key);
-        if (!registration || !registration.enabled) {
-          return;
-        }
+        if (!registration || !registration.enabled) return;
 
         if (this.matchesHotkey(event, parsedHotkey)) {
           event.preventDefault();
           event.stopPropagation();
 
           try {
-            console.log(`快捷键触发: ${key}`);
-            await callback();
+            if (options.onKeyDown) {
+              console.log(`快捷键按下: ${key}`);
+              await options.onKeyDown();
+            }
+          } catch (error) {
+            console.error(`快捷键按下回调执行失败 (${key}):`, error);
+          }
+        }
+      };
+
+      // 创建松开事件处理器
+      const keyUpHandler = async (event: KeyboardEvent) => {
+        if (!this.globalEnabled) return;
+
+        const registration = this.registrations.get(key);
+        if (!registration || !registration.enabled) return;
+
+        if (this.matchesHotkey(event, parsedHotkey)) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          try {
+            if (options.onKeyUp) {
+              console.log(`快捷键松开: ${key}`);
+              await options.onKeyUp();
+            }
+          } catch (error) {
+            console.error(`快捷键松开回调执行失败 (${key}):`, error);
+          }
+        }
+      };
+
+      // 创建传统的 keydown 事件处理器（用于兼容）
+      const handler = async (event: KeyboardEvent) => {
+        if (!this.globalEnabled) return;
+
+        const registration = this.registrations.get(key);
+        if (!registration || !registration.enabled) return;
+
+        if (this.matchesHotkey(event, parsedHotkey)) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          try {
+            if (options.onPress) {
+              console.log(`快捷键触发: ${key}`);
+              await options.onPress();
+            }
           } catch (error) {
             console.error(`快捷键回调执行失败 (${key}):`, error);
           }
@@ -145,23 +203,49 @@ export class HotkeyManager {
       };
 
       // 添加事件监听器
-      window.addEventListener('keydown', handler);
+      if (options.onKeyDown) {
+        window.addEventListener('keydown', keyDownHandler);
+      }
+      if (options.onKeyUp) {
+        window.addEventListener('keyup', keyUpHandler);
+      }
+      if (options.onPress) {
+        window.addEventListener('keydown', handler);
+      }
 
       // 保存注册信息
       this.registrations.set(key, {
         key,
-        callback,
-        description,
+        callback: options.onPress || (() => {}),
+        description: options.description || '',
         handler,
         enabled: true,
+        onKeyDown: options.onKeyDown,
+        onKeyUp: options.onKeyUp,
+        keyDownHandler,
+        keyUpHandler,
       });
 
-      console.log(`快捷键注册成功: ${key} - ${description}`);
+      console.log(`快捷键注册成功: ${key} - ${options.description || ''}`);
       return true;
     } catch (error) {
       console.error(`注册快捷键失败 (${key}):`, error);
       return false;
     }
+  }
+
+  /**
+   * 注册快捷键
+   */
+  async registerHotkey(
+    key: string,
+    callback: HotkeyCallback,
+    description: string = ''
+  ): Promise<boolean> {
+    return this.registerHotkeyWithEvents(key, {
+      onPress: callback,
+      description,
+    });
   }
 
   /**
@@ -177,6 +261,14 @@ export class HotkeyManager {
 
       // 移除事件监听器
       window.removeEventListener('keydown', registration.handler);
+      
+      if (registration.keyDownHandler) {
+        window.removeEventListener('keydown', registration.keyDownHandler);
+      }
+      
+      if (registration.keyUpHandler) {
+        window.removeEventListener('keyup', registration.keyUpHandler);
+      }
 
       // 移除注册信息
       this.registrations.delete(key);

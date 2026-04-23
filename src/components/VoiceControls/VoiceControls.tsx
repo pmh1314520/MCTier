@@ -22,6 +22,10 @@ export const VoiceControls: React.FC = () => {
   const [muteLoading, setMuteLoading] = useState(false);
   const [volume, setVolume] = useState(100); // 音量百分比 (0-100)
   const [volumeLoading, setVolumeLoading] = useState(true);
+  
+  // 使用固定的快捷键提示
+  const micHotkey = 'Ctrl+M';
+  const globalMuteHotkey = 'Ctrl+T';
 
   // 加载音量设置
   useEffect(() => {
@@ -148,7 +152,7 @@ export const VoiceControls: React.FC = () => {
         transition={{ duration: 0.3 }}
       >
         <Tooltip
-          title={micEnabled ? '关闭麦克风 (Ctrl+M)' : '开启麦克风 (Ctrl+M)'}
+          title={micEnabled ? `关闭麦克风 (${micHotkey})` : `开启麦克风 (${micHotkey})`}
           placement="top"
         >
           <motion.div
@@ -199,7 +203,7 @@ export const VoiceControls: React.FC = () => {
         transition={{ duration: 0.3, delay: 0.1 }}
       >
         <Tooltip
-          title={globalMuted ? '取消全局静音' : '全局静音所有玩家'}
+          title={globalMuted ? `取消全局静音 (${globalMuteHotkey})` : `全局静音所有玩家 (${globalMuteHotkey})`}
           placement="top"
         >
           <motion.div

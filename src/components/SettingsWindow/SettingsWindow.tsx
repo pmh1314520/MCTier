@@ -4,6 +4,7 @@ import { Form, Input, Switch, message, Tooltip } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
+import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
 import './SettingsWindow.css';
 
 export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -67,6 +68,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         alwaysOnTop: aot,
         rememberWindowPosition: rwp,
         enableGpuRendering: egr,
+        // 出口节点配置
+        enableExitNode: settings.enableExitNode || false,
+        enableAsExitNode: settings.enableAsExitNode || false,
+        proxyCidrs: settings.proxyCidrs || '',
+        exitNodes: settings.exitNodes || '',
+        subnetProxyCidrs: settings.subnetProxyCidrs || '',
       };
       form.setFieldsValue(settingsRef.current);
     } catch (e) {
@@ -91,6 +98,11 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         alwaysOnTop: true,
         rememberWindowPosition: false,
         enableGpuRendering: true,
+        enableExitNode: false,
+        enableAsExitNode: false,
+        proxyCidrs: '',
+        exitNodes: '',
+        subnetProxyCidrs: '',
       };
       
       setAutoStartup(false);
@@ -146,6 +158,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         lobbyPassword: merged.lobbyPassword || null,
         playerName: merged.playerName || null,
         useDomain: merged.useDomain ?? false,
+        virtualDomain: merged.virtualDomain || null,
         usePrivateServer: merged.usePrivateServer ?? false,
         // 私有服务器配置：如果有值就保存，没有值就保存 null
         privateEasytierServer: merged.privateEasytierServer?.trim() || null,
@@ -153,6 +166,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         alwaysOnTop: merged.alwaysOnTop !== undefined ? merged.alwaysOnTop : true,
         rememberWindowPosition: merged.rememberWindowPosition !== undefined ? merged.rememberWindowPosition : false,
         enableGpuRendering: merged.enableGpuRendering !== undefined ? merged.enableGpuRendering : true,
+        // 出口节点配置
+        enableExitNode: merged.enableExitNode !== undefined ? merged.enableExitNode : null,
+        enableAsExitNode: merged.enableAsExitNode !== undefined ? merged.enableAsExitNode : null,
+        proxyCidrs: merged.proxyCidrs?.trim() || null,
+        exitNodes: merged.exitNodes?.trim() || null,
+        subnetProxyCidrs: merged.subnetProxyCidrs?.trim() || null,
       });
       console.log('设置已保存:', merged);
       message.success('已保存', 1);
@@ -450,6 +469,21 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-green">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.70l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.70L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.70l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.70l-2.32-1.9z" />
+                  </svg>
+                </div>
+                <span className="settings-card-title">全局 EasyTier 高级配置</span>
+              </div>
+              <div className="settings-card-desc">
+                配置 EasyTier 的高级参数，这些配置将作为默认配置应用于所有大厅
+              </div>
+              <GlobalAdvancedConfigPanel />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-purple">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
@@ -555,6 +589,7 @@ const CustomNodeManager: React.FC = () => {
         lobbyPassword: null,
         playerName: null,
         useDomain: false,
+        virtualDomain: null,
         usePrivateServer: false,
         privateEasytierServer: null,
         privateSignalingServer: null,

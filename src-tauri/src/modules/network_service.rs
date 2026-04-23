@@ -156,12 +156,326 @@ impl NetworkService {
         }
     }
 
+    /// 应用 EasyTier 高级配置到命令行
+    /// 
+    /// # 参数
+    /// * `cmd` - 命令对象
+    /// * `config` - EasyTier 高级配置
+    fn apply_advanced_config(
+        cmd: &mut tokio::process::Command,
+        config: &crate::modules::config_manager::EasyTierAdvancedConfig,
+    ) {
+        log::info!("应用 EasyTier 高级配置");
+        
+        // ========== 网络模式 ==========
+        if config.no_tun {
+            cmd.arg("--no-tun");
+            log::info!("  ✅ 启用无 TUN 模式");
+        }
+        
+        if config.dhcp {
+            cmd.arg("--dhcp").arg("true");
+            log::info!("  ✅ 启用 DHCP");
+        } else {
+            cmd.arg("--dhcp").arg("false");
+        }
+        
+        if let Some(ref ipv4) = config.ipv4 {
+            if !ipv4.is_empty() {
+                cmd.arg("--ipv4").arg(ipv4);
+                log::info!("  ✅ 手动指定 IPv4: {}", ipv4);
+            }
+        }
+        
+        // ========== 代理和转发 ==========
+        if config.enable_socks5 {
+            if let Some(port) = config.socks5_port {
+                cmd.arg("--socks5").arg(port.to_string());
+                log::info!("  ✅ 启用 SOCKS5 代理，端口: {}", port);
+            }
+        }
+        
+        for rule in &config.port_forward_rules {
+            let forward_rule = format!("{}://{}/{}", rule.protocol, rule.bind_addr, rule.dst_addr);
+            cmd.arg("--port-forward").arg(&forward_rule);
+            log::info!("  ✅ 添加端口转发规则: {}", forward_rule);
+        }
+        
+        if config.proxy_forward_by_system {
+            cmd.arg("--proxy-forward-by-system");
+            log::info!("  ✅ 启用系统转发");
+        }
+        
+        for network in &config.proxy_networks {
+            if !network.trim().is_empty() {
+                cmd.arg("--proxy-networks").arg(network.trim());
+                log::info!("  ✅ 添加代理网络: {}", network.trim());
+            }
+        }
+        
+        // ========== 出口节点 ==========
+        if config.enable_as_exit_node {
+            cmd.arg("--enable-exit-node");
+            log::info!("  ✅ 启用作为出口节点");
+        }
+        
+        for node in &config.exit_nodes {
+            if !node.trim().is_empty() {
+                cmd.arg("--exit-nodes").arg(node.trim());
+                log::info!("  ✅ 使用出口节点: {}", node.trim());
+            }
+        }
+        
+        // ========== 性能优化 ==========
+        if config.multi_thread {
+            cmd.arg("--multi-thread").arg("true");
+            if let Some(count) = config.multi_thread_count {
+                if count >= 2 {
+                    cmd.arg("--multi-thread-count").arg(count.to_string());
+                    log::info!("  ✅ 启用多线程，线程数: {}", count);
+                }
+            } else {
+                log::info!("  ✅ 启用多线程（默认2线程）");
+            }
+        }
+        
+        if config.latency_first {
+            cmd.arg("--latency-first").arg("true");
+            log::info!("  ✅ 启用延迟优先模式");
+        }
+        
+        if config.use_smoltcp {
+            cmd.arg("--use-smoltcp");
+            log::info!("  ✅ 启用 smoltcp");
+        }
+        
+        // ========== 协议优化 ==========
+        if config.enable_kcp_proxy {
+            cmd.arg("--enable-kcp-proxy");
+            log::info!("  ✅ 启用 KCP 代理");
+        }
+        
+        if config.disable_kcp_input {
+            cmd.arg("--disable-kcp-input");
+            log::info!("  ✅ 禁用 KCP 输入");
+        }
+        
+        if config.enable_quic_proxy {
+            cmd.arg("--enable-quic-proxy");
+            log::info!("  ✅ 启用 QUIC 代理");
+        }
+        
+        if config.disable_quic_input {
+            cmd.arg("--disable-quic-input");
+            log::info!("  ✅ 禁用 QUIC 输入");
+        }
+        
+        if let Some(port) = config.quic_listen_port {
+            cmd.arg("--quic-listen-port").arg(port.to_string());
+            log::info!("  ✅ QUIC 监听端口: {}", port);
+        }
+        
+        // ========== 加密和安全 ==========
+        if config.disable_encryption {
+            cmd.arg("--disable-encryption");
+            log::info!("  ✅ 禁用加密");
+        }
+        
+        if let Some(ref algo) = config.encryption_algorithm {
+            if !algo.is_empty() {
+                cmd.arg("--encryption-algorithm").arg(algo);
+                log::info!("  ✅ 加密算法: {}", algo);
+            }
+        }
+        
+        // ========== 网络设备 ==========
+        if config.bind_device {
+            cmd.arg("--bind-device");
+            log::info!("  ✅ 绑定到物理设备");
+        }
+        
+        if let Some(ref dev_name) = config.dev_name {
+            if !dev_name.is_empty() {
+                cmd.arg("--dev-name").arg(dev_name);
+                log::info!("  ✅ TUN 设备名称: {}", dev_name);
+            }
+        }
+        
+        if let Some(mtu) = config.mtu {
+            cmd.arg("--mtu").arg(mtu.to_string());
+            log::info!("  ✅ MTU: {}", mtu);
+        }
+        
+        // ========== P2P 配置 ==========
+        if config.p2p_only {
+            cmd.arg("--p2p-only");
+            log::info!("  ✅ 仅使用 P2P");
+        }
+        
+        if config.disable_p2p {
+            cmd.arg("--disable-p2p");
+            log::info!("  ✅ 禁用 P2P");
+        }
+        
+        if config.disable_udp_hole_punching {
+            cmd.arg("--disable-udp-hole-punching");
+            log::info!("  ✅ 禁用 UDP 打洞");
+        }
+        
+        if config.disable_tcp_hole_punching {
+            cmd.arg("--disable-tcp-hole-punching");
+            log::info!("  ✅ 禁用 TCP 打洞");
+        }
+        
+        if config.disable_sym_hole_punching {
+            cmd.arg("--disable-sym-hole-punching");
+            log::info!("  ✅ 禁用对称 NAT 打洞");
+        }
+        
+        // ========== 中继配置 ==========
+        for network in &config.relay_network_whitelist {
+            if !network.trim().is_empty() {
+                cmd.arg("--relay-network-whitelist").arg(network.trim());
+                log::info!("  ✅ 中继网络白名单: {}", network.trim());
+            }
+        }
+        
+        if config.relay_all_peer_rpc {
+            cmd.arg("--relay-all-peer-rpc");
+            log::info!("  ✅ 转发所有对等节点 RPC");
+        }
+        
+        if config.disable_relay_kcp {
+            cmd.arg("--disable-relay-kcp");
+            log::info!("  ✅ 禁用中继 KCP");
+        }
+        
+        if config.enable_relay_foreign_network_kcp {
+            cmd.arg("--enable-relay-foreign-network-kcp");
+            log::info!("  ✅ 启用中继外部网络 KCP");
+        }
+        
+        if let Some(limit) = config.foreign_relay_bps_limit {
+            cmd.arg("--foreign-relay-bps-limit").arg(limit.to_string());
+            log::info!("  ✅ 外部网络流量限制: {} BPS", limit);
+        }
+        
+        // ========== 路由配置 ==========
+        for route in &config.manual_routes {
+            if !route.trim().is_empty() {
+                cmd.arg("--manual-routes").arg(route.trim());
+                log::info!("  ✅ 手动路由: {}", route.trim());
+            }
+        }
+        
+        // ========== 压缩 ==========
+        if let Some(ref compression) = config.compression {
+            if !compression.is_empty() {
+                cmd.arg("--compression").arg(compression);
+                log::info!("  ✅ 压缩算法: {}", compression);
+            }
+        }
+        
+        // ========== 监听器配置 ==========
+        for listener in &config.listeners {
+            if !listener.trim().is_empty() {
+                cmd.arg("--listeners").arg(listener.trim());
+                log::info!("  ✅ 监听器: {}", listener.trim());
+            }
+        }
+        
+        for mapped in &config.mapped_listeners {
+            if !mapped.trim().is_empty() {
+                cmd.arg("--mapped-listeners").arg(mapped.trim());
+                log::info!("  ✅ 映射监听器: {}", mapped.trim());
+            }
+        }
+        
+        if config.no_listener {
+            cmd.arg("--no-listener");
+            log::info!("  ✅ 不监听任何端口");
+        }
+        
+        if let Some(ref protocol) = config.default_protocol {
+            if !protocol.is_empty() {
+                cmd.arg("--default-protocol").arg(protocol);
+                log::info!("  ✅ 默认协议: {}", protocol);
+            }
+        }
+        
+        // ========== DNS 配置 ==========
+        if config.accept_dns {
+            cmd.arg("--accept-dns");
+            log::info!("  ✅ 启用魔法 DNS");
+        }
+        
+        if let Some(ref zone) = config.tld_dns_zone {
+            if !zone.is_empty() {
+                cmd.arg("--tld-dns-zone").arg(zone);
+                log::info!("  ✅ 顶级域名区域: {}", zone);
+            }
+        }
+        
+        // ========== 端口白名单 ==========
+        for port in &config.tcp_whitelist {
+            if !port.trim().is_empty() {
+                cmd.arg("--tcp-whitelist").arg(port.trim());
+                log::info!("  ✅ TCP 端口白名单: {}", port.trim());
+            }
+        }
+        
+        for port in &config.udp_whitelist {
+            if !port.trim().is_empty() {
+                cmd.arg("--udp-whitelist").arg(port.trim());
+                log::info!("  ✅ UDP 端口白名单: {}", port.trim());
+            }
+        }
+        
+        // ========== IPv6 ==========
+        if config.disable_ipv6 {
+            cmd.arg("--disable-ipv6");
+            log::info!("  ✅ 禁用 IPv6");
+        }
+        
+        if let Some(ref ipv6) = config.ipv6 {
+            if !ipv6.is_empty() {
+                cmd.arg("--ipv6").arg(ipv6);
+                log::info!("  ✅ IPv6 地址: {}", ipv6);
+            }
+        }
+        
+        // ========== STUN 服务器 ==========
+        for server in &config.stun_servers {
+            if !server.trim().is_empty() {
+                cmd.arg("--stun-servers").arg(server.trim());
+                log::info!("  ✅ STUN 服务器: {}", server.trim());
+            }
+        }
+        
+        for server in &config.stun_servers_v6 {
+            if !server.trim().is_empty() {
+                cmd.arg("--stun-servers-v6").arg(server.trim());
+                log::info!("  ✅ IPv6 STUN 服务器: {}", server.trim());
+            }
+        }
+        
+        // ========== 私有模式 ==========
+        if config.private_mode {
+            cmd.arg("--private-mode");
+            log::info!("  ✅ 启用私有模式");
+        }
+        
+        log::info!("EasyTier 高级配置应用完成");
+    }
+
     /// 启动 EasyTier 服务
     /// 
     /// # 参数
     /// * `network_name` - 网络名称（大厅名称）
     /// * `network_key` - 网络密钥（大厅密码）
     /// * `server_node` - 服务器节点地址
+    /// * `player_name` - 玩家名称
+    /// * `app_handle` - Tauri 应用句柄
     /// 
     /// # 返回
     /// * `Ok(String)` - 成功启动，返回虚拟 IP 地址
@@ -173,6 +487,42 @@ impl NetworkService {
         server_node: String,
         player_name: String,
         app_handle: &tauri::AppHandle,
+    ) -> Result<String, AppError> {
+        // 调用带配置参数的版本，配置参数为 None（会在函数内部读取）
+        self.start_easytier_with_config(
+            network_name,
+            network_key,
+            server_node,
+            player_name,
+            app_handle,
+            None,
+            None,
+        ).await
+    }
+
+    /// 启动 EasyTier 服务（带配置参数，避免死锁）
+    /// 
+    /// # 参数
+    /// * `network_name` - 网络名称（大厅名称）
+    /// * `network_key` - 网络密钥（大厅密码）
+    /// * `server_node` - 服务器节点地址
+    /// * `player_name` - 玩家名称
+    /// * `app_handle` - Tauri 应用句柄
+    /// * `global_config` - 全局 EasyTier 高级配置（可选，如果为 None 则从配置文件读取）
+    /// * `lobby_config` - 大厅 EasyTier 高级配置（可选，如果为 None 则从配置文件读取）
+    /// 
+    /// # 返回
+    /// * `Ok(String)` - 成功启动，返回虚拟 IP 地址
+    /// * `Err(AppError)` - 启动失败
+    pub async fn start_easytier_with_config(
+        &self,
+        network_name: String,
+        network_key: String,
+        server_node: String,
+        player_name: String,
+        app_handle: &tauri::AppHandle,
+        global_config_param: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
+        lobby_config_param: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
     ) -> Result<String, AppError> {
         // 检查管理员权限（Windows 平台需要）
         #[cfg(windows)]
@@ -194,11 +544,11 @@ impl NetworkService {
             ));
         }
 
-        log::info!(
-            "正在启动 EasyTier 服务: network={}, server={}",
-            network_name,
-            server_node
-        );
+        log::info!("========================================");
+        log::info!("正在启动 EasyTier 服务");
+        log::info!("  网络名称: {}", network_name);
+        log::info!("  节点服务器: {}", server_node);
+        log::info!("========================================");
 
         // 更新状态为连接中
         *self.status.lock().await = ConnectionStatus::Connecting;
@@ -323,6 +673,112 @@ impl NetworkService {
         let listener = if is_ws_peer { "ws://0.0.0.0:0/" } else { "udp://0.0.0.0:0" };
         let default_protocol = if is_ws_peer { "ws" } else { "udp" };
 
+        // 读取高级功能配置
+        use tauri::Manager;
+        use crate::modules::config_manager::EasyTierAdvancedConfig;
+        
+        // 【关键修复】使用传入的配置参数，如果没有则从 ConfigManager 读取
+        let (global_config, lobby_config) = if global_config_param.is_some() || lobby_config_param.is_some() {
+            // 使用传入的配置参数
+            log::info!("使用传入的配置参数");
+            (
+                global_config_param.unwrap_or(None),
+                lobby_config_param.unwrap_or(None),
+            )
+        } else {
+            // 从 ConfigManager 读取配置
+            log::info!("从 ConfigManager 读取配置");
+            let state = app_handle.state::<crate::modules::tauri_commands::AppState>();
+            let core = state.core.lock().await;
+            let config_manager = core.get_config_manager();
+            let cfg_mgr = config_manager.lock().await;
+            let user_config = cfg_mgr.get_config();
+            
+            let global_cfg = user_config.global_easytier_advanced_config.clone();
+            let lobby_cfg = user_config.lobby_easytier_advanced_config.clone();
+            
+            drop(cfg_mgr);
+            drop(core);
+            
+            (global_cfg, lobby_cfg)
+        };
+        
+        log::info!("========================================");
+        log::info!("📂 从 ConfigManager 读取配置");
+        
+        if let Some(ref global_cfg) = global_config {
+            log::info!("📋 发现全局配置:");
+            log::info!("  - dev_name: {:?}", global_cfg.dev_name);
+            log::info!("  - no_tun: {}", global_cfg.no_tun);
+            log::info!("  - dhcp: {}", global_cfg.dhcp);
+        } else {
+            log::warn!("⚠️ 未找到全局配置");
+        }
+        
+        if let Some(ref lobby_cfg) = lobby_config {
+            log::info!("📋 发现大厅配置:");
+            log::info!("  - use_global_config: {}", lobby_cfg.use_global_config);
+            log::info!("  - dev_name: {:?}", lobby_cfg.dev_name);
+            log::info!("  - no_tun: {}", lobby_cfg.no_tun);
+            log::info!("  - dhcp: {}", lobby_cfg.dhcp);
+        } else {
+            log::warn!("⚠️ 未找到大厅配置");
+        }
+        
+        // 合并配置：大厅配置优先，如果大厅配置设置了 use_global_config，则使用全局配置
+        let final_config = if let Some(lobby_cfg) = lobby_config {
+            log::info!("========================================");
+            log::info!("📋 发现大厅配置:");
+            log::info!("  - use_global_config: {}", lobby_cfg.use_global_config);
+            log::info!("  - dev_name: {:?}", lobby_cfg.dev_name);
+            log::info!("  - no_tun: {}", lobby_cfg.no_tun);
+            log::info!("  - dhcp: {}", lobby_cfg.dhcp);
+            
+            if lobby_cfg.use_global_config {
+                // 使用全局配置
+                log::info!("✅ 大厅配置设置了 use_global_config=true，将使用全局配置");
+                if let Some(ref global_cfg) = global_config {
+                    log::info!("📋 全局配置:");
+                    log::info!("  - dev_name: {:?}", global_cfg.dev_name);
+                    log::info!("  - no_tun: {}", global_cfg.no_tun);
+                    log::info!("  - dhcp: {}", global_cfg.dhcp);
+                    global_cfg.clone()
+                } else {
+                    log::warn!("⚠️ 大厅配置要求使用全局配置，但全局配置不存在，使用默认配置");
+                    EasyTierAdvancedConfig::default()
+                }
+            } else {
+                // 使用大厅配置
+                log::info!("✅ 大厅配置设置了 use_global_config=false，将使用大厅配置");
+                lobby_cfg
+            }
+        } else {
+            // 没有大厅配置，使用全局配置或默认配置
+            log::info!("========================================");
+            log::info!("⚠️ 未找到大厅配置，将使用全局配置或默认配置");
+            if let Some(ref global_cfg) = global_config {
+                log::info!("📋 全局配置:");
+                log::info!("  - dev_name: {:?}", global_cfg.dev_name);
+                log::info!("  - no_tun: {}", global_cfg.no_tun);
+                log::info!("  - dhcp: {}", global_cfg.dhcp);
+                global_cfg.clone()
+            } else {
+                log::warn!("⚠️ 全局配置也不存在，使用默认配置");
+                EasyTierAdvancedConfig::default()
+            }
+        };
+        
+        log::info!("========================================");
+        log::info!("最终使用的高级配置:");
+        log::info!("  - 使用全局配置标志: {}", final_config.use_global_config);
+        log::info!("  - TUN 设备名称: {:?}", final_config.dev_name);
+        log::info!("  - 无 TUN 模式: {}", final_config.no_tun);
+        log::info!("  - DHCP: {}", final_config.dhcp);
+        log::info!("  - 启用 SOCKS5: {}", final_config.enable_socks5);
+        log::info!("  - 多线程: {}", final_config.multi_thread);
+        log::info!("  - 延迟优先: {}", final_config.latency_first);
+        log::info!("========================================");
+
         // 构建命令行参数
         let mut cmd = Command::new(&easytier_path);
         cmd.arg("--network-name")
@@ -331,8 +787,6 @@ impl NetworkService {
             .arg(&network_key)
             .arg("--peers")
             .arg(&server_node) // 单个节点地址
-            .arg("--dhcp")
-            .arg("true") // 使用 DHCP 自动分配 IP
             .arg("--hostname")
             .arg(&sanitized_hostname) // 设置主机名用于Magic DNS
             .arg("--instance-name")
@@ -341,17 +795,38 @@ impl NetworkService {
             .arg(&config_dir)
             .arg("--rpc-portal")
             .arg(format!("{}", rpc_port)) // 只传递端口号，EasyTier会自动在localhost上监听
-            .arg("--dev-name")
-            .arg("MCTier_Net") // 使用固定的网卡名称，方便识别和清理
             .arg("--listeners")
             .arg(listener)
             .arg("--default-protocol")
-            .arg(default_protocol)
-            .arg("--multi-thread")
-            .arg("true") // 启用多线程
-            .arg("--latency-first")
-            .arg("true") // 低延迟优先
-            .current_dir(working_dir)
+            .arg(default_protocol);
+        
+        // 应用高级配置
+        Self::apply_advanced_config(&mut cmd, &final_config);
+        
+        // 【重要】输出完整的 EasyTier 命令行，用于验证配置是否生效
+        let cmd_args: Vec<String> = cmd.as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        log::info!("========================================");
+        log::info!("完整的 EasyTier 启动命令:");
+        log::info!("可执行文件: {:?}", easytier_path);
+        log::info!("命令行参数:");
+        for (i, arg) in cmd_args.iter().enumerate() {
+            if i % 2 == 0 && i + 1 < cmd_args.len() {
+                // 参数名和值成对显示
+                log::info!("  {} {}", arg, cmd_args[i + 1]);
+            } else if i % 2 != 0 {
+                // 跳过已经显示的值
+                continue;
+            } else {
+                // 单独的参数（如 --no-tun）
+                log::info!("  {}", arg);
+            }
+        }
+        log::info!("========================================");
+        
+        cmd.current_dir(working_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
@@ -370,7 +845,6 @@ impl NetworkService {
             log::info!("启用 UDP 监听器以支持 Minecraft 局域网发现功能");
         }
         log::info!("使用动态检测的RPC端口 {}，避免与其他EasyTier实例冲突", rpc_port);
-        log::info!("命令行参数: {:?}", cmd);
 
         // 在 Windows 上隐藏控制台窗口
         #[cfg(target_os = "windows")]
@@ -788,41 +1262,43 @@ impl NetworkService {
     /// * `Ok(())` - 成功停止
     /// * `Err(AppError)` - 停止失败
     pub async fn stop_easytier(&self) -> Result<(), AppError> {
-        log::info!("正在停止 EasyTier 服务...");
+        log::info!("========================================");
+        log::info!("🛑 [StopEasyTier] 开始停止 EasyTier 服务...");
+        log::info!("========================================");
 
         let mut process_guard = self.easytier_process.lock().await;
         let mut graceful_shutdown_success = false;
 
         if let Some(mut child) = process_guard.take() {
-            log::info!("🔄 正在优雅关闭 EasyTier 进程...");
+            log::info!("🔄 [StopEasyTier] 正在优雅关闭 EasyTier 进程...");
             
             // 尝试优雅地终止进程
             match child.kill().await {
                 Ok(_) => {
-                    log::info!("✅ 已发送 SIGTERM 信号到 EasyTier 进程（优雅关闭）");
+                    log::info!("✅ [StopEasyTier] 已发送 SIGTERM 信号到 EasyTier 进程（优雅关闭）");
                 }
                 Err(e) => {
-                    log::warn!("⚠️ 发送终止信号失败: {}", e);
+                    log::warn!("⚠️ [StopEasyTier] 发送终止信号失败: {}", e);
                 }
             }
 
             // 等待进程完全退出（最多等待3秒）
-            log::info!("⏳ 等待进程自然退出（最多3秒）...");
+            log::info!("⏳ [StopEasyTier] 等待进程自然退出（最多3秒）...");
             match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
                 Ok(Ok(status)) => {
-                    log::info!("✅ EasyTier 进程已优雅退出，状态码: {:?}", status);
-                    log::info!("💡 进程通过优雅关闭方式退出，未使用强制终止");
+                    log::info!("✅ [StopEasyTier] EasyTier 进程已优雅退出，状态码: {:?}", status);
+                    log::info!("💡 [StopEasyTier] 进程通过优雅关闭方式退出，未使用强制终止");
                     graceful_shutdown_success = true;
                 }
                 Ok(Err(e)) => {
-                    log::warn!("⚠️ 等待进程退出时出错: {}", e);
+                    log::warn!("⚠️ [StopEasyTier] 等待进程退出时出错: {}", e);
                 }
                 Err(_) => {
-                    log::warn!("⚠️ 等待进程退出超时（3秒）");
+                    log::warn!("⚠️ [StopEasyTier] 等待进程退出超时（3秒）");
                 }
             }
         } else {
-            log::info!("EasyTier 服务未运行，无需关闭");
+            log::info!("ℹ️ [StopEasyTier] EasyTier 服务未运行，无需关闭");
             graceful_shutdown_success = true; // 没有进程运行，视为成功
         }
 
@@ -831,11 +1307,11 @@ impl NetworkService {
 
         // 如果优雅关闭成功，跳过强制终止
         if graceful_shutdown_success {
-            log::info!("✅ EasyTier 进程已通过优雅方式关闭，无需强制终止");
+            log::info!("✅ [StopEasyTier] EasyTier 进程已通过优雅方式关闭，无需强制终止");
         } else {
             // 只有在优雅关闭失败时才使用强制终止
-            log::warn!("⚠️ 优雅关闭失败，现在尝试强制终止（taskkill /F）...");
-            log::warn!("💡 这是最后的手段，仅在优雅关闭失败时使用");
+            log::warn!("⚠️ [StopEasyTier] 优雅关闭失败，现在尝试强制终止（taskkill /F）...");
+            log::warn!("💡 [StopEasyTier] 这是最后的手段，仅在优雅关闭失败时使用");
             
             #[cfg(target_os = "windows")]
             {
@@ -845,27 +1321,33 @@ impl NetworkService {
                     .output()
                     .await;
                 
-                log::info!("✅ 已执行强制终止命令（taskkill /F）");
+                log::info!("✅ [StopEasyTier] 已执行强制终止命令（taskkill /F）");
             }
         }
 
         // 等待一小段时间确保进程完全退出
+        log::info!("⏳ [StopEasyTier] 等待进程完全退出（300ms）...");
         sleep(Duration::from_millis(300)).await;
+        log::info!("✅ [StopEasyTier] 进程退出等待完成");
 
         // 【已废弃】不再使用CLI工具清理实例
         // easytier-cli已移除，通过taskkill直接终止进程
-        log::info!("跳过CLI工具清理（已废弃）");
+        log::info!("ℹ️ [StopEasyTier] 跳过CLI工具清理（已废弃）");
 
         // 在Windows上清理虚拟网卡
         #[cfg(target_os = "windows")]
         {
-            log::info!("正在清理虚拟网卡...");
+            log::info!("========================================");
+            log::info!("🧹 [StopEasyTier] 开始清理虚拟网卡...");
+            log::info!("========================================");
             
             // 等待一小段时间，确保进程已完全退出
+            log::info!("⏳ [StopEasyTier] 等待进程完全退出（500ms）...");
             sleep(Duration::from_millis(500)).await;
+            log::info!("✅ [StopEasyTier] 等待完成，开始清理网卡");
             
             // 方法1: 使用 devcon 或 pnputil 强制删除 MCTier_Net 网卡
-            log::info!("尝试使用pnputil强制删除MCTier_Net网卡...");
+            log::info!("🔧 [StopEasyTier] 方法1: 使用pnputil强制删除MCTier_Net网卡...");
             
             // 首先列出所有网络设备
             match tokio::process::Command::new("pnputil")
@@ -876,7 +1358,7 @@ impl NetworkService {
             {
                 Ok(output) => {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    log::info!("网络设备列表:\n{}", output_str);
+                    log::info!("📋 [StopEasyTier] 网络设备列表:\n{}", output_str);
                     
                     // 查找 MCTier_Net 或 WinTun 相关的设备实例ID
                     let mut device_ids_to_remove = Vec::new();
@@ -892,8 +1374,8 @@ impl NetworkService {
                             is_target_device = false;
                         }
                         
-                        // 检查设备描述或友好名称
-                        if (line.contains("MCTier_Net") || 
+                        // 检查设备描述或友好名称（匹配所有 MCTier_ 开头的网卡）
+                        if (line.contains("MCTier_") ||  // 匹配所有 MCTier_ 开头的网卡
                             line.contains("WinTun") || 
                             line.contains("wintun") ||
                             line.contains("EasyTier")) && 
@@ -904,7 +1386,7 @@ impl NetworkService {
                         // 如果找到目标设备，添加到删除列表
                         if is_target_device && !current_instance_id.is_empty() {
                             if !device_ids_to_remove.contains(&current_instance_id) {
-                                log::info!("发现需要删除的设备: {}", current_instance_id);
+                                log::info!("🎯 [StopEasyTier] 发现需要删除的设备: {}", current_instance_id);
                                 device_ids_to_remove.push(current_instance_id.clone());
                             }
                             current_instance_id.clear();
@@ -914,7 +1396,7 @@ impl NetworkService {
                     
                     // 删除找到的所有目标设备
                     for device_id in &device_ids_to_remove {
-                        log::info!("正在删除设备: {}", device_id);
+                        log::info!("🗑️ [StopEasyTier] 正在删除设备: {}", device_id);
                         
                         // 尝试删除设备
                         match tokio::process::Command::new("pnputil")
@@ -925,16 +1407,16 @@ impl NetworkService {
                         {
                             Ok(remove_output) => {
                                 let remove_result = String::from_utf8_lossy(&remove_output.stdout);
-                                log::info!("删除设备结果: {}", remove_result);
+                                log::info!("📄 [StopEasyTier] 删除设备结果: {}", remove_result);
                                 
                                 if remove_output.status.success() {
-                                    log::info!("✅ 成功删除设备: {}", device_id);
+                                    log::info!("✅ [StopEasyTier] 成功删除设备: {}", device_id);
                                 } else {
-                                    log::warn!("⚠️ 删除设备失败: {}", device_id);
+                                    log::warn!("⚠️ [StopEasyTier] 删除设备失败: {}", device_id);
                                 }
                             }
                             Err(e) => {
-                                log::warn!("执行删除命令失败: {}", e);
+                                log::warn!("⚠️ [StopEasyTier] 执行删除命令失败: {}", e);
                             }
                         }
                         
@@ -942,16 +1424,18 @@ impl NetworkService {
                     }
                     
                     if device_ids_to_remove.is_empty() {
-                        log::info!("未发现需要删除的虚拟网卡设备");
+                        log::info!("ℹ️ [StopEasyTier] 未发现需要删除的虚拟网卡设备");
+                    } else {
+                        log::info!("✅ [StopEasyTier] pnputil清理完成，共删除 {} 个设备", device_ids_to_remove.len());
                     }
                 }
                 Err(e) => {
-                    log::warn!("使用pnputil查询设备失败: {}", e);
+                    log::warn!("⚠️ [StopEasyTier] 使用pnputil查询设备失败: {}", e);
                 }
             }
             
             // 方法2: 使用netsh禁用和删除网卡
-            log::info!("尝试使用netsh禁用和删除MCTier_Net网卡...");
+            log::info!("🔧 [StopEasyTier] 方法2: 使用netsh禁用和删除MCTier_Net网卡...");
             match tokio::process::Command::new("netsh")
                 .args(&["interface", "show", "interface"])
                 .creation_flags(CREATE_NO_WINDOW)
@@ -960,16 +1444,18 @@ impl NetworkService {
             {
                 Ok(output) => {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    log::info!("网卡列表:\n{}", output_str);
+                    log::info!("📋 [StopEasyTier] 网卡列表:\n{}", output_str);
                     
-                    // 查找包含"MCTier_Net"、"WinTun"或"EasyTier"的网卡
+                    let mut disabled_count = 0;
+                    
+                    // 查找包含"MCTier_"、"WinTun"或"EasyTier"的网卡
                     for line in output_str.lines() {
-                        if line.contains("MCTier_Net") || 
+                        if line.contains("MCTier_") ||  // 匹配所有 MCTier_ 开头的网卡
                            line.contains("WinTun") || 
                            line.contains("EasyTier") || 
                            line.contains("wintun") ||
                            line.contains("et_") { // EasyTier默认网卡名称格式
-                            log::info!("发现虚拟网卡: {}", line);
+                            log::info!("🎯 [StopEasyTier] 发现虚拟网卡: {}", line);
                             
                             // 尝试提取网卡名称（通常是最后一列）
                             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -980,7 +1466,7 @@ impl NetworkService {
                                    interface_name != "Type" && 
                                    interface_name != "Interface" &&
                                    interface_name != "State" {
-                                    log::info!("尝试禁用网卡: {}", interface_name);
+                                    log::info!("🔧 [StopEasyTier] 尝试禁用网卡: {}", interface_name);
                                     
                                     // 先禁用网卡
                                     match tokio::process::Command::new("netsh")
@@ -991,13 +1477,14 @@ impl NetworkService {
                                     {
                                         Ok(disable_output) => {
                                             if disable_output.status.success() {
-                                                log::info!("✅ 成功禁用网卡: {}", interface_name);
+                                                log::info!("✅ [StopEasyTier] 成功禁用网卡: {}", interface_name);
+                                                disabled_count += 1;
                                             } else {
-                                                log::warn!("⚠️ 禁用网卡失败: {}", interface_name);
+                                                log::warn!("⚠️ [StopEasyTier] 禁用网卡失败: {}", interface_name);
                                             }
                                         }
                                         Err(e) => {
-                                            log::warn!("执行禁用命令失败: {}", e);
+                                            log::warn!("⚠️ [StopEasyTier] 执行禁用命令失败: {}", e);
                                         }
                                     }
                                     
@@ -1006,17 +1493,23 @@ impl NetworkService {
                             }
                         }
                     }
+                    
+                    if disabled_count > 0 {
+                        log::info!("✅ [StopEasyTier] netsh清理完成，共禁用 {} 个网卡", disabled_count);
+                    } else {
+                        log::info!("ℹ️ [StopEasyTier] 未发现需要禁用的网卡");
+                    }
                 }
                 Err(e) => {
-                    log::warn!("查询网卡列表失败: {}", e);
+                    log::warn!("⚠️ [StopEasyTier] 查询网卡列表失败: {}", e);
                 }
             }
             
             // 方法3: 使用 PowerShell 强制删除网卡
-            log::info!("尝试使用PowerShell强制删除MCTier_Net网卡...");
+            log::info!("🔧 [StopEasyTier] 方法3: 使用PowerShell强制删除MCTier相关网卡...");
             let ps_script = r#"
                 Get-NetAdapter | Where-Object { 
-                    $_.Name -like '*MCTier_Net*' -or 
+                    $_.Name -like '*MCTier_*' -or 
                     $_.Name -like '*WinTun*' -or 
                     $_.Name -like '*et_*' -or
                     $_.InterfaceDescription -like '*WinTun*'
@@ -1039,55 +1532,72 @@ impl NetworkService {
             {
                 Ok(ps_output) => {
                     let ps_result = String::from_utf8_lossy(&ps_output.stdout);
-                    log::info!("PowerShell执行结果:\n{}", ps_result);
+                    log::info!("📄 [StopEasyTier] PowerShell执行结果:\n{}", ps_result);
                     
                     if !ps_result.is_empty() {
-                        log::info!("✅ PowerShell清理完成");
+                        log::info!("✅ [StopEasyTier] PowerShell清理完成");
+                    } else {
+                        log::info!("ℹ️ [StopEasyTier] PowerShell未发现需要清理的网卡");
                     }
                 }
                 Err(e) => {
-                    log::warn!("执行PowerShell脚本失败: {}", e);
+                    log::warn!("⚠️ [StopEasyTier] 执行PowerShell脚本失败: {}", e);
                 }
             }
             
             // 最终等待，确保所有清理操作完成
+            log::info!("⏳ [StopEasyTier] 等待所有清理操作完成（500ms）...");
             sleep(Duration::from_millis(500)).await;
             
-            log::info!("✅ 虚拟网卡清理流程完成");
+            log::info!("========================================");
+            log::info!("✅ [StopEasyTier] 虚拟网卡清理流程完成");
+            log::info!("========================================");
         }
 
         // 清理状态
+        log::info!("🧹 [StopEasyTier] 清理服务状态...");
         *self.is_running.lock().await = false;
         *self.status.lock().await = ConnectionStatus::Disconnected;
         *self.virtual_ip.lock().await = None;
+        log::info!("✅ [StopEasyTier] 服务状态已清理");
 
         // 清理配置目录
         let config_dir = self.instance_config_dir.lock().await.take();
         if let Some(dir) = config_dir {
-            log::info!("正在清理配置目录: {:?}", dir);
+            log::info!("========================================");
+            log::info!("🗑️ [StopEasyTier] 开始清理配置目录: {:?}", dir);
+            log::info!("========================================");
             
             // 增加重试次数和等待时间，提高清理成功率
             for attempt in 1..=5 {
                 match std::fs::remove_dir_all(&dir) {
                     Ok(_) => {
-                        log::info!("配置目录已清理");
+                        log::info!("✅ [StopEasyTier] 配置目录已清理（尝试 {}/5）", attempt);
                         break;
                     }
                     Err(e) => {
                         if attempt < 5 {
-                            log::warn!("清理配置目录失败（尝试 {}/5）: {}，等待后重试...", attempt, e);
+                            log::warn!("⚠️ [StopEasyTier] 清理配置目录失败（尝试 {}/5）: {}，等待后重试...", attempt, e);
                             sleep(Duration::from_millis(500)).await;
                         } else {
-                            log::warn!("清理配置目录失败: {}，将在下次启动时自动清理", e);
+                            log::warn!("⚠️ [StopEasyTier] 清理配置目录失败: {}，将在下次启动时自动清理", e);
                             // 最后一次尝试：标记目录以便下次启动时清理
                             // 配置目录名称格式为 config_mctier-xxx，下次启动时会自动清理
                         }
                     }
                 }
             }
+            
+            log::info!("========================================");
+            log::info!("✅ [StopEasyTier] 配置目录清理流程完成");
+            log::info!("========================================");
+        } else {
+            log::info!("ℹ️ [StopEasyTier] 无需清理配置目录（不存在）");
         }
 
-        log::info!("EasyTier 服务已停止并清理完成");
+        log::info!("========================================");
+        log::info!("✅ [StopEasyTier] EasyTier 服务已停止并清理完成");
+        log::info!("========================================");
 
         Ok(())
     }

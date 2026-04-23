@@ -150,6 +150,7 @@ const defaultConfig: UserConfig = {
   preferredServer: undefined,
   micHotkey: 'Ctrl+M',
   globalMuteHotkey: 'Ctrl+T',
+  pushToTalkHotkey: 'F2',
   windowPosition: undefined,
   audioDeviceId: undefined,
   autoStartup: false,
@@ -159,6 +160,12 @@ const defaultConfig: UserConfig = {
     lobbyPassword: undefined,
     playerName: undefined,
     useDomain: false,
+  },
+  exitNodeConfig: {
+    enableExitNode: false,
+    enableAsExitNode: false,
+    proxyCidrs: [],
+    exitNodes: [],
   },
 };
 

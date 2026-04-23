@@ -12,6 +12,7 @@ import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseI
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
+import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import './MiniWindow.css';
 
 /**
@@ -42,6 +43,8 @@ export const MiniWindow: React.FC = () => {
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
+  const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
+  const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -374,6 +377,114 @@ export const MiniWindow: React.FC = () => {
     }
   };
 
+  // 处理动态设置保存后重新加入大厅
+  const handleLobbySettingsSaved = async () => {
+    console.log('🎯 [MiniWindow] handleLobbySettingsSaved 被调用了！');
+    console.log('🎯 [MiniWindow] lobby:', lobby);
+    console.log('🎯 [MiniWindow] currentPlayerId:', currentPlayerId);
+    
+    if (!lobby || !currentPlayerId) {
+      console.error('❌ [MiniWindow] 验证失败：lobby 或 currentPlayerId 无效');
+      message.error('当前未在大厅中或玩家ID无效');
+      return;
+    }
+
+    console.log('📢 [MiniWindow] 大厅设置已保存，准备重新加入大厅...');
+
+    // 先关闭大厅设置弹窗
+    console.log('🚪 [MiniWindow] 正在关闭大厅设置弹窗...');
+    setShowLobbySettings(false);
+    console.log('✅ [MiniWindow] 大厅设置弹窗已关闭');
+    
+    // 等待弹窗完全关闭
+    console.log('⏳ [MiniWindow] 等待弹窗完全关闭（200ms）...');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    console.log('✅ [MiniWindow] 等待完成');
+
+    // 显示重新加入大厅的加载提示（使用自定义遮罩层，和退出大厅一样）
+    console.log('🎨 [MiniWindow] 显示重新加入大厅的加载提示...');
+    setIsRejoining(true);
+    console.log('✅ [MiniWindow] 加载提示已显示');
+
+    try {
+      // 1. 先退出当前大厅（不清理前端状态）
+      console.log('🚪 [MiniWindow] 正在退出当前大厅...');
+      await invoke('leave_lobby');
+      console.log('✅ [MiniWindow] 已退出当前大厅');
+
+      // 等待足够的时间确保资源完全释放（包括进程退出、网卡清理等）
+      // stop_easytier 需要：3秒等待进程退出 + 0.5秒清理网卡 + 0.5秒清理配置 = 至少4秒
+      console.log('⏳ [MiniWindow] 等待资源完全释放（5秒）...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log('✅ [MiniWindow] 资源释放等待完成');
+
+      // 2. 重新加载配置
+      console.log('📖 [MiniWindow] 正在重新加载配置...');
+      const settings = await invoke<any>('get_settings');
+      console.log('✅ [MiniWindow] 已重新加载配置');
+
+      // 3. 使用新配置重新加入大厅
+      console.log('🔌 [MiniWindow] 正在使用新配置重新加入大厅...');
+      const serverNode = (settings.usePrivateServer && settings.privateEasytierServer)
+        ? settings.privateEasytierServer 
+        : 'wss://mctiers.pmhs.top';
+      const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
+        ? settings.privateSignalingServer 
+        : 'wss://mctier.pmhs.top/signaling';
+
+      const useDomain = settings.useDomain || false;
+      const virtualDomain = settings.virtualDomain || '';
+
+      const newLobby = await invoke<any>('join_lobby', {
+        name: lobby.name || '',
+        password: lobby.password || '',
+        playerName: config.playerName || '玩家',
+        playerId: currentPlayerId,
+        serverNode,
+        signalingServer,
+        useDomain: useDomain,
+        virtualDomain: virtualDomain,
+      });
+
+      console.log('✅ [MiniWindow] 重新加入大厅成功:', newLobby);
+
+      // 4. 更新前端状态
+      const { setLobby } = useAppStore.getState();
+      setLobby(newLobby);
+
+      // 5. 重新初始化WebRTC
+      console.log('🔄 [MiniWindow] 正在重新初始化WebRTC...');
+      await webrtcClient.initialize(
+        currentPlayerId,
+        config.playerName || '玩家',
+        lobby.name || '',
+        lobby.password || '',
+        virtualDomain,
+        useDomain,
+        signalingServer
+      );
+      console.log('✅ [MiniWindow] WebRTC重新初始化成功');
+
+      // 关闭加载提示
+      setIsRejoining(false);
+      
+      // 显示成功提示
+      message.success('设置已应用，重新加入大厅成功');
+    } catch (error) {
+      console.error('❌ [MiniWindow] 重新加入大厅失败:', error);
+      
+      // 关闭加载提示
+      setIsRejoining(false);
+      
+      message.error(`重新加入大厅失败: ${error}`);
+      
+      // 如果失败，返回主界面
+      const { setAppState, clearLobby } = useAppStore.getState();
+      clearLobby();
+      setAppState('idle');
+    }
+  };
+
   // 处理玩家音量变化
   const handlePlayerVolumeChange = (playerId: string, volume: number) => {
     setPlayerVolume(playerId, volume);
@@ -670,6 +781,32 @@ export const MiniWindow: React.FC = () => {
         </div>
         <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
           正在清理网络连接和虚拟网卡
+        </div>
+      </Modal>
+
+      {/* 重新加入大厅加载提示 */}
+      <Modal
+        open={isRejoining}
+        footer={null}
+        closable={false}
+        centered
+        width={400}
+        styles={{
+          body: {
+            padding: '40px',
+            textAlign: 'center',
+          },
+        }}
+      >
+        <Spin size="large" />
+        <div style={{ marginTop: '20px', fontSize: '18px', color: 'rgba(255,255,255,0.95)', fontWeight: 600 }}>
+          正在重载设置...
+        </div>
+        <div style={{ marginTop: '12px', fontSize: '14px', color: 'rgba(255,255,255,0.75)' }}>
+          正在重新配置并加入...
+        </div>
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+          请稍等，这可能需要几秒钟...
         </div>
       </Modal>
 
@@ -1108,18 +1245,31 @@ export const MiniWindow: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
               >
-                <label className="mini-opacity-label">
-                  透明度
-                </label>
-                <input
-                  type="range"
-                  min="0.3"
-                  max="1"
-                  step="0.05"
-                  value={opacity}
-                  onChange={handleOpacityChange}
-                  className="mini-opacity-slider"
-                />
+                <div className="mini-opacity-control-wrapper">
+                  <label className="mini-opacity-label">
+                    透明度
+                  </label>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="1"
+                    step="0.05"
+                    value={opacity}
+                    onChange={handleOpacityChange}
+                    className="mini-opacity-slider"
+                  />
+                </div>
+                <motion.button
+                  className="mini-lobby-settings-btn"
+                  onClick={() => setShowLobbySettings(true)}
+                  title="大厅动态设置"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.7l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.7L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.7l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.7l-2.32-1.9z" />
+                  </svg>
+                </motion.button>
               </motion.div>
 
               {/* 底部控制按钮 - 只有5个按钮 */}
@@ -1185,12 +1335,28 @@ export const MiniWindow: React.FC = () => {
                   <ScreenShareIcon size={24} />
                 </motion.button>
               </motion.div>
+
+              {/* 快捷键提示已移除 */}
             </motion.div>
           )}
         </AnimatePresence>
         </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 大厅动态设置弹窗 */}
+      {lobby && (
+        <LobbySettingsModal
+          visible={showLobbySettings}
+          onClose={() => setShowLobbySettings(false)}
+          currentLobby={{
+            name: lobby.name || '',
+            password: lobby.password || '',
+            virtualIp: lobby.virtualIp || '',
+          }}
+          onSettingsSaved={handleLobbySettingsSaved}
+        />
+      )}
     </>
   );
 };

@@ -1,0 +1,294 @@
+.exit-node-advanced-modal .ant-modal-content {
+  background: rgba(25, 25, 35, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.exit-node-advanced-modal .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exit-node-advanced-modal .ant-modal-title {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.exit-node-advanced-modal .ant-modal-body {
+  padding: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.exit-node-advanced-content {
+  color: #ffffff;
+}
+
+.exit-node-advanced-header {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exit-node-advanced-header h2 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.exit-node-advanced-header p {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.exit-node-advanced-form {
+  padding: 20px 24px;
+}
+
+.config-section {
+  margin-bottom: 32px;
+}
+
+.config-section h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.section-desc {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+}
+
+.config-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  transition: all 0.3s ease;
+}
+
+.config-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggle-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.toggle-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.port-forward-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.port-forward-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.protocol-select {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.protocol-select:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.protocol-select option {
+  background: rgba(25, 25, 35, 0.98);
+  color: #ffffff;
+}
+
+.arrow {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 16px;
+}
+
+.remove-rule-btn {
+  padding: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-rule-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: scale(1.05);
+}
+
+.add-rule-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px dashed rgba(52, 211, 153, 0.3);
+  border-radius: 8px;
+  color: #34d399;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.add-rule-btn:hover {
+  background: rgba(52, 211, 153, 0.15);
+  border-color: rgba(52, 211, 153, 0.5);
+  transform: translateY(-2px);
+}
+
+.exit-node-advanced-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exit-node-advanced-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.exit-node-advanced-btn-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exit-node-advanced-btn-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.exit-node-advanced-btn-save {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(52, 211, 153, 0.3);
+}
+
+.exit-node-advanced-btn-save:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(52, 211, 153, 0.4);
+}
+
+.exit-node-advanced-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ant Design 组件样式覆盖 */
+.exit-node-advanced-modal .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+}
+
+.exit-node-advanced-modal .ant-input,
+.exit-node-advanced-modal .ant-input-number {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.exit-node-advanced-modal .ant-input:hover,
+.exit-node-advanced-modal .ant-input-number:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.exit-node-advanced-modal .ant-input:focus,
+.exit-node-advanced-modal .ant-input-number:focus,
+.exit-node-advanced-modal .ant-input-number-focused {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #34d399;
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.1);
+}
+
+.exit-node-advanced-modal .ant-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.exit-node-advanced-modal .ant-switch {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exit-node-advanced-modal .ant-switch-checked {
+  background: #34d399;
+}
+
+.exit-node-advanced-modal .ant-form-item-explain-error {
+  color: #ef4444;
+  font-size: 12px;
+}
+
+/* 滚动条样式 */
+.exit-node-advanced-modal .ant-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.exit-node-advanced-modal .ant-modal-body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.exit-node-advanced-modal .ant-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.exit-node-advanced-modal .ant-modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

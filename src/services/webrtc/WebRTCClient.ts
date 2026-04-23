@@ -48,8 +48,10 @@ export class WebRTCClient {
   private lobbyPassword: string = '';
   private heartbeatInterval: number | null = null;
   private websocket: WebSocket | null = null;
+  private websocketHeartbeatInterval: number | null = null; // WebSocket 心跳定时器
+  private websocketPongTimeout: number | null = null; // WebSocket pong 超时定时器
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 5;
+  private maxReconnectAttempts: number = 10; // 增加最大重连次数
   private reconnectTimeout: number | null = null;
   private isIntentionalDisconnect: boolean = false;
   private reconnectingPeers: Set<string> = new Set();
@@ -222,6 +224,9 @@ export class WebRTCClient {
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
           
+          // 启动 WebSocket 心跳保活
+          this.startWebSocketHeartbeat();
+          
           resolve();
         };
         
@@ -242,10 +247,13 @@ export class WebRTCClient {
         this.websocket.onclose = () => {
           console.log('⚠️ 与信令服务器的连接已断开');
           
+          // 停止 WebSocket 心跳
+          this.stopWebSocketHeartbeat();
+          
           // 如果不是主动断开，尝试重连
           if (!this.isIntentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 10000); // 指数退避，最多10秒
+            const delay = Math.min(1000 * this.reconnectAttempts, 5000); // 线性退避，最多5秒
             console.log(`🔄 将在 ${delay}ms 后尝试第 ${this.reconnectAttempts} 次重连...`);
             
             this.reconnectTimeout = window.setTimeout(() => {
@@ -349,6 +357,11 @@ export class WebRTCClient {
     
     try {
       switch (message.type) {
+        case 'pong':
+          // 收到 pong 响应
+          this.handleWebSocketPong();
+          break;
+          
         case 'register-success':
           // 注册成功
           console.log('✅ 注册成功，大厅ID:', message.lobbyId);
@@ -2000,6 +2013,53 @@ export class WebRTCClient {
   }
 
   /**
+   * 请求麦克风权限（带重试机制）
+   * 如果用户拒绝，会重复弹出请求直到授予权限
+   */
+  private async requestMicrophonePermission(): Promise<MediaStream> {
+    let attempts = 0;
+    const maxAttempts = 10; // 最多尝试10次
+    
+    while (attempts < maxAttempts) {
+      try {
+        console.log(`🎤 正在请求麦克风权限... (尝试 ${attempts + 1}/${maxAttempts})`);
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+        
+        console.log('✅ 麦克风权限已获取');
+        return stream;
+      } catch (error: any) {
+        attempts++;
+        
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          console.warn(`⚠️ 麦克风权限被拒绝 (尝试 ${attempts}/${maxAttempts})`);
+          
+          if (attempts < maxAttempts) {
+            // 等待1秒后重试
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log('🔄 重新请求麦克风权限...');
+            continue;
+          } else {
+            throw new Error('麦克风权限被拒绝次数过多，请在浏览器设置中手动授予权限');
+          }
+        } else {
+          // 其他错误直接抛出
+          throw error;
+        }
+      }
+    }
+    
+    throw new Error('无法获取麦克风权限');
+  }
+
+  /**
    * 设置麦克风状态
    * 第一次开麦时获取麦克风，之后只启用/禁用轨道，不释放资源
    */
@@ -2010,14 +2070,8 @@ export class WebRTCClient {
       if (enabled) {
         console.log('正在获取麦克风权限...');
 
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
+        // 使用带重试机制的权限请求
+        const newStream = await this.requestMicrophonePermission();
 
         console.log('✅ 麦克风权限已获取');
         const newAudioTrack = newStream.getAudioTracks()[0];
@@ -2243,6 +2297,62 @@ export class WebRTCClient {
   }
 
   /**
+   * 启动 WebSocket 心跳保活
+   * 优化：减少心跳间隔和超时时间，提高连接稳定性
+   */
+  private startWebSocketHeartbeat(): void {
+    // 清理旧的心跳定时器
+    this.stopWebSocketHeartbeat();
+    
+    // 每 15 秒发送一次 ping（从30秒优化为15秒）
+    this.websocketHeartbeatInterval = window.setInterval(() => {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        try {
+          this.websocket.send(JSON.stringify({ type: 'ping' }));
+          
+          // 设置 pong 超时（5秒内没收到 pong 就认为连接断开，从10秒优化为5秒）
+          this.websocketPongTimeout = window.setTimeout(() => {
+            console.warn('⚠️ WebSocket 心跳超时（5秒未收到pong），主动断开重连');
+            if (this.websocket) {
+              this.websocket.close();
+            }
+          }, 5000);
+        } catch (error) {
+          console.error('❌ 发送 WebSocket ping 失败:', error);
+        }
+      }
+    }, 15000);
+    
+    console.log('✅ WebSocket 心跳已启动（间隔15秒，超时5秒）');
+  }
+
+  /**
+   * 停止 WebSocket 心跳保活
+   */
+  private stopWebSocketHeartbeat(): void {
+    if (this.websocketHeartbeatInterval !== null) {
+      clearInterval(this.websocketHeartbeatInterval);
+      this.websocketHeartbeatInterval = null;
+    }
+    if (this.websocketPongTimeout !== null) {
+      clearTimeout(this.websocketPongTimeout);
+      this.websocketPongTimeout = null;
+    }
+  }
+
+  /**
+   * 处理 WebSocket pong 响应
+   */
+  private handleWebSocketPong(): void {
+    // 收到 pong，清除超时定时器
+    if (this.websocketPongTimeout !== null) {
+      clearTimeout(this.websocketPongTimeout);
+      this.websocketPongTimeout = null;
+      console.log('✅ 收到 WebSocket pong 响应，连接正常');
+    }
+  }
+
+  /**
    * 设置事件回调
    */
   onPlayerJoined(callback: (playerId: string, playerName: string, virtualIp?: string, virtualDomain?: string, useDomain?: boolean) => void): void {
@@ -2350,6 +2460,10 @@ export class WebRTCClient {
       // 停止心跳（先停止，避免在清理过程中发送消息）
       this.stopHeartbeat();
       console.log('✅ 心跳已停止');
+      
+      // 停止 WebSocket 心跳
+      this.stopWebSocketHeartbeat();
+      console.log('✅ WebSocket 心跳已停止');
 
       // 关闭所有 Peer Connections
       console.log(`正在关闭 ${this.peerConnections.size} 个 Peer Connection...`);

@@ -40,33 +40,54 @@ pub async fn create_lobby(
     server_node: String,
     signaling_server: String,
     use_domain: Option<bool>,
+    virtual_domain: Option<String>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
-    log::info!("收到创建大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}", name, player_name, player_id, signaling_server, use_domain);
+    log::info!("收到创建大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}, virtual_domain={:?}", name, player_name, player_id, signaling_server, use_domain, virtual_domain);
     
     let core = state.core.lock().await;
     
     // 更新应用状态为连接中
     core.set_state(CoreAppState::Connecting).await;
     
+    // 【关键修复】在这里读取配置，避免在 start_easytier 中再次获取 core 的锁
+    let (global_config, lobby_config) = {
+        let config_manager = core.get_config_manager();
+        let cfg_mgr = config_manager.lock().await;
+        let user_config = cfg_mgr.get_config();
+        
+        let global_cfg = user_config.global_easytier_advanced_config.clone();
+        let lobby_cfg = user_config.lobby_easytier_advanced_config.clone();
+        
+        (global_cfg, lobby_cfg)
+    };
+    
     // 获取各个服务的引用
     let lobby_manager = core.get_lobby_manager();
     let network_service = core.get_network_service();
+    let file_transfer = core.get_file_transfer();
+    let chat_service = core.get_chat_service();
+    
+    // 释放 core 的锁，避免死锁
+    drop(core);
     
     // 创建大厅
     let mut lobby_mgr = lobby_manager.lock().await;
     let network_svc = network_service.lock().await;
     
-    match lobby_mgr.create_lobby(
+    match lobby_mgr.create_lobby_with_config(
         name,
         password,
         player_name.clone(),
         server_node,
         signaling_server.clone(),
         use_domain.unwrap_or(false),
+        virtual_domain,
         &*network_svc,
         &app_handle,
+        global_config,
+        lobby_config,
     ).await {
         Ok(lobby) => {
             log::info!("大厅创建成功: {}", lobby.name);
@@ -89,14 +110,12 @@ pub async fn create_lobby(
             // 不再在创建大厅时自动启动HTTP文件服务器
             // HTTP服务器将在第一次添加共享时按需启动
             log::info!("📝 HTTP文件服务器将在添加共享时按需启动");
-            let file_transfer = core.get_file_transfer();
             let ft_service = file_transfer.lock().await;
             ft_service.set_virtual_ip(virtual_ip.clone());
             drop(ft_service);
             
             // 启动P2P聊天服务器
             log::info!("正在启动P2P聊天服务器...");
-            let chat_service = core.get_chat_service();
             let chat_svc = chat_service.lock().await;
             chat_svc.set_virtual_ip(virtual_ip.clone());
             match chat_svc.start_server().await {
@@ -110,7 +129,9 @@ pub async fn create_lobby(
             drop(chat_svc);
             
             // 更新应用状态为在大厅中
+            let core = state.core.lock().await;
             core.set_state(CoreAppState::InLobby).await;
+            drop(core);
             
             Ok(lobby)
         }
@@ -118,7 +139,9 @@ pub async fn create_lobby(
             log::error!("创建大厅失败: {}", e);
             
             // 更新应用状态为错误
+            let core = state.core.lock().await;
             core.set_state(CoreAppState::Error(e.to_string())).await;
+            drop(core);
             
             Err(e.to_string())
         }
@@ -147,35 +170,56 @@ pub async fn join_lobby(
     server_node: String,
     signaling_server: String,
     use_domain: Option<bool>,
+    virtual_domain: Option<String>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Lobby, String> {
-    log::info!("收到加入大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}", name, player_name, player_id, signaling_server, use_domain);
+    log::info!("收到加入大厅命令: name={}, player={}, player_id={}, signaling_server={}, use_domain={:?}, virtual_domain={:?}", name, player_name, player_id, signaling_server, use_domain, virtual_domain);
     
     let core = state.core.lock().await;
     
     // 更新应用状态为连接中
     core.set_state(CoreAppState::Connecting).await;
     
+    // 【关键修复】在这里读取配置，避免在 start_easytier 中再次获取 core 的锁
+    let (global_config, lobby_config) = {
+        let config_manager = core.get_config_manager();
+        let cfg_mgr = config_manager.lock().await;
+        let user_config = cfg_mgr.get_config();
+        
+        let global_cfg = user_config.global_easytier_advanced_config.clone();
+        let lobby_cfg = user_config.lobby_easytier_advanced_config.clone();
+        
+        (global_cfg, lobby_cfg)
+    };
+    
     // 获取各个服务的引用
     let lobby_manager = core.get_lobby_manager();
     let network_service = core.get_network_service();
     let voice_service = core.get_voice_service();
     let p2p_signaling = core.get_p2p_signaling();
+    let file_transfer = core.get_file_transfer();
+    let chat_service = core.get_chat_service();
+    
+    // 释放 core 的锁，避免死锁
+    drop(core);
     
     // 加入大厅
     let mut lobby_mgr = lobby_manager.lock().await;
     let network_svc = network_service.lock().await;
     
-    match lobby_mgr.join_lobby(
+    match lobby_mgr.join_lobby_with_config(
         name,
         password,
         player_name.clone(),
         server_node,
         signaling_server.clone(),
         use_domain.unwrap_or(false),
+        virtual_domain,
         &*network_svc,
         &app_handle,
+        global_config,
+        lobby_config,
     ).await {
         Ok(lobby) => {
             log::info!("成功加入大厅: {}", lobby.name);
@@ -209,7 +253,9 @@ pub async fn join_lobby(
                     log::error!("❌ 启动P2P信令服务失败（加入大厅）: {}", e);
                     // P2P信令服务启动失败应该返回错误，因为没有它就无法发现其他玩家
                     drop(p2p_svc);
+                    let core = state.core.lock().await;
                     core.set_state(CoreAppState::Error(format!("P2P信令服务启动失败: {}", e))).await;
+                    drop(core);
                     return Err(format!("P2P信令服务启动失败: {}", e));
                 }
             }
@@ -218,14 +264,12 @@ pub async fn join_lobby(
             // 不再在加入大厅时自动启动HTTP文件服务器
             // HTTP服务器将在第一次添加共享时按需启动
             log::info!("📝 HTTP文件服务器将在添加共享时按需启动");
-            let file_transfer = core.get_file_transfer();
             let ft_service = file_transfer.lock().await;
             ft_service.set_virtual_ip(virtual_ip.clone());
             drop(ft_service);
             
             // 启动P2P聊天服务器
             log::info!("正在启动P2P聊天服务器...");
-            let chat_service = core.get_chat_service();
             let chat_svc = chat_service.lock().await;
             chat_svc.set_virtual_ip(virtual_ip.clone());
             match chat_svc.start_server().await {
@@ -239,7 +283,9 @@ pub async fn join_lobby(
             drop(chat_svc);
             
             // 更新应用状态为在大厅中
+            let core = state.core.lock().await;
             core.set_state(CoreAppState::InLobby).await;
+            drop(core);
             
             Ok(lobby)
         }
@@ -247,7 +293,9 @@ pub async fn join_lobby(
             log::error!("加入大厅失败: {}", e);
             
             // 更新应用状态为错误
+            let core = state.core.lock().await;
             core.set_state(CoreAppState::Error(e.to_string())).await;
+            drop(core);
             
             Err(e.to_string())
         }
@@ -2897,6 +2945,7 @@ pub async fn save_settings(
     lobby_password: Option<String>,
     player_name: Option<String>,
     use_domain: bool,
+    virtual_domain: Option<String>,
     use_private_server: bool,
     private_easytier_server: Option<String>,
     private_signaling_server: Option<String>,
@@ -2905,12 +2954,20 @@ pub async fn save_settings(
     custom_easytier_nodes: Option<Vec<serde_json::Value>>,
     voice_volume: Option<f64>,
     enable_gpu_rendering: Option<bool>,
+    mic_hotkey: Option<String>,
+    global_mute_hotkey: Option<String>,
+    push_to_talk_hotkey: Option<String>,
+    enable_exit_node: Option<bool>,
+    enable_as_exit_node: Option<bool>,
+    proxy_cidrs: Option<String>,
+    exit_nodes: Option<String>,
+    subnet_proxy_cidrs: Option<String>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     use crate::modules::config_manager::{AutoLobbyConfig, EasyTierNode};
-    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}, use_private_server={}, always_on_top={:?}, remember_window_position={:?}, voice_volume={:?}, enable_gpu_rendering={:?}", 
-        auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position, voice_volume, enable_gpu_rendering);
+    log::info!("保存设置: auto_startup={}, auto_lobby_enabled={}, use_private_server={}, always_on_top={:?}, remember_window_position={:?}, voice_volume={:?}, enable_gpu_rendering={:?}, mic_hotkey={:?}, global_mute_hotkey={:?}, push_to_talk_hotkey={:?}, enable_exit_node={:?}, subnet_proxy_cidrs={:?}, virtual_domain={:?}", 
+        auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position, voice_volume, enable_gpu_rendering, mic_hotkey, global_mute_hotkey, push_to_talk_hotkey, enable_exit_node, subnet_proxy_cidrs, virtual_domain);
 
     // 1. 保存配置到文件
     {
@@ -2921,16 +2978,30 @@ pub async fn save_settings(
             config.auto_startup = Some(auto_startup);
             // 读取已有的auto_lobby配置，只更新非None的字段
             let existing = config.auto_lobby.clone().unwrap_or_default();
+            
+            // 如果传入了 lobby_name、lobby_password 或 player_name，则更新这些字段
+            // 如果传入了 use_domain 或 virtual_domain，则更新这些字段（独立于其他字段）
+            let updated_use_domain = if lobby_name.is_some() || lobby_password.is_some() || player_name.is_some() || virtual_domain.is_some() {
+                use_domain
+            } else {
+                existing.use_domain
+            };
+            
+            let updated_virtual_domain = if virtual_domain.is_some() {
+                virtual_domain.clone()
+            } else {
+                existing.virtual_domain.clone()
+            };
+            
+            log::info!("更新 auto_lobby 配置: use_domain={}, virtual_domain={:?}", updated_use_domain, updated_virtual_domain);
+            
             config.auto_lobby = Some(AutoLobbyConfig {
                 enabled: auto_lobby_enabled,
                 lobby_name: lobby_name.clone().or(existing.lobby_name),
                 lobby_password: lobby_password.clone().or(existing.lobby_password),
                 player_name: player_name.clone().or(existing.player_name),
-                use_domain: if lobby_name.is_some() || lobby_password.is_some() || player_name.is_some() {
-                    use_domain
-                } else {
-                    existing.use_domain
-                },
+                use_domain: updated_use_domain,
+                virtual_domain: updated_virtual_domain,
             });
             // 保存私有服务器配置
             config.use_private_server = Some(use_private_server);
@@ -2969,6 +3040,72 @@ pub async fn save_settings(
             // 保存 GPU 渲染设置
             if let Some(enable) = enable_gpu_rendering {
                 config.enable_gpu_rendering = Some(enable);
+            }
+            // 保存快捷键设置
+            if let Some(hotkey) = mic_hotkey {
+                config.mic_hotkey = Some(hotkey);
+            }
+            if let Some(hotkey) = global_mute_hotkey {
+                config.global_mute_hotkey = Some(hotkey);
+            }
+            if let Some(hotkey) = push_to_talk_hotkey {
+                config.push_to_talk_hotkey = Some(hotkey);
+            }
+            // 保存出口节点配置
+            if let Some(enable) = enable_exit_node {
+                if config.exit_node_config.is_none() {
+                    config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+                }
+                if let Some(ref mut exit_config) = config.exit_node_config {
+                    exit_config.enable_exit_node = enable;
+                }
+            }
+            if let Some(enable) = enable_as_exit_node {
+                if config.exit_node_config.is_none() {
+                    config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+                }
+                if let Some(ref mut exit_config) = config.exit_node_config {
+                    exit_config.enable_as_exit_node = enable;
+                }
+            }
+            if let Some(cidrs) = proxy_cidrs {
+                if config.exit_node_config.is_none() {
+                    config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+                }
+                if let Some(ref mut exit_config) = config.exit_node_config {
+                    // 将字符串按行分割成 Vec<String>
+                    exit_config.proxy_cidrs = cidrs
+                        .lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            if let Some(nodes) = exit_nodes {
+                if config.exit_node_config.is_none() {
+                    config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+                }
+                if let Some(ref mut exit_config) = config.exit_node_config {
+                    // 将字符串按行分割成 Vec<String>
+                    exit_config.exit_nodes = nodes
+                        .lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            if let Some(subnet_cidrs) = subnet_proxy_cidrs {
+                if config.exit_node_config.is_none() {
+                    config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+                }
+                if let Some(ref mut exit_config) = config.exit_node_config {
+                    // 将字符串按行分割成 Vec<String>
+                    exit_config.subnet_proxy_cidrs = subnet_cidrs
+                        .lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
             }
         }).await.map_err(|e| format!("保存配置失败: {}", e))?;
     }
@@ -3052,6 +3189,9 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
 
     log::info!("设置配置读取完成");
 
+    // 读取出口节点配置
+    let exit_node_config = config.exit_node_config.clone().unwrap_or_default();
+
     Ok(serde_json::json!({
         "autoStartup": actual_auto_start,
         "autoLobbyEnabled": auto_lobby.enabled,
@@ -3059,6 +3199,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "lobbyPassword": auto_lobby.lobby_password,
         "playerName": auto_lobby.player_name,
         "useDomain": auto_lobby.use_domain,
+        "virtualDomain": auto_lobby.virtual_domain,
         "usePrivateServer": config.use_private_server.unwrap_or(false),
         // 返回实际保存的值，如果是 None 就返回 null，让前端决定默认值
         "privateEasytierServer": config.private_easytier_server.clone(),
@@ -3068,6 +3209,15 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "customEasytierNodes": config.custom_easytier_nodes.clone().unwrap_or_default(),
         "voiceVolume": config.voice_volume.unwrap_or(1.0),
         "enableGpuRendering": config.enable_gpu_rendering.unwrap_or(true),
+        "micHotkey": config.mic_hotkey.clone().unwrap_or_else(|| "Ctrl+M".to_string()),
+        "globalMuteHotkey": config.global_mute_hotkey.clone().unwrap_or_else(|| "Ctrl+T".to_string()),
+        "pushToTalkHotkey": config.push_to_talk_hotkey.clone().unwrap_or_else(|| "F2".to_string()),
+        "enableExitNode": exit_node_config.enable_exit_node,
+        "enableAsExitNode": exit_node_config.enable_as_exit_node,
+        // 将 Vec<String> 转换为换行分隔的字符串
+        "proxyCidrs": exit_node_config.proxy_cidrs.join("\n"),
+        "exitNodes": exit_node_config.exit_nodes.join("\n"),
+        "subnetProxyCidrs": exit_node_config.subnet_proxy_cidrs.join("\n"),
     }))
 }
 
@@ -3249,3 +3399,160 @@ pub async fn restart_app_with_gpu_settings(enable_gpu: bool, app: tauri::AppHand
 
 
 
+
+
+/// 保存出口节点高级配置
+/// 
+/// # 参数
+/// * `enable_socks5` - 是否启用 SOCKS5 代理
+/// * `socks5_port` - SOCKS5 代理端口
+/// * `port_forward_rules` - 端口转发规则列表
+/// * `no_tun` - 是否启用无 TUN 模式
+/// * `proxy_forward_by_system` - 是否启用系统转发
+/// * `bind_device` - 是否仅使用物理网卡
+/// * `multi_thread` - 是否启用多线程
+/// * `multi_thread_count` - 多线程数量
+/// * `use_smoltcp` - 是否启用 smoltcp
+/// * `enable_kcp_proxy` - 是否启用 KCP 代理
+/// * `enable_quic_proxy` - 是否启用 QUIC 代理
+/// * `latency_first` - 是否启用延迟优先模式
+/// 
+/// # 返回
+/// * `Ok(())` - 保存成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn save_exit_node_advanced_config(
+    enable_socks5: Option<bool>,
+    socks5_port: Option<u16>,
+    port_forward_rules: Option<Vec<serde_json::Value>>,
+    no_tun: Option<bool>,
+    proxy_forward_by_system: Option<bool>,
+    bind_device: Option<bool>,
+    multi_thread: Option<bool>,
+    multi_thread_count: Option<u32>,
+    use_smoltcp: Option<bool>,
+    enable_kcp_proxy: Option<bool>,
+    enable_quic_proxy: Option<bool>,
+    latency_first: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::modules::config_manager::PortForwardRule;
+    
+    log::info!("保存出口节点高级配置");
+    log::info!("  - enable_socks5: {:?}", enable_socks5);
+    log::info!("  - socks5_port: {:?}", socks5_port);
+    log::info!("  - no_tun: {:?}", no_tun);
+    log::info!("  - proxy_forward_by_system: {:?}", proxy_forward_by_system);
+    log::info!("  - bind_device: {:?}", bind_device);
+    log::info!("  - multi_thread: {:?}", multi_thread);
+    log::info!("  - multi_thread_count: {:?}", multi_thread_count);
+    log::info!("  - use_smoltcp: {:?}", use_smoltcp);
+    log::info!("  - enable_kcp_proxy: {:?}", enable_kcp_proxy);
+    log::info!("  - enable_quic_proxy: {:?}", enable_quic_proxy);
+    log::info!("  - latency_first: {:?}", latency_first);
+    
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    
+    cfg_mgr.update_config(|config| {
+        // 确保 exit_node_config 存在
+        if config.exit_node_config.is_none() {
+            config.exit_node_config = Some(crate::modules::config_manager::ExitNodeConfig::default());
+        }
+        
+        if let Some(ref mut exit_config) = config.exit_node_config {
+            // 更新 SOCKS5 配置
+            if let Some(enable) = enable_socks5 {
+                exit_config.enable_socks5 = enable;
+            }
+            if let Some(port) = socks5_port {
+                exit_config.socks5_port = Some(port);
+            }
+            
+            // 更新端口转发规则
+            if let Some(rules_json) = port_forward_rules {
+                let rules: Vec<PortForwardRule> = rules_json.iter().filter_map(|r| {
+                    if let (Some(protocol), Some(bind_addr), Some(dst_addr)) = (
+                        r.get("protocol").and_then(|v| v.as_str()),
+                        r.get("bind_addr").and_then(|v| v.as_str()),
+                        r.get("dst_addr").and_then(|v| v.as_str()),
+                    ) {
+                        Some(PortForwardRule {
+                            protocol: protocol.to_string(),
+                            bind_addr: bind_addr.to_string(),
+                            dst_addr: dst_addr.to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                }).collect();
+                exit_config.port_forward_rules = rules;
+            }
+            
+            // 更新其他高级配置
+            if let Some(no_tun_val) = no_tun {
+                exit_config.no_tun = no_tun_val;
+            }
+            if let Some(proxy_forward) = proxy_forward_by_system {
+                exit_config.proxy_forward_by_system = proxy_forward;
+            }
+            if let Some(bind_dev) = bind_device {
+                exit_config.bind_device = bind_dev;
+            }
+            if let Some(multi_thread_val) = multi_thread {
+                exit_config.multi_thread = multi_thread_val;
+            }
+            if let Some(thread_count) = multi_thread_count {
+                exit_config.multi_thread_count = Some(thread_count);
+            }
+            if let Some(smoltcp) = use_smoltcp {
+                exit_config.use_smoltcp = smoltcp;
+            }
+            if let Some(kcp) = enable_kcp_proxy {
+                exit_config.enable_kcp_proxy = kcp;
+            }
+            if let Some(quic) = enable_quic_proxy {
+                exit_config.enable_quic_proxy = quic;
+            }
+            if let Some(latency) = latency_first {
+                exit_config.latency_first = latency;
+            }
+        }
+    }).await.map_err(|e| format!("保存出口节点高级配置失败: {}", e))?;
+    
+    log::info!("出口节点高级配置保存成功");
+    Ok(())
+}
+
+/// 获取出口节点高级配置
+/// 
+/// # 返回
+/// * `Ok(serde_json::Value)` - 出口节点高级配置
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn get_exit_node_advanced_config(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    log::info!("获取出口节点高级配置");
+    
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let cfg_mgr = config_manager.lock().await;
+    let config = cfg_mgr.get_config();
+    
+    let exit_config = config.exit_node_config.clone().unwrap_or_default();
+    
+    Ok(serde_json::json!({
+        "enableSocks5": exit_config.enable_socks5,
+        "socks5Port": exit_config.socks5_port,
+        "portForwardRules": exit_config.port_forward_rules,
+        "noTun": exit_config.no_tun,
+        "proxyForwardBySystem": exit_config.proxy_forward_by_system,
+        "bindDevice": exit_config.bind_device,
+        "multiThread": exit_config.multi_thread,
+        "multiThreadCount": exit_config.multi_thread_count,
+        "useSmoltcp": exit_config.use_smoltcp,
+        "enableKcpProxy": exit_config.enable_kcp_proxy,
+        "enableQuicProxy": exit_config.enable_quic_proxy,
+        "latencyFirst": exit_config.latency_first,
+    }))
+}

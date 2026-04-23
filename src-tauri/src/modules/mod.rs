@@ -34,6 +34,9 @@ pub mod app_core;
 // Tauri 命令接口模块
 pub mod tauri_commands;
 
+// EasyTier 高级配置命令模块
+pub mod easytier_advanced_commands;
+
 // Tauri 事件推送模块
 pub mod tauri_events;
 

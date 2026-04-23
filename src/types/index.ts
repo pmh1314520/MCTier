@@ -84,6 +84,20 @@ export interface AutoLobbyConfig {
 }
 
 /**
+ * 出口节点配置
+ */
+export interface ExitNodeConfig {
+  /** 是否启用出口节点功能 */
+  enableExitNode?: boolean;
+  /** 本机作为出口节点（对应 --enable-exit-node） */
+  enableAsExitNode?: boolean;
+  /** 出口网段列表（对应 --proxy-networks），如 ["0.0.0.0/0"] */
+  proxyCidrs?: string[];
+  /** 客户端出口节点列表（对应 --exit-nodes），填写虚拟 IPv4 */
+  exitNodes?: string[];
+}
+
+/**
  * 用户配置
  */
 export interface UserConfig {
@@ -95,6 +109,8 @@ export interface UserConfig {
   micHotkey?: string;
   /** 全局听筒快捷键 */
   globalMuteHotkey?: string;
+  /** F2临时开麦快捷键 */
+  pushToTalkHotkey?: string;
   /** 窗口位置 */
   windowPosition?: WindowPosition;
   /** 音频设备 ID */
@@ -111,6 +127,8 @@ export interface UserConfig {
   autoStartup?: boolean;
   /** 自动创建大厅配置 */
   autoLobby?: AutoLobbyConfig;
+  /** 出口节点配置 */
+  exitNodeConfig?: ExitNodeConfig;
 }
 
 /**

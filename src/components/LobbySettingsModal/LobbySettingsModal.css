@@ -1,0 +1,387 @@
+.lobby-settings-modal .ant-modal-content {
+  background: linear-gradient(135deg, rgba(30, 30, 40, 0.98) 0%, rgba(20, 20, 30, 0.98) 100%);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  padding: 0;
+  overflow: hidden;
+}
+
+.lobby-settings-modal .ant-modal-close {
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.3s ease;
+}
+
+.lobby-settings-modal .ant-modal-close:hover {
+  color: rgba(255, 255, 255, 1);
+}
+
+.lobby-settings-content {
+  padding: 24px;
+}
+
+.lobby-settings-header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.lobby-settings-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0 0 8px 0;
+}
+
+.lobby-settings-header p {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+
+.lobby-settings-form {
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.lobby-settings-form::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lobby-settings-form::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.lobby-settings-form::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.lobby-settings-form::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.lobby-settings-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.lobby-settings-form .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.lobby-settings-form .ant-input,
+.lobby-settings-form .ant-input-textarea {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.lobby-settings-form .ant-input:hover,
+.lobby-settings-form .ant-input-textarea:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lobby-settings-form .ant-input:focus,
+.lobby-settings-form .ant-input-textarea:focus {
+  border-color: #4CAF50;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.lobby-settings-form .ant-input::placeholder,
+.lobby-settings-form .ant-input-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.lobby-settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.lobby-settings-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.lobby-settings-toggle-sub {
+  margin-left: 16px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggle-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.toggle-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.lobby-settings-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.6;
+  padding: 12px;
+  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid #4CAF50;
+  border-radius: 4px;
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+
+.lobby-settings-footer {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lobby-settings-btn {
+  flex: 1;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lobby-settings-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lobby-settings-btn-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.lobby-settings-btn-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.lobby-settings-btn-reset {
+  background: #ff4d4f;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 77, 79, 0.3);
+}
+
+.lobby-settings-btn-reset:hover:not(:disabled) {
+  background: #ff7875;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 77, 79, 0.4);
+}
+
+.lobby-settings-btn-reset:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.lobby-settings-btn-save {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.lobby-settings-btn-save:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
+}
+
+.lobby-settings-btn-save:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Switch 样式 */
+.lobby-settings-toggle .ant-switch {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.lobby-settings-toggle .ant-switch-checked {
+  background: #4CAF50;
+}
+
+/* 表单验证错误样式 */
+.lobby-settings-form .ant-form-item-explain-error {
+  color: #ff4d4f;
+  font-size: 12px;
+}
+
+.lobby-settings-form .ant-input-status-error,
+.lobby-settings-form .ant-input-textarea-status-error {
+  border-color: #ff4d4f !important;
+}
+
+.lobby-settings-form .ant-input-status-error:focus,
+.lobby-settings-form .ant-input-textarea-status-error:focus {
+  box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.2) !important;
+}
+
+
+/* 高级配置按钮 */
+.advanced-config-btn-wrapper {
+  margin: 16px 0;
+}
+
+.advanced-config-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  color: #818cf8;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.advanced-config-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+  border-color: rgba(99, 102, 241, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.advanced-config-btn svg {
+  flex-shrink: 0;
+}
+
+/* 使用全局配置开关 */
+.use-global-config-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(56, 142, 60, 0.1) 100%);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.use-global-config-switch span {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.use-global-config-switch .ant-switch {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.use-global-config-switch .ant-switch-checked {
+  background: #4CAF50;
+}
+
+/* 全局配置提示 */
+.global-config-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  border-radius: 10px;
+  margin-top: 12px;
+}
+
+.global-config-hint svg {
+  flex-shrink: 0;
+}
+
+.global-config-hint span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+}
+
+/* 配置分组标题 */
+.config-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(126, 211, 33, 0.95);
+  margin: 24px 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid rgba(126, 211, 33, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.config-section-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: linear-gradient(180deg, #7ed321 0%, #5fa319 100%);
+  border-radius: 2px;
+}
+
+/* InputNumber 样式 */
+.lobby-settings-form .ant-input-number {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.lobby-settings-form .ant-input-number:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lobby-settings-form .ant-input-number-focused {
+  border-color: #4CAF50;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.lobby-settings-form .ant-input-number-input {
+  color: #fff;
+}
+
+.lobby-settings-form .ant-input-number-handler-wrap {
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lobby-settings-form .ant-input-number-handler {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lobby-settings-form .ant-input-number-handler:hover {
+  color: rgba(255, 255, 255, 0.9);
+}

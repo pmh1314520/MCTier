@@ -198,3 +198,105 @@
     padding: 2px 6px;
   }
 }
+
+/* 音量图标和控制按钮 */
+.player-volume-icon,
+.player-volume-toggle {
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-volume-icon:hover,
+.player-volume-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-volume-toggle.active {
+  color: rgba(126, 211, 33, 0.95);
+  background: rgba(126, 211, 33, 0.1);
+}
+
+/* 音量滑块容器 */
+.player-volume-slider-container {
+  width: 100%;
+  overflow: hidden;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.player-volume-slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+/* 音量滑块左侧的听筒图标 */
+.player-volume-icon-inline {
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.player-volume-icon-inline:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.volume-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.player-volume-slider {
+  flex: 1;
+}
+
+.volume-value {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  min-width: 35px;
+  text-align: right;
+}
+
+/* Ant Design Slider 自定义样式 */
+.player-volume-slider .ant-slider-rail {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-volume-slider .ant-slider-track {
+  background: rgba(126, 211, 33, 0.8);
+}
+
+.player-volume-slider .ant-slider-handle::after {
+  background: rgba(126, 211, 33, 0.95);
+  box-shadow: 0 0 0 2px rgba(126, 211, 33, 0.2);
+}
+
+.player-volume-slider .ant-slider-handle:hover::after,
+.player-volume-slider .ant-slider-handle:focus::after {
+  box-shadow: 0 0 0 4px rgba(126, 211, 33, 0.3);
+}
+
+.player-volume-slider.ant-slider-disabled .ant-slider-track {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.player-volume-slider.ant-slider-disabled .ant-slider-handle::after {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
