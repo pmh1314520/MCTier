@@ -60,6 +60,26 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+impl AppError {
+    /// 获取错误的内层消息（不含「网络错误:」等前缀）
+    ///
+    /// 用于在跨错误类型转换时避免出现「网络错误: 网络错误: ...」这类重复前缀。
+    pub fn inner_message(&self) -> String {
+        match self {
+            AppError::ValidationError(s)
+            | AppError::NetworkError(s)
+            | AppError::AudioError(s)
+            | AppError::VoiceError(s)
+            | AppError::ConfigError(s)
+            | AppError::ProcessError(s)
+            | AppError::IoError(s)
+            | AppError::FileError(s)
+            | AppError::SerializationError(s)
+            | AppError::Unknown(s) => s.clone(),
+        }
+    }
+}
+
 /// 错误日志记录函数
 pub fn log_error(error: &AppError, context: &str) {
     log::error!("[{}] 错误: {}", context, error);

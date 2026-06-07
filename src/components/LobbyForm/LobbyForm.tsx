@@ -34,7 +34,7 @@ const OFFICIAL_EASYTIER_SERVER = 'wss://mctiers.pmhs.top';
 // 默认备用节点（与SettingsWindow中的定义保持一致）
 const DEFAULT_BUILTIN_NODE = {
   name: '明月清风节点',
-  address: 'wss://qtet-public.070219.xyz'
+  address: 'wss://public.qtet.cc.cd'
 };
 
 // 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
@@ -59,6 +59,7 @@ const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
     { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
     { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
+    { value: 'udp://us01.225284.xyz:11010', label: '海波节点 (备用)' },
   ];
   
   // 添加自定义节点
@@ -384,7 +385,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }
   };
 
-  const handleSubmit = async (values: LobbyFormValues) => {
+  const handleSubmit = async (values: LobbyFormValues, overrideNode?: string) => {
+    // 记录本次实际尝试的节点选择，便于失败时提供「换节点重试」
+    const failedNodeValue = overrideNode ?? values.serverNode;
     try {
       setLoading(true);
       setAppState('connecting');
@@ -407,8 +410,15 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       let serverNode = values.serverNode;
       let signalingServer = 'wss://mctier.pmhs.top/signaling'; // 默认官方信令服务器
       
-      // 如果启用了私有服务器，使用私有服务器配置（不添加默认备用节点）
-      if (privateServerConfig.usePrivateServer) {
+      if (overrideNode) {
+        // 一键换节点重试：强制使用指定的内置节点（官方信令服务器）
+        serverNode = overrideNode;
+        signalingServer = 'wss://mctier.pmhs.top/signaling';
+        console.log('========================================');
+        console.log('🔁 一键换节点重试，使用节点:', serverNode);
+        console.log('========================================');
+      } else if (privateServerConfig.usePrivateServer) {
+        // 如果启用了私有服务器，使用私有服务器配置（不添加默认备用节点）
         serverNode = privateServerConfig.privateEasytierServer;
         signalingServer = privateServerConfig.privateSignalingServer;
         console.log('========================================');
@@ -507,17 +517,29 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       // 保存玩家名称到前端store
       const { updateConfig } = useAppStore.getState();
       updateConfig({ playerName: values.playerName.trim() });
-      
-      // 保存玩家名称到后端配置文件
+
+      // 【新增】把本次成功连上的节点记为下次默认首选节点
+      // 仅在非私有服务器场景下记录（私有服务器是独立设置，不覆盖）
+      // - 临时自定义节点记为 'custom' 哨兵值，保持与现有逻辑一致
+      // - 其它情况记录实际节点地址（含一键换节点重试时使用的节点）
+      const preferredToSave: string | undefined = privateServerConfig.usePrivateServer
+        ? undefined
+        : (overrideNode ?? values.serverNode);
+      if (preferredToSave) {
+        updateConfig({ preferredServer: preferredToSave });
+      }
+
+      // 保存玩家名称（及首选节点）到后端配置文件
       try {
         const currentConfig = await invoke<UserConfig>('get_config');
         await invoke('update_config', {
           config: {
             ...currentConfig,
             playerName: values.playerName.trim(),
+            ...(preferredToSave ? { preferredServer: preferredToSave } : {}),
           },
         });
-        console.log('玩家名称已保存到配置文件');
+        console.log('玩家名称已保存到配置文件', preferredToSave ? `，首选节点: ${preferredToSave}` : '');
       } catch (error) {
         console.warn('保存玩家名称到配置文件失败:', error);
       }
@@ -612,20 +634,82 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
           },
         });
       } else {
-        // 显示详细的错误信息
-        message.error({
-          content: (
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
-                {mode === 'create' ? '创建大厅失败' : '加入大厅失败'}
-              </div>
-              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-                {errorMessage}
-              </div>
+        // 网络/进程类错误：若当前不是私有服务器、也不是临时自定义节点，
+        // 则提供「一键切换到其它内置节点并重试」的按钮
+        const canSwitchNode =
+          !privateServerConfig.usePrivateServer && failedNodeValue !== 'custom';
+        const candidateNodes = serverNodes.filter(
+          (n) => n.value !== 'custom' && n.value !== failedNodeValue
+        );
+
+        if (canSwitchNode && candidateNodes.length > 0) {
+          const guidance = (
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: '1.7', marginTop: '8px' }}>
+              当前节点连接失败，可点击下方按钮换一个节点重试，或：<br />
+              1. 以管理员身份运行 MCTier<br />
+              2. 将 MCTier 加入杀毒软件 / 防火墙白名单<br />
+              3. 改用家庭 WiFi，避免校园网、手机流量或热点
             </div>
-          ),
-          duration: 8,
-        });
+          );
+
+          Modal.error({
+            title: mode === 'create' ? '创建大厅失败' : '加入大厅失败',
+            centered: true,
+            okText: '关闭',
+            content: (
+              <div>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)' }}>
+                  {errorMessage}
+                </div>
+                {guidance}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' }}>
+                  {candidateNodes.map((node) => (
+                    <Button
+                      key={node.value}
+                      type="primary"
+                      block
+                      onClick={() => {
+                        Modal.destroyAll();
+                        // 同步下拉框显示，并以该节点重试
+                        form.setFieldsValue({ serverNode: node.value });
+                        setShowCustomServer(false);
+                        const latestValues = {
+                          ...form.getFieldsValue(),
+                          serverNode: node.value,
+                        } as LobbyFormValues;
+                        handleSubmit(latestValues, node.value);
+                      }}
+                    >
+                      切换到「{node.label}」并重试
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ),
+          });
+        } else {
+          // 私有服务器 / 临时自定义节点：仅展示错误与通用引导
+          message.error({
+            content: (
+              <div>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                  {mode === 'create' ? '创建大厅失败' : '加入大厅失败'}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
+                  {errorMessage}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: '1.7' }}>
+                  可尝试：<br />
+                  1. 以管理员身份运行 MCTier（创建虚拟网卡需要管理员权限）<br />
+                  2. 将 MCTier 加入杀毒软件 / 防火墙白名单后重试<br />
+                  3. 检查私有服务器 / 自定义节点地址是否正确、可达<br />
+                  4. 改用家庭 WiFi，避免校园网、手机热点等受限网络
+                </div>
+              </div>
+            ),
+            duration: 10,
+          });
+        }
       }
     } finally {
       setLoading(false);

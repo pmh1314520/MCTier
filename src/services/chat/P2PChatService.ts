@@ -18,27 +18,30 @@ interface BackendChatMessage {
   image_data?: number[]; // Uint8Array转换为number[]
 }
 
+// 本机聊天服务器监听地址（服务器绑定 0.0.0.0:14540，通过回环访问最稳定，
+// 不依赖虚拟网卡或其它网卡，避免 Clash 等多网卡环境下的路由问题）
+const SELF_STREAM_URL = 'http://127.0.0.1:14540/api/chat/stream';
+
 class P2PChatService {
-  private eventSources: Map<string, EventSource> = new Map(); // 每个玩家一个EventSource
+  private selfEventSource: EventSource | null = null; // 仅订阅“自己”的消息流
+  private selfReconnectTimer: number | null = null;
+  private isListening: boolean = false;
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private myVirtualIp: string = ''; // 自己的虚拟IP，用于过滤
-  private lastMessageByPlayer: Map<string, string> = new Map(); // 【修改】记录每个玩家最近一次发送的消息内容
+  private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
+  private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
 
   /**
    * 初始化服务
    */
   initialize(peerIps: string[], currentPlayerId: string, myVirtualIp: string): void {
-    // 【修复】先清理旧的连接，避免重复连接
-    console.log('🔄 [P2PChatService] 清理旧连接...');
-    this.stopListening();
-    
-    // 更新玩家IPs和ID
+    // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
     this.myVirtualIp = myVirtualIp;
-    
+
     console.log('✅ [P2PChatService] 初始化完成');
     console.log('  - 当前玩家ID:', currentPlayerId);
     console.log('  - 自己的虚拟IP:', myVirtualIp);
@@ -54,7 +57,8 @@ class P2PChatService {
     this.currentPlayerId = '';
     this.myVirtualIp = '';
     this.onMessageCallback = undefined;
-    this.lastMessageByPlayer.clear(); // 【修改】清理玩家消息记录
+    this.seenMessageIds.clear();
+    this.seenMessageOrder = [];
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -67,61 +71,56 @@ class P2PChatService {
 
   /**
    * 开始监听消息（使用SSE）
+   *
+   * 【修复】只订阅“自己”的本机聊天流。其他玩家通过 HTTP POST 把消息发送到本机的
+   * /api/chat/send，本机服务器再把消息广播到本机 SSE 订阅者（也就是自己），
+   * 从而保证一定能收到别人发来的消息（旧逻辑订阅其他人的流，在 2 人大厅时收不到消息）。
    */
   startPolling(): void {
-    console.log('✅ [P2PChatService] 开始监听消息（SSE事件驱动）');
-    console.log('📊 [P2PChatService] 当前已有连接数:', this.eventSources.size);
-    
-    // 【修复】先完全清理所有旧连接
-    if (this.eventSources.size > 0) {
-      console.log('⚠️ [P2PChatService] 检测到旧连接，先清理所有连接');
-      this.stopListening();
+    // 幂等：已经在监听且连接正常时，不重复建立连接（避免玩家列表变化时频繁断开重连）
+    if (
+      this.isListening &&
+      this.selfEventSource &&
+      this.selfEventSource.readyState !== EventSource.CLOSED
+    ) {
+      console.log('ℹ️ [P2PChatService] 已在监听自身消息流，跳过重复建立');
+      return;
     }
-    
-    // 为每个玩家创建SSE连接
-    for (const peerIp of this.peerIps) {
-      // 跳过自己的IP（使用虚拟IP比较）
-      if (peerIp === this.myVirtualIp) {
-        console.log(`🚫 [P2PChatService] 跳过自己的IP: ${peerIp}`);
-        continue;
-      }
-      
-      // 【双重检查】确保没有重复连接
-      if (this.eventSources.has(peerIp)) {
-        console.error(`❌ [P2PChatService] 严重错误：清理后仍存在连接: ${peerIp}`);
-        const oldEventSource = this.eventSources.get(peerIp);
-        if (oldEventSource) {
-          oldEventSource.close();
-        }
-        this.eventSources.delete(peerIp);
-      }
-      
-      this.connectToPlayer(peerIp);
-    }
-    
-    console.log('📊 [P2PChatService] 连接建立完成，当前连接数:', this.eventSources.size);
+
+    console.log('✅ [P2PChatService] 开始监听消息（订阅本机消息流，SSE事件驱动）');
+    this.isListening = true;
+    this.connectToSelfStream();
   }
 
   /**
-   * 连接到指定玩家的SSE流
+   * 连接到本机聊天服务器的 SSE 流
    */
-  private connectToPlayer(peerIp: string): void {
-    const url = `http://${peerIp}:14540/api/chat/stream`;
-    console.log(`📡 [P2PChatService] 连接到玩家: ${url}`);
-    
+  private connectToSelfStream(): void {
+    // 清理可能存在的旧连接
+    if (this.selfEventSource) {
+      try {
+        this.selfEventSource.close();
+      } catch {
+        // 忽略关闭异常
+      }
+      this.selfEventSource = null;
+    }
+
+    console.log(`📡 [P2PChatService] 连接到本机消息流: ${SELF_STREAM_URL}`);
+
     try {
-      const eventSource = new EventSource(url);
-      
+      const eventSource = new EventSource(SELF_STREAM_URL);
+
       eventSource.onopen = () => {
-        console.log(`✅ [P2PChatService] SSE连接已建立: ${peerIp}`);
+        console.log('✅ [P2PChatService] 本机消息流已连接');
       };
-      
+
       eventSource.onmessage = (event) => {
         // 跳过keep-alive消息
         if (event.data === 'keep-alive') {
           return;
         }
-        
+
         try {
           const message: BackendChatMessage = JSON.parse(event.data);
           this.handleMessage(message);
@@ -129,25 +128,32 @@ class P2PChatService {
           console.error('❌ [P2PChatService] 解析消息失败:', error);
         }
       };
-      
+
       eventSource.onerror = (error) => {
-        console.warn(`⚠️ [P2PChatService] SSE连接错误: ${peerIp}`, error);
-        // 连接断开，移除EventSource
-        this.eventSources.delete(peerIp);
-        eventSource.close();
-        
-        // 5秒后重连
-        setTimeout(() => {
-          if (this.peerIps.includes(peerIp)) {
-            console.log(`🔄 [P2PChatService] 重新连接: ${peerIp}`);
-            this.connectToPlayer(peerIp);
+        console.warn('⚠️ [P2PChatService] 本机消息流连接错误，将重连', error);
+        try {
+          eventSource.close();
+        } catch {
+          // 忽略关闭异常
+        }
+        this.selfEventSource = null;
+
+        // 2秒后重连（仅在仍处于监听状态时）
+        if (this.selfReconnectTimer) {
+          clearTimeout(this.selfReconnectTimer);
+        }
+        this.selfReconnectTimer = window.setTimeout(() => {
+          this.selfReconnectTimer = null;
+          if (this.isListening) {
+            console.log('🔄 [P2PChatService] 重新连接本机消息流');
+            this.connectToSelfStream();
           }
-        }, 5000);
+        }, 2000);
       };
-      
-      this.eventSources.set(peerIp, eventSource);
+
+      this.selfEventSource = eventSource;
     } catch (error) {
-      console.error(`❌ [P2PChatService] 创建SSE连接失败: ${peerIp}`, error);
+      console.error('❌ [P2PChatService] 创建本机消息流连接失败:', error);
     }
   }
 
@@ -161,27 +167,23 @@ class P2PChatService {
       return;
     }
 
-    // 【修改】消息去重：检查该玩家最近一次发送的消息内容是否与当前消息相同
-    // 对于文本消息，比较 content；对于图片消息，比较 image_data
-    const currentContent = msg.message_type === 'image' && msg.image_data 
-      ? JSON.stringify(msg.image_data) // 图片消息：序列化图片数据进行比较
-      : msg.content; // 文本消息：直接比较文本内容
-    
-    const lastMessage = this.lastMessageByPlayer.get(msg.player_id);
-    if (lastMessage === currentContent) {
-      console.log('🚫 [P2PChatService] 跳过重复消息（内容相同）:', {
-        playerId: msg.player_id,
-        playerName: msg.player_name,
-        type: msg.message_type,
-        content: msg.message_type === 'text' ? msg.content.substring(0, 20) + '...' : '[图片]',
-      });
+    // 【修复】基于消息ID去重（每条消息ID唯一），避免重复回调；
+    // 旧逻辑用“内容相同”去重，会误杀用户连续发送的相同文本（如连续两条“哈哈”）。
+    if (this.seenMessageIds.has(msg.id)) {
+      console.log('🚫 [P2PChatService] 跳过重复消息（ID相同）:', msg.id);
       return;
+    }
+    this.seenMessageIds.add(msg.id);
+    this.seenMessageOrder.push(msg.id);
+    // 限制去重集合大小，避免长时间运行内存增长
+    if (this.seenMessageOrder.length > 1000) {
+      const oldest = this.seenMessageOrder.shift();
+      if (oldest) {
+        this.seenMessageIds.delete(oldest);
+      }
     }
 
     console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.message_type === 'text' ? msg.content.substring(0, 20) + '...' : '[图片]'}`);
-
-    // 【修改】更新该玩家最近一次发送的消息内容
-    this.lastMessageByPlayer.set(msg.player_id, currentContent);
 
     // 转换为前端消息格式
     const chatMessage: ChatMessage = {
@@ -232,11 +234,22 @@ class P2PChatService {
    * 停止所有SSE连接
    */
   private stopListening(): void {
-    for (const [peerIp, eventSource] of this.eventSources.entries()) {
-      eventSource.close();
-      console.log(`🛑 [P2PChatService] 关闭SSE连接: ${peerIp}`);
+    this.isListening = false;
+
+    if (this.selfReconnectTimer) {
+      clearTimeout(this.selfReconnectTimer);
+      this.selfReconnectTimer = null;
     }
-    this.eventSources.clear();
+
+    if (this.selfEventSource) {
+      try {
+        this.selfEventSource.close();
+      } catch {
+        // 忽略关闭异常
+      }
+      this.selfEventSource = null;
+      console.log('🛑 [P2PChatService] 已关闭本机消息流连接');
+    }
   }
 
   /**

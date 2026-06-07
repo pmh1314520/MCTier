@@ -106,6 +106,8 @@ pub struct NetworkService {
     instance_config_dir: Arc<Mutex<Option<PathBuf>>>,
     /// 当前使用的RPC端口
     rpc_port: Arc<Mutex<Option<u16>>>,
+    /// 最近的标准错误输出（用于在进程意外退出时定位原因，仅保留最近若干行）
+    last_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
 }
 
 impl NetworkService {
@@ -126,6 +128,7 @@ impl NetworkService {
             app_handle: None,
             instance_config_dir: Arc::new(Mutex::new(None)),
             rpc_port: Arc::new(Mutex::new(None)),
+            last_stderr: Arc::new(Mutex::new(std::collections::VecDeque::new())),
         }
     }
 
@@ -553,6 +556,13 @@ impl NetworkService {
         // 更新状态为连接中
         *self.status.lock().await = ConnectionStatus::Connecting;
 
+        // 【关键修复】启动前清理可能残留的孤儿 easytier-core.exe 进程，
+        // 避免它占用固定虚拟网卡名 MCTier_Net / RPC 端口，导致新进程"意外终止"
+        Self::cleanup_orphan_processes().await;
+
+        // 清空上一次的 stderr 缓存
+        self.last_stderr.lock().await.clear();
+
         // 获取 EasyTier 可执行文件路径
         let easytier_path = self.get_easytier_path()?;
         
@@ -884,8 +894,9 @@ impl NetworkService {
 
         let is_running_clone = Arc::clone(&self.is_running);
         let status_clone2 = Arc::clone(&self.status);
+        let stderr_buf_clone = Arc::clone(&self.last_stderr);
         tokio::spawn(async move {
-            Self::monitor_stderr(stderr, is_running_clone, status_clone2).await;
+            Self::monitor_stderr(stderr, is_running_clone, status_clone2, stderr_buf_clone).await;
         });
 
         // 启动进程监控任务
@@ -893,6 +904,7 @@ impl NetworkService {
         let status_clone = Arc::clone(&self.status);
         let is_running_clone = Arc::clone(&self.is_running);
         let virtual_ip_clone = Arc::clone(&self.virtual_ip);
+        let stderr_buf_clone2 = Arc::clone(&self.last_stderr);
 
         tokio::spawn(async move {
             Self::monitor_process(
@@ -900,6 +912,7 @@ impl NetworkService {
                 status_clone,
                 is_running_clone,
                 virtual_ip_clone,
+                stderr_buf_clone2,
             )
             .await;
         });
@@ -955,14 +968,16 @@ impl NetworkService {
             let is_running = *self.is_running.lock().await;
             if !is_running {
                 log::error!("❌ EasyTier 进程意外终止");
-                // 检查是否有错误状态
+                // 优先使用监控任务已经设置好的详细错误状态
                 let status = self.status.lock().await.clone();
                 if let ConnectionStatus::Error(err_msg) = status {
                     return Err(AppError::NetworkError(err_msg));
                 }
-                return Err(AppError::NetworkError(
-                    "EasyTier 进程意外终止".to_string(),
-                ));
+                // 否则根据最近的 stderr 输出生成可读的错误说明
+                let recent: Vec<String> =
+                    self.last_stderr.lock().await.iter().cloned().collect();
+                let msg = Self::describe_exit_failure(None, &recent);
+                return Err(AppError::NetworkError(msg));
             }
 
             // 等待一小段时间后重试
@@ -1020,9 +1035,95 @@ impl NetworkService {
             start_port + max_attempts - 1
         )))
     }
-    
-    
-    
+
+    /// 启动前清理孤儿 EasyTier 进程（仅 Windows）
+    ///
+    /// 上一次 App 异常退出时可能残留 easytier-core.exe 进程，
+    /// 它会占用固定虚拟网卡名 MCTier_Net 和 RPC 端口，
+    /// 导致新进程创建网卡失败而"意外终止"。这里在启动前先强制清理。
+    #[cfg(target_os = "windows")]
+    async fn cleanup_orphan_processes() {
+        log::info!("🧹 [PreStart] 检查并清理可能残留的孤儿 easytier-core.exe 进程...");
+        let output = tokio::process::Command::new("taskkill")
+            .args(&["/F", "/IM", "easytier-core.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .await;
+
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                // taskkill 在没有匹配进程时返回非 0，属正常情况，无需当作错误
+                if stdout.contains("SUCCESS") || stdout.contains("成功") {
+                    log::warn!("⚠️ [PreStart] 发现并清理了残留的 easytier-core.exe 进程，等待网卡释放...");
+                    // 给系统一点时间释放虚拟网卡和端口
+                    sleep(Duration::from_millis(800)).await;
+                } else {
+                    log::info!("✅ [PreStart] 未发现残留进程，环境干净");
+                }
+            }
+            Err(e) => {
+                log::warn!("⚠️ [PreStart] 清理孤儿进程命令执行失败（忽略）: {}", e);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn cleanup_orphan_processes() {
+        // 非 Windows 平台不做处理
+    }
+
+    /// 根据进程退出码推断常见失败原因，返回更可读的错误说明
+    ///
+    /// 主要覆盖 Windows 下的几个高频致命退出码。
+    fn describe_exit_failure(exit_code: Option<i32>, recent_stderr: &[String]) -> String {
+        // 优先使用 stderr 中的关键信息
+        let stderr_hint = recent_stderr
+            .iter()
+            .rev()
+            .find(|l| {
+                let s = l.to_lowercase();
+                s.contains("error") || s.contains("failed") || s.contains("panic")
+            })
+            .cloned();
+
+        if let Some(code) = exit_code {
+            // Windows 致命退出码（i32 表示的 NTSTATUS）
+            // 0xC0000135 = -1073741515：缺少依赖 DLL（通常是 VC++ 运行库）
+            // 0xC000007B = -1073741701：DLL/可执行文件位数不匹配（坏映像）
+            // 0xC0000005 = -1073741819：访问冲突
+            let known = match code {
+                -1073741515 => Some(
+                    "EasyTier 缺少运行库依赖（错误码 0xC0000135）：请安装 Microsoft Visual C++ 运行库后重试",
+                ),
+                -1073741701 => Some(
+                    "EasyTier 运行库不兼容（错误码 0xC000007B）：请安装最新版 Microsoft Visual C++ 运行库",
+                ),
+                -1073741819 => Some(
+                    "EasyTier 启动时发生访问冲突（错误码 0xC0000005）：可能被安全软件拦截或虚拟网卡驱动异常",
+                ),
+                _ => None,
+            };
+
+            if let Some(msg) = known {
+                return msg.to_string();
+            }
+
+            if let Some(hint) = stderr_hint {
+                return format!("EasyTier 进程意外终止（退出码 {}）：{}", code, hint);
+            }
+            return format!(
+                "EasyTier 进程意外终止（退出码 {}）：可能被安全软件拦截、虚拟网卡创建失败或缺少运行库",
+                code
+            );
+        }
+
+        if let Some(hint) = stderr_hint {
+            return format!("EasyTier 进程意外终止：{}", hint);
+        }
+        "EasyTier 进程意外终止：可能被安全软件拦截、虚拟网卡创建失败或缺少运行库，请尝试以管理员身份运行并将本软件加入杀毒软件白名单".to_string()
+    }
+
     /// 监控标准输出，解析虚拟 IP
     async fn monitor_stdout(
         stdout: tokio::process::ChildStdout,
@@ -1098,12 +1199,22 @@ impl NetworkService {
         stderr: tokio::process::ChildStderr, 
         is_running: Arc<Mutex<bool>>,
         status: Arc<Mutex<ConnectionStatus>>,
+        last_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
     ) {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
             log::warn!("EasyTier stderr: {}", line);
+
+            // 缓存最近的 stderr 输出（最多保留 30 行），用于进程意外退出时定位原因
+            {
+                let mut buf = last_stderr.lock().await;
+                buf.push_back(line.clone());
+                while buf.len() > 30 {
+                    buf.pop_front();
+                }
+            }
 
             // 检查是否有致命错误
             if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
@@ -1114,7 +1225,7 @@ impl NetworkService {
                     log::error!("TUN 设备创建失败，可能是缺少 WinTun 驱动或权限不足");
                     *is_running.lock().await = false;
                     *status.lock().await = ConnectionStatus::Error(
-                        "虚拟网卡创建失败：请检查 WinTun 驱动是否正常安装".to_string()
+                        "虚拟网卡创建失败：请以管理员身份运行，并确认 WinTun 驱动正常、未被安全软件拦截".to_string()
                     );
                 }
             }
@@ -1129,6 +1240,7 @@ impl NetworkService {
         status: Arc<Mutex<ConnectionStatus>>,
         is_running: Arc<Mutex<bool>>,
         virtual_ip: Arc<Mutex<Option<String>>>,
+        last_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
     ) {
         loop {
             sleep(Duration::from_secs(1)).await;
@@ -1140,7 +1252,29 @@ impl NetworkService {
                     Ok(Some(exit_status)) => {
                         log::warn!("EasyTier 进程已退出，状态码: {:?}", exit_status);
                         *is_running.lock().await = false;
-                        *status.lock().await = ConnectionStatus::Disconnected;
+
+                        // 判断进程是否在“已连接”之后才退出
+                        let was_connected = matches!(
+                            *status.lock().await,
+                            ConnectionStatus::Connected(_)
+                        );
+                        let already_error = matches!(
+                            *status.lock().await,
+                            ConnectionStatus::Error(_)
+                        );
+
+                        if was_connected {
+                            // 连接成功后进程退出，视为正常断开
+                            *status.lock().await = ConnectionStatus::Disconnected;
+                        } else if !already_error {
+                            // 连接建立前异常退出：根据退出码 + stderr 生成可读原因
+                            let recent: Vec<String> =
+                                last_stderr.lock().await.iter().cloned().collect();
+                            let msg = Self::describe_exit_failure(exit_status.code(), &recent);
+                            log::error!("❌ EasyTier 启动阶段异常退出: {}", msg);
+                            *status.lock().await = ConnectionStatus::Error(msg);
+                        }
+
                         *virtual_ip.lock().await = None;
                         *process_guard = None;
                         break;

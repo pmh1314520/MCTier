@@ -530,10 +530,19 @@ interface EasyTierNode {
 }
 
 // 默认内置节点（不可删除）
-const DEFAULT_BUILTIN_NODE: EasyTierNode = {
-  name: '明月清风节点',
-  address: 'wss://qtet-public.070219.xyz'
-};
+const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
+  {
+    name: '明月清风节点',
+    address: 'wss://public.qtet.cc.cd'
+  },
+  {
+    name: '海波节点',
+    address: 'udp://us01.225284.xyz:11010'
+  }
+];
+
+// 内置节点地址集合（用于过滤和删除保护判断）
+const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
 
 const CustomNodeManager: React.FC = () => {
   const [nodes, setNodes] = useState<EasyTierNode[]>([]);
@@ -547,12 +556,12 @@ const CustomNodeManager: React.FC = () => {
       const settings = await invoke<any>('get_settings');
       const customNodes = settings.customEasytierNodes || [];
       // 将默认节点添加到列表开头
-      setNodes([DEFAULT_BUILTIN_NODE, ...customNodes]);
+      setNodes([...DEFAULT_BUILTIN_NODES, ...customNodes]);
     } catch (error) {
       console.error('加载节点列表失败:', error);
       message.error('加载节点列表失败');
       // 即使加载失败，也要显示默认节点
-      setNodes([DEFAULT_BUILTIN_NODE]);
+      setNodes([...DEFAULT_BUILTIN_NODES]);
     } finally {
       setLoading(false);
     }
@@ -580,7 +589,7 @@ const CustomNodeManager: React.FC = () => {
   const saveNodes = async (newNodes: EasyTierNode[]) => {
     try {
       // 过滤掉默认节点，只保存用户自定义的节点
-      const customNodesOnly = newNodes.filter(node => node.address !== DEFAULT_BUILTIN_NODE.address);
+      const customNodesOnly = newNodes.filter(node => !BUILTIN_NODE_ADDRESSES.includes(node.address));
       
       await invoke('save_settings', {
         autoStartup: false,
@@ -659,8 +668,8 @@ const CustomNodeManager: React.FC = () => {
 
   // 删除节点
   const handleDelete = async (index: number) => {
-    // 检查是否是默认节点（索引0）
-    if (index === 0) {
+    // 检查是否是默认内置节点（不可删除）
+    if (index < DEFAULT_BUILTIN_NODES.length) {
       message.warning('默认备用节点不可删除');
       return;
     }
@@ -727,14 +736,14 @@ const CustomNodeManager: React.FC = () => {
                 <div className="node-info">
                   <div className="node-name">
                     {node.name}
-                    {index === 0 && (
+                    {index < DEFAULT_BUILTIN_NODES.length && (
                       <span className="node-builtin-badge">内置</span>
                     )}
                   </div>
                   <div className="node-address">{node.address}</div>
                 </div>
                 <div className="node-actions">
-                  {index !== 0 && (
+                  {index >= DEFAULT_BUILTIN_NODES.length && (
                     <>
                       <motion.button
                         className="node-btn node-btn-edit"

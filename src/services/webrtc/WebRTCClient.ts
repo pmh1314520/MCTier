@@ -61,10 +61,14 @@ export class WebRTCClient {
   private readonly transientLeaveConfirmMs: number = 3000; // 减少到3秒，加快响应速度
 
   // ICE 服务器配置
-  private iceServers: RTCIceServer[] = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ];
+  //
+  // 【稳定性修复】MCTier 的所有成员都处于同一个 EasyTier 虚拟局域网（同一虚拟子网），
+  // 彼此通过虚拟网卡的内网 IP（如 10.x.x.x）即可直连，本质上不需要公网 STUN 做 NAT 穿透。
+  // 旧配置使用 Google 的 STUN（stun.l.google.com），在国内被墙：
+  //   - 每次建立 / 重连 ICE 都要等它超时，拖慢连接、加剧断连重连；
+  //   - 还可能选中不稳定的公网反射候选路径，导致语音忽断忽续。
+  // 这里清空公网 STUN，只使用 host 候选，让连接固定走稳定的虚拟局域网直连路径。
+  private iceServers: RTCIceServer[] = [];
   
   // 虚拟IP地址
   private virtualIp: string | null = null;

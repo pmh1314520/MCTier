@@ -516,7 +516,7 @@ impl LobbyManager {
         let virtual_ip = network_service
             .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
             .await
-            .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+            .map_err(|e| LobbyError::NetworkError(e.inner_message()))?;
 
         // 使用传入的虚拟域名，如果没有则生成默认的（格式：玩家名.mct.net）
         let final_virtual_domain = if let Some(domain) = virtual_domain {
@@ -769,7 +769,7 @@ impl LobbyManager {
         let virtual_ip = network_service
             .start_easytier(network_name, network_key, normalized_server_node, player_name.clone(), app_handle)
             .await
-            .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+            .map_err(|e| LobbyError::NetworkError(e.inner_message()))?;
 
         log::info!("已连接到 EasyTier 网络，虚拟IP: {}", virtual_ip);
 
