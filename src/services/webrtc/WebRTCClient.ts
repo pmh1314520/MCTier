@@ -358,12 +358,15 @@ export class WebRTCClient {
    */
   private async handleWebSocketMessage(message: any): Promise<void> {
     console.log(`📨 收到WebSocket消息: ${message.type}`);
-    
+
+    // 【健壮性】收到任何服务器消息都视为连接存活，重置 pong 超时，
+    // 避免有正常流量时因 pong 偶尔延迟而误判断线重连
+    this.handleWebSocketPong();
+
     try {
       switch (message.type) {
         case 'pong':
-          // 收到 pong 响应
-          this.handleWebSocketPong();
+          // 收到 pong 响应（上方已重置超时，这里仅用于明确分支）
           break;
           
         case 'register-success':
@@ -2348,11 +2351,11 @@ export class WebRTCClient {
    * 处理 WebSocket pong 响应
    */
   private handleWebSocketPong(): void {
-    // 收到 pong，清除超时定时器
+    // 收到服务器任意消息（含 pong），清除超时定时器，确认连接存活
     if (this.websocketPongTimeout !== null) {
       clearTimeout(this.websocketPongTimeout);
       this.websocketPongTimeout = null;
-      console.log('✅ 收到 WebSocket pong 响应，连接正常');
+      console.log('✅ 连接存活确认，已清除心跳超时');
     }
   }
 
