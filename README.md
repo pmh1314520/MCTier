@@ -7,7 +7,7 @@
 ### 虚拟局域网通用联机工具
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.6.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.7.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
 </p>
@@ -558,6 +558,8 @@ mctier/
 | 3 | Fallen Anle Sk | 2026-04-08 20:24:41 | 20.00 |
 | 4 | ＂Tyler | 2026-04-12 17:23:36 | 200.00 |
 | 5 | ＂Tyler | 2026-04-12 18:38:25 | 300.00 |
+| 6 | ＂Tyler | 2026-05-02 11:55:19 | 1000.00 |
+| 7 | 麕麇 | 2026-05-13 19:20:28 | 5.00 |
 
 ---
 
