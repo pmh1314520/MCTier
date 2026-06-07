@@ -1251,17 +1251,13 @@ impl NetworkService {
                 match child.try_wait() {
                     Ok(Some(exit_status)) => {
                         log::warn!("EasyTier 进程已退出，状态码: {:?}", exit_status);
-                        *is_running.lock().await = false;
 
-                        // 判断进程是否在“已连接”之后才退出
-                        let was_connected = matches!(
-                            *status.lock().await,
-                            ConnectionStatus::Connected(_)
-                        );
-                        let already_error = matches!(
-                            *status.lock().await,
-                            ConnectionStatus::Error(_)
-                        );
+                        // 先确定最终状态，再把 is_running 置为 false，
+                        // 避免出现“is_running 已 false 但 status 还没更新”的瞬间窗口，
+                        // 保证 start_easytier 的等待循环一定能读到带原因的错误状态。
+                        let current = status.lock().await.clone();
+                        let was_connected = matches!(current, ConnectionStatus::Connected(_));
+                        let already_error = matches!(current, ConnectionStatus::Error(_));
 
                         if was_connected {
                             // 连接成功后进程退出，视为正常断开
@@ -1275,6 +1271,7 @@ impl NetworkService {
                             *status.lock().await = ConnectionStatus::Error(msg);
                         }
 
+                        *is_running.lock().await = false;
                         *virtual_ip.lock().await = None;
                         *process_guard = None;
                         break;

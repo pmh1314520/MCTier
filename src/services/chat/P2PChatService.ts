@@ -29,7 +29,6 @@ class P2PChatService {
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
-  private myVirtualIp: string = ''; // 自己的虚拟IP，用于过滤
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
 
@@ -40,7 +39,6 @@ class P2PChatService {
     // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
-    this.myVirtualIp = myVirtualIp;
 
     console.log('✅ [P2PChatService] 初始化完成');
     console.log('  - 当前玩家ID:', currentPlayerId);
@@ -55,7 +53,6 @@ class P2PChatService {
     this.stopListening();
     this.peerIps = [];
     this.currentPlayerId = '';
-    this.myVirtualIp = '';
     this.onMessageCallback = undefined;
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
