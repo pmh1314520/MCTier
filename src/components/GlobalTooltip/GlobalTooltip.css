@@ -1,0 +1,49 @@
+/* 全局自定义悬停提示气泡 - MCTier 暗色主题 */
+.mct-global-tip {
+  position: fixed;
+  z-index: 99000;
+  transform: translate(-50%, -100%);
+  max-width: 240px;
+  padding: 6px 10px;
+  background: rgba(28, 30, 42, 0.98);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(126, 211, 33, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+  pointer-events: none;
+  animation: mctTipFade 0.12s ease-out;
+}
+
+/* 显示在下方时调整锚点 */
+.mct-global-tip-bottom {
+  transform: translate(-50%, 0);
+}
+
+/* 小箭头 */
+.mct-global-tip-top::after,
+.mct-global-tip-bottom::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+}
+
+.mct-global-tip-top::after {
+  top: 100%;
+  border-top-color: rgba(126, 211, 33, 0.35);
+}
+
+.mct-global-tip-bottom::after {
+  bottom: 100%;
+  border-bottom-color: rgba(126, 211, 33, 0.35);
+}
+
+@keyframes mctTipFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

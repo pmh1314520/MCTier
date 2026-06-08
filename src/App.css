@@ -372,3 +372,22 @@ body {
 .ant-checkbox:hover .ant-checkbox-inner {
   border-color: #52c41a !important;
 }
+
+/* 全局：次要(default)按钮也用绿色调，危险按钮保持红色 */
+.ant-btn-default:not(.ant-btn-dangerous):not(:disabled) {
+  border-color: rgba(82, 196, 26, 0.45) !important;
+  color: #95de64 !important;
+  background: rgba(82, 196, 26, 0.08) !important;
+}
+
+.ant-btn-default:not(.ant-btn-dangerous):not(:disabled):hover {
+  border-color: #52c41a !important;
+  color: #b7eb8f !important;
+  background: rgba(82, 196, 26, 0.16) !important;
+}
+
+.ant-btn-default:not(.ant-btn-dangerous):not(:disabled):active {
+  border-color: #3f9714 !important;
+  color: #95de64 !important;
+  background: rgba(82, 196, 26, 0.22) !important;
+}

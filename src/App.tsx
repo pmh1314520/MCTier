@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
+import { GlobalTooltip } from './components/GlobalTooltip/GlobalTooltip';
 import { ScreenViewer } from './components/ScreenViewer/ScreenViewer';
 import { VersionUpdateModal } from './components/VersionUpdateModal';
 import { useAppStore, initializeStore } from './stores';
@@ -610,6 +611,7 @@ function App() {
         }}
       >
         <AntdApp>
+          <GlobalTooltip />
           <div className="app-container">
             {/* 根据应用状态显示不同的界面 */}
             {appState === 'in-lobby' && lobby ? <MiniWindow /> : <MainWindow />}
