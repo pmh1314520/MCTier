@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Alert, Spin, Typography } from 'antd';
+import { Modal, Button, Alert, Spin, Typography, message } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import './NetworkDiagnostic.css';
@@ -26,11 +26,44 @@ export const NetworkDiagnostic: React.FC<NetworkDiagnosticProps> = ({
 }) => {
   const [results, setResults] = useState<DiagnosticResult[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(true);
+
+  // 一键添加防火墙放行规则
+  const handleAddFirewall = async () => {
+    setFixing(true);
+    try {
+      const msg = await invoke<string>('add_firewall_rules');
+      message.success(msg || '已添加防火墙放行规则');
+      await runDiagnostic();
+    } catch (error) {
+      message.error(`添加防火墙规则失败：${error}。请尝试以管理员身份重启后重试`);
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  // 以管理员身份重启
+  const handleRestartAdmin = async () => {
+    try {
+      await invoke('restart_as_admin');
+    } catch (error) {
+      message.error(`以管理员身份重启失败：${error}`);
+    }
+  };
 
   // 诊断函数
   const runDiagnostic = async () => {
     setIsChecking(true);
     setResults([]);
+
+    // 查询管理员状态（用于决定是否显示"以管理员重启"）
+    try {
+      const admin = await invoke<boolean>('is_admin');
+      setIsAdmin(admin);
+    } catch {
+      setIsAdmin(true);
+    }
 
     const checks: DiagnosticResult[] = [];
 
@@ -195,6 +228,16 @@ export const NetworkDiagnostic: React.FC<NetworkDiagnosticProps> = ({
       open={visible}
       onCancel={onClose}
       footer={[
+        <Button key="firewall" onClick={() => void handleAddFirewall()} loading={fixing} disabled={isChecking}>
+          一键放行防火墙
+        </Button>,
+        ...(!isAdmin
+          ? [
+              <Button key="admin" danger onClick={() => void handleRestartAdmin()}>
+                以管理员身份重启
+              </Button>,
+            ]
+          : []),
         <Button key="recheck" onClick={() => void runDiagnostic()} disabled={isChecking}>
           重新检查
         </Button>,

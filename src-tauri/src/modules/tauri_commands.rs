@@ -1179,7 +1179,152 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
     }
 }
 
-/// Ping 虚拟 IP 检查连通性
+/// 查询当前是否以管理员身份运行
+#[tauri::command]
+pub async fn is_admin() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+        use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+        unsafe {
+            let mut token: HANDLE = HANDLE::default();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+                return false;
+            }
+            let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+            let mut ret_len = 0u32;
+            let ok = GetTokenInformation(
+                token,
+                TokenElevation,
+                Some(&mut elevation as *mut _ as *mut _),
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut ret_len,
+            );
+            ok.is_ok() && elevation.TokenIsElevated != 0
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// 一键添加防火墙放行规则（按程序放行，覆盖该程序所有端口）
+///
+/// 为 MCTier 主程序与 easytier-core 添加入站/出站允许规则。需要管理员权限。
+#[tauri::command]
+pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // 收集要放行的程序路径：MCTier 主程序 + easytier-core
+        let mut programs: Vec<(String, std::path::PathBuf)> = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            programs.push(("MCTier".to_string(), exe));
+        }
+        if let Ok(et) = crate::modules::resource_manager::ResourceManager::get_easytier_path(&app_handle) {
+            programs.push(("MCTier-EasyTier".to_string(), et));
+        }
+
+        if programs.is_empty() {
+            return Err("无法确定程序路径".to_string());
+        }
+
+        let mut added = 0;
+        let mut last_err = String::new();
+        for (base_name, path) in &programs {
+            let path_str = path.to_string_lossy().to_string();
+            for (suffix, dir) in [("-in", "in"), ("-out", "out")] {
+                let rule_name = format!("{}{}", base_name, suffix);
+                // 先删除同名旧规则避免重复堆积
+                let _ = tokio::process::Command::new("netsh")
+                    .args(&["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                    .await;
+
+                let output = tokio::process::Command::new("netsh")
+                    .args(&[
+                        "advfirewall", "firewall", "add", "rule",
+                        &format!("name={}", rule_name),
+                        &format!("dir={}", dir),
+                        "action=allow",
+                        &format!("program={}", path_str),
+                        "enable=yes",
+                        "profile=any",
+                    ])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                    .await
+                    .map_err(|e| format!("执行 netsh 失败: {}", e))?;
+
+                if output.status.success() {
+                    added += 1;
+                } else {
+                    last_err = String::from_utf8_lossy(&output.stderr).to_string();
+                    if last_err.trim().is_empty() {
+                        last_err = String::from_utf8_lossy(&output.stdout).to_string();
+                    }
+                }
+            }
+        }
+
+        if added > 0 {
+            log::info!("✅ 已添加 {} 条防火墙放行规则", added);
+            Ok(format!("已添加 {} 条防火墙放行规则", added))
+        } else {
+            Err(format!("添加防火墙规则失败（可能需要管理员权限）: {}", last_err))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app_handle;
+        Ok("非 Windows 平台无需配置防火墙".to_string())
+    }
+}
+
+/// 以管理员身份重启应用
+#[tauri::command]
+pub async fn restart_as_admin(app_handle: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let exe = std::env::current_exe().map_err(|e| format!("无法获取程序路径: {}", e))?;
+        let exe_str = exe.to_string_lossy().replace('\'', "''");
+
+        // 用 PowerShell 以管理员身份(RunAs)重新启动
+        let spawn = std::process::Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-WindowStyle", "Hidden",
+                "-Command",
+                &format!("Start-Process -FilePath '{}' -Verb RunAs", exe_str),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+
+        match spawn {
+            Ok(_) => {
+                log::info!("已请求以管理员身份重启，当前实例即将退出");
+                // 稍等片刻让新进程的 UAC 弹出
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                app_handle.exit(0);
+                Ok(())
+            }
+            Err(e) => Err(format!("以管理员身份重启失败: {}", e)),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app_handle;
+        Err("当前平台不支持".to_string())
+    }
+}
 /// 
 /// # 参数
 /// * `ip` - 要 ping 的 IP 地址
