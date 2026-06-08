@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button, Typography, Divider, Modal } from 'antd';
-import { GitHubIcon, GiteeIcon, GamepadIcon } from '../icons';
+import { GitHubIcon, GiteeIcon, GamepadIcon, LightbulbIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
+import { OnboardingWizard } from '../OnboardingWizard/OnboardingWizard';
 import './AboutWindow.css';
 
 const { Title, Paragraph, Text } = Typography;
@@ -18,6 +19,7 @@ interface AboutWindowProps {
 export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
   const [showSponsorModal, setShowSponsorModal] = useState(false);
   const [enlargedQRCode, setEnlargedQRCode] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // ESC键返回
   useEscapeKey(() => {
@@ -26,6 +28,8 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
       setEnlargedQRCode(null);
     } else if (showSponsorModal) {
       setShowSponsorModal(false);
+    } else if (showOnboarding) {
+      setShowOnboarding(false);
     } else {
       // 否则关闭关于窗口
       onClose();
@@ -80,6 +84,16 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 同一大厅内的玩家可以互相访问本地开放的网站和服务（如本地Web服务器、文件共享等）
               </Text>
             </div>
+            <Button
+              type="default"
+              size="middle"
+              block
+              onClick={() => setShowOnboarding(true)}
+              className="onboarding-entry-button"
+              icon={<LightbulbIcon size={16} />}
+            >
+              查看新手引导
+            </Button>
           </div>
 
           <Divider className="about-divider" />
@@ -275,6 +289,9 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
           </Button>
         </motion.div>
       </motion.div>
+
+      {/* 新手引导向导 */}
+      <OnboardingWizard visible={showOnboarding} onClose={() => setShowOnboarding(false)} />
 
       {/* 赞助弹窗 */}
       <Modal

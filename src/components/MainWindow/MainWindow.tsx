@@ -337,12 +337,6 @@ export const MainWindow: React.FC = () => {
           transition={{ delay: 0.7, duration: 0.4 }}
         >
           按 ESC 可快速返回上一页
-          <span
-            onClick={() => setShowOnboarding(true)}
-            style={{ marginLeft: 10, cursor: 'pointer', textDecoration: 'underline', opacity: 0.8 }}
-          >
-            新手引导
-          </span>
         </motion.div>
       </motion.div>
 

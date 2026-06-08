@@ -48,6 +48,24 @@ impl MinecraftAgentInjector {
               agent_path_str, pid, agent_path_str);
 
         // 使用 Java 的 AgentLoader 来注入
+        #[cfg(windows)]
+        let output = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new("java")
+                .args(&[
+                    "-cp",
+                    agent_path_str,
+                    "com.mctier.agent.AgentLoader",
+                    &pid.to_string(),
+                    agent_path_str,
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map_err(|e| format!("执行 Java AgentLoader 失败: {}", e))?
+        };
+
+        #[cfg(not(windows))]
         let output = Command::new("java")
             .args(&[
                 "-cp",

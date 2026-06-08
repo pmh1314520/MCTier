@@ -15,6 +15,7 @@ import {
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
+import './OnboardingWizard.css';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -153,19 +154,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
 
   // 步骤 0：欢迎
   const welcomeStep = (
-    <div style={{ padding: '8px 4px' }}>
-      <Title level={4} style={{ marginTop: 0 }}>欢迎使用 MCTier</Title>
-      <Paragraph style={{ color: 'rgba(255,255,255,0.75)' }}>
+    <div className="onboarding-step">
+      <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>欢迎使用 MCTier</Title>
+      <Paragraph className="onboarding-text">
         MCTier 帮助你和好友快速建立虚拟局域网，畅玩 Minecraft 等局域网联机游戏，并自带语音、聊天与文件共享。
       </Paragraph>
-      <Paragraph style={{ color: 'rgba(255,255,255,0.75)' }}>
+      <Paragraph className="onboarding-text">
         为了让组网更顺畅，我们先用几秒钟检查一下运行环境。多数连接失败都源于权限不足、防火墙拦截或安全软件干扰。
       </Paragraph>
       <Alert
         type="info"
         showIcon
-        message="提示"
-        description="建议以管理员身份运行 MCTier，可显著降低组网失败概率。"
+        message="建议以管理员身份运行 MCTier，可显著降低组网失败概率。"
       />
     </div>
   );
@@ -177,7 +177,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
     checks.admin === 'warn' || checks.firewall === 'warn' || checks.security === 'warn';
 
   const envStep = (
-    <div style={{ padding: '8px 4px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="onboarding-step" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {checkRow(
         <SafetyCertificateOutlined />,
         '管理员权限',
@@ -235,15 +235,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
 
   // 步骤 2：完成
   const doneStep = (
-    <div style={{ padding: '8px 4px' }}>
-      <Title level={4} style={{ marginTop: 0 }}>准备就绪</Title>
-      <Paragraph style={{ color: 'rgba(255,255,255,0.75)' }}>
+    <div className="onboarding-step">
+      <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>准备就绪</Title>
+      <Paragraph className="onboarding-text" style={{ marginBottom: 6 }}>
         快速上手：
       </Paragraph>
-      <ul style={{ color: 'rgba(255,255,255,0.75)', lineHeight: 2, paddingLeft: 18 }}>
+      <ul className="onboarding-list">
         <li><Text strong>创建大厅</Text>：作为房主开新房间，把大厅名和密码告诉好友。</li>
         <li><Text strong>加入大厅</Text>：填入好友给的大厅名和密码即可进入同一局域网。</li>
-        <li>进入大厅后，在 Minecraft 中开启"对局域网开放"，其他人即可在多人游戏里看到你的世界。</li>
+        <li>进入大厅后，在 Minecraft 中开启"对局域网开放"，其他人即可看到你的世界。</li>
         <li>遇到连接问题时，可在大厅内打开"网络诊断"一键排查并修复。</li>
       </ul>
       <Alert type="info" showIcon message="随时可在「关于软件」中再次查看本引导。" />
@@ -252,32 +252,37 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
 
   const steps = [welcomeStep, envStep, doneStep];
 
-  const footer: React.ReactNode[] = [];
-  if (step > 0) {
-    footer.push(
-      <Button key="prev" onClick={() => setStep((s) => Math.max(0, s - 1))}>
-        上一步
-      </Button>
-    );
-  }
-  footer.push(
-    <Button key="skip" onClick={finish}>
-      跳过引导
-    </Button>
+  const isLast = step === steps.length - 1;
+
+  const footer = (
+    <div className="onboarding-footer">
+      <div className="onboarding-footer-left">
+        {step > 0 && (
+          <Button size="small" onClick={() => setStep((s) => Math.max(0, s - 1))}>
+            上一步
+          </Button>
+        )}
+      </div>
+      <div className="onboarding-footer-right">
+        <Button size="small" onClick={finish}>
+          跳过引导
+        </Button>
+        {isLast ? (
+          <Button size="small" type="primary" onClick={finish}>
+            开始使用
+          </Button>
+        ) : (
+          <Button
+            size="small"
+            type="primary"
+            onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
+          >
+            下一步
+          </Button>
+        )}
+      </div>
+    </div>
   );
-  if (step < steps.length - 1) {
-    footer.push(
-      <Button key="next" type="primary" onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}>
-        下一步
-      </Button>
-    );
-  } else {
-    footer.push(
-      <Button key="finish" type="primary" onClick={finish}>
-        开始使用
-      </Button>
-    );
-  }
 
   return (
     <Modal
@@ -285,14 +290,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
       open={visible}
       onCancel={finish}
       footer={footer}
-      width={560}
+      width={400}
       centered
       maskClosable={false}
+      className="onboarding-modal"
     >
       <Steps
         current={step}
         size="small"
-        style={{ marginBottom: 18 }}
+        style={{ marginBottom: 14 }}
         items={[{ title: '欢迎' }, { title: '环境检测' }, { title: '开始使用' }]}
       />
       {steps[step]}

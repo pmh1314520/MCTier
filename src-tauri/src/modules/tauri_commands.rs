@@ -1119,10 +1119,13 @@ pub async fn check_virtual_adapter() -> Result<bool, String> {
     #[cfg(windows)]
     {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         
         // 使用 ipconfig 命令查找 EasyTier 创建的虚拟网卡
         let output = Command::new("ipconfig")
             .arg("/all")
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("执行 ipconfig 失败: {}", e))?;
         
@@ -1156,18 +1159,22 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
     #[cfg(windows)]
     {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         
-        // 检查 Windows 防火墙是否允许 Minecraft
+        // 检查 Windows 防火墙是否已存在 MCTier 的放行规则
+        // 注意：必须与 add_firewall_rules 中添加的规则名保持一致
         let output = Command::new("netsh")
             .args(&["advfirewall", "firewall", "show", "rule", "name=all"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("执行 netsh 失败: {}", e))?;
         
         let output_str = String::from_utf8_lossy(&output.stdout);
         
-        // 简单检查是否有相关规则（这只是一个基本检查）
-        let has_rules = output_str.contains("Minecraft") || 
-                       output_str.contains("Java");
+        // 检查是否存在 MCTier 自身添加的放行规则
+        // add_firewall_rules 添加的规则名为：MCTier-in/-out、MCTier-EasyTier-in/-out
+        let has_rules = output_str.contains("MCTier");
         
         log::info!("防火墙规则检查结果: {}", has_rules);
         Ok(has_rules)
@@ -1217,7 +1224,6 @@ pub async fn is_admin() -> bool {
 pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         // 收集要放行的程序路径：MCTier 主程序 + easytier-core
@@ -1339,10 +1345,15 @@ pub async fn ping_virtual_ip(ip: String) -> Result<bool, String> {
     use std::process::Command;
     
     #[cfg(windows)]
-    let output = Command::new("ping")
-        .args(&["-n", "2", "-w", "1000", &ip])
-        .output()
-        .map_err(|e| format!("执行 ping 失败: {}", e))?;
+    let output = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("ping")
+            .args(&["-n", "2", "-w", "1000", &ip])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("执行 ping 失败: {}", e))?
+    };
     
     #[cfg(not(windows))]
     let output = Command::new("ping")
