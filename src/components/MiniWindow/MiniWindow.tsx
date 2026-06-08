@@ -17,6 +17,7 @@ import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { RoomTools } from '../RoomTools/RoomTools';
+import { VoiceSettings } from '../VoiceSettings/VoiceSettings';
 import './MiniWindow.css';
 
 /**
@@ -51,6 +52,7 @@ export const MiniWindow: React.FC = () => {
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false); // 语音设备设置弹窗
   const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   
@@ -1435,6 +1437,19 @@ export const MiniWindow: React.FC = () => {
                     <circle cx="16" cy="16" r="1.3" fill="currentColor"></circle>
                   </svg>
                 </motion.button>
+                <motion.button
+                  className="mini-voice-btn voice-settings-btn"
+                  onClick={() => setShowVoiceSettings(true)}
+                  title="语音设备设置（麦克风/扬声器选择与试音）"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                  </svg>
+                </motion.button>
               </motion.div>
 
               {/* 快捷键提示已移除 */}
@@ -1467,6 +1482,9 @@ export const MiniWindow: React.FC = () => {
 
       {/* 房间小工具弹窗 */}
       <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
+
+      {/* 语音设备设置弹窗 */}
+      <VoiceSettings visible={showVoiceSettings} onClose={() => setShowVoiceSettings(false)} />
     </>
   );
 };

@@ -7,6 +7,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
+import { audioDevices } from '../voice/audioDevices';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -1863,6 +1864,14 @@ export class WebRTCClient {
             audioElement.autoplay = true;
             audioElement.volume = 1.0;
 
+            // 应用用户选定的输出设备（若浏览器支持 setSinkId）
+            const preferredOutput = audioDevices.getOutputDeviceId();
+            if (preferredOutput && typeof (audioElement as any).setSinkId === 'function') {
+              (audioElement as any).setSinkId(preferredOutput).catch((e: any) => {
+                console.warn('设置输出设备失败（使用默认）:', e);
+              });
+            }
+
             // 保存音频元素和流
             const peerConn = this.peerConnections.get(peerId);
             if (peerConn) {
@@ -2057,12 +2066,19 @@ export class WebRTCClient {
       try {
         console.log(`🎤 正在请求麦克风权限... (尝试 ${attempts + 1}/${maxAttempts})`);
         
+        // 读取用户选定的输入设备（若有）
+        const preferredInput = audioDevices.getInputDeviceId();
+        const audioConstraints: MediaTrackConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        };
+        if (preferredInput) {
+          // 用 ideal 而非 exact，设备不可用时自动回退默认设备，避免获取失败
+          (audioConstraints as any).deviceId = { ideal: preferredInput };
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
+          audio: audioConstraints,
           video: false,
         });
         
@@ -2442,6 +2458,20 @@ export class WebRTCClient {
   /** 本地麦克风流变化回调（开启时为流，关闭时为 null） */
   onLocalStream(callback: (stream: MediaStream | null) => void): void {
     this.onLocalStreamCallback = callback;
+  }
+
+  /** 将选定的输出设备应用到所有已存在的远程音频元素（用户切换扬声器时调用） */
+  async applyOutputDeviceToAll(deviceId: string): Promise<void> {
+    for (const [peerId, pc] of this.peerConnections) {
+      const el = pc.audioElement as any;
+      if (el && typeof el.setSinkId === 'function') {
+        try {
+          await el.setSinkId(deviceId || '');
+        } catch (e) {
+          console.warn(`应用输出设备到 ${peerId} 失败:`, e);
+        }
+      }
+    }
   }
 
   onChatMessage(callback: (playerId: string, playerName: string, content: string, timestamp: number) => void): void {
