@@ -3388,8 +3388,14 @@ pub async fn save_settings(
             });
             // 保存私有服务器配置
             config.use_private_server = Some(use_private_server);
-            config.private_easytier_server = private_easytier_server.clone();
-            config.private_signaling_server = private_signaling_server.clone();
+            // 【修复】仅在调用方明确传入时才更新私有服务器地址，
+            // 避免「保存节点列表」等只关心部分设置的调用传 null 时，把已保存的地址抹掉
+            if private_easytier_server.is_some() {
+                config.private_easytier_server = private_easytier_server.clone();
+            }
+            if private_signaling_server.is_some() {
+                config.private_signaling_server = private_signaling_server.clone();
+            }
             // 保存窗口置顶配置
             if let Some(on_top) = always_on_top {
                 config.always_on_top = Some(on_top);

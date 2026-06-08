@@ -4,7 +4,14 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use crate::modules::error::AppError;
+
+/// 进程级 hosts 文件操作锁：串行化所有「读-改-写」，防止并发交错导致 hosts 文件损坏
+fn hosts_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// Hosts文件管理器
 pub struct HostsManager {
@@ -39,6 +46,8 @@ impl HostsManager {
     /// * `Err(AppError)` - 清理失败
     pub fn cleanup_all_mctier_entries() -> Result<(), AppError> {
         log::info!("🧹 开始清理所有MCTier hosts记录...");
+        // 串行化 hosts 读-改-写
+        let _guard = hosts_lock().lock().unwrap_or_else(|e| e.into_inner());
         
         #[cfg(windows)]
         let hosts_path = PathBuf::from(r"C:\Windows\System32\drivers\etc\hosts");
@@ -164,6 +173,8 @@ impl HostsManager {
     /// * `Ok(())` - 添加成功
     /// * `Err(AppError)` - 添加失败
     pub fn add_entry(&self, domain: &str, ip: &str) -> Result<(), AppError> {
+        // 串行化 hosts 读-改-写，防止与其它 hosts 操作交错
+        let _guard = hosts_lock().lock().unwrap_or_else(|e| e.into_inner());
         log::info!("📝 [HostsManager] 开始添加hosts记录");
         log::info!("📝 [HostsManager] 域名: {}", domain);
         log::info!("📝 [HostsManager] IP: {}", ip);
@@ -230,6 +241,7 @@ impl HostsManager {
     /// * `Err(AppError)` - 删除失败
     pub fn remove_entry(&self, domain: &str) -> Result<(), AppError> {
         log::info!("删除hosts记录: {}", domain);
+        let _guard = hosts_lock().lock().unwrap_or_else(|e| e.into_inner());
         
         // 读取现有hosts文件内容
         let content = self.read_hosts()?;
@@ -265,6 +277,7 @@ impl HostsManager {
     /// * `Err(AppError)` - 清理失败
     pub fn clear_all(&self) -> Result<(), AppError> {
         log::info!("清理所有MCTier hosts记录");
+        let _guard = hosts_lock().lock().unwrap_or_else(|e| e.into_inner());
         
         // 读取现有hosts文件内容
         let content = self.read_hosts()?;

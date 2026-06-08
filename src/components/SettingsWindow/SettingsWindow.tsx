@@ -590,22 +590,27 @@ const CustomNodeManager: React.FC = () => {
     try {
       // 过滤掉默认节点，只保存用户自定义的节点
       const customNodesOnly = newNodes.filter(node => !BUILTIN_NODE_ADDRESSES.includes(node.address));
-      
+
+      // 【修复】先读取当前设置，连同节点一起保存，避免把其它设置
+      // （开机自启、自动加入、私有服务器、置顶等）覆盖成默认值
+      const cur = await invoke<any>('get_settings').catch(() => ({} as any));
+
       await invoke('save_settings', {
-        autoStartup: false,
-        autoLobbyEnabled: false,
-        lobbyName: null,
-        lobbyPassword: null,
-        playerName: null,
-        useDomain: false,
-        virtualDomain: null,
-        usePrivateServer: false,
-        privateEasytierServer: null,
-        privateSignalingServer: null,
-        alwaysOnTop: null,
-        rememberWindowPosition: null,
+        autoStartup: cur.autoStartup ?? false,
+        autoLobbyEnabled: cur.autoLobbyEnabled ?? false,
+        lobbyName: cur.lobbyName ?? null,
+        lobbyPassword: cur.lobbyPassword ?? null,
+        playerName: cur.playerName ?? null,
+        useDomain: cur.useDomain ?? false,
+        virtualDomain: cur.virtualDomain ?? null,
+        usePrivateServer: cur.usePrivateServer ?? false,
+        privateEasytierServer: cur.privateEasytierServer ?? null,
+        privateSignalingServer: cur.privateSignalingServer ?? null,
+        alwaysOnTop: cur.alwaysOnTop ?? null,
+        rememberWindowPosition: cur.rememberWindowPosition ?? null,
         customEasytierNodes: customNodesOnly,
-        voiceVolume: null,
+        voiceVolume: cur.voiceVolume ?? null,
+        enableGpuRendering: cur.enableGpuRendering ?? null,
       });
       setNodes(newNodes);
       message.success('节点列表已保存');
