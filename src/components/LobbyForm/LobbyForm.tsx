@@ -149,6 +149,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   // @ts-ignore - customNodes is used in useEffect to load custom nodes
   const [customNodes, setCustomNodes] = useState<CustomEasyTierNode[]>([]);
   const [serverNodes, setServerNodes] = useState(getServerNodes([]));
+  // 节点延迟测试结果：value -> 延迟(ms) | null(不可达) | 'testing'(测速中)
+  const [nodeLatencies, setNodeLatencies] = useState<Record<string, number | null | 'testing'>>({});
+  const [testingNodes, setTestingNodes] = useState(false);
   
   // 滚动提示相关状态
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -382,6 +385,58 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (!isAuto) {
         message.error('读取剪贴板失败，请检查权限');
       }
+    }
+  };
+
+  // 测试所有内置节点的延迟，并自动选中延迟最低的可达节点
+  const handleTestNodes = async () => {
+    if (testingNodes || privateServerConfig.usePrivateServer) return;
+    // 待测节点：内置/自定义节点（排除"临时自定义"占位项）
+    const candidates = serverNodes.filter((n) => n.value !== 'custom');
+    if (candidates.length === 0) return;
+
+    setTestingNodes(true);
+    // 全部标记为测速中
+    setNodeLatencies(() => {
+      const init: Record<string, number | null | 'testing'> = {};
+      candidates.forEach((n) => { init[n.value] = 'testing'; });
+      return init;
+    });
+
+    try {
+      const results = await Promise.all(
+        candidates.map(async (n) => {
+          try {
+            const r = await invoke<{ address: string; reachable: boolean; latency_ms: number | null }>(
+              'test_node_latency',
+              { address: n.value }
+            );
+            return { value: n.value, latency: r.reachable ? (r.latency_ms ?? null) : null };
+          } catch {
+            return { value: n.value, latency: null };
+          }
+        })
+      );
+
+      const map: Record<string, number | null | 'testing'> = {};
+      results.forEach((r) => { map[r.value] = r.latency; });
+      setNodeLatencies(map);
+
+      // 自动选中延迟最低的可达节点
+      const reachable = results
+        .filter((r) => typeof r.latency === 'number')
+        .sort((a, b) => (a.latency as number) - (b.latency as number));
+      if (reachable.length > 0) {
+        const best = reachable[0];
+        form.setFieldsValue({ serverNode: best.value });
+        setShowCustomServer(false);
+        const bestLabel = candidates.find((n) => n.value === best.value)?.label ?? best.value;
+        message.success(`已自动选择延迟最低的节点：${bestLabel}（${best.latency}ms）`);
+      } else {
+        message.warning('所有节点均不可达，请检查网络或稍后重试');
+      }
+    } finally {
+      setTestingNodes(false);
     }
   };
 
@@ -934,13 +989,35 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 disabled={loading || privateServerConfig.usePrivateServer}
                 onChange={(value) => setShowCustomServer(value === 'custom')}
               >
-                {serverNodes.map((node) => (
-                  <Option key={node.value} value={node.value}>
-                    {node.label}
-                  </Option>
-                ))}
+                {serverNodes.map((node) => {
+                  const lat = nodeLatencies[node.value];
+                  let suffix = '';
+                  if (node.value !== 'custom') {
+                    if (lat === 'testing') suffix = ' · 测速中…';
+                    else if (typeof lat === 'number') suffix = ` · ${lat}ms`;
+                    else if (lat === null) suffix = ' · 不可达';
+                  }
+                  return (
+                    <Option key={node.value} value={node.value}>
+                      {node.label}{suffix}
+                    </Option>
+                  );
+                })}
               </Select>
             </Form.Item>
+
+            {!privateServerConfig.usePrivateServer && (
+              <div style={{ marginTop: '-8px', marginBottom: '12px', textAlign: 'right' }}>
+                <Button
+                  size="small"
+                  onClick={handleTestNodes}
+                  loading={testingNodes}
+                  disabled={loading}
+                >
+                  测速并自动选最优
+                </Button>
+              </div>
+            )}
 
             {showCustomServer && !privateServerConfig.usePrivateServer && (
               <>

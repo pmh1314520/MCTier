@@ -842,6 +842,7 @@ const CustomNodeManager: React.FC = () => {
 const ConfigManager: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
 
   // 导出配置
   const handleExport = async () => {
@@ -913,6 +914,26 @@ const ConfigManager: React.FC = () => {
     }
   };
 
+  // 一键导出日志（打包日志目录为 zip 到桌面）
+  const handleExportLogs = async () => {
+    try {
+      setExportingLogs(true);
+      const zipPath = await invoke<string>('export_logs');
+      message.success('日志已导出到桌面');
+      // 打开所在文件夹，方便用户找到
+      try {
+        await invoke('open_file_location', { path: zipPath });
+      } catch {
+        // 忽略打开失败
+      }
+    } catch (error) {
+      console.error('导出日志失败:', error);
+      message.error(`导出日志失败: ${error}`);
+    } finally {
+      setExportingLogs(false);
+    }
+  };
+
   return (
     <div className="config-manager">
       <div className="config-manager-buttons">
@@ -959,6 +980,31 @@ const ConfigManager: React.FC = () => {
                 <line x1="12" y1="3" x2="12" y2="15"></line>
               </svg>
               <span>导入配置</span>
+            </>
+          )}
+        </motion.button>
+        <motion.button
+          className="config-btn config-btn-import"
+          onClick={handleExportLogs}
+          disabled={exportingLogs}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          title="将运行日志打包为 zip 导出到桌面，方便反馈问题"
+        >
+          {exportingLogs ? (
+            <>
+              <span className="config-btn-spinner" />
+              <span>导出中...</span>
+            </>
+          ) : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <polyline points="9 15 12 18 15 15"></polyline>
+              </svg>
+              <span>导出日志</span>
             </>
           )}
         </motion.button>
