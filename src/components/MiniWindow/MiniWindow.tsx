@@ -13,6 +13,7 @@ import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
+import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import './MiniWindow.css';
 
 /**
@@ -44,6 +45,7 @@ export const MiniWindow: React.FC = () => {
   const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>('lobby');
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
+  const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
@@ -1334,6 +1336,20 @@ export const MiniWindow: React.FC = () => {
                 >
                   <ScreenShareIcon size={24} />
                 </motion.button>
+                <motion.button
+                  className="mini-voice-btn mc-worlds-btn"
+                  onClick={() => setShowMcWorlds(true)}
+                  title="局域网世界（自动发现可加入的 Minecraft 世界）"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                  </svg>
+                </motion.button>
               </motion.div>
 
               {/* 快捷键提示已移除 */}
@@ -1357,6 +1373,12 @@ export const MiniWindow: React.FC = () => {
           onSettingsSaved={handleLobbySettingsSaved}
         />
       )}
+
+      {/* 局域网世界自动发现弹窗 */}
+      <MinecraftWorldsModal
+        visible={showMcWorlds}
+        onClose={() => setShowMcWorlds(false)}
+      />
     </>
   );
 };

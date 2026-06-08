@@ -45,3 +45,6 @@ pub mod file_transfer;
 
 // P2P聊天服务模块
 pub mod chat_service;
+
+// Minecraft 局域网世界自动发现模块
+pub mod minecraft_discovery;

@@ -89,6 +89,10 @@ use modules::easytier_advanced_commands::{
     clear_lobby_easytier_advanced_config,
 };
 
+use modules::minecraft_discovery::{
+    scan_minecraft_servers, query_minecraft_server,
+};
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     info!("Greeting user: {}", name);
@@ -187,6 +191,7 @@ pub fn run() {
             save_global_easytier_advanced_config, get_global_easytier_advanced_config,
             save_lobby_easytier_advanced_config, get_lobby_easytier_advanced_config,
             clear_lobby_easytier_advanced_config,
+            scan_minecraft_servers, query_minecraft_server,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");
