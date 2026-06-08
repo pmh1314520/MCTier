@@ -373,23 +373,23 @@ body {
   border-color: #52c41a !important;
 }
 
-/* 全局：次要(default)按钮也用绿色调，危险按钮保持红色 */
+/* 全局：次要(default)按钮用泥土棕色调（草方块的"土"），危险按钮保持红色 */
 .ant-btn-default:not(.ant-btn-dangerous):not(:disabled) {
-  border-color: rgba(82, 196, 26, 0.45) !important;
-  color: #95de64 !important;
-  background: rgba(82, 196, 26, 0.08) !important;
+  border-color: rgba(150, 103, 61, 0.55) !important;
+  color: #d2a679 !important;
+  background: rgba(140, 94, 56, 0.14) !important;
 }
 
 .ant-btn-default:not(.ant-btn-dangerous):not(:disabled):hover {
-  border-color: #52c41a !important;
-  color: #b7eb8f !important;
-  background: rgba(82, 196, 26, 0.16) !important;
+  border-color: #a87544 !important;
+  color: #e6c79c !important;
+  background: rgba(140, 94, 56, 0.24) !important;
 }
 
 .ant-btn-default:not(.ant-btn-dangerous):not(:disabled):active {
-  border-color: #3f9714 !important;
-  color: #95de64 !important;
-  background: rgba(82, 196, 26, 0.22) !important;
+  border-color: #8a5e34 !important;
+  color: #d2a679 !important;
+  background: rgba(140, 94, 56, 0.3) !important;
 }
 
 /* 全局：取消/关闭/退出类按钮统一红色（覆盖绿色/主按钮样式） */
