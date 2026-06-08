@@ -1490,13 +1490,33 @@ export class WebRTCClient {
         return;
       }
 
-      if (this.localPlayerId <= peerId) {
-        console.log(`[WebRTC] 等待 ${peerId} 主动重连（ID字典序较小）`);
+      if (this.reconnectingPeers.has(peerId)) {
+        console.log(`[WebRTC] ${peerId} 正在重连中，跳过重复重连（${reason}）`);
         return;
       }
 
-      if (this.reconnectingPeers.has(peerId)) {
-        console.log(`[WebRTC] ${peerId} 正在重连中，跳过重复重连（${reason}）`);
+      if (this.localPlayerId <= peerId) {
+        // 较小 ID 一方默认等待对方主动重连；但为避免「对方未察觉故障」导致永久掉线，
+        // 安排一个兜底定时器：若再过一段时间仍未连上，则强制由自己发起重连
+        console.log(`[WebRTC] 等待 ${peerId} 主动重连（ID字典序较小），并设置兜底重连`);
+        if (this.reconnectTimers.has(peerId)) return;
+        const fallbackTimer = window.setTimeout(async () => {
+          this.reconnectTimers.delete(peerId);
+          if (this.isIntentionalDisconnect) return;
+          const pc = this.peerConnections.get(peerId);
+          if (pc && (pc.connection.connectionState === 'connected' || pc.connection.connectionState === 'connecting')) {
+            return; // 已恢复
+          }
+          if (this.reconnectingPeers.has(peerId)) return;
+          this.reconnectingPeers.add(peerId);
+          try {
+            console.log(`[WebRTC] 兜底强制重连 ${peerId}（对方迟迟未重连）`);
+            await this.handleReconnect(peerId, true);
+          } finally {
+            this.reconnectingPeers.delete(peerId);
+          }
+        }, 6000);
+        this.reconnectTimers.set(peerId, fallbackTimer);
         return;
       }
 
@@ -1618,9 +1638,9 @@ export class WebRTCClient {
   /**
    * 处理重连
    */
-  private async handleReconnect(peerId: string): Promise<void> {
+  private async handleReconnect(peerId: string, forceInitiate: boolean = false): Promise<void> {
     try {
-      console.log(`🔄 开始重连 ${peerId}...`);
+      console.log(`🔄 开始重连 ${peerId}...（forceInitiate=${forceInitiate}）`);
       
       // 检查是否已经在重连中
       const existingPeer = this.peerConnections.get(peerId);
@@ -1635,9 +1655,10 @@ export class WebRTCClient {
       // 等待一小段时间让旧连接完全关闭
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // 只有ID字典序较大的一方才主动重连
-      if (this.localPlayerId > peerId) {
-        console.log(`📡 主动重连 ${peerId}（ID字典序较大）`);
+      // ID字典序较大的一方主动重连；或在兜底场景下由较小一方强制发起，
+      // 避免「较大一方未察觉故障」时双方都不重连导致永久掉线
+      if (forceInitiate || this.localPlayerId > peerId) {
+        console.log(`📡 主动重连 ${peerId}（${forceInitiate ? '兜底强制发起' : 'ID字典序较大'}）`);
         
         // 创建新连接
         await this.createPeerConnection(peerId);
