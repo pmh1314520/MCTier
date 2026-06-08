@@ -8,6 +8,7 @@ import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { speakingDetector } from '../../services/voice/SpeakingDetector';
+import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
 import type { ChatMessage } from '../../types';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
@@ -219,6 +220,21 @@ export const MiniWindow: React.FC = () => {
       recentService.recordPlayers(players.map(p => p.name).filter(Boolean));
     } catch (e) {
       console.warn('记录最近玩家失败（忽略）:', e);
+    }
+
+    // 恢复按玩家名记忆的音量（仅当 store 尚无该玩家音量设置时）
+    try {
+      const currentVolumes = useAppStore.getState().playerVolumes;
+      players.forEach((p) => {
+        if (!p.name || p.id === currentPlayerId) return;
+        if (currentVolumes.has(p.id)) return;
+        const remembered = playerVolumeMemory.get(p.name);
+        if (typeof remembered === 'number' && remembered !== 1.0) {
+          setPlayerVolume(p.id, remembered);
+        }
+      });
+    } catch (e) {
+      console.warn('恢复记忆音量失败（忽略）:', e);
     }
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
   }, [players.length, lobby?.virtualIp, currentPlayerId]);
@@ -540,6 +556,11 @@ export const MiniWindow: React.FC = () => {
   // 处理玩家音量变化
   const handlePlayerVolumeChange = (playerId: string, volume: number) => {
     setPlayerVolume(playerId, volume);
+    // 按玩家名记忆音量，下次联机自动恢复
+    const p = players.find((pl) => pl.id === playerId);
+    if (p?.name) {
+      playerVolumeMemory.set(p.name, volume);
+    }
     console.log(`玩家 ${playerId} 音量已设置为: ${Math.round(volume * 100)}%`);
   };
 
