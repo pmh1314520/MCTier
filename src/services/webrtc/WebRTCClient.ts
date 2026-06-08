@@ -87,6 +87,7 @@ export class WebRTCClient {
   private onPlayerLeftCallback?: (playerId: string) => void;
   private onStatusUpdateCallback?: (playerId: string, micEnabled: boolean) => void;
   private onRemoteStreamCallback?: (playerId: string, stream: MediaStream) => void;
+  private onLocalStreamCallback?: (stream: MediaStream | null) => void;
   private onChatMessageCallback?: (playerId: string, playerName: string, content: string, timestamp: number) => void;
   private onVersionErrorCallback?: (currentVersion: string, minimumVersion: string, downloadUrl: string) => void;
 
@@ -2138,6 +2139,7 @@ export class WebRTCClient {
         }
 
         this.localStream = newStream;
+        try { this.onLocalStreamCallback?.(newStream); } catch { /* ignore */ }
       } else {
         if (this.localStream) {
           const audioTracks = this.localStream.getAudioTracks();
@@ -2169,6 +2171,7 @@ export class WebRTCClient {
           }
 
           this.localStream = null;
+          try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
           console.log('✅ 麦克风已关闭，资源已释放');
         }
       }
@@ -2436,6 +2439,11 @@ export class WebRTCClient {
     this.onRemoteStreamCallback = callback;
   }
 
+  /** 本地麦克风流变化回调（开启时为流，关闭时为 null） */
+  onLocalStream(callback: (stream: MediaStream | null) => void): void {
+    this.onLocalStreamCallback = callback;
+  }
+
   onChatMessage(callback: (playerId: string, playerName: string, content: string, timestamp: number) => void): void {
     this.onChatMessageCallback = callback;
   }
@@ -2566,6 +2574,7 @@ export class WebRTCClient {
         this.localStream = null;
         console.log(`✅ 本地音频流已停止 (${trackCount} 个轨道)`);
       }
+      try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
 
       // 关闭 WebSocket 连接（最后关闭，确保所有清理消息都能发送）
       if (this.websocket) {

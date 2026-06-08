@@ -10,6 +10,7 @@ import { VersionUpdateModal } from './components/VersionUpdateModal';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
 import { screenShareService } from './services/screenShare/ScreenShareService';
+import { speakingDetector } from './services/voice/SpeakingDetector';
 import { versionCheckService } from './services/version/VersionCheckService';
 import type { UserConfig } from './types';
 import './App.css';
@@ -24,6 +25,7 @@ function App() {
   const setCurrentPlayerId = useAppStore((state) => state.setCurrentPlayerId);
   const currentPlayerId = useAppStore((state) => state.currentPlayerId);
   const addChatMessage = useAppStore((state) => state.addChatMessage);
+  const setPlayerSpeaking = useAppStore((state) => state.setPlayerSpeaking);
 
   // 版本更新状态
   const [showVersionModal, setShowVersionModal] = useState(false);
@@ -414,6 +416,8 @@ function App() {
           webrtcClient.onPlayerLeft((playerId) => {
             console.log(`WebRTC: 玩家离开 - ${playerId}`);
             removePlayer(playerId);
+            // 移除该玩家的说话检测
+            speakingDetector.detach(playerId);
           });
 
           webrtcClient.onStatusUpdate((playerId, micEnabled) => {
@@ -421,8 +425,26 @@ function App() {
             updatePlayerStatus(playerId, { micEnabled });
           });
 
-          webrtcClient.onRemoteStream((playerId, _stream) => {
+          // 说话状态检测：分析结果写入 store，用于 UI 高亮
+          speakingDetector.setCallback((playerId, speaking) => {
+            setPlayerSpeaking(playerId, speaking);
+          });
+
+          webrtcClient.onRemoteStream((playerId, stream) => {
             console.log(`WebRTC: 接收到远程音频流 - ${playerId}`);
+            // 接入远程流做说话检测（只读分析，不影响播放）
+            try { speakingDetector.attach(playerId, stream); } catch (e) { console.warn('说话检测接入失败:', e); }
+          });
+
+          // 本机麦克风流变化：开启时接入检测，关闭时移除并清除自身说话状态
+          webrtcClient.onLocalStream((stream) => {
+            const selfId = useAppStore.getState().currentPlayerId;
+            if (!selfId) return;
+            if (stream) {
+              try { speakingDetector.attach(selfId, stream); } catch (e) { console.warn('本机说话检测接入失败:', e); }
+            } else {
+              speakingDetector.detach(selfId);
+            }
           });
 
           webrtcClient.onChatMessage((playerId, playerName, content, timestamp) => {

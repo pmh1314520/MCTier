@@ -94,6 +94,11 @@ interface AppStore {
   /** 设置全局静音 */
   setGlobalMuted: (muted: boolean) => void;
 
+  /** 正在说话的玩家 ID 集合（含本机） */
+  speakingPlayers: Set<string>;
+  /** 设置某玩家的说话状态 */
+  setPlayerSpeaking: (playerId: string, speaking: boolean) => void;
+
   // ==================== UI 状态管理 ====================
   /** 状态窗口是否收起 */
   statusWindowCollapsed: boolean;
@@ -199,6 +204,7 @@ const initialState = {
   micEnabled: false, // 麦克风默认关闭（保护隐私）
   mutedPlayers: new Set<string>(),
   globalMuted: false,
+  speakingPlayers: new Set<string>(),
   playerVolumes: new Map<string, number>(), // 每个玩家的独立音量
 
   // UI 状态
@@ -257,6 +263,7 @@ export const useAppStore = create<AppStore>()(
           micEnabled: false,  // 麦克风默认关闭
           globalMuted: false, // 全局静音默认关闭
           mutedPlayers: new Set<string>(), // 清空静音列表
+          speakingPlayers: new Set<string>(), // 清空说话状态
           playerVolumes: new Map<string, number>() // 清空玩家音量设置
         }, false, 'clearLobby/resetVoiceState');
         console.log('✅ 语音状态已重置为默认值');
@@ -446,6 +453,21 @@ export const useAppStore = create<AppStore>()(
         }
         
         set({ globalMuted: muted }, false, 'setGlobalMuted');
+      },
+
+      setPlayerSpeaking: (playerId: string, speaking: boolean) => {
+        set(
+          (state) => {
+            const has = state.speakingPlayers.has(playerId);
+            if (speaking === has) return state; // 无变化，避免多余渲染
+            const next = new Set(state.speakingPlayers);
+            if (speaking) next.add(playerId);
+            else next.delete(playerId);
+            return { speakingPlayers: next };
+          },
+          false,
+          'setPlayerSpeaking'
+        );
       },
 
       // ==================== 玩家音量操作 ====================

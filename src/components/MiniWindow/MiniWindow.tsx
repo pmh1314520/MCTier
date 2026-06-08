@@ -7,6 +7,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { speakingDetector } from '../../services/voice/SpeakingDetector';
 import { recentService } from '../../services/recent/recentService';
 import type { ChatMessage } from '../../types';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
@@ -29,6 +30,7 @@ export const MiniWindow: React.FC = () => {
     micEnabled,
     globalMuted,
     mutedPlayers,
+    speakingPlayers,
     toggleGlobalMute,
     togglePlayerMute,
     config,
@@ -314,6 +316,9 @@ export const MiniWindow: React.FC = () => {
       
       // 显示退出中的提示
       setIsLeaving(true);
+
+      // 清理说话状态检测
+      try { speakingDetector.clear(); } catch { /* ignore */ }
       
       // 先恢复窗口大小（如果是收起状态）
       if (collapsed) {
@@ -1161,12 +1166,15 @@ export const MiniWindow: React.FC = () => {
                     }}
                   >
                     <div className="mini-player-info">
-                      <div className="player-avatar">
+                      <div className="player-avatar" style={currentPlayerId && speakingPlayers.has(currentPlayerId) ? { boxShadow: '0 0 0 2px #52c41a, 0 0 8px #52c41a', borderRadius: '50%', transition: 'box-shadow .12s' } : { transition: 'box-shadow .12s' }}>
                         <PlayerIcon className="mini-player-icon" />
                       </div>
                       <div className="player-details">
                         <span className="mini-player-name">
                           {useAppStore.getState().config.playerName || '我'} (我)
+                          {currentPlayerId && speakingPlayers.has(currentPlayerId) && (
+                            <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                          )}
                         </span>
                         <motion.button
                           className="player-virtual-ip-btn"
@@ -1206,12 +1214,15 @@ export const MiniWindow: React.FC = () => {
                           }}
                         >
                           <div className="mini-player-info">
-                            <div className="player-avatar">
+                            <div className="player-avatar" style={speakingPlayers.has(player.id) ? { boxShadow: '0 0 0 2px #52c41a, 0 0 8px #52c41a', borderRadius: '50%', transition: 'box-shadow .12s' } : { transition: 'box-shadow .12s' }}>
                               <PlayerIcon className="mini-player-icon" />
                             </div>
                             <div className="player-details">
                               <span className="mini-player-name">
                                 {player.name}
+                                {speakingPlayers.has(player.id) && (
+                                  <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                                )}
                               </span>
                               {(() => {
                                 const lat = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
