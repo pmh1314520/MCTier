@@ -205,6 +205,8 @@ export const MiniWindow: React.FC = () => {
 
     // 开始轮询消息
     p2pChatService.startPolling();
+    // 同步聊天历史（新加入的玩家可补齐进房前的聊天记录；已收到的消息会按ID去重）
+    void p2pChatService.syncHistory(playerIPs);
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
   }, [players.length, lobby?.virtualIp, currentPlayerId]);
 

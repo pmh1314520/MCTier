@@ -55,6 +55,9 @@ pub struct GetMessagesQuery {
 /// 发送消息请求
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SendMessageRequest {
+    /// 消息ID（由发送方生成并随 POST 传递，保证同一条消息在所有端 ID 一致，便于去重与历史同步）
+    #[serde(default)]
+    pub id: Option<String>,
     pub player_id: String,
     pub player_name: String,
     pub content: String,
@@ -274,7 +277,7 @@ async fn send_message(
     log::info!("💬 [ChatService] 收到消息: {} - {}", req.player_name, req.content);
     
     let message = ChatMessage {
-        id: format!("msg-{}-{}", req.player_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()),
+        id: req.id.clone().unwrap_or_else(|| format!("msg-{}-{}", req.player_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())),
         player_id: req.player_id,
         player_name: req.player_name,
         content: req.content,

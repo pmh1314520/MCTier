@@ -2995,6 +2995,7 @@ pub async fn send_p2p_chat_message(
     };
     
     // 保存到本地消息队列
+    let message_id = message.id.clone();
     chat_svc.add_local_message(message);
     
     // 【修复】获取本机虚拟IP，避免发送消息给自己
@@ -3029,6 +3030,7 @@ pub async fn send_p2p_chat_message(
     for peer_ip in other_peer_ips {
         let url = format!("http://{}:14540/api/chat/send", peer_ip);
         let request = SendMessageRequest {
+            id: Some(message_id.clone()),
             player_id: player_id.clone(),
             player_name: player_name.clone(),
             content: content.clone(),

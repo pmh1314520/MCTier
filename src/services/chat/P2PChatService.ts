@@ -298,6 +298,39 @@ class P2PChatService {
   }
 
   /**
+   * 同步聊天历史：从各 peer 的本机服务器拉取消息历史，聚合进本地。
+   * 由于消息 ID 现已全局一致 + handleMessage 按 ID 去重并跳过自己的消息，
+   * 从多个 peer 聚合不会产生重复。常用于新加入大厅的玩家补齐进房前的聊天记录。
+   */
+  async syncHistory(peerIps?: string[]): Promise<void> {
+    const ips = (peerIps ?? this.peerIps).filter((ip) => ip && ip !== this.myVirtualIp);
+    if (ips.length === 0) return;
+    console.log('🗂️ [P2PChatService] 开始同步聊天历史，来源:', ips);
+
+    const all: BackendChatMessage[] = [];
+    await Promise.all(
+      ips.map(async (ip) => {
+        try {
+          const resp = await fetch(`http://${ip}:${CHAT_SERVER_PORT}/api/chat/messages`);
+          if (!resp.ok) return;
+          const msgs: BackendChatMessage[] = await resp.json();
+          if (Array.isArray(msgs)) all.push(...msgs);
+        } catch {
+          // 单个 peer 拉取失败忽略
+        }
+      })
+    );
+
+    if (all.length === 0) return;
+    // 按时间戳升序，保证历史顺序；handleMessage 内部按 ID 去重
+    all.sort((a, b) => a.timestamp - b.timestamp);
+    for (const m of all) {
+      this.handleMessage(m);
+    }
+    console.log(`🗂️ [P2PChatService] 历史同步完成，处理 ${all.length} 条（去重后回调新消息）`);
+  }
+
+  /**
    * 发送文本消息，返回送达统计 {delivered, total}
    */
   async sendTextMessage(content: string): Promise<{ delivered: number; total: number }> {
