@@ -470,6 +470,39 @@ function App() {
             }
           });
 
+          // ==================== 房主/大厅管理回调 ====================
+          webrtcClient.onLobbyMeta((meta) => {
+            const store = useAppStore.getState();
+            if (meta.hostId !== undefined) store.setHostId(meta.hostId);
+            if (meta.maxPlayers !== undefined) store.setMaxPlayers(meta.maxPlayers);
+            if (meta.isPublic !== undefined) store.setIsPublicLobby(meta.isPublic);
+            if (meta.mutedPlayers) store.setHostMutedPlayers(meta.mutedPlayers);
+          });
+
+          webrtcClient.onHostChanged((hostId) => {
+            useAppStore.getState().setHostId(hostId);
+            if (hostId === useAppStore.getState().currentPlayerId) {
+              try { (window as any).__antdMessage?.success?.('你已成为房主'); } catch { /* ignore */ }
+            }
+          });
+
+          webrtcClient.onMuteChanged((playerId, muted) => {
+            useAppStore.getState().setHostMuted(playerId, muted);
+          });
+
+          webrtcClient.onLobbyOptionsChanged((maxPlayers, isPublic) => {
+            const store = useAppStore.getState();
+            store.setMaxPlayers(maxPlayers);
+            store.setIsPublicLobby(isPublic);
+          });
+
+          webrtcClient.onKicked((reason) => {
+            // 被踢出：通知并触发退出大厅
+            try {
+              window.dispatchEvent(new CustomEvent('mctier-kicked', { detail: { reason } }));
+            } catch { /* ignore */ }
+          });
+
           console.log('✅ WebRTC 初始化完成，玩家ID:', playerId);
 
           // 启动HTTP文件服务器

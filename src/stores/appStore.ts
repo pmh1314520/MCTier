@@ -99,6 +99,26 @@ interface AppStore {
   /** 设置某玩家的说话状态 */
   setPlayerSpeaking: (playerId: string, speaking: boolean) => void;
 
+  // ==================== 房主/大厅管理 ====================
+  /** 当前房主的玩家ID */
+  hostId: string | null;
+  /** 设置房主ID */
+  setHostId: (id: string | null) => void;
+  /** 人数上限（null = 不限） */
+  maxPlayers: number | null;
+  /** 设置人数上限 */
+  setMaxPlayers: (max: number | null) => void;
+  /** 当前大厅是否已发布到公开广场 */
+  isPublicLobby: boolean;
+  /** 设置公开状态 */
+  setIsPublicLobby: (pub: boolean) => void;
+  /** 被房主禁言的玩家ID集合 */
+  hostMutedPlayers: Set<string>;
+  /** 设置某玩家被房主禁言状态 */
+  setHostMuted: (playerId: string, muted: boolean) => void;
+  /** 重置房主禁言集合 */
+  setHostMutedPlayers: (ids: string[]) => void;
+
   // ==================== UI 状态管理 ====================
   /** 状态窗口是否收起 */
   statusWindowCollapsed: boolean;
@@ -207,6 +227,12 @@ const initialState = {
   speakingPlayers: new Set<string>(),
   playerVolumes: new Map<string, number>(), // 每个玩家的独立音量
 
+  // 房主/大厅管理
+  hostId: null,
+  maxPlayers: null,
+  isPublicLobby: false,
+  hostMutedPlayers: new Set<string>(),
+
   // UI 状态
   statusWindowCollapsed: false,
   statusWindowPosition: defaultStatusWindowPosition,
@@ -264,7 +290,11 @@ export const useAppStore = create<AppStore>()(
           globalMuted: false, // 全局静音默认关闭
           mutedPlayers: new Set<string>(), // 清空静音列表
           speakingPlayers: new Set<string>(), // 清空说话状态
-          playerVolumes: new Map<string, number>() // 清空玩家音量设置
+          playerVolumes: new Map<string, number>(), // 清空玩家音量设置
+          hostId: null, // 重置房主
+          maxPlayers: null,
+          isPublicLobby: false,
+          hostMutedPlayers: new Set<string>(),
         }, false, 'clearLobby/resetVoiceState');
         console.log('✅ 语音状态已重置为默认值');
       },
@@ -469,6 +499,25 @@ export const useAppStore = create<AppStore>()(
           'setPlayerSpeaking'
         );
       },
+
+      // ==================== 房主/大厅管理操作 ====================
+      setHostId: (id: string | null) => set({ hostId: id }, false, 'setHostId'),
+      setMaxPlayers: (max: number | null) => set({ maxPlayers: max }, false, 'setMaxPlayers'),
+      setIsPublicLobby: (pub: boolean) => set({ isPublicLobby: pub }, false, 'setIsPublicLobby'),
+      setHostMuted: (playerId: string, muted: boolean) => {
+        set(
+          (state) => {
+            const next = new Set(state.hostMutedPlayers);
+            if (muted) next.add(playerId);
+            else next.delete(playerId);
+            return { hostMutedPlayers: next };
+          },
+          false,
+          'setHostMuted'
+        );
+      },
+      setHostMutedPlayers: (ids: string[]) =>
+        set({ hostMutedPlayers: new Set(ids) }, false, 'setHostMutedPlayers'),
 
       // ==================== 玩家音量操作 ====================
       setPlayerVolume: (playerId: string, volume: number) => {

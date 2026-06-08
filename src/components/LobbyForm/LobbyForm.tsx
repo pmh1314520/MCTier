@@ -10,6 +10,8 @@ import { useEscapeKey } from '../../hooks';
 import { FavoriteLobbyManager, type FavoriteLobby } from '../FavoriteLobbyManager/FavoriteLobbyManager';
 import { RecentManager } from '../RecentManager/RecentManager';
 import { recentService, type RecentLobby } from '../../services/recent/recentService';
+import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
+import type { PublicLobby } from '../../services/lobby/publicLobbies';
 import './LobbyForm.css';
 
 const { Title } = Typography;
@@ -140,6 +142,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
   const [showRecentModal, setShowRecentModal] = useState(false);
+  const [showPublicPlaza, setShowPublicPlaza] = useState(false);
   const [privateServerConfig, setPrivateServerConfig] = useState<{
     usePrivateServer: boolean;
     privateEasytierServer: string;
@@ -245,6 +248,16 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       ...(lobby.serverNode ? { serverNode: lobby.serverNode } : {}),
     });
     if (lobby.serverNode) setShowCustomServer(lobby.serverNode === 'custom');
+  };
+
+  // 从公开广场加入：填入大厅名与密码（公开大厅自带密码）
+  const handleSelectPublic = (lobby: PublicLobby) => {
+    form.setFieldsValue({
+      lobbyName: lobby.lobbyName,
+      password: lobby.password,
+      playerName: config.playerName || '',
+    });
+    message.info('已填入公开大厅信息，点击加入即可');
   };
 
   const resolvedPreferredServer =
@@ -882,6 +895,37 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
               </motion.button>
+
+              {/* 公开广场按钮 */}
+              <motion.button
+                onClick={() => setShowPublicPlaza(true)}
+                disabled={loading}
+                title="公开广场（浏览并加入公开大厅）"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                }}
+                whileHover={{
+                  scale: 1.1,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+              </motion.button>
               
               {mode === 'create' ? (
                 <motion.button
@@ -1240,6 +1284,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         visible={showRecentModal}
         onClose={() => setShowRecentModal(false)}
         onSelectLobby={handleSelectRecent}
+      />
+
+      {/* 公开广场弹窗 */}
+      <PublicPlaza
+        visible={showPublicPlaza}
+        onClose={() => setShowPublicPlaza(false)}
+        onJoin={handleSelectPublic}
       />
     </div>
   );

@@ -91,6 +91,12 @@ export class WebRTCClient {
   private onLocalStreamCallback?: (stream: MediaStream | null) => void;
   private onChatMessageCallback?: (playerId: string, playerName: string, content: string, timestamp: number) => void;
   private onVersionErrorCallback?: (currentVersion: string, minimumVersion: string, downloadUrl: string) => void;
+  // 房主/大厅管理相关回调
+  private onLobbyMetaCallback?: (meta: { hostId?: string; maxPlayers?: number | null; isPublic?: boolean; mutedPlayers?: string[] }) => void;
+  private onHostChangedCallback?: (hostId: string) => void;
+  private onMuteChangedCallback?: (playerId: string, muted: boolean) => void;
+  private onLobbyOptionsChangedCallback?: (maxPlayers: number | null, isPublic: boolean) => void;
+  private onKickedCallback?: (reason: string) => void;
 
   /**
    * 初始化 WebRTC 客户端
@@ -374,6 +380,15 @@ export class WebRTCClient {
         case 'register-success':
           // 注册成功
           console.log('✅ 注册成功，大厅ID:', message.lobbyId);
+          // 携带房主/人数上限/公开状态/禁言列表等大厅元数据
+          if (this.onLobbyMetaCallback) {
+            this.onLobbyMetaCallback({
+              hostId: message.hostId,
+              maxPlayers: message.maxPlayers ?? null,
+              isPublic: message.isPublic,
+              mutedPlayers: message.mutedPlayers,
+            });
+          }
           break;
           
         case 'register-error':
@@ -402,6 +417,31 @@ export class WebRTCClient {
           if (this.websocket) {
             this.websocket.close();
           }
+          break;
+
+        case 'host-changed':
+          // 房主变更
+          console.log('👑 房主变更为:', message.hostId);
+          this.onHostChangedCallback?.(message.hostId);
+          break;
+
+        case 'player-mute-changed':
+          // 禁言状态变化
+          console.log(`🔇 禁言状态变化: ${message.playerId} -> ${message.muted}`);
+          this.onMuteChangedCallback?.(message.playerId, message.muted);
+          break;
+
+        case 'lobby-options-changed':
+          // 大厅选项变化
+          console.log('⚙️ 大厅选项变化:', message.maxPlayers, message.isPublic);
+          this.onLobbyOptionsChangedCallback?.(message.maxPlayers ?? null, message.isPublic);
+          break;
+
+        case 'kicked':
+          // 被房主踢出
+          console.warn('👢 被房主移出大厅:', message.reason);
+          this.isIntentionalDisconnect = true;
+          this.onKickedCallback?.(message.reason || '你已被房主移出大厅');
           break;
           
         case 'players-list':
@@ -2483,6 +2523,40 @@ export class WebRTCClient {
    */
   onVersionError(callback: (currentVersion: string, minimumVersion: string, downloadUrl: string) => void): void {
     this.onVersionErrorCallback = callback;
+  }
+
+  // ==================== 房主/大厅管理 ====================
+  onLobbyMeta(cb: (meta: { hostId?: string; maxPlayers?: number | null; isPublic?: boolean; mutedPlayers?: string[] }) => void): void {
+    this.onLobbyMetaCallback = cb;
+  }
+  onHostChanged(cb: (hostId: string) => void): void {
+    this.onHostChangedCallback = cb;
+  }
+  onMuteChanged(cb: (playerId: string, muted: boolean) => void): void {
+    this.onMuteChangedCallback = cb;
+  }
+  onLobbyOptionsChanged(cb: (maxPlayers: number | null, isPublic: boolean) => void): void {
+    this.onLobbyOptionsChangedCallback = cb;
+  }
+  onKicked(cb: (reason: string) => void): void {
+    this.onKickedCallback = cb;
+  }
+
+  /** 踢出玩家（仅房主有效） */
+  kickPlayer(targetId: string): boolean {
+    return this.sendWebSocketMessage({ type: 'kick-player', from: this.localPlayerId, target: targetId });
+  }
+  /** 禁言/解除禁言玩家（仅房主有效） */
+  setPlayerMuted(targetId: string, muted: boolean): boolean {
+    return this.sendWebSocketMessage({ type: 'mute-player', from: this.localPlayerId, target: targetId, muted });
+  }
+  /** 转让房主（仅房主有效） */
+  transferHost(targetId: string): boolean {
+    return this.sendWebSocketMessage({ type: 'transfer-host', from: this.localPlayerId, target: targetId });
+  }
+  /** 设置大厅选项（仅房主有效），maxPlayers 传 0 表示取消上限 */
+  setLobbyOptions(opts: { maxPlayers?: number; isPublic?: boolean; description?: string; password?: string }): boolean {
+    return this.sendWebSocketMessage({ type: 'set-lobby-options', from: this.localPlayerId, ...opts });
   }
 
   /**

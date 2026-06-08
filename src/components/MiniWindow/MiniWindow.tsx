@@ -19,6 +19,7 @@ import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { RoomTools } from '../RoomTools/RoomTools';
 import { VoiceSettings } from '../VoiceSettings/VoiceSettings';
+import { HostPanel } from '../HostPanel/HostPanel';
 import './MiniWindow.css';
 
 /**
@@ -42,7 +43,11 @@ export const MiniWindow: React.FC = () => {
     addChatMessage,
     setPlayerVolume,
     getPlayerVolume,
+    hostId,
+    hostMutedPlayers,
   } = useAppStore();
+
+  const isHost = !!currentPlayerId && hostId === currentPlayerId;
 
   const [collapsed, setCollapsed] = useState(false);
   const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
@@ -54,6 +59,7 @@ export const MiniWindow: React.FC = () => {
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showVoiceSettings, setShowVoiceSettings] = useState(false); // 语音设备设置弹窗
+  const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
   const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   
@@ -396,6 +402,29 @@ export const MiniWindow: React.FC = () => {
       console.log('⚠️ 已强制返回主界面');
     }
   };
+
+  // 监听被房主踢出事件：提示并自动退出大厅
+  useEffect(() => {
+    const onKicked = (e: Event) => {
+      const reason = (e as CustomEvent)?.detail?.reason || '你已被房主移出大厅';
+      message.warning(reason);
+      void handleLeaveLobby();
+    };
+    window.addEventListener('mctier-kicked', onKicked as EventListener);
+    return () => window.removeEventListener('mctier-kicked', onKicked as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 本机被房主禁言时，自动关闭麦克风
+  useEffect(() => {
+    if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && micEnabled) {
+      try {
+        webrtcClient.setMicEnabled(false);
+        useAppStore.getState().setMicEnabled(false);
+        message.warning('你已被房主禁言，麦克风已关闭');
+      } catch { /* ignore */ }
+    }
+  }, [hostMutedPlayers, currentPlayerId, micEnabled]);
 
   const handleToggleCollapse = async () => {
     try {
@@ -1195,6 +1224,15 @@ export const MiniWindow: React.FC = () => {
                       <div className="player-details">
                         <span className="mini-player-name">
                           {useAppStore.getState().config.playerName || '我'} (我)
+                          {isHost && (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="#ffd666" style={{ marginLeft: 4, verticalAlign: 'middle' }}>
+                              <title>房主</title>
+                              <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
+                            </svg>
+                          )}
+                          {currentPlayerId && hostMutedPlayers.has(currentPlayerId) && (
+                            <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
+                          )}
                           {currentPlayerId && speakingPlayers.has(currentPlayerId) && (
                             <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
                           )}
@@ -1243,6 +1281,15 @@ export const MiniWindow: React.FC = () => {
                             <div className="player-details">
                               <span className="mini-player-name">
                                 {player.name}
+                                {hostId === player.id && (
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#ffd666" style={{ marginLeft: 4, verticalAlign: 'middle' }}>
+                                    <title>房主</title>
+                                    <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
+                                  </svg>
+                                )}
+                                {hostMutedPlayers.has(player.id) && (
+                                  <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
+                                )}
                                 {speakingPlayers.has(player.id) && (
                                   <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
                                 )}
@@ -1324,6 +1371,67 @@ export const MiniWindow: React.FC = () => {
                                 size={16}
                               />
                             </motion.button>
+                            {isHost && (
+                              <>
+                                <motion.button
+                                  className={`mini-action-btn ${hostMutedPlayers.has(player.id) ? 'muted' : ''}`}
+                                  onClick={() => {
+                                    const muted = !hostMutedPlayers.has(player.id);
+                                    webrtcClient.setPlayerMuted(player.id, muted);
+                                  }}
+                                  title={hostMutedPlayers.has(player.id) ? '解除禁言' : '禁言该玩家（房主）'}
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                                  </svg>
+                                </motion.button>
+                                <motion.button
+                                  className="mini-action-btn"
+                                  onClick={() => {
+                                    Modal.confirm({
+                                      title: '转让房主',
+                                      content: `确定把房主转让给 ${player.name} 吗？`,
+                                      okText: '转让',
+                                      cancelText: '取消',
+                                      centered: true,
+                                      onOk: () => { webrtcClient.transferHost(player.id); },
+                                    });
+                                  }}
+                                  title="转让房主"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z"></path>
+                                  </svg>
+                                </motion.button>
+                                <motion.button
+                                  className="mini-action-btn"
+                                  onClick={() => {
+                                    Modal.confirm({
+                                      title: '踢出玩家',
+                                      content: `确定把 ${player.name} 移出大厅吗？`,
+                                      okText: '踢出',
+                                      okButtonProps: { danger: true },
+                                      cancelText: '取消',
+                                      centered: true,
+                                      onOk: () => { webrtcClient.kickPlayer(player.id); },
+                                    });
+                                  }}
+                                  title="踢出大厅"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff7875" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M18 6 6 18M6 6l12 12"></path>
+                                  </svg>
+                                </motion.button>
+                              </>
+                            )}
                           </div>
                         </motion.div>
                       );
@@ -1364,6 +1472,19 @@ export const MiniWindow: React.FC = () => {
                     <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.7l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.7L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.7l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.7l-2.32-1.9z" />
                   </svg>
                 </motion.button>
+                {isHost && (
+                  <motion.button
+                    className="mini-lobby-settings-btn"
+                    onClick={() => setShowHostPanel(true)}
+                    title="房主管理（人数上限 / 公开广场）"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffd666">
+                      <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
+                    </svg>
+                  </motion.button>
+                )}
               </motion.div>
 
               {/* 底部控制按钮 - 只有5个按钮 */}
@@ -1506,6 +1627,9 @@ export const MiniWindow: React.FC = () => {
 
       {/* 语音设备设置弹窗 */}
       <VoiceSettings visible={showVoiceSettings} onClose={() => setShowVoiceSettings(false)} />
+
+      {/* 房主管理面板 */}
+      <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />
     </>
   );
 };
