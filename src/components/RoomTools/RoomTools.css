@@ -1,0 +1,88 @@
+/* 房间小工具弹窗样式 */
+
+/* 当前选中分页：绿色文字 + 绿色下划线 */
+.room-tools-modal .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #7ed321 !important;
+  text-shadow: 0 0 1px rgba(126, 211, 33, 0.3);
+}
+
+.room-tools-modal .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #a0e85b !important;
+}
+
+.room-tools-modal .ant-tabs-ink-bar {
+  background: #7ed321 !important;
+}
+
+/* 待办清单 */
+.room-todo-list {
+  margin-top: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-todo-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+.room-todo-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.room-todo-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.room-todo-text {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.room-todo-item.done .room-todo-text {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.room-todo-del {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 120, 117, 0.8);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.room-todo-del:hover {
+  background: rgba(255, 77, 79, 0.15);
+  color: #ff4d4f;
+}
+
+.room-todo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}

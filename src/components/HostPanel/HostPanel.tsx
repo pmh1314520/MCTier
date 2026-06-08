@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal, InputNumber, Switch, Input, Button, Typography, Space, message } from 'antd';
+import { Modal, InputNumber, Switch, Input, Button, Typography, Space, App as AntdApp } from 'antd';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
 
@@ -19,6 +19,7 @@ interface HostPanelProps {
 }
 
 export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
+  const { message } = AntdApp.useApp();
   const maxPlayers = useAppStore((s) => s.maxPlayers);
   const isPublicLobby = useAppStore((s) => s.isPublicLobby);
   const lobby = useAppStore((s) => s.lobby);

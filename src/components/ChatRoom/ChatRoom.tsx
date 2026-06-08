@@ -7,8 +7,7 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
-import { RoomTools } from '../RoomTools/RoomTools';
-import { EmojiIcon, ImageIcon, DiceIcon } from '../icons';
+import { EmojiIcon, ImageIcon } from '../icons';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
@@ -28,7 +27,6 @@ export const ChatRoom: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
   const [downloadedImages, setDownloadedImages] = useState<Map<string, string>>(new Map());
-  const [showRoomTools, setShowRoomTools] = useState(false);
 
   // @ 提及自动补全
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -236,30 +234,6 @@ export const ChatRoom: React.FC = () => {
         el.setSelectionRange(pos, pos);
       }
     });
-  };
-
-  // 掷骰子并发送到聊天室（类似微信随机骰子）
-  const handleSendDice = async () => {
-    if (!currentPlayerId) return;
-    const value = Math.floor(Math.random() * 6) + 1;
-    const diceFaces = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-    const content = `🎲 掷出了 ${diceFaces[value]} ${value} 点`;
-    try {
-      const optimistic: ChatMessage = {
-        id: `msg-${currentPlayerId}-${Date.now()}`,
-        playerId: currentPlayerId,
-        playerName: config.playerName || '我',
-        content,
-        timestamp: Date.now(),
-        type: 'text',
-      };
-      addChatMessage(optimistic);
-      await p2pChatService.sendTextMessage(content);
-      setTimeout(() => scrollToBottom(), 100);
-    } catch (error) {
-      console.error('发送骰子失败:', error);
-      antdMessage.error('发送骰子失败');
-    }
   };
 
   // 优化图片质量（保持原图尺寸，压缩质量）
@@ -660,16 +634,17 @@ export const ChatRoom: React.FC = () => {
           const isMe = !!ownName && mentionedName === ownName;
           const isKnown = players.some((p) => p.name === mentionedName);
           if (isMe || isKnown || isEveryone) {
-            const highlight = isMe || isEveryone;
+            const accent = isMe ? '#ffd666' : isEveryone ? '#ffd666' : '#91caff';
             return (
               <span
                 key={`m-${i}-${j}`}
                 style={{
-                  color: isMe ? '#ffd666' : isEveryone ? '#ffd666' : '#95de64',
+                  color: accent,
                   fontWeight: 600,
-                  background: highlight ? 'rgba(255,214,102,0.15)' : 'transparent',
-                  borderRadius: 4,
-                  padding: highlight ? '0 3px' : 0,
+                  background: 'rgba(0, 0, 0, 0.32)',
+                  borderRadius: 5,
+                  padding: '0 5px',
+                  margin: '0 1px',
                 }}
               >
                 {part}
@@ -913,29 +888,6 @@ export const ChatRoom: React.FC = () => {
             title="发送图片"
             className="image-button"
           />
-
-          <Button
-            type="text"
-            icon={<DiceIcon size={22} />}
-            onClick={handleSendDice}
-            title="掷骰子（发送随机点数到聊天室）"
-            className="dice-button"
-          />
-
-          <Button
-            type="text"
-            icon={(
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
-                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-              </svg>
-            )}
-            onClick={() => setShowRoomTools(true)}
-            title="房间小工具（倒计时 / 便签 / 多面骰）"
-            className="room-tools-button"
-          />
           
           <TextArea
             ref={textAreaRef}
@@ -959,9 +911,6 @@ export const ChatRoom: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* 房间小工具弹窗 */}
-      <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
-      
       {/* 隐藏的文件输入 */}
       <input
         ref={fileInputRef}

@@ -1,25 +1,35 @@
 /**
  * 房间内小工具
  * - 掷骰子：结果广播到聊天室（适合跑团/抽签/决定顺序）
- * - 倒计时：本地计时，到点提醒（适合活动/比赛）
- * - 便签：本地持久化的临时记事
+ * - 倒计时：基于全局服务计时，切换界面/挂后台不中断，到点提醒
+ * - 待办清单：一条一条的待办事项，可勾选完成 / 删除，本地持久化
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, message } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, Checkbox, message } from 'antd';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { countdownService } from '../../services/roomtools/countdownService';
 import type { ChatMessage } from '../../types';
+import './RoomTools.css';
 
 const { Text } = Typography;
-const { TextArea } = Input;
 
-const NOTE_KEY = 'mctier_room_note';
+const TODO_KEY = 'mctier_room_todos';
+
+interface TodoItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
 
 interface RoomToolsProps {
   visible: boolean;
   onClose: () => void;
 }
+
+const popupContainer = (triggerNode: HTMLElement) =>
+  (triggerNode.parentElement as HTMLElement) || document.body;
 
 export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
@@ -40,15 +50,20 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       rolls.push(Math.floor(Math.random() * sides) + 1);
     }
     const sum = rolls.reduce((a, b) => a + b, 0);
-    const detail = count > 1 ? `${rolls.join(' + ')} = ${sum}` : `${rolls[0]}`;
-    const text = `掷出 ${count}d${sides}：${detail}`;
-    setLastRoll(text);
+    // 本地显示
+    const localText =
+      count > 1 ? `${count}d${sides}：${rolls.join(' + ')} = ${sum}` : `d${sides}：${rolls[0]} 点`;
+    setLastRoll(localText);
 
     if (broadcast) {
       setRolling(true);
       try {
         const playerName = config.playerName || '我';
-        const content = `[掷骰] ${text}`;
+        // 更友好、可读性更好的广播文案
+        const content =
+          count > 1
+            ? `🎲 ${playerName} 掷出 ${count}d${sides}：${rolls.join(' + ')} = ${sum}`
+            : `🎲 ${playerName} 掷出了 ${rolls[0]} 点（d${sides}）`;
         if (currentPlayerId) {
           const optimistic: ChatMessage = {
             id: `msg-${currentPlayerId}-${Date.now()}`,
@@ -70,18 +85,15 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     }
   };
 
-  // ===== 倒计时 =====
+  // ===== 倒计时（使用全局服务，切换界面/挂后台不中断）=====
   const [minutes, setMinutes] = useState(5);
   const [seconds, setSeconds] = useState(0);
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(countdownService.getRemaining());
 
-  const clearTimer = () => {
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
+  useEffect(() => {
+    const unsub = countdownService.subscribe((r) => setRemaining(r));
+    return unsub;
+  }, []);
 
   const startCountdown = () => {
     const total = (minutes || 0) * 60 + (seconds || 0);
@@ -89,36 +101,12 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       message.warning('请设置大于 0 的时间');
       return;
     }
-    clearTimer();
-    setRemaining(total);
-    timerRef.current = window.setInterval(() => {
-      setRemaining((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          clearTimer();
-          message.success('倒计时结束！');
-          try {
-            // 简单提示音
-            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            osc.connect(ctx.destination);
-            osc.frequency.value = 880;
-            osc.start();
-            setTimeout(() => { osc.stop(); ctx.close().catch(() => {}); }, 350);
-          } catch { /* ignore */ }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    countdownService.start(total);
   };
 
   const stopCountdown = () => {
-    clearTimer();
-    setRemaining(null);
+    countdownService.stop();
   };
-
-  useEffect(() => () => clearTimer(), []);
 
   const fmt = (s: number) => {
     const m = Math.floor(s / 60);
@@ -126,21 +114,47 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
 
-  // ===== 便签 =====
-  const [note, setNote] = useState('');
+  // ===== 待办清单 =====
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [newTodo, setNewTodo] = useState('');
+
   useEffect(() => {
     if (visible) {
       try {
-        setNote(localStorage.getItem(NOTE_KEY) || '');
-      } catch { /* ignore */ }
+        const raw = localStorage.getItem(TODO_KEY);
+        setTodos(raw ? JSON.parse(raw) : []);
+      } catch {
+        setTodos([]);
+      }
     }
   }, [visible]);
 
-  const saveNote = (val: string) => {
-    setNote(val);
+  const persistTodos = (items: TodoItem[]) => {
+    setTodos(items);
     try {
-      localStorage.setItem(NOTE_KEY, val);
-    } catch { /* ignore */ }
+      localStorage.setItem(TODO_KEY, JSON.stringify(items));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const addTodo = () => {
+    const text = newTodo.trim();
+    if (!text) return;
+    persistTodos([...todos, { id: `todo-${Date.now()}`, text, done: false }]);
+    setNewTodo('');
+  };
+
+  const toggleTodo = (id: string) => {
+    persistTodos(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  };
+
+  const removeTodo = (id: string) => {
+    persistTodos(todos.filter((t) => t.id !== id));
+  };
+
+  const clearDone = () => {
+    persistTodos(todos.filter((t) => !t.done));
   };
 
   const diceTab = (
@@ -151,11 +165,12 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           value={diceSides}
           onChange={(v) => setDiceSides(v)}
           style={{ width: 120 }}
+          getPopupContainer={popupContainer}
           options={[4, 6, 8, 10, 12, 20, 100].map((n) => ({ value: n, label: `d${n}` }))}
         />
       </Space>
       <div style={{ margin: '14px 0', minHeight: 32 }}>
-        {lastRoll ? <Text strong style={{ fontSize: 16 }}>{lastRoll}</Text> : <Text type="secondary">点击下方按钮掷骰</Text>}
+        {lastRoll ? <Text strong style={{ fontSize: 16 }}>🎲 {lastRoll}</Text> : <Text type="secondary">点击下方按钮掷骰</Text>}
       </div>
       <Space>
         <Button onClick={() => void handleRoll(false)}>本地掷骰</Button>
@@ -175,6 +190,9 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           <div style={{ marginTop: 14 }}>
             <Button type="primary" onClick={startCountdown}>开始倒计时</Button>
           </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
+            倒计时在后台或切换界面时仍会继续计时，到点自动提醒。
+          </Text>
         </>
       ) : (
         <div style={{ textAlign: 'center' }}>
@@ -187,26 +205,57 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     </div>
   );
 
-  const noteTab = (
+  const remainingCount = todos.filter((t) => !t.done).length;
+
+  const todoTab = (
     <div style={{ padding: '8px 4px' }}>
-      <TextArea
-        value={note}
-        onChange={(e) => saveNote(e.target.value)}
-        placeholder="临时记点东西，自动保存在本地（仅自己可见）"
-        autoSize={{ minRows: 6, maxRows: 12 }}
-        maxLength={2000}
-      />
-      <Text type="secondary" style={{ fontSize: 12 }}>内容自动保存，下次打开仍在。</Text>
+      <Space.Compact style={{ width: '100%' }}>
+        <Input
+          value={newTodo}
+          onChange={(e) => setNewTodo(e.target.value)}
+          onPressEnter={addTodo}
+          placeholder="添加一条待办事项，回车确认"
+          maxLength={100}
+        />
+        <Button type="primary" onClick={addTodo}>添加</Button>
+      </Space.Compact>
+
+      <div className="room-todo-list">
+        {todos.length === 0 ? (
+          <div className="room-todo-empty">还没有待办事项，添加一条试试～</div>
+        ) : (
+          todos.map((t) => (
+            <div key={t.id} className={`room-todo-item ${t.done ? 'done' : ''}`}>
+              <Checkbox checked={t.done} onChange={() => toggleTodo(t.id)}>
+                <span className="room-todo-text">{t.text}</span>
+              </Checkbox>
+              <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {todos.length > 0 && (
+        <div className="room-todo-footer">
+          <Text type="secondary" style={{ fontSize: 12 }}>剩余 {remainingCount} 项待完成</Text>
+          <Button size="small" type="text" onClick={clearDone}>清除已完成</Button>
+        </div>
+      )}
     </div>
   );
 
   return (
-    <Modal title="房间小工具" open={visible} onCancel={onClose} footer={null} width={460} centered>
+    <Modal title="房间小工具" open={visible} onCancel={onClose} footer={null} width={460} centered className="room-tools-modal">
       <Tabs
         items={[
           { key: 'dice', label: '掷骰子', children: diceTab },
           { key: 'timer', label: '倒计时', children: timerTab },
-          { key: 'note', label: '便签', children: noteTab },
+          { key: 'todo', label: '待办清单', children: todoTab },
         ]}
       />
     </Modal>

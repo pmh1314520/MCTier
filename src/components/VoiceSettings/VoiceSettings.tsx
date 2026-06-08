@@ -207,7 +207,7 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
             ) : (
               <Button size="small" danger onClick={stopMicTest}>停止试音</Button>
             )}
-            <Text type="secondary" style={{ fontSize: 12 }}>对着麦克风说话，观察下方电平</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>说话并观察下方电平</Text>
           </Space>
           <Progress percent={level} showInfo={false} strokeColor={level > 60 ? '#52c41a' : '#1677ff'} style={{ marginTop: 6 }} />
         </div>

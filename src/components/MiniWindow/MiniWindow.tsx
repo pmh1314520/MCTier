@@ -17,6 +17,7 @@ import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
+import { RoomTools } from '../RoomTools/RoomTools';
 import { HostPanel } from '../HostPanel/HostPanel';
 import './MiniWindow.css';
 
@@ -43,6 +44,7 @@ export const MiniWindow: React.FC = () => {
     getPlayerVolume,
     hostId,
     hostMutedPlayers,
+    maxPlayers,
   } = useAppStore();
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
@@ -57,6 +59,7 @@ export const MiniWindow: React.FC = () => {
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
+  const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
   const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
@@ -1068,7 +1071,7 @@ export const MiniWindow: React.FC = () => {
           <h3 className="mini-window-title">
             {collapsed && lobby ? (
               <>
-                {lobby.name.length > 5 ? `${lobby.name.substring(0, 5)}...` : lobby.name} ({players.length + 1}人)
+                {lobby.name.length > 5 ? `${lobby.name.substring(0, 5)}...` : lobby.name} ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''}人)
               </>
             ) : (
               'MCTier'
@@ -1218,7 +1221,7 @@ export const MiniWindow: React.FC = () => {
                 transition={{ delay: 0.15, duration: 0.3 }}
               >
                 <h5 className="mini-section-title">
-                  玩家列表 ({players.length + 1})
+                  玩家列表 ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
                 </h5>
                 <div className="mini-player-list">
                   {/* 先显示当前玩家 */}
@@ -1481,6 +1484,22 @@ export const MiniWindow: React.FC = () => {
                     <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.7l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.7L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.7l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.7l-2.32-1.9z" />
                   </svg>
                 </motion.button>
+                <motion.button
+                  className="mini-lobby-settings-btn"
+                  onClick={() => setShowRoomTools(true)}
+                  title="房间小工具（掷骰子 / 倒计时 / 待办清单）"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+                    <circle cx="8" cy="8" r="1.3" fill="currentColor"></circle>
+                    <circle cx="16" cy="8" r="1.3" fill="currentColor"></circle>
+                    <circle cx="12" cy="12" r="1.3" fill="currentColor"></circle>
+                    <circle cx="8" cy="16" r="1.3" fill="currentColor"></circle>
+                    <circle cx="16" cy="16" r="1.3" fill="currentColor"></circle>
+                  </svg>
+                </motion.button>
                 {isHost && (
                   <motion.button
                     className="mini-lobby-settings-btn"
@@ -1585,6 +1604,9 @@ export const MiniWindow: React.FC = () => {
         visible={showMcWorlds}
         onClose={() => setShowMcWorlds(false)}
       />
+
+      {/* 房间小工具弹窗 */}
+      <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
 
       {/* 房主管理面板 */}
       <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />

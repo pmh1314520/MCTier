@@ -127,6 +127,7 @@ export const MinecraftConfig: React.FC<MinecraftConfigProps> = ({ onClose }) => 
               value={launcherType}
               onChange={setLauncherType}
               style={{ width: '100%', marginTop: 8 }}
+              getPopupContainer={(trigger) => (trigger.parentElement as HTMLElement) || document.body}
             >
               <Option value="PCL">PCL / PCL2 启动器</Option>
               <Option value="HMCL">HMCL 启动器</Option>
