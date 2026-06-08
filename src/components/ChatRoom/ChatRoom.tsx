@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Input, Button, message as antdMessage } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
@@ -14,6 +15,7 @@ const { TextArea } = Input;
 
 export const ChatRoom: React.FC = () => {
   const { currentPlayerId, chatMessages, addChatMessage, config } = useAppStore();
+  const players = useAppStore((state) => state.players);
   const [inputValue, setInputValue] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -487,6 +489,74 @@ export const ChatRoom: React.FC = () => {
   // 获取要显示的消息（只显示最近的N条）
   const displayedMessages = chatMessages.slice(-displayedMessageCount);
 
+  // 当前玩家名（用于 @ 提醒判断）
+  const ownName = (players.find((p) => p.id === currentPlayerId)?.name || config.playerName || '').trim();
+
+  // 未读分隔线：定位第一条未读(他人)消息的 id，仅当当前不在底部且确有未读时显示
+  const firstUnreadId =
+    hasUnreadMessages && !isAtBottom
+      ? chatMessages.find(
+          (m, idx) => idx >= lastReadMessageIndex && m.playerId !== currentPlayerId
+        )?.id
+      : undefined;
+
+  // 将文本消息渲染为富文本：识别链接（可点击外部打开）与 @提醒（高亮）
+  const renderMessageText = (text: string): React.ReactNode => {
+    if (!text) return text;
+    // 先按 URL 切分，再对非 URL 片段按 @提醒切分
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const segments = text.split(urlRegex);
+    return segments.map((seg, i) => {
+      if (urlRegex.test(seg)) {
+        // 去掉结尾常见标点，避免把句号带进链接
+        const trimmed = seg.replace(/[。，、,.!?；;）)】\]]+$/, '');
+        const tail = seg.slice(trimmed.length);
+        return (
+          <React.Fragment key={`u-${i}`}>
+            <a
+              href={trimmed}
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternal(trimmed).catch(() => {});
+              }}
+              style={{ color: '#69b1ff', textDecoration: 'underline', wordBreak: 'break-all', cursor: 'pointer' }}
+            >
+              {trimmed}
+            </a>
+            {tail}
+          </React.Fragment>
+        );
+      }
+      // 处理 @提醒
+      const mentionRegex = /(@[^\s@]{1,20})/g;
+      const parts = seg.split(mentionRegex);
+      return parts.map((part, j) => {
+        if (part.startsWith('@') && part.length > 1) {
+          const mentionedName = part.slice(1);
+          const isMe = ownName && mentionedName === ownName;
+          const isKnown = players.some((p) => p.name === mentionedName);
+          if (isMe || isKnown) {
+            return (
+              <span
+                key={`m-${i}-${j}`}
+                style={{
+                  color: isMe ? '#ffd666' : '#95de64',
+                  fontWeight: 600,
+                  background: isMe ? 'rgba(255,214,102,0.15)' : 'transparent',
+                  borderRadius: 4,
+                  padding: isMe ? '0 3px' : 0,
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+        }
+        return <React.Fragment key={`t-${i}-${j}`}>{part}</React.Fragment>;
+      });
+    });
+  };
+
   return (
     <div 
       className="chat-room"
@@ -513,16 +583,34 @@ export const ChatRoom: React.FC = () => {
         <AnimatePresence mode="popLayout">
           {displayedMessages.map((message) => {
             const isOwnMessage = message.playerId === currentPlayerId;
+            const showUnreadDivider = firstUnreadId && message.id === firstUnreadId;
             
             return (
-              <motion.div
-                key={message.id}
-                className={`chat-message ${isOwnMessage ? 'own' : 'other'}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.2 }}
-              >
+              <React.Fragment key={message.id}>
+                {showUnreadDivider && (
+                  <div
+                    className="chat-unread-divider"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      margin: '8px 0',
+                      color: '#ff7875',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
+                    以下为新消息
+                    <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
+                  </div>
+                )}
+                <motion.div
+                  className={`chat-message ${isOwnMessage ? 'own' : 'other'}`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.2 }}
+                >
                 {/* 头像 */}
                 <div className="message-avatar">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -574,7 +662,7 @@ export const ChatRoom: React.FC = () => {
                       )}
                     </div>
                   ) : (
-                    message.content
+                    renderMessageText(message.content)
                   )}
                 </div>
                 
@@ -582,6 +670,7 @@ export const ChatRoom: React.FC = () => {
                   {formatTime(message.timestamp)}
                 </span>
               </motion.div>
+              </React.Fragment>
             );
           })}
         </AnimatePresence>
