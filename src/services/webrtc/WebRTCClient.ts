@@ -1840,6 +1840,18 @@ export class WebRTCClient {
             audioElement.srcObject = event.streams[0];
             audioElement.autoplay = true;
             audioElement.volume = 1.0;
+
+            // 保存音频元素和流
+            const peerConn = this.peerConnections.get(peerId);
+            if (peerConn) {
+              peerConn.audioStream = event.streams[0];
+              peerConn.audioElement = audioElement;
+              console.log(`✅ 音频元素已保存 for ${peerId}`);
+            }
+
+            // 【修复】对新建立 / 重连的对端应用当前已有的静音和音量设置，
+            // 否则后加入或重连的玩家会以默认 1.0 音量、未静音播放（旧逻辑写死 volume=1.0）
+            this.applyCurrentAudioState(peerId, audioElement);
             
             // 监听播放事件
             audioElement.onplay = () => {
@@ -1849,14 +1861,6 @@ export class WebRTCClient {
             audioElement.onerror = (e) => {
               console.error(`❌ 播放 ${peerId} 的音频失败:`, e);
             };
-            
-            // 保存音频元素和流
-            const peerConn = this.peerConnections.get(peerId);
-            if (peerConn) {
-              peerConn.audioStream = event.streams[0];
-              peerConn.audioElement = audioElement;
-              console.log(`✅ 音频元素已保存 for ${peerId}`);
-            }
             
             // 触发回调
             if (this.onRemoteStreamCallback) {
@@ -2156,6 +2160,39 @@ export class WebRTCClient {
     }
   }
 
+
+  /**
+   * 根据当前 Store 中的全局静音 / 单人静音 / 单人音量设置，应用到指定玩家的音频元素。
+   * 用于新建立连接或重连后，确保不会以默认（未静音、满音量）播放。
+   */
+  private applyCurrentAudioState(playerId: string, audioElement: HTMLAudioElement): void {
+    // 动态导入 store，避免循环依赖；fire-and-forget，延迟极小可接受
+    import('../../stores')
+      .then(({ useAppStore }) => {
+        const state = useAppStore.getState();
+        const globalMuted: boolean = state.globalMuted;
+        const mutedPlayers: Set<string> = state.mutedPlayers as Set<string>;
+        const playerVolumes: Map<string, number> = state.playerVolumes as Map<string, number>;
+
+        // 全局静音
+        audioElement.muted = !!globalMuted;
+
+        // 单人静音 / 单人音量
+        if (mutedPlayers && mutedPlayers.has(playerId)) {
+          audioElement.volume = 0;
+        } else {
+          const vol = playerVolumes && playerVolumes.has(playerId)
+            ? playerVolumes.get(playerId)!
+            : 1.0;
+          audioElement.volume = Math.max(0, Math.min(1, vol));
+        }
+
+        console.log(`🎚️ 已对 ${playerId} 应用现有音频状态: muted=${audioElement.muted}, volume=${audioElement.volume}`);
+      })
+      .catch((err) => {
+        console.warn('应用现有音频状态失败（使用默认值）:', err);
+      });
+  }
 
   /**
    * 静音指定玩家
