@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../../stores/appStore';
 import type { SharedFolder, FileInfo } from '../../types/fileShare';
 import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
@@ -416,6 +417,35 @@ export const FileShareManagerNew: React.FC = () => {
     }
   };
 
+  // 监听后端下载进度事件，更新对应任务的进度与速度
+  useEffect(() => {
+    const unlistenPromise = listen<{ taskId: string; downloaded: number; total: number }>(
+      'download-progress',
+      (event) => {
+        const { taskId, downloaded, total } = event.payload;
+        setDownloads(prev => prev.map(task => {
+          if (task.id !== taskId) return task;
+          const now = Date.now();
+          const lastTime = task.lastUpdateTime || now;
+          const lastBytes = task.lastDownloaded || 0;
+          const dt = (now - lastTime) / 1000;
+          const speed = dt > 0 ? Math.max(0, (downloaded - lastBytes) / dt) : (task.speed || 0);
+          return {
+            ...task,
+            downloaded,
+            fileSize: total && total > 0 ? total : task.fileSize,
+            speed,
+            lastUpdateTime: now,
+            lastDownloaded: downloaded,
+          };
+        }));
+      }
+    );
+    return () => {
+      unlistenPromise.then(unlisten => unlisten()).catch(() => {});
+    };
+  }, []);
+
   // 下载单个文件
   const handleDownloadFile = async (file: FileInfo) => {
     if (!selectedShare) return;
@@ -458,115 +488,61 @@ export const FileShareManagerNew: React.FC = () => {
     }
   };
 
-  // 实际执行下载
+  // 实际执行下载（流式：由后端边下边写盘，避免大文件占满内存导致卡死/崩溃）
   const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number, headers?: HeadersInit) => {
-      const abortController = new AbortController();
-      const startTime = Date.now();
-      let lastUpdateTime = startTime;
-      let lastDownloaded = 0;
+    try {
+      // 从下载 URL 解析 peerIp / shareId / filePath（URL 由本组件构造，格式固定）
+      // 形如 http://10.x.x.x:14539/api/shares/{shareId}/download/{filePath}
+      const afterScheme = url.replace(/^https?:\/\//, '');
+      const peerIp = afterScheme.split(':')[0];
+      const sharesIdx = url.indexOf('/api/shares/');
+      const rest = url.substring(sharesIdx + '/api/shares/'.length); // {shareId}/download/{filePath}
+      const dlIdx = rest.indexOf('/download/');
+      const shareId = rest.substring(0, dlIdx);
+      const filePathEncoded = rest.substring(dlIdx + '/download/'.length);
+      let filePath = filePathEncoded;
+      try { filePath = decodeURIComponent(filePathEncoded); } catch { /* 保持原值 */ }
 
-      // 更新任务，添加abortController
+      // 从 headers 取共享密码
+      let password: string | null = null;
+      if (headers && typeof headers === 'object') {
+        const h = headers as Record<string, string>;
+        password = h['x-share-password'] ?? null;
+      }
+
+      // 记录开始时间用于兜底显示
       setDownloads(prev => prev.map(task =>
-        task.id === taskId ? { ...task, abortController, lastUpdateTime, lastDownloaded } : task
+        task.id === taskId ? { ...task, lastUpdateTime: Date.now(), lastDownloaded: 0 } : task
       ));
 
-      try {
-        const response = await fetch(url, {
-          signal: abortController.signal,
-          headers: headers || {},
-        });
+      // 调用后端流式下载命令（边下边写盘 + 进度事件 + 可取消）
+      await invoke('download_remote_file', {
+        taskId,
+        peerIp,
+        shareId,
+        filePath,
+        savePath,
+        password,
+      });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('无法读取响应');
-        }
-
-        const chunks: Uint8Array[] = [];
-        let downloaded = 0;
-
-        while (true) {
-          try {
-            const { done, value } = await reader.read();
-
-            if (done) break;
-
-            chunks.push(value);
-            downloaded += value.length;
-
-            // 计算速度（每500ms更新一次）
-            const now = Date.now();
-            const timeDiff = now - lastUpdateTime;
-            
-            if (timeDiff >= 500) {
-              const byteDiff = downloaded - lastDownloaded;
-              const speed = (byteDiff / timeDiff) * 1000; // bytes/s
-              
-              // 更新进度和速度
-              setDownloads(prev => prev.map(task =>
-                task.id === taskId ? { 
-                  ...task, 
-                  downloaded, 
-                  speed,
-                  lastUpdateTime: now,
-                  lastDownloaded: downloaded
-                } : task
-              ));
-              
-              lastUpdateTime = now;
-              lastDownloaded = downloaded;
-            } else {
-              // 【修复】减少状态更新频率，避免过度渲染
-              // 只在下载量变化超过1MB时才更新UI
-              if (downloaded - (lastDownloaded || 0) > 1024 * 1024) {
-                setDownloads(prev => prev.map(task =>
-                  task.id === taskId ? { ...task, downloaded } : task
-                ));
-              }
-            }
-          } catch (error: any) {
-            // 如果是用户主动取消
-            if (error.name === 'AbortError') {
-              console.log(`❌ [FileShareManager] 下载被取消`);
-              return;
-            }
-            throw error;
-          }
-        }
-
-        // 合并所有chunks
-        const blob = new Blob(chunks as BlobPart[]);
-        const arrayBuffer = await blob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        // 【修复】显示"正在保存..."提示
-        message.loading({ content: '正在保存文件到磁盘...', key: `saving_${taskId}`, duration: 0 });
-
-        await invoke('save_file', {
-          path: savePath,
-          data: Array.from(uint8Array)
-        });
-
-        message.destroy(`saving_${taskId}`);
-
-        // 标记为完成
-        setDownloads(prev => prev.map(task =>
-          task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize, speed: 0 } : task
-        ));
-
-        message.success('下载完成');
-      } catch (error: any) {
-        if (error.name !== 'AbortError') {
-          setDownloads(prev => prev.map(task =>
-            task.id === taskId ? { ...task, status: 'failed' as const, error: String(error), speed: 0 } : task
-          ));
-          message.error(`下载失败: ${error}`);
-        }
+      // 完成
+      setDownloads(prev => prev.map(task =>
+        task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize || task.downloaded, speed: 0 } : task
+      ));
+      message.success('下载完成');
+    } catch (error: any) {
+      const errStr = String(error);
+      // 用户主动取消不视为失败
+      if (errStr.includes('已取消')) {
+        console.log('❌ [FileShareManager] 下载被取消:', taskId);
+        return;
       }
+      setDownloads(prev => prev.map(task =>
+        task.id === taskId ? { ...task, status: 'failed' as const, error: errStr, speed: 0 } : task
+      ));
+      message.error(`下载失败: ${errStr}`);
     }
+  }
 
 
 
@@ -614,113 +590,21 @@ export const FileShareManagerNew: React.FC = () => {
         // 异步下载，不阻塞UI
         (async () => {
           try {
-            // 直接调用HTTP API打包文件
-            const url = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/batch-download`;
-            console.log('📦 [FileShareManager] 请求批量打包:', url);
-            console.log('📦 [FileShareManager] 文件列表:', selectedFileList.map(f => f.path));
-            
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id),
-              },
-              body: JSON.stringify({
-                file_paths: selectedFileList.map(f => f.path)
-              })
+            // 【流式】调用后端批量打包下载命令，边收边写盘到临时ZIP，避免大包占满内存
+            const filePaths = selectedFileList.map(f => f.path);
+            const batchPassword = sharePasswordMap[getShareKey(selectedShare.ownerIp, selectedShare.share.id)] ?? null;
+            console.log('📦 [FileShareManager] 请求批量打包(流式):', selectedShare.ownerIp, selectedShare.share.id);
+            console.log('📦 [FileShareManager] 文件列表:', filePaths);
+
+            await invoke('download_remote_batch', {
+              taskId,
+              peerIp: selectedShare.ownerIp,
+              shareId: selectedShare.share.id,
+              filePaths,
+              savePath: tempZipPath,
+              password: batchPassword,
             });
-            
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error('❌ [FileShareManager] 批量打包失败:', response.status, errorText);
-              throw new Error(`HTTP ${response.status}: ${errorText || '打包失败'}`);
-            }
-            
-            console.log('✅ [FileShareManager] 开始下载压缩包');
-            
-            // 使用流式下载，实时更新进度
-            const reader = response.body?.getReader();
-            if (!reader) {
-              throw new Error('无法读取响应');
-            }
-            
-            // 获取文件总大小
-            const contentLength = response.headers.get('Content-Length');
-            const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
-            
-            console.log('📦 [FileShareManager] 压缩包总大小:', totalSize, 'bytes');
-            
-            // 更新任务的文件大小
-            if (totalSize > 0) {
-              setDownloads(prev => prev.map(task =>
-                task.id === taskId ? { ...task, fileSize: totalSize } : task
-              ));
-            }
-            
-            const chunks: Uint8Array[] = [];
-            let downloaded = 0;
-            let lastUpdateTime = Date.now();
-            let lastDownloaded = 0;
-            
-            while (true) {
-              const { done, value } = await reader.read();
-              
-              if (done) break;
-              
-              chunks.push(value);
-              downloaded += value.length;
-              
-              // 计算速度（每500ms更新一次）
-              const now = Date.now();
-              const timeDiff = now - lastUpdateTime;
-              
-              if (timeDiff >= 500) {
-                const byteDiff = downloaded - lastDownloaded;
-                const speed = (byteDiff / timeDiff) * 1000; // bytes/s
-                
-                // 更新进度和速度
-                setDownloads(prev => prev.map(task =>
-                  task.id === taskId ? { 
-                    ...task, 
-                    downloaded, 
-                    speed,
-                    fileSize: totalSize > 0 ? totalSize : downloaded,
-                    lastUpdateTime: now,
-                    lastDownloaded: downloaded
-                  } : task
-                ));
-                
-                lastUpdateTime = now;
-                lastDownloaded = downloaded;
-              }
-            }
-            
-            // 合并所有chunks
-            const blob = new Blob(chunks as BlobPart[]);
-            const arrayBuffer = await blob.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
-            
-            console.log('📦 [FileShareManager] 压缩包下载完成，大小:', uint8Array.length, 'bytes');
-            
-            // 显示"正在保存..."提示
-            setDownloads(prev => prev.map(task =>
-              task.id === taskId ? { 
-                ...task, 
-                downloaded: uint8Array.length,
-                fileSize: uint8Array.length,
-                speed: 0
-              } : task
-            ));
-            
-            message.loading({ content: '正在保存压缩包...', key: 'saving', duration: 0 });
-            
-            // 保存临时ZIP文件
-            await invoke('save_file', {
-              path: tempZipPath,
-              data: Array.from(uint8Array)
-            });
-            
-            message.destroy('saving');
+
             console.log('✅ [FileShareManager] 压缩包已保存:', tempZipPath);
             
             // 【新增】自动解压ZIP文件
@@ -745,8 +629,6 @@ export const FileShareManagerNew: React.FC = () => {
               task.id === taskId ? { 
                 ...task, 
                 status: 'completed' as const, 
-                downloaded: uint8Array.length, 
-                fileSize: uint8Array.length, 
                 speed: 0,
                 fileName: `${selectedFileList.length} 个文件`, // 更新显示名称
                 savePath: saveDir // 【修复】更新为实际的解压目录，而不是临时ZIP路径
@@ -898,10 +780,24 @@ export const FileShareManagerNew: React.FC = () => {
   // 取消下载
   const handleCancelDownload = async (taskId: string) => {
     const task = downloads.find(t => t.id === taskId);
+    // 流式下载：通知后端取消（后端会停止写盘并删除残留文件）
+    try {
+      await invoke('cancel_remote_download', { taskId });
+    } catch (error) {
+      console.warn('通知后端取消下载失败（忽略）:', error);
+    }
+    // 兼容旧的 fetch 式下载（批量打包仍走 fetch）
     if (task?.abortController) {
       console.log('❌ [FileShareManager] 取消下载任务:', taskId);
       task.abortController.abort();
     }
+
+    // 标记任务为失败/取消状态
+    setDownloads(prev => prev.map(t =>
+      t.id === taskId && t.status === 'downloading'
+        ? { ...t, status: 'failed' as const, error: '已取消', speed: 0 }
+        : t
+    ));
     
     // 删除已下载的残留文件
     if (task?.savePath) {

@@ -125,7 +125,8 @@ class FileShareService {
   async getRemoteFiles(
     peerIp: string,
     shareId: string,
-    path?: string
+    path?: string,
+    password?: string
   ): Promise<FileInfo[]> {
     try {
       // 注意：后端Rust参数名使用下划线命名
@@ -133,6 +134,7 @@ class FileShareService {
         peer_ip: peerIp,
         share_id: shareId,
         path: path || null,
+        password: password || null,
       });
       return files;
     } catch (error) {

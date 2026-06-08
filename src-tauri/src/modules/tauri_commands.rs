@@ -9,7 +9,15 @@ use crate::modules::lobby_manager::{Lobby, Player};
 use crate::modules::voice_service::AudioDevice;
 use crate::modules::config_manager::UserConfig;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
+
+/// 远程文件下载的取消标志注册表（task_id -> 取消标志）
+fn download_cancels() -> &'static dashmap::DashMap<String, Arc<AtomicBool>> {
+    static CANCELS: OnceLock<dashmap::DashMap<String, Arc<AtomicBool>>> = OnceLock::new();
+    CANCELS.get_or_init(dashmap::DashMap::new)
+}
 
 /// 应用状态包装器（用于 Tauri State）
 pub struct AppState {
@@ -2143,6 +2151,7 @@ pub async fn get_remote_files(
     peer_ip: String,
     share_id: String,
     path: Option<String>,
+    password: Option<String>,
 ) -> Result<Vec<FileTransferFileInfo>, String> {
     log::info!("获取远程文件列表: {} / {} / {:?}", peer_ip, share_id, path);
     
@@ -2151,8 +2160,20 @@ pub async fn get_remote_files(
         url = format!("{}?path={}", url, urlencoding::encode(&p));
     }
     
-    match reqwest::get(&url).await {
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url);
+    // 携带共享密码头，否则有密码保护的共享会返回 401
+    if let Some(pwd) = password {
+        if !pwd.is_empty() {
+            req = req.header("x-share-password", pwd);
+        }
+    }
+    
+    match req.send().await {
         Ok(response) => {
+            if response.status().as_u16() == 401 {
+                return Err("访问被拒绝：密码错误或未提供密码".to_string());
+            }
             match response.json::<serde_json::Value>().await {
                 Ok(json) => {
                     if let Some(files) = json.get("files") {
@@ -2237,6 +2258,360 @@ pub async fn get_download_url(
         urlencoding::encode(&file_path)
     );
     Ok(url)
+}
+
+/// 流式下载远程文件到本地磁盘（边下边写，避免大文件占满内存导致 OOM/卡死）
+///
+/// - 自动携带共享密码头（x-share-password），解决有密码共享下载失败的问题
+/// - 通过 `download-progress` 事件上报进度（taskId/downloaded/total）
+/// - 支持通过 `cancel_remote_download` 取消
+#[tauri::command]
+pub async fn download_remote_file(
+    task_id: String,
+    peer_ip: String,
+    share_id: String,
+    file_path: String,
+    save_path: String,
+    password: Option<String>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    log::info!("⬇️ 开始流式下载: task={} {}/{} -> {}", task_id, peer_ip, share_id, save_path);
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    download_cancels().insert(task_id.clone(), cancel_flag.clone());
+
+    // 用闭包包裹，确保无论成功失败都能清理取消标志
+    let result: Result<(), String> = async {
+        let url = format!(
+            "http://{}:14539/api/shares/{}/download/{}",
+            peer_ip,
+            share_id,
+            urlencoding::encode(&file_path)
+        );
+
+        let client = reqwest::Client::new();
+        let mut req = client.get(&url);
+        if let Some(pwd) = &password {
+            if !pwd.is_empty() {
+                req = req.header("x-share-password", pwd);
+            }
+        }
+
+        let resp = req.send().await.map_err(|e| format!("请求失败: {}", e))?;
+        let status = resp.status();
+        if status.as_u16() == 401 {
+            return Err("访问被拒绝：密码错误或未提供密码".to_string());
+        }
+        if !status.is_success() {
+            return Err(format!("下载失败: HTTP {}", status));
+        }
+
+        let total = resp.content_length().unwrap_or(0);
+
+        // 确保父目录存在
+        if let Some(parent) = std::path::Path::new(&save_path).parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+
+        let mut file = tokio::fs::File::create(&save_path)
+            .await
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+
+        let mut downloaded: u64 = 0;
+        let mut stream = resp.bytes_stream();
+        let mut last_emit = std::time::Instant::now();
+
+        while let Some(chunk) = stream.next().await {
+            // 检查取消
+            if cancel_flag.load(Ordering::Relaxed) {
+                drop(file);
+                let _ = tokio::fs::remove_file(&save_path).await;
+                return Err("已取消".to_string());
+            }
+
+            let chunk = chunk.map_err(|e| format!("下载中断: {}", e))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("写入文件失败: {}", e))?;
+            downloaded += chunk.len() as u64;
+
+            // 每 200ms 上报一次进度
+            if last_emit.elapsed().as_millis() >= 200 {
+                let _ = app_handle.emit(
+                    "download-progress",
+                    serde_json::json!({
+                        "taskId": task_id,
+                        "downloaded": downloaded,
+                        "total": total,
+                    }),
+                );
+                last_emit = std::time::Instant::now();
+            }
+        }
+
+        file.flush().await.map_err(|e| format!("刷新文件失败: {}", e))?;
+
+        // 最后上报一次 100% 进度
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "taskId": task_id,
+                "downloaded": downloaded,
+                "total": if total == 0 { downloaded } else { total },
+            }),
+        );
+
+        log::info!("✅ 流式下载完成: task={} ({} 字节)", task_id, downloaded);
+        Ok(())
+    }
+    .await;
+
+    download_cancels().remove(&task_id);
+    result
+}
+
+/// 取消正在进行的远程文件下载
+#[tauri::command]
+pub fn cancel_remote_download(task_id: String) {
+    if let Some(flag) = download_cancels().get(&task_id) {
+        flag.store(true, Ordering::Relaxed);
+        log::info!("🛑 已请求取消下载: {}", task_id);
+    }
+}
+
+/// 流式批量打包下载：POST file_paths 到对端 batch-download，边收边写盘到 save_path
+#[tauri::command]
+pub async fn download_remote_batch(
+    task_id: String,
+    peer_ip: String,
+    share_id: String,
+    file_paths: Vec<String>,
+    save_path: String,
+    password: Option<String>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    log::info!("⬇️ 开始流式批量下载: task={} {}/{} ({} 个文件)", task_id, peer_ip, share_id, file_paths.len());
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    download_cancels().insert(task_id.clone(), cancel_flag.clone());
+
+    let result: Result<(), String> = async {
+        let url = format!("http://{}:14539/api/shares/{}/batch-download", peer_ip, share_id);
+        let client = reqwest::Client::new();
+        let mut req = client
+            .post(&url)
+            .json(&serde_json::json!({ "file_paths": file_paths }));
+        if let Some(pwd) = &password {
+            if !pwd.is_empty() {
+                req = req.header("x-share-password", pwd);
+            }
+        }
+
+        let resp = req.send().await.map_err(|e| format!("请求失败: {}", e))?;
+        let status = resp.status();
+        if status.as_u16() == 401 {
+            return Err("访问被拒绝：密码错误或未提供密码".to_string());
+        }
+        if !status.is_success() {
+            return Err(format!("打包下载失败: HTTP {}", status));
+        }
+
+        let total = resp.content_length().unwrap_or(0);
+        if let Some(parent) = std::path::Path::new(&save_path).parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let mut file = tokio::fs::File::create(&save_path)
+            .await
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+
+        let mut downloaded: u64 = 0;
+        let mut stream = resp.bytes_stream();
+        let mut last_emit = std::time::Instant::now();
+        while let Some(chunk) = stream.next().await {
+            if cancel_flag.load(Ordering::Relaxed) {
+                drop(file);
+                let _ = tokio::fs::remove_file(&save_path).await;
+                return Err("已取消".to_string());
+            }
+            let chunk = chunk.map_err(|e| format!("下载中断: {}", e))?;
+            file.write_all(&chunk).await.map_err(|e| format!("写入文件失败: {}", e))?;
+            downloaded += chunk.len() as u64;
+            if last_emit.elapsed().as_millis() >= 200 {
+                let _ = app_handle.emit(
+                    "download-progress",
+                    serde_json::json!({ "taskId": task_id, "downloaded": downloaded, "total": total }),
+                );
+                last_emit = std::time::Instant::now();
+            }
+        }
+        file.flush().await.map_err(|e| format!("刷新文件失败: {}", e))?;
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({ "taskId": task_id, "downloaded": downloaded, "total": if total == 0 { downloaded } else { total } }),
+        );
+        log::info!("✅ 流式批量下载完成: task={} ({} 字节)", task_id, downloaded);
+        Ok(())
+    }
+    .await;
+
+    download_cancels().remove(&task_id);
+    result
+}
+
+/// 节点延迟测试结果
+#[derive(serde::Serialize)]
+pub struct NodeLatencyResult {
+    pub address: String,
+    pub reachable: bool,
+    pub latency_ms: Option<u64>,
+}
+
+/// 从节点地址解析出 host 和 port（best-effort）
+fn parse_node_host_port(address: &str) -> Option<(String, u16)> {
+    let trimmed = address.trim();
+    // 去掉 scheme
+    let (scheme, rest) = match trimmed.split_once("://") {
+        Some((s, r)) => (s.to_lowercase(), r),
+        None => ("".to_string(), trimmed),
+    };
+    // 去掉路径部分
+    let host_port = rest.split('/').next().unwrap_or(rest);
+    // 默认端口：wss/https->443, ws/http->80, 其它(tcp/udp)->11010
+    let default_port: u16 = match scheme.as_str() {
+        "wss" | "https" => 443,
+        "ws" | "http" => 80,
+        _ => 11010,
+    };
+    if let Some((h, p)) = host_port.rsplit_once(':') {
+        // 处理 IPv6 不在此范围，简单处理
+        if let Ok(port) = p.parse::<u16>() {
+            return Some((h.to_string(), port));
+        }
+        return Some((host_port.to_string(), default_port));
+    }
+    if host_port.is_empty() {
+        return None;
+    }
+    Some((host_port.to_string(), default_port))
+}
+
+/// 测试单个节点的延迟（通过 TCP 连接测时；连接成功或被拒绝都视为可达）
+#[tauri::command]
+pub async fn test_node_latency(address: String) -> NodeLatencyResult {
+    use tokio::net::TcpStream;
+
+    let (host, port) = match parse_node_host_port(&address) {
+        Some(hp) => hp,
+        None => {
+            return NodeLatencyResult {
+                address,
+                reachable: false,
+                latency_ms: None,
+            }
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let connect = TcpStream::connect((host.as_str(), port));
+    match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
+        Ok(Ok(_stream)) => {
+            // 连接成功 = 可达
+            NodeLatencyResult {
+                address,
+                reachable: true,
+                latency_ms: Some(start.elapsed().as_millis() as u64),
+            }
+        }
+        Ok(Err(e)) => {
+            // 连接被拒绝(ConnectionRefused)说明主机可达、端口未开（如UDP节点）
+            let refused = e.kind() == std::io::ErrorKind::ConnectionRefused;
+            NodeLatencyResult {
+                address,
+                reachable: refused,
+                latency_ms: if refused {
+                    Some(start.elapsed().as_millis() as u64)
+                } else {
+                    None
+                },
+            }
+        }
+        Err(_) => NodeLatencyResult {
+            address,
+            reachable: false,
+            latency_ms: None,
+        },
+    }
+}
+
+/// 一键导出日志：将日志目录打包为 zip，返回生成的 zip 路径
+#[tauri::command]
+pub async fn export_logs(_app_handle: tauri::AppHandle) -> Result<String, String> {
+    // 日志目录：%LOCALAPPDATA%/MCTier（与 get_log_file_path 保持一致）
+    let log_dir = dirs::data_local_dir()
+        .map(|d| d.join("MCTier"))
+        .ok_or_else(|| "无法获取日志目录".to_string())?;
+
+    if !log_dir.exists() {
+        return Err("日志目录不存在".to_string());
+    }
+
+    // 输出到桌面（无法获取时回退到日志目录）
+    let out_dir = dirs::desktop_dir().unwrap_or_else(|| log_dir.clone());
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let zip_path = out_dir.join(format!("MCTier_logs_{}.zip", ts));
+
+    // 在阻塞线程里打包，避免阻塞异步运行时
+    let log_dir_clone = log_dir.clone();
+    let zip_path_clone = zip_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let zip_file = std::fs::File::create(&zip_path_clone)
+            .map_err(|e| format!("创建zip失败: {}", e))?;
+        let mut zip = zip::ZipWriter::new(zip_file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(6));
+
+        let entries = std::fs::read_dir(&log_dir_clone)
+            .map_err(|e| format!("读取日志目录失败: {}", e))?;
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // 只打包日志相关文件（.log / .txt），跳过子目录与其它文件
+            let is_log = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("log") || e.eq_ignore_ascii_case("txt"))
+                .unwrap_or(false);
+            if path.is_file() && is_log {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if let Ok(mut f) = std::fs::File::open(&path) {
+                    if zip.start_file(name, options).is_ok() {
+                        let _ = std::io::copy(&mut f, &mut zip);
+                        count += 1;
+                    }
+                }
+            }
+        }
+        zip.finish().map_err(|e| format!("完成zip失败: {}", e))?;
+        if count == 0 {
+            return Err("没有可导出的日志文件".to_string());
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("打包任务失败: {}", e))??;
+
+    Ok(zip_path.to_string_lossy().to_string())
 }
 
 /// 诊断文件共享连接
