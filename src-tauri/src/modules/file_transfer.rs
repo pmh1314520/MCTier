@@ -348,6 +348,30 @@ fn is_share_access_allowed(share: &SharedFolder, headers: &HeaderMap) -> bool {
     true
 }
 
+/// 安全地把共享内的相对路径拼接到共享根目录，防止路径穿越（`..` 逃逸）。
+///
+/// 仅允许「正常」路径段，拒绝绝对路径、根、盘符前缀以及任何 `..` 父目录段，
+/// 从而保证最终路径一定位于共享目录内部。返回 `None` 表示路径非法。
+fn safe_join(base: &Path, rel: &str) -> Option<PathBuf> {
+    use std::path::Component;
+
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        return None;
+    }
+
+    let mut result = base.to_path_buf();
+    for comp in rel_path.components() {
+        match comp {
+            Component::Normal(c) => result.push(c),
+            Component::CurDir => {} // 忽略 "."
+            // 拒绝 ".."、根目录、盘符前缀等可能逃出共享目录的段
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(result)
+}
+
 /// 获取共享列表
 async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
     let shares: Vec<SharedFolder> = state
@@ -380,12 +404,12 @@ async fn list_files(
 
     let base_path = PathBuf::from(&share.path);
     let sub_path = params.get("path").map(|s| s.as_str()).unwrap_or("");
-    let full_path = base_path.join(sub_path);
 
-    // 安全检查：确保路径在共享目录内
-    if !full_path.starts_with(&base_path) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    // 安全检查：使用 safe_join 防止路径穿越，确保路径在共享目录内
+    let full_path = match safe_join(&base_path, sub_path) {
+        Some(p) => p,
+        None => return Err(StatusCode::FORBIDDEN),
+    };
 
     // 读取目录
     let mut files = Vec::new();
@@ -491,12 +515,12 @@ async fn download_file(
     }
 
     let base_path = PathBuf::from(&share.path);
-    let full_path = base_path.join(&file_path);
 
-    // 安全检查
-    if !full_path.starts_with(&base_path) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    // 安全检查：使用 safe_join 防止路径穿越
+    let full_path = match safe_join(&base_path, &file_path) {
+        Some(p) => p,
+        None => return Err(StatusCode::FORBIDDEN),
+    };
 
     if !full_path.exists() {
         return Err(StatusCode::NOT_FOUND);
@@ -675,13 +699,14 @@ async fn batch_download(
     
     // 添加文件到ZIP
     for file_path in &req.file_paths {
-        let full_path = base_path.join(file_path);
-        
-        // 安全检查
-        if !full_path.starts_with(&base_path) {
-            log::warn!("⚠️ 路径安全检查失败: {:?}", full_path);
-            continue;
-        }
+        // 安全检查：使用 safe_join 防止路径穿越
+        let full_path = match safe_join(&base_path, file_path) {
+            Some(p) => p,
+            None => {
+                log::warn!("⚠️ 路径安全检查失败（疑似路径穿越）: {}", file_path);
+                continue;
+            }
+        };
         
         if !full_path.exists() {
             log::warn!("⚠️ 文件不存在: {:?}", full_path);

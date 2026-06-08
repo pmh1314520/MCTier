@@ -1505,11 +1505,9 @@ impl NetworkService {
                             is_target_device = false;
                         }
                         
-                        // 检查设备描述或友好名称（匹配所有 MCTier_ 开头的网卡）
-                        if (line.contains("MCTier_") ||  // 匹配所有 MCTier_ 开头的网卡
-                            line.contains("WinTun") || 
-                            line.contains("wintun") ||
-                            line.contains("EasyTier")) && 
+                        // 检查设备描述或友好名称（仅匹配 MCTier_ 开头的本应用网卡，
+                        // 避免误伤 Tailscale / WireGuard 等其它基于 WinTun 的网卡）
+                        if line.contains("MCTier_") &&
                            !current_instance_id.is_empty() {
                             is_target_device = true;
                         }
@@ -1579,13 +1577,9 @@ impl NetworkService {
                     
                     let mut disabled_count = 0;
                     
-                    // 查找包含"MCTier_"、"WinTun"或"EasyTier"的网卡
+                    // 仅查找 MCTier_ 开头的本应用网卡（避免误伤其它 WinTun VPN）
                     for line in output_str.lines() {
-                        if line.contains("MCTier_") ||  // 匹配所有 MCTier_ 开头的网卡
-                           line.contains("WinTun") || 
-                           line.contains("EasyTier") || 
-                           line.contains("wintun") ||
-                           line.contains("et_") { // EasyTier默认网卡名称格式
+                        if line.contains("MCTier_") {
                             log::info!("🎯 [StopEasyTier] 发现虚拟网卡: {}", line);
                             
                             // 尝试提取网卡名称（通常是最后一列）
@@ -1640,10 +1634,7 @@ impl NetworkService {
             log::info!("🔧 [StopEasyTier] 方法3: 使用PowerShell强制删除MCTier相关网卡...");
             let ps_script = r#"
                 Get-NetAdapter | Where-Object { 
-                    $_.Name -like '*MCTier_*' -or 
-                    $_.Name -like '*WinTun*' -or 
-                    $_.Name -like '*et_*' -or
-                    $_.InterfaceDescription -like '*WinTun*'
+                    $_.Name -like '*MCTier_*'
                 } | ForEach-Object {
                     Write-Host "正在删除网卡: $($_.Name)"
                     try {

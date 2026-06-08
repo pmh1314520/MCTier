@@ -320,6 +320,10 @@ pub async fn leave_lobby(state: State<'_, AppState>) -> Result<(), String> {
     let p2p_signaling = core.get_p2p_signaling();
     let file_transfer = core.get_file_transfer();
     
+    // 【修复】尽早释放 core 锁，避免在数秒级的 stop_easytier（netsh/pnputil/PowerShell）
+    // 期间一直占用 core 锁，导致其它命令阻塞、界面卡死
+    drop(core);
+    
     // 停止HTTP文件服务器
     let ft_service = file_transfer.lock().await;
     ft_service.stop_server().await;
@@ -346,9 +350,13 @@ pub async fn leave_lobby(state: State<'_, AppState>) -> Result<(), String> {
     match lobby_mgr.leave_lobby(&*network_svc).await {
         Ok(_) => {
             log::info!("成功退出大厅");
+            drop(lobby_mgr);
+            drop(network_svc);
             
-            // 更新应用状态为空闲
+            // 更新应用状态为空闲（重新短暂加锁）
+            let core = state.core.lock().await;
             core.set_state(CoreAppState::Idle).await;
+            drop(core);
             
             Ok(())
         }
