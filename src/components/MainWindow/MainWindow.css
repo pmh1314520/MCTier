@@ -355,7 +355,7 @@ a,
 }
 
 .close-app-button {
-  background: linear-gradient(135deg, #8b6f47 0%, #6b5437 100%) !important;
+  background: linear-gradient(135deg, #d9534f 0%, #b73a36 100%) !important;
   color: #ffffff !important;
   border: none !important;
   height: 40px !important;
@@ -363,12 +363,12 @@ a,
 }
 
 .close-app-button:hover {
-  background: linear-gradient(135deg, #8b6f47 0%, #6b5437 100%) !important;
+  background: linear-gradient(135deg, #e25c58 0%, #c34440 100%) !important;
   color: #ffffff !important;
 }
 
 .close-app-button:active {
-  background: linear-gradient(135deg, #6b5437 0%, #5b4427 100%) !important;
+  background: linear-gradient(135deg, #b73a36 0%, #9c302c 100%) !important;
 }
 
 /* 响应式设计 */

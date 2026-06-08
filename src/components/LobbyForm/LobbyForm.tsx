@@ -61,7 +61,7 @@ interface CustomEasyTierNode {
 // 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
-    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WebSockets)' },
+    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WSS)' },
     { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
     { value: 'udp://us01.225284.xyz:11010', label: '海波节点 (备用)' },
   ];
@@ -1042,6 +1042,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               <div style={{ marginTop: '-8px', marginBottom: '12px', textAlign: 'right' }}>
                 <Button
                   size="small"
+                  type="primary"
                   onClick={handleTestNodes}
                   loading={testingNodes}
                   disabled={loading}

@@ -7,7 +7,7 @@
 
 import { useEffect } from 'react';
 
-const CANCEL_TEXTS = ['取消', '关闭', '退出'];
+const CANCEL_KEYWORDS = ['取消', '关闭', '退出'];
 
 export const GlobalButtonTheme: React.FC = () => {
   useEffect(() => {
@@ -15,7 +15,8 @@ export const GlobalButtonTheme: React.FC = () => {
       const btns = document.querySelectorAll<HTMLButtonElement>('button.ant-btn');
       btns.forEach((btn) => {
         const txt = (btn.textContent || '').trim();
-        const isCancel = CANCEL_TEXTS.includes(txt);
+        // 文本包含"取消/关闭/退出"任一关键词即视为否定/退出按钮
+        const isCancel = txt.length > 0 && CANCEL_KEYWORDS.some((w) => txt.includes(w));
         if (isCancel) {
           if (!btn.classList.contains('mct-cancel-btn')) btn.classList.add('mct-cancel-btn');
         } else if (btn.classList.contains('mct-cancel-btn')) {
