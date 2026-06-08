@@ -2,7 +2,7 @@
 .mct-global-tip {
   position: fixed;
   z-index: 99000;
-  transform: translate(-50%, -100%);
+  width: max-content;
   max-width: 240px;
   padding: 6px 10px;
   background: rgba(28, 30, 42, 0.98);
@@ -13,32 +13,27 @@
   font-size: 12px;
   line-height: 1.5;
   white-space: normal;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
   pointer-events: none;
   animation: mctTipFade 0.12s ease-out;
 }
 
-/* 显示在下方时调整锚点 */
-.mct-global-tip-bottom {
-  transform: translate(-50%, 0);
-}
-
-/* 小箭头 */
-.mct-global-tip-top::after,
-.mct-global-tip-bottom::after {
-  content: '';
+/* 箭头（位置由 JS 动态设置 left，指向目标中心） */
+.mct-global-tip-arrow {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  width: 0;
+  height: 0;
   border: 5px solid transparent;
+  transform: translateX(-50%);
 }
 
-.mct-global-tip-top::after {
+.mct-global-tip-top .mct-global-tip-arrow {
   top: 100%;
   border-top-color: rgba(126, 211, 33, 0.35);
 }
 
-.mct-global-tip-bottom::after {
+.mct-global-tip-bottom .mct-global-tip-arrow {
   bottom: 100%;
   border-bottom-color: rgba(126, 211, 33, 0.35);
 }

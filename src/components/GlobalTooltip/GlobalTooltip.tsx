@@ -2,22 +2,32 @@
  * 全局自定义悬停提示
  * - 接管全应用所有元素的原生 title 属性，悬停时抑制浏览器原生提示，
  *   改为显示符合 MCTier 主题的自定义提示气泡。
- * - 一处实现，覆盖所有使用 title 的按钮/图标，无需逐个改造。
+ * - 测量气泡真实尺寸后做视口边界钳制，避免靠边元素的提示超出可视区
+ *   或被挤压成逐字换行；箭头动态指向目标元素中心。
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './GlobalTooltip.css';
 
-interface TipState {
+interface RawTip {
   text: string;
-  x: number;
-  y: number;
-  placement: 'top' | 'bottom';
+  rect: { left: number; top: number; width: number; height: number; bottom: number };
 }
 
+interface Pos {
+  left: number;
+  top: number;
+  placement: 'top' | 'bottom';
+  arrowLeft: number;
+}
+
+const MARGIN = 8;
+
 export const GlobalTooltip: React.FC = () => {
-  const [tip, setTip] = useState<TipState | null>(null);
+  const [raw, setRaw] = useState<RawTip | null>(null);
+  const [pos, setPos] = useState<Pos | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLElement | null>(null);
   const showTimerRef = useRef<number | null>(null);
 
@@ -29,7 +39,6 @@ export const GlobalTooltip: React.FC = () => {
       }
     };
 
-    // 还原某元素被临时摘除的 title
     const restore = (el: HTMLElement | null) => {
       if (el && el.dataset.mctTip !== undefined) {
         el.setAttribute('title', el.dataset.mctTip);
@@ -41,7 +50,8 @@ export const GlobalTooltip: React.FC = () => {
       clearShowTimer();
       restore(currentRef.current);
       currentRef.current = null;
-      setTip(null);
+      setRaw(null);
+      setPos(null);
     };
 
     const handleOver = (e: MouseEvent) => {
@@ -52,12 +62,10 @@ export const GlobalTooltip: React.FC = () => {
       const text = el.getAttribute('title');
       if (!text || !text.trim()) return;
 
-      // 切换到新元素前，先还原上一个
       if (currentRef.current && currentRef.current !== el) {
         restore(currentRef.current);
       }
 
-      // 摘除原生 title，避免系统原生提示弹出
       el.dataset.mctTip = text;
       el.removeAttribute('title');
       currentRef.current = el;
@@ -66,19 +74,16 @@ export const GlobalTooltip: React.FC = () => {
       showTimerRef.current = window.setTimeout(() => {
         if (currentRef.current !== el) return;
         const r = el.getBoundingClientRect();
-        const placeBottom = r.top < 44; // 顶部空间不足则显示在下方
-        setTip({
+        setPos(null);
+        setRaw({
           text,
-          x: r.left + r.width / 2,
-          y: placeBottom ? r.bottom + 8 : r.top - 8,
-          placement: placeBottom ? 'bottom' : 'top',
+          rect: { left: r.left, top: r.top, width: r.width, height: r.height, bottom: r.bottom },
         });
       }, 350);
     };
 
     const handleOut = (e: MouseEvent) => {
       const related = e.relatedTarget as HTMLElement | null;
-      // 仍在当前元素内部移动则不隐藏
       if (currentRef.current && related && currentRef.current.contains(related)) return;
       hide();
     };
@@ -98,15 +103,49 @@ export const GlobalTooltip: React.FC = () => {
     };
   }, []);
 
-  if (!tip) return null;
+  // 气泡渲染后测量真实尺寸并做边界钳制
+  useLayoutEffect(() => {
+    if (!raw || !tipRef.current) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const tw = tipRef.current.offsetWidth;
+    const th = tipRef.current.offsetHeight;
+    const centerX = raw.rect.left + raw.rect.width / 2;
+
+    // 水平：居中对齐目标，再钳制进视口
+    let left = centerX - tw / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - tw - MARGIN));
+
+    // 垂直：默认显示在上方，空间不足则显示在下方
+    let placement: 'top' | 'bottom' = 'top';
+    let top = raw.rect.top - th - 8;
+    if (top < MARGIN) {
+      placement = 'bottom';
+      top = raw.rect.bottom + 8;
+    }
+    top = Math.max(MARGIN, Math.min(top, vh - th - MARGIN));
+
+    // 箭头指向目标中心（限制在气泡内部）
+    const arrowLeft = Math.max(12, Math.min(centerX - left, tw - 12));
+
+    setPos({ left, top, placement, arrowLeft });
+  }, [raw]);
+
+  if (!raw) return null;
 
   return createPortal(
     <div
-      className={`mct-global-tip mct-global-tip-${tip.placement}`}
-      style={{ left: tip.x, top: tip.y }}
+      ref={tipRef}
+      className={`mct-global-tip${pos ? ` mct-global-tip-${pos.placement}` : ''}`}
+      style={{
+        left: pos ? pos.left : -9999,
+        top: pos ? pos.top : -9999,
+        visibility: pos ? 'visible' : 'hidden',
+      }}
       role="tooltip"
     >
-      {tip.text}
+      {raw.text}
+      {pos && <span className="mct-global-tip-arrow" style={{ left: pos.arrowLeft }} />}
     </div>,
     document.body
   );
