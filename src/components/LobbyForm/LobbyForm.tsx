@@ -8,6 +8,8 @@ import type { Lobby, UserConfig } from '../../types';
 import { WarningIcon, StarIcon, DiceIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { FavoriteLobbyManager, type FavoriteLobby } from '../FavoriteLobbyManager/FavoriteLobbyManager';
+import { RecentManager } from '../RecentManager/RecentManager';
+import { recentService, type RecentLobby } from '../../services/recent/recentService';
 import './LobbyForm.css';
 
 const { Title } = Typography;
@@ -137,6 +139,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
+  const [showRecentModal, setShowRecentModal] = useState(false);
   const [privateServerConfig, setPrivateServerConfig] = useState<{
     usePrivateServer: boolean;
     privateEasytierServer: string;
@@ -230,6 +233,18 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       playerName: lobby.playerName || config.playerName || '',
       useDomain: lobby.useDomain ?? false,
     });
+  };
+
+  // 处理选择最近大厅（快速重进）
+  const handleSelectRecent = (lobby: RecentLobby) => {
+    form.setFieldsValue({
+      lobbyName: lobby.name,
+      password: lobby.password,
+      playerName: lobby.playerName || config.playerName || '',
+      useDomain: lobby.useDomain ?? false,
+      ...(lobby.serverNode ? { serverNode: lobby.serverNode } : {}),
+    });
+    if (lobby.serverNode) setShowCustomServer(lobby.serverNode === 'custom');
   };
 
   const resolvedPreferredServer =
@@ -607,6 +622,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       setLobby(lobby);
       setAppState('in-lobby');
 
+      // 记录到"最近大厅"，便于下次快速重进
+      try {
+        recentService.recordLobby({
+          name: values.lobbyName.trim(),
+          password: values.password.trim(),
+          playerName: values.playerName.trim(),
+          useDomain: values.useDomain === true,
+          serverNode: privateServerConfig.usePrivateServer ? undefined : (overrideNode ?? values.serverNode),
+        });
+      } catch (e) {
+        console.warn('记录最近大厅失败（忽略）:', e);
+      }
+
       message.success(
         mode === 'create' ? '大厅创建成功！' : '成功加入大厅！'
       );
@@ -823,6 +851,36 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 whileTap={{ scale: 0.95 }}
               >
                 <StarIcon size={18} />
+              </motion.button>
+
+              {/* 最近联机按钮 */}
+              <motion.button
+                onClick={() => setShowRecentModal(true)}
+                disabled={loading}
+                title="最近联机（快速重进）"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                }}
+                whileHover={{
+                  scale: 1.1,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
               </motion.button>
               
               {mode === 'create' ? (
@@ -1175,6 +1233,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         visible={showFavoritesModal}
         onClose={() => setShowFavoritesModal(false)}
         onSelect={handleSelectFavorite}
+      />
+
+      {/* 最近联机弹窗 */}
+      <RecentManager
+        visible={showRecentModal}
+        onClose={() => setShowRecentModal(false)}
+        onSelectLobby={handleSelectRecent}
       />
     </div>
   );

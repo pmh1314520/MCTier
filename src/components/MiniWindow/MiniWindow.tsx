@@ -7,6 +7,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { recentService } from '../../services/recent/recentService';
 import type { ChatMessage } from '../../types';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
@@ -207,6 +208,12 @@ export const MiniWindow: React.FC = () => {
     p2pChatService.startPolling();
     // 同步聊天历史（新加入的玩家可补齐进房前的聊天记录；已收到的消息会按ID去重）
     void p2pChatService.syncHistory(playerIPs);
+    // 记录一起联机过的玩家（最近玩家列表）
+    try {
+      recentService.recordPlayers(players.map(p => p.name).filter(Boolean));
+    } catch (e) {
+      console.warn('记录最近玩家失败（忽略）:', e);
+    }
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
   }, [players.length, lobby?.virtualIp, currentPlayerId]);
 
