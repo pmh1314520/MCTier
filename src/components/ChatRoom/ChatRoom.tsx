@@ -634,16 +634,15 @@ export const ChatRoom: React.FC = () => {
           const isMe = !!ownName && mentionedName === ownName;
           const isKnown = players.some((p) => p.name === mentionedName);
           if (isMe || isKnown || isEveryone) {
-            const accent = isMe ? '#ffd666' : isEveryone ? '#ffd666' : '#91caff';
+            const accent = isMe ? '#ffe066' : isEveryone ? '#ffe066' : '#aee27a';
             return (
               <span
                 key={`m-${i}-${j}`}
                 style={{
                   color: accent,
-                  fontWeight: 600,
-                  background: 'rgba(0, 0, 0, 0.32)',
-                  borderRadius: 5,
-                  padding: '0 5px',
+                  fontWeight: 700,
+                  WebkitTextStroke: '0.6px rgba(0, 0, 0, 0.9)',
+                  paintOrder: 'stroke fill',
                   margin: '0 1px',
                 }}
               >
@@ -895,7 +894,7 @@ export const ChatRoom: React.FC = () => {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="输入消息，@ 可提醒他人，Shift+Enter换行"
+            placeholder="输入消息…"
             autoSize={{ minRows: 1, maxRows: 3 }}
             maxLength={500}
             style={{ flex: 1 }}

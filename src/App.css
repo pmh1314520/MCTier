@@ -301,3 +301,50 @@ body {
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
 }
+
+/* ========================================
+   全局：标签页选中态统一为绿色
+   ======================================== */
+.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #7ed321 !important;
+  text-shadow: 0 0 1px rgba(126, 211, 33, 0.25);
+}
+
+.ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #a0e85b !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #7ed321 !important;
+}
+
+/* 全局：选中标签页内容色块/链接色统一绿色（如分段控件） */
+.ant-tabs-tab-btn:focus:not(:focus-visible),
+.ant-tabs-tab-btn:active {
+  color: #7ed321 !important;
+}
+
+/* 全局：消息/通知提示层级高于弹窗，避免被房主管理等弹窗盖住 */
+.ant-message {
+  z-index: 2050 !important;
+}
+
+.ant-notification {
+  z-index: 2050 !important;
+}
+
+/* 全局：复选框选中态为绿色 */
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #52c41a !important;
+  border-color: #52c41a !important;
+}
+
+.ant-checkbox-checked:not(.ant-checkbox-disabled):hover .ant-checkbox-inner {
+  background-color: #73d13d !important;
+  border-color: #73d13d !important;
+}
+
+.ant-checkbox-wrapper:hover .ant-checkbox-inner,
+.ant-checkbox:hover .ant-checkbox-inner {
+  border-color: #52c41a !important;
+}

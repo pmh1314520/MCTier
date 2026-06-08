@@ -784,7 +784,7 @@
   margin-bottom: 5px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .mini-opacity-control-wrapper {
@@ -792,6 +792,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-right: 8px;
 }
 
 .mini-opacity-label {

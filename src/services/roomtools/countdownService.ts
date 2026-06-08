@@ -76,17 +76,26 @@ class CountdownService {
   private playAlarm(): void {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.2;
-      osc.frequency.value = 880;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      setTimeout(() => {
-        osc.stop();
-        ctx.close().catch(() => {});
-      }, 500);
+      // 连续响三声
+      const beeps = 3;
+      const beepDuration = 0.18; // 每声时长
+      const gap = 0.12; // 间隔
+      for (let i = 0; i < beeps; i++) {
+        const start = ctx.currentTime + i * (beepDuration + gap);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + beepDuration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + beepDuration);
+      }
+      // 三声播放完毕后关闭上下文
+      const total = beeps * (beepDuration + gap) + 0.2;
+      setTimeout(() => ctx.close().catch(() => {}), total * 1000);
     } catch {
       /* ignore */
     }
