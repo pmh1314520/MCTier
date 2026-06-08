@@ -391,3 +391,23 @@ body {
   color: #95de64 !important;
   background: rgba(82, 196, 26, 0.22) !important;
 }
+
+/* 全局：取消/关闭/退出类按钮统一红色（覆盖绿色/主按钮样式） */
+.ant-btn.mct-cancel-btn:not(:disabled),
+.ant-btn-primary.mct-cancel-btn:not(:disabled) {
+  border-color: rgba(255, 77, 79, 0.5) !important;
+  color: #ff7875 !important;
+  background: rgba(255, 77, 79, 0.12) !important;
+  background-image: none !important;
+}
+
+.ant-btn.mct-cancel-btn:not(:disabled):hover {
+  border-color: #ff4d4f !important;
+  color: #ff9c9e !important;
+  background: rgba(255, 77, 79, 0.2) !important;
+}
+
+.ant-btn.mct-cancel-btn:not(:disabled):active {
+  border-color: #d9363e !important;
+  background: rgba(255, 77, 79, 0.26) !important;
+}
