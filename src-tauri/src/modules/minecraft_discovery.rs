@@ -233,3 +233,46 @@ pub async fn scan_minecraft_servers(
 pub async fn query_minecraft_server(ip: String, port: Option<u16>) -> Option<DiscoveredServer> {
     query_server(&ip, port.unwrap_or(25565)).await
 }
+
+/// 单个对等节点的连接质量
+#[derive(Debug, Clone, Serialize)]
+pub struct PeerLatency {
+    pub ip: String,
+    /// 延迟（毫秒），None 表示不可达
+    #[serde(rename = "latencyMs")]
+    pub latency_ms: Option<u64>,
+}
+
+/// 测量到某个虚拟 IP 的延迟（通过 TCP 连接其聊天端口 14540 估算 RTT）
+async fn measure_one(ip: &str) -> Option<u64> {
+    let start = std::time::Instant::now();
+    let connect = TcpStream::connect((ip, 14540u16));
+    match tokio::time::timeout(Duration::from_millis(2000), connect).await {
+        Ok(Ok(_stream)) => Some(start.elapsed().as_millis() as u64),
+        // 连接被拒绝也说明主机可达（端口可能未开），仍记录 RTT
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+            Some(start.elapsed().as_millis() as u64)
+        }
+        _ => None,
+    }
+}
+
+/// 批量测量到大厅内各玩家虚拟 IP 的延迟，用于连接质量面板
+#[tauri::command]
+pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
+    let mut tasks = Vec::new();
+    for ip in peer_ips {
+        let ip_clone = ip.clone();
+        tasks.push(tokio::spawn(async move {
+            let latency = measure_one(&ip_clone).await;
+            PeerLatency { ip: ip_clone, latency_ms: latency }
+        }));
+    }
+    let mut results = Vec::new();
+    for task in tasks {
+        if let Ok(r) = task.await {
+            results.push(r);
+        }
+    }
+    results
+}

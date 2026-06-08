@@ -46,6 +46,7 @@ export const MiniWindow: React.FC = () => {
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
+  const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
@@ -206,6 +207,37 @@ export const MiniWindow: React.FC = () => {
     p2pChatService.startPolling();
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
   }, [players.length, lobby?.virtualIp, currentPlayerId]);
+
+  // 【新增】周期性测量到各玩家的延迟，用于连接质量显示（每5秒一次）
+  useEffect(() => {
+    if (!lobby || players.length === 0) {
+      setPeerLatencies({});
+      return;
+    }
+    let cancelled = false;
+    const measure = async () => {
+      const ips = players.map(p => p.virtualIp).filter(Boolean) as string[];
+      if (ips.length === 0) return;
+      try {
+        const results = await invoke<{ ip: string; latencyMs: number | null }[]>(
+          'measure_peers_latency',
+          { peerIps: ips }
+        );
+        if (cancelled) return;
+        const map: Record<string, number | null> = {};
+        results.forEach(r => { map[r.ip] = r.latencyMs; });
+        setPeerLatencies(map);
+      } catch (error) {
+        console.warn('测量延迟失败（忽略）:', error);
+      }
+    };
+    void measure();
+    const timer = window.setInterval(() => void measure(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [players.length, lobby?.virtualIp]);
 
   // 监听ESC键返回大厅
   useEffect(() => {
@@ -1170,6 +1202,21 @@ export const MiniWindow: React.FC = () => {
                               <span className="mini-player-name">
                                 {player.name}
                               </span>
+                              {(() => {
+                                const lat = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
+                                if (lat === undefined) return null;
+                                const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
+                                const text = lat === null ? '离线' : `${lat}ms`;
+                                return (
+                                  <span
+                                    title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, marginLeft: 6 }}
+                                  >
+                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                                    {text}
+                                  </span>
+                                );
+                              })()}
                               <motion.button
                                 className="player-virtual-ip-btn"
                                 onClick={async () => {

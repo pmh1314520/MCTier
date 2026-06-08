@@ -90,7 +90,7 @@ use modules::easytier_advanced_commands::{
 };
 
 use modules::minecraft_discovery::{
-    scan_minecraft_servers, query_minecraft_server,
+    scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
 };
 
 #[tauri::command]
@@ -191,7 +191,7 @@ pub fn run() {
             save_global_easytier_advanced_config, get_global_easytier_advanced_config,
             save_lobby_easytier_advanced_config, get_lobby_easytier_advanced_config,
             clear_lobby_easytier_advanced_config,
-            scan_minecraft_servers, query_minecraft_server,
+            scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");
