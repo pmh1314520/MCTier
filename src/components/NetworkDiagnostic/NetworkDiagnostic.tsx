@@ -145,6 +145,41 @@ export const NetworkDiagnostic: React.FC<NetworkDiagnosticProps> = ({
     }
     setResults([...checks]);
 
+    // 5. 检测安全软件（被拦截是组网失败的常见原因）
+    checks.push({
+      name: '安全软件检测',
+      status: 'checking',
+      message: '正在检测安全软件...',
+    });
+    setResults([...checks]);
+
+    const avIndex = checks.length - 1;
+    try {
+      const avList = await invoke<string[]>('detect_security_software');
+      if (avList && avList.length > 0) {
+        checks[avIndex] = {
+          name: '安全软件检测',
+          status: 'warning',
+          message: `⚠ 检测到安全软件：${avList.join('、')}`,
+          solution: `安全软件可能拦截虚拟网卡或联机流量。建议将 MCTier 加入${avList.join('、')}的信任/白名单，并以管理员身份运行。`,
+        };
+      } else {
+        checks[avIndex] = {
+          name: '安全软件检测',
+          status: 'success',
+          message: '✓ 未检测到常见安全软件拦截',
+        };
+      }
+    } catch {
+      checks[avIndex] = {
+        name: '安全软件检测',
+        status: 'warning',
+        message: '⚠ 无法检测安全软件',
+        solution: '若组网失败，请尝试将 MCTier 加入杀毒软件白名单',
+      };
+    }
+    setResults([...checks]);
+
     setIsChecking(false);
   };
 

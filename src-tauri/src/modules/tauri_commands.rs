@@ -2549,6 +2549,68 @@ pub async fn test_node_latency(address: String) -> NodeLatencyResult {
     }
 }
 
+/// 检测系统中正在运行的常见安全软件 / 杀毒软件（用于排障：被拦截是组网失败的常见原因）
+///
+/// 返回检测到的安全软件名称列表（中文友好名）。仅 Windows 有效。
+#[tauri::command]
+pub async fn detect_security_software() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // 进程名(小写) -> 友好名
+        let known: &[(&str, &str)] = &[
+            ("360tray.exe", "360安全卫士"),
+            ("360safe.exe", "360安全卫士"),
+            ("360sd.exe", "360杀毒"),
+            ("zhudongfangyu.exe", "360主动防御"),
+            ("huorong.exe", "火绒安全"),
+            ("hipstray.exe", "火绒安全"),
+            ("wsctrl.exe", "火绒安全"),
+            ("qqpctray.exe", "腾讯电脑管家"),
+            ("qqpcrtp.exe", "腾讯电脑管家"),
+            ("kxetray.exe", "金山毒霸"),
+            ("kxescore.exe", "金山毒霸"),
+            ("ksafe.exe", "金山卫士"),
+            ("baidusdtray.exe", "百度卫士"),
+            ("avp.exe", "卡巴斯基"),
+            ("avgui.exe", "AVG"),
+            ("avastui.exe", "Avast"),
+            ("msmpeng.exe", "Windows Defender"),
+            ("nortonsecurity.exe", "诺顿"),
+            ("mcshield.exe", "McAfee"),
+            ("ecls.exe", "ESET NOD32"),
+            ("egui.exe", "ESET NOD32"),
+        ];
+
+        let output = tokio::process::Command::new("tasklist")
+            .args(&["/fo", "csv", "/nh"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .await;
+
+        let mut detected: Vec<String> = Vec::new();
+        if let Ok(out) = output {
+            // tasklist 输出可能是 GBK，这里用 lossy 处理；进程名是 ASCII，匹配不受影响
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            for (proc_name, friendly) in known {
+                if text.contains(proc_name) {
+                    let f = friendly.to_string();
+                    if !detected.contains(&f) {
+                        detected.push(f);
+                    }
+                }
+            }
+        }
+        detected
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
 /// 一键导出日志：将日志目录打包为 zip，返回生成的 zip 路径
 #[tauri::command]
 pub async fn export_logs(_app_handle: tauri::AppHandle) -> Result<String, String> {
