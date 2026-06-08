@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Modal, Form, Input, Switch, InputNumber, message, Spin } from 'antd';
+import { Modal, Form, Input, Switch, InputNumber, Select, message, Spin } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import './ExitNodeAdvancedModal.css';
 
@@ -219,14 +219,17 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
               <div className="port-forward-list">
                 {portForwardRules.map((rule, index) => (
                   <div key={index} className="port-forward-rule">
-                    <select
+                    <Select
                       value={rule.protocol}
-                      onChange={(e) => handleUpdatePortForwardRule(index, 'protocol', e.target.value)}
+                      onChange={(val) => handleUpdatePortForwardRule(index, 'protocol', val)}
                       className="protocol-select"
-                    >
-                      <option value="tcp">TCP</option>
-                      <option value="udp">UDP</option>
-                    </select>
+                      style={{ width: 92 }}
+                      getPopupContainer={(t) => (t.parentElement as HTMLElement) || document.body}
+                      options={[
+                        { value: 'tcp', label: 'TCP' },
+                        { value: 'udp', label: 'UDP' },
+                      ]}
+                    />
                     <Input
                       value={rule.bind_addr}
                       onChange={(e) => handleUpdatePortForwardRule(index, 'bind_addr', e.target.value)}

@@ -324,13 +324,37 @@ body {
   color: #7ed321 !important;
 }
 
-/* 全局：消息/通知提示层级高于弹窗，避免被房主管理等弹窗盖住 */
+/* 全局：消息/通知提示层级最高，永不被任何弹窗/UI 盖住 */
 .ant-message {
-  z-index: 2050 !important;
+  z-index: 100000 !important;
+}
+
+.ant-message-notice-wrapper {
+  z-index: 100000 !important;
 }
 
 .ant-notification {
-  z-index: 2050 !important;
+  z-index: 100000 !important;
+}
+
+/* 全局：鼠标悬停提示（Tooltip）统一为 MCTier 暗色主题样式 */
+.ant-tooltip {
+  z-index: 99000 !important;
+}
+
+.ant-tooltip .ant-tooltip-inner {
+  background: rgba(28, 30, 42, 0.98) !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(126, 211, 33, 0.35) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45) !important;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+}
+
+.ant-tooltip .ant-tooltip-arrow::before,
+.ant-tooltip .ant-tooltip-arrow::after {
+  background: rgba(28, 30, 42, 0.98) !important;
 }
 
 /* 全局：复选框选中态为绿色 */

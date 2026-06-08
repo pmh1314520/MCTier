@@ -72,7 +72,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
           </Paragraph>
           <Space>
             <InputNumber min={0} max={100} value={maxValue} onChange={(v) => setMaxValue(v ?? 0)} />
-            <Button onClick={applyMax}>应用</Button>
+            <Button type="primary" onClick={applyMax}>应用</Button>
           </Space>
         </div>
 

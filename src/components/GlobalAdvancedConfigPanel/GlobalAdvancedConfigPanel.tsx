@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Collapse, Form, Input, Switch, InputNumber, message, Spin } from 'antd';
+import { Collapse, Form, Input, Switch, InputNumber, Select, message, Spin } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import './GlobalAdvancedConfigPanel.css';
 
@@ -168,47 +168,14 @@ export const GlobalAdvancedConfigPanel: React.FC = () => {
                           name={[field.name, 'protocol']}
                           style={{ marginBottom: 0 }}
                         >
-                          <div style={{ position: 'relative' }}>
-                            <select style={{
-                              width: '100%',
-                              padding: '6px 30px 6px 10px',
-                              background: 'rgba(30, 30, 40, 0.8)',
-                              border: '1px solid rgba(126, 211, 33, 0.3)',
-                              borderRadius: '8px',
-                              color: '#fff',
-                              fontSize: '13px',
-                              cursor: 'pointer',
-                              outline: 'none',
-                              transition: 'all 0.2s',
-                              appearance: 'none',
-                              WebkitAppearance: 'none',
-                              MozAppearance: 'none'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(126, 211, 33, 0.6)';
-                              e.currentTarget.style.background = 'rgba(30, 30, 40, 0.95)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(126, 211, 33, 0.3)';
-                              e.currentTarget.style.background = 'rgba(30, 30, 40, 0.8)';
-                            }}>
-                              <option value="tcp" style={{ background: '#1a1a24', color: '#fff', padding: '8px' }}>TCP</option>
-                              <option value="udp" style={{ background: '#1a1a24', color: '#fff', padding: '8px' }}>UDP</option>
-                            </select>
-                            {/* 自定义下拉箭头 */}
-                            <div style={{
-                              position: 'absolute',
-                              right: '10px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              pointerEvents: 'none',
-                              color: 'rgba(126, 211, 33, 0.6)'
-                            }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <polyline points="6 9 12 15 18 9"></polyline>
-                              </svg>
-                            </div>
-                          </div>
+                          <Select
+                            style={{ width: '100%' }}
+                            getPopupContainer={(t) => (t.parentElement as HTMLElement) || document.body}
+                            options={[
+                              { value: 'tcp', label: 'TCP' },
+                              { value: 'udp', label: 'UDP' },
+                            ]}
+                          />
                         </Form.Item>
                       </div>
                       

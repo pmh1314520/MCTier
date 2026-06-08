@@ -52,7 +52,7 @@ function App() {
           theme={{
             algorithm: theme.darkAlgorithm,
             token: {
-              colorPrimary: '#4a5568',
+              colorPrimary: '#52c41a',
               colorSuccess: '#52c41a',
               colorWarning: '#f59e0b',
               colorError: '#ef4444',
@@ -595,7 +595,7 @@ function App() {
         theme={{
           algorithm: theme.darkAlgorithm,
           token: {
-            colorPrimary: '#4a5568',
+            colorPrimary: '#52c41a',
             colorSuccess: '#52c41a',
             colorWarning: '#f59e0b',
             colorError: '#ef4444',
