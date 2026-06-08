@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Switch, InputNumber, message, Spin } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { VoiceDevicePanel } from '../VoiceSettings/VoiceSettings';
 import './LobbySettingsModal.css';
 
 interface LobbySettingsModalProps {
@@ -170,6 +171,13 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
           <h2>大厅动态设置</h2>
           <p>修改设置后将自动重新加入大厅</p>
         </div>
+
+        {/* 语音设备设置（麦克风 / 扬声器选择与试音） */}
+        <div className="lobby-voice-section">
+          <div className="lobby-voice-section-title">语音设备</div>
+          <VoiceDevicePanel active={visible} />
+        </div>
+        <div className="lobby-voice-divider" />
 
         <Spin spinning={loading}>
           <div className="use-global-config-switch">

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Button, Spin, Empty, message, Tag } from 'antd';
+import { Modal, Button, Spin, Empty, message, Tag, InputNumber, Tooltip } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores/appStore';
@@ -26,10 +26,18 @@ interface MinecraftWorldsModalProps {
   onClose: () => void;
 }
 
+const DEFAULT_MC_PORT = 25565;
+const MC_PORT_KEY = 'mctier_mc_scan_port';
+
 export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visible, onClose }) => {
   const { players, lobby, currentPlayerId, config } = useAppStore();
   const [scanning, setScanning] = useState(false);
   const [servers, setServers] = useState<DiscoveredServer[]>([]);
+  // 扫描端口（默认 25565，支持自定义并本地记忆）
+  const [port, setPort] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(MC_PORT_KEY));
+    return saved >= 1 && saved <= 65535 ? saved : DEFAULT_MC_PORT;
+  });
 
   // 构建 IP -> 玩家名 映射（含自己）
   const buildIpNameMap = useCallback((): Map<string, string> => {
@@ -58,7 +66,7 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
       }
       const result = await invoke<DiscoveredServer[]>('scan_minecraft_servers', {
         peerIps: ips,
-        port: 25565,
+        port,
       });
       // 回填玩家名 + 按延迟排序
       const withNames = result
@@ -71,7 +79,7 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
     } finally {
       setScanning(false);
     }
-  }, [scanning, buildIpNameMap]);
+  }, [scanning, buildIpNameMap, port]);
 
   // 打开时自动扫描一次
   useEffect(() => {
@@ -106,8 +114,30 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
         </Button>,
       ]}
     >
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>扫描端口</span>
+        <Tooltip title="Minecraft「对局域网开放」默认端口为 25565；若你自建服务器或修改过端口，请填写实际端口后重新扫描">
+          <InputNumber
+            min={1}
+            max={65535}
+            value={port}
+            onChange={(v) => {
+              const p = v && v >= 1 && v <= 65535 ? v : DEFAULT_MC_PORT;
+              setPort(p);
+              try { localStorage.setItem(MC_PORT_KEY, String(p)); } catch { /* ignore */ }
+            }}
+            style={{ width: 110 }}
+          />
+        </Tooltip>
+        <Button size="small" onClick={() => { setPort(DEFAULT_MC_PORT); try { localStorage.setItem(MC_PORT_KEY, String(DEFAULT_MC_PORT)); } catch { /* ignore */ } }}>
+          默认
+        </Button>
+        <Button size="small" type="primary" onClick={() => void handleScan()} loading={scanning}>
+          扫描此端口
+        </Button>
+      </div>
       <div style={{ marginBottom: 12, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-        自动扫描大厅成员是否开启了 Minecraft 世界（需对方开启「对局域网开放」或自建服务器，默认端口 25565）。
+        自动扫描大厅成员是否在端口 {port} 上开启了 Minecraft 世界（需对方开启「对局域网开放」或自建服务器）。
       </div>
 
       {scanning && servers.length === 0 ? (

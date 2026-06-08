@@ -34,3 +34,5 @@ export { ScreenShareIcon } from './ScreenShareIcon';
 export { StarIcon } from './StarIcon';
 export { DiceIcon } from './DiceIcon';
 export { SettingsIcon } from './SettingsIcon';
+export { CrownIcon } from './CrownIcon';
+export { GlobeIcon } from './GlobeIcon';

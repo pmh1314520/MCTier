@@ -4,6 +4,10 @@
  * - 麦克风试音：实时电平条
  * - 扬声器试音：在选定输出设备上播放测试音
  * 说明：输入设备会在下次开启/重开麦克风时生效；输出设备对已连接对端实时生效。
+ *
+ * 该模块导出两部分：
+ * - VoiceDevicePanel：可内嵌的设置面板（用于「大厅动态设置」中集成）
+ * - VoiceSettings：独立弹窗（兼容旧调用，内部复用 VoiceDevicePanel）
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -13,17 +17,20 @@ import { webrtcClient } from '../../services';
 
 const { Text } = Typography;
 
-interface VoiceSettingsProps {
-  visible: boolean;
-  onClose: () => void;
-}
-
 interface DeviceOption {
   value: string;
   label: string;
 }
 
-export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }) => {
+interface VoiceDevicePanelProps {
+  /** 面板是否处于激活状态（如所在弹窗是否打开），用于控制设备枚举与试音清理 */
+  active?: boolean;
+}
+
+/**
+ * 语音设备设置面板（无弹窗外壳，可内嵌）
+ */
+export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = true }) => {
   const [inputs, setInputs] = useState<DeviceOption[]>([]);
   const [outputs, setOutputs] = useState<DeviceOption[]>([]);
   const [inputId, setInputId] = useState<string>('');
@@ -36,6 +43,10 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }
   const testStreamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
+
+  // 下拉框渲染到自身父节点，避免在透明窗口/弹窗中出现层级错误（显示在弹窗背后无法点击）
+  const popupContainer = (triggerNode: HTMLElement) =>
+    (triggerNode.parentElement as HTMLElement) || document.body;
 
   const loadDevices = async () => {
     try {
@@ -63,8 +74,25 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }
     }
   };
 
+  const stopMicTest = () => {
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (testStreamRef.current) {
+      testStreamRef.current.getTracks().forEach((t) => t.stop());
+      testStreamRef.current = null;
+    }
+    if (ctxRef.current) {
+      ctxRef.current.close().catch(() => {});
+      ctxRef.current = null;
+    }
+    setTesting(false);
+    setLevel(0);
+  };
+
   useEffect(() => {
-    if (visible) {
+    if (active) {
       setInputId(audioDevices.getInputDeviceId());
       setOutputId(audioDevices.getOutputDeviceId());
       void loadDevices();
@@ -73,7 +101,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }
     }
     return () => stopMicTest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  }, [active]);
 
   const handleInputChange = (id: string) => {
     setInputId(id);
@@ -131,23 +159,6 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }
     }
   };
 
-  const stopMicTest = () => {
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (testStreamRef.current) {
-      testStreamRef.current.getTracks().forEach((t) => t.stop());
-      testStreamRef.current = null;
-    }
-    if (ctxRef.current) {
-      ctxRef.current.close().catch(() => {});
-      ctxRef.current = null;
-    }
-    setTesting(false);
-    setLevel(0);
-  };
-
   // 扬声器试音：播放一段测试音并路由到选定输出设备
   const testOutput = async () => {
     try {
@@ -179,52 +190,68 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }
   };
 
   return (
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <div>
+        <Text strong>麦克风（输入）</Text>
+        <Select
+          style={{ width: '100%', marginTop: 6 }}
+          value={inputId}
+          onChange={handleInputChange}
+          options={inputs}
+          getPopupContainer={popupContainer}
+        />
+        <div style={{ marginTop: 10 }}>
+          <Space>
+            {!testing ? (
+              <Button size="small" onClick={() => void startMicTest()}>开始试音</Button>
+            ) : (
+              <Button size="small" danger onClick={stopMicTest}>停止试音</Button>
+            )}
+            <Text type="secondary" style={{ fontSize: 12 }}>对着麦克风说话，观察下方电平</Text>
+          </Space>
+          <Progress percent={level} showInfo={false} strokeColor={level > 60 ? '#52c41a' : '#1677ff'} style={{ marginTop: 6 }} />
+        </div>
+      </div>
+
+      <div>
+        <Text strong>扬声器（输出）</Text>
+        {supportsOutput ? (
+          <>
+            <Select
+              style={{ width: '100%', marginTop: 6 }}
+              value={outputId}
+              onChange={handleOutputChange}
+              options={outputs}
+              getPopupContainer={popupContainer}
+            />
+            <div style={{ marginTop: 10 }}>
+              <Button size="small" onClick={() => void testOutput()}>扬声器试音</Button>
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 6 }}>
+            <Text type="secondary">当前环境不支持切换输出设备，将使用系统默认扬声器。</Text>
+          </div>
+        )}
+      </div>
+    </Space>
+  );
+};
+
+interface VoiceSettingsProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+/**
+ * 语音设备设置独立弹窗（兼容旧调用）
+ */
+export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }) => {
+  return (
     <Modal title="语音设备设置" open={visible} onCancel={onClose} footer={[
       <Button key="close" type="primary" onClick={onClose}>完成</Button>,
     ]} width={460} centered>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <div>
-          <Text strong>麦克风（输入）</Text>
-          <Select
-            style={{ width: '100%', marginTop: 6 }}
-            value={inputId}
-            onChange={handleInputChange}
-            options={inputs}
-          />
-          <div style={{ marginTop: 10 }}>
-            <Space>
-              {!testing ? (
-                <Button size="small" onClick={() => void startMicTest()}>开始试音</Button>
-              ) : (
-                <Button size="small" danger onClick={stopMicTest}>停止试音</Button>
-              )}
-              <Text type="secondary" style={{ fontSize: 12 }}>对着麦克风说话，观察下方电平</Text>
-            </Space>
-            <Progress percent={level} showInfo={false} strokeColor={level > 60 ? '#52c41a' : '#1677ff'} style={{ marginTop: 6 }} />
-          </div>
-        </div>
-
-        <div>
-          <Text strong>扬声器（输出）</Text>
-          {supportsOutput ? (
-            <>
-              <Select
-                style={{ width: '100%', marginTop: 6 }}
-                value={outputId}
-                onChange={handleOutputChange}
-                options={outputs}
-              />
-              <div style={{ marginTop: 10 }}>
-                <Button size="small" onClick={() => void testOutput()}>扬声器试音</Button>
-              </div>
-            </>
-          ) : (
-            <div style={{ marginTop: 6 }}>
-              <Text type="secondary">当前环境不支持切换输出设备，将使用系统默认扬声器。</Text>
-            </div>
-          )}
-        </div>
-      </Space>
+      <VoiceDevicePanel active={visible} />
     </Modal>
   );
 };

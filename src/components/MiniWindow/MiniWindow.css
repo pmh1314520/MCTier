@@ -180,6 +180,32 @@
   color: #ffffff;
 }
 
+/* 大厅卡片右侧操作按钮组（局域网世界 + 复制） */
+.lobby-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lobby-card-action-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-card-action-btn:hover {
+  background: rgba(126, 211, 33, 0.2);
+  color: #ffffff;
+}
+
 .lobby-card-info {
   display: flex;
   align-items: center;

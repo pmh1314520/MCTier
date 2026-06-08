@@ -838,32 +838,18 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             <Title level={2} className="lobby-form-title" style={{ margin: 0 }}>
               {mode === 'create' ? '创建大厅' : '加入大厅'}
             </Title>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-start' }}>
+            <div className="lobby-action-bar">
               {/* 常用信息列表按钮 */}
               <motion.button
                 onClick={() => setShowFavoritesModal(true)}
                 disabled={loading}
                 title="常用大厅信息"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  width: '36px',
-                  height: '36px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                }}
-                whileHover={{ 
-                  scale: 1.1,
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderColor: 'rgba(255, 255, 255, 0.4)',
-                }}
-                whileTap={{ scale: 0.95 }}
+                className="lobby-action-btn"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.94 }}
               >
                 <StarIcon size={18} />
+                <span className="lobby-action-label">常用</span>
               </motion.button>
 
               {/* 最近联机按钮 */}
@@ -871,29 +857,15 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 onClick={() => setShowRecentModal(true)}
                 disabled={loading}
                 title="最近联机（快速重进）"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  width: '36px',
-                  height: '36px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                }}
-                whileHover={{
-                  scale: 1.1,
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderColor: 'rgba(255, 255, 255, 0.4)',
-                }}
-                whileTap={{ scale: 0.95 }}
+                className="lobby-action-btn"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.94 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
+                <span className="lobby-action-label">最近</span>
               </motion.button>
 
               {/* 公开广场按钮 */}
@@ -901,81 +873,38 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 onClick={() => setShowPublicPlaza(true)}
                 disabled={loading}
                 title="公开广场（浏览并加入公开大厅）"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  width: '36px',
-                  height: '36px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                }}
-                whileHover={{
-                  scale: 1.1,
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderColor: 'rgba(255, 255, 255, 0.4)',
-                }}
-                whileTap={{ scale: 0.95 }}
+                className="lobby-action-btn"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.94 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="2" y1="12" x2="22" y2="12"></line>
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                 </svg>
+                <span className="lobby-action-label">广场</span>
               </motion.button>
-              
+
               {mode === 'create' ? (
                 <motion.button
                   onClick={handleRandomGenerate}
                   disabled={loading}
                   title="随机生成大厅名称和密码"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '8px',
-                    width: '36px',
-                    height: '36px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                  }}
-                  whileHover={{ 
-                    scale: 1.1,
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    borderColor: 'rgba(255, 255, 255, 0.4)',
-                  }}
-                  whileTap={{ scale: 0.95 }}
+                  className="lobby-action-btn"
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.94 }}
                 >
                   <DiceIcon size={20} />
+                  <span className="lobby-action-label">随机</span>
                 </motion.button>
               ) : (
                 <motion.button
                   onClick={() => recognizeClipboard(false)}
                   disabled={loading}
                   title="识别剪贴板中的大厅信息"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '8px',
-                    width: '36px',
-                    height: '36px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                  }}
-                  whileHover={{ 
-                    scale: 1.1,
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    borderColor: 'rgba(255, 255, 255, 0.4)',
-                  }}
-                  whileTap={{ scale: 0.95 }}
+                  className="lobby-action-btn"
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.94 }}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
@@ -983,6 +912,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     <line x1="9" y1="12" x2="15" y2="12" />
                     <line x1="9" y1="16" x2="15" y2="16" />
                   </svg>
+                  <span className="lobby-action-label">识别</span>
                 </motion.button>
               )}
             </div>

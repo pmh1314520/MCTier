@@ -1,24 +1,22 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
-import { Modal, Spin, message, Tooltip } from 'antd';
-import { open } from '@tauri-apps/plugin-shell';
+import { Modal, Spin, Tooltip, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
+import { audioService } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { speakingDetector } from '../../services/voice/SpeakingDetector';
 import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
 import type { ChatMessage } from '../../types';
-import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon } from '../icons';
+import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
-import { RoomTools } from '../RoomTools/RoomTools';
-import { VoiceSettings } from '../VoiceSettings/VoiceSettings';
 import { HostPanel } from '../HostPanel/HostPanel';
 import './MiniWindow.css';
 
@@ -49,6 +47,8 @@ export const MiniWindow: React.FC = () => {
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
 
+  const { message } = AntdApp.useApp();
+
   const [collapsed, setCollapsed] = useState(false);
   const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -57,8 +57,6 @@ export const MiniWindow: React.FC = () => {
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
-  const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
-  const [showVoiceSettings, setShowVoiceSettings] = useState(false); // 语音设备设置弹窗
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
   const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
@@ -188,10 +186,33 @@ export const MiniWindow: React.FC = () => {
       
       addChatMessage(chatMessage);
       
-      // 如果不在聊天室界面，播放新消息提示音
-      if (!(window as any).__isInChatRoom__) {
-        console.log('🔔 [MiniWindow] 不在聊天室，播放新消息提示音');
-        // TODO: 播放提示音
+      // 消息提示音逻辑（支持 @ 提及）：
+      // - 自己发的消息：不响
+      // - 消息中没有 @ 任何人：所有人都响（不在聊天室时）
+      // - 消息 @ 了人：仅被 @ 的人（或 @所有人/@全体）响，其他人收到但不响
+      if (message.playerId !== currentPlayerId) {
+        const content = message.content || '';
+        const myName = (config.playerName || '').trim();
+        const mentionRegex = /@([^\s@]{1,20})/g;
+        const mentioned: string[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = mentionRegex.exec(content)) !== null) {
+          mentioned.push(m[1]);
+        }
+        const hasMention = mentioned.length > 0;
+        const mentionsEveryone = mentioned.some((n) => n === '所有人' || n === '全体' || n.toLowerCase() === 'all');
+        const mentionsMe = !!myName && mentioned.some((n) => n === myName);
+        // 是否应当触发提示音
+        const shouldNotify = !hasMention || mentionsEveryone || mentionsMe;
+
+        if (shouldNotify && !(window as any).__isInChatRoom__) {
+          console.log('🔔 [MiniWindow] 触发新消息提示音', { hasMention, mentionsMe, mentionsEveryone });
+          audioService.play('newMessage').catch((err) => {
+            console.error('播放新消息提示音失败:', err);
+          });
+        } else {
+          console.log('🔕 [MiniWindow] 不触发提示音（未被@或在聊天室）', { hasMention, mentionsMe, mentionsEveryone });
+        }
       }
     });
 
@@ -746,27 +767,10 @@ export const MiniWindow: React.FC = () => {
       
       await writeText(lobbyInfo);
       
-      // 显示提示信息
-      Modal.success({
-        title: '大厅信息已复制',
-        content: (
-          <div style={{ lineHeight: '1.8' }}>
-            <p style={{ marginBottom: '12px' }}>
-              大厅信息已复制到剪贴板！
-            </p>
-            <p style={{ marginBottom: '8px', color: 'rgba(255,255,255,0.8)' }}>
-              📋 将复制的内容分享给好友
-            </p>
-            <p style={{ marginBottom: '8px', color: 'rgba(255,255,255,0.8)' }}>
-              👥 好友打开 MCTier 点击"加入大厅"
-            </p>
-            <p style={{ color: 'rgba(255,255,255,0.8)' }}>
-              ✨ 软件会自动识别并填写大厅信息
-            </p>
-          </div>
-        ),
-        okText: '我知道了',
-        centered: true,
+      // 显示提示信息（轻量级 toast 反馈）
+      message.success({
+        content: '大厅信息已复制，发送给好友粘贴打开「加入大厅」即可自动识别',
+        duration: 3,
       });
       
       console.log('已复制大厅信息:', lobbyInfo);
@@ -1157,18 +1161,29 @@ export const MiniWindow: React.FC = () => {
                     <h4 className="lobby-card-title">
                       {lobby.name.length > 12 ? `${lobby.name.substring(0, 12)}...` : lobby.name}
                     </h4>
-                    <motion.button
-                      className="copy-lobby-btn"
-                      onClick={handleCopyLobbyInfo}
-                      title="复制大厅信息"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                    </motion.button>
+                    <div className="lobby-card-actions">
+                      <motion.button
+                        className="lobby-card-action-btn"
+                        onClick={() => setShowMcWorlds(true)}
+                        title="局域网世界（扫描可加入的 Minecraft 世界）"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <GlobeIcon size={16} color="#FFFFFF" />
+                      </motion.button>
+                      <motion.button
+                        className="copy-lobby-btn"
+                        onClick={handleCopyLobbyInfo}
+                        title="复制大厅信息"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </motion.button>
+                    </div>
                   </div>
                   <div className="lobby-card-info">
                     <span className="lobby-info-label">
@@ -1225,10 +1240,7 @@ export const MiniWindow: React.FC = () => {
                         <span className="mini-player-name">
                           {useAppStore.getState().config.playerName || '我'} (我)
                           {isHost && (
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="#ffd666" style={{ marginLeft: 4, verticalAlign: 'middle' }}>
-                              <title>房主</title>
-                              <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
-                            </svg>
+                            <CrownIcon size={13} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
                           )}
                           {currentPlayerId && hostMutedPlayers.has(currentPlayerId) && (
                             <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
@@ -1282,10 +1294,7 @@ export const MiniWindow: React.FC = () => {
                               <span className="mini-player-name">
                                 {player.name}
                                 {hostId === player.id && (
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="#ffd666" style={{ marginLeft: 4, verticalAlign: 'middle' }}>
-                                    <title>房主</title>
-                                    <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
-                                  </svg>
+                                  <CrownIcon size={13} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
                                 )}
                                 {hostMutedPlayers.has(player.id) && (
                                   <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
@@ -1480,9 +1489,7 @@ export const MiniWindow: React.FC = () => {
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffd666">
-                      <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z" />
-                    </svg>
+                    <CrownIcon size={16} />
                   </motion.button>
                 )}
               </motion.div>
@@ -1549,49 +1556,6 @@ export const MiniWindow: React.FC = () => {
                 >
                   <ScreenShareIcon size={24} />
                 </motion.button>
-                <motion.button
-                  className="mini-voice-btn mc-worlds-btn"
-                  onClick={() => setShowMcWorlds(true)}
-                  title="局域网世界（自动发现可加入的 Minecraft 世界）"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                  </svg>
-                </motion.button>
-                <motion.button
-                  className="mini-voice-btn room-tools-btn"
-                  onClick={() => setShowRoomTools(true)}
-                  title="房间小工具（掷骰子 / 倒计时 / 便签）"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="3"></rect>
-                    <circle cx="8" cy="8" r="1.3" fill="currentColor"></circle>
-                    <circle cx="16" cy="8" r="1.3" fill="currentColor"></circle>
-                    <circle cx="12" cy="12" r="1.3" fill="currentColor"></circle>
-                    <circle cx="8" cy="16" r="1.3" fill="currentColor"></circle>
-                    <circle cx="16" cy="16" r="1.3" fill="currentColor"></circle>
-                  </svg>
-                </motion.button>
-                <motion.button
-                  className="mini-voice-btn voice-settings-btn"
-                  onClick={() => setShowVoiceSettings(true)}
-                  title="语音设备设置（麦克风/扬声器选择与试音）"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                    <line x1="12" y1="19" x2="12" y2="23"></line>
-                  </svg>
-                </motion.button>
               </motion.div>
 
               {/* 快捷键提示已移除 */}
@@ -1621,12 +1585,6 @@ export const MiniWindow: React.FC = () => {
         visible={showMcWorlds}
         onClose={() => setShowMcWorlds(false)}
       />
-
-      {/* 房间小工具弹窗 */}
-      <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
-
-      {/* 语音设备设置弹窗 */}
-      <VoiceSettings visible={showVoiceSettings} onClose={() => setShowVoiceSettings(false)} />
 
       {/* 房主管理面板 */}
       <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />

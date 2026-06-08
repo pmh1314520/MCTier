@@ -457,11 +457,19 @@ function App() {
               timestamp,
             });
             
-            // 如果不是自己发的消息，且不在聊天室界面，播放新消息音效
+            // 如果不是自己发的消息，且不在聊天室界面，按 @ 提及规则播放新消息音效
             if (playerId !== currentPlayerId) {
               const isInChatRoom = (window as any).__isInChatRoom__ || false;
-              console.log('收到新消息，当前是否在聊天室:', isInChatRoom);
-              if (!isInChatRoom) {
+              const myName = (useAppStore.getState().config.playerName || '').trim();
+              const mentionRegex = /@([^\s@]{1,20})/g;
+              const mentioned: string[] = [];
+              let mm: RegExpExecArray | null;
+              while ((mm = mentionRegex.exec(content)) !== null) mentioned.push(mm[1]);
+              const hasMention = mentioned.length > 0;
+              const mentionsEveryone = mentioned.some((n) => n === '所有人' || n === '全体' || n.toLowerCase() === 'all');
+              const mentionsMe = !!myName && mentioned.some((n) => n === myName);
+              const shouldNotify = !hasMention || mentionsEveryone || mentionsMe;
+              if (!isInChatRoom && shouldNotify) {
                 console.log('播放新消息音效...');
                 audioService.play('newMessage').catch(err => {
                   console.error('播放新消息音效失败:', err);

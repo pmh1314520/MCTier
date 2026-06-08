@@ -385,3 +385,25 @@
 .lobby-settings-form .ant-input-number-handler:hover {
   color: rgba(255, 255, 255, 0.9);
 }
+
+/* 大厅动态设置中集成的语音设备区块 */
+.lobby-voice-section {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: rgba(126, 211, 33, 0.05);
+  border: 1px solid rgba(126, 211, 33, 0.18);
+  border-radius: 10px;
+}
+
+.lobby-voice-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 10px;
+}
+
+.lobby-voice-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 0 14px 0;
+}

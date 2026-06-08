@@ -458,3 +458,60 @@
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* @ 提及候选下拉 */
+.chat-input-area {
+  position: relative;
+}
+
+.mention-dropdown {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  max-height: 180px;
+  overflow-y: auto;
+  background: rgba(28, 28, 40, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  z-index: 50;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.mention-item.active,
+.mention-item:hover {
+  background: rgba(126, 211, 33, 0.18);
+}
+
+.mention-at {
+  color: #95de64;
+  font-weight: 700;
+}
+
+.mention-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-tag {
+  font-size: 11px;
+  color: rgba(255, 214, 102, 0.9);
+  background: rgba(255, 214, 102, 0.12);
+  border-radius: 4px;
+  padding: 1px 6px;
+}

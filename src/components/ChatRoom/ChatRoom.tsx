@@ -7,7 +7,8 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
-import { EmojiIcon, ImageIcon } from '../icons';
+import { RoomTools } from '../RoomTools/RoomTools';
+import { EmojiIcon, ImageIcon, DiceIcon } from '../icons';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
@@ -27,6 +28,14 @@ export const ChatRoom: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
   const [downloadedImages, setDownloadedImages] = useState<Map<string, string>>(new Map());
+  const [showRoomTools, setShowRoomTools] = useState(false);
+
+  // @ 提及自动补全
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionStart, setMentionStart] = useState(-1);
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -160,6 +169,96 @@ export const ChatRoom: React.FC = () => {
       antdMessage.error('发送消息失败');
       // 发送失败时恢复输入框内容
       setInputValue(messageContent);
+    }
+  };
+
+  // @ 提及候选列表（其他玩家 + 所有人）
+  const mentionCandidates: string[] = (() => {
+    const names = players
+      .filter((p) => p.id !== currentPlayerId && p.name)
+      .map((p) => p.name);
+    const base = ['所有人', ...names];
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((n) => n.toLowerCase().includes(q));
+  })();
+
+  // 根据光标位置检测是否正在输入 @ 提及
+  const detectMention = (value: string, cursor: number) => {
+    const before = value.slice(0, cursor);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx === -1) {
+      setMentionOpen(false);
+      return;
+    }
+    const between = before.slice(atIdx + 1);
+    // @ 与光标之间不能有空白
+    if (/\s/.test(between) || between.length > 20) {
+      setMentionOpen(false);
+      return;
+    }
+    // @ 必须在开头或前面是空白
+    const charBefore = atIdx > 0 ? before[atIdx - 1] : ' ';
+    if (atIdx !== 0 && charBefore !== ' ' && charBefore !== '\n') {
+      setMentionOpen(false);
+      return;
+    }
+    setMentionStart(atIdx);
+    setMentionQuery(between);
+    setMentionCursor(cursor);
+    setMentionIndex(0);
+    setMentionOpen(true);
+  };
+
+  // 输入框内容变化
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setInputValue(value);
+    const cursor = e.target.selectionStart ?? value.length;
+    detectMention(value, cursor);
+  };
+
+  // 选择一个 @ 提及候选
+  const selectMention = (name: string) => {
+    if (mentionStart < 0) return;
+    const before = inputValue.slice(0, mentionStart);
+    const after = inputValue.slice(mentionCursor);
+    const inserted = `@${name} `;
+    const newValue = before + inserted + after;
+    setInputValue(newValue);
+    setMentionOpen(false);
+    // 重置光标到插入内容之后
+    requestAnimationFrame(() => {
+      const el = textAreaRef.current?.resizableTextArea?.textArea as HTMLTextAreaElement | undefined;
+      if (el) {
+        const pos = (before + inserted).length;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+    });
+  };
+
+  // 掷骰子并发送到聊天室（类似微信随机骰子）
+  const handleSendDice = async () => {
+    if (!currentPlayerId) return;
+    const value = Math.floor(Math.random() * 6) + 1;
+    const diceFaces = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+    const content = `🎲 掷出了 ${diceFaces[value]} ${value} 点`;
+    try {
+      const optimistic: ChatMessage = {
+        id: `msg-${currentPlayerId}-${Date.now()}`,
+        playerId: currentPlayerId,
+        playerName: config.playerName || '我',
+        content,
+        timestamp: Date.now(),
+        type: 'text',
+      };
+      addChatMessage(optimistic);
+      await p2pChatService.sendTextMessage(content);
+      setTimeout(() => scrollToBottom(), 100);
+    } catch (error) {
+      console.error('发送骰子失败:', error);
+      antdMessage.error('发送骰子失败');
     }
   };
 
@@ -423,6 +522,30 @@ export const ChatRoom: React.FC = () => {
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // @ 提及下拉打开时，拦截上下/回车/Tab/Esc 用于选择候选
+    if (mentionOpen && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectMention(mentionCandidates[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -533,18 +656,20 @@ export const ChatRoom: React.FC = () => {
       return parts.map((part, j) => {
         if (part.startsWith('@') && part.length > 1) {
           const mentionedName = part.slice(1);
-          const isMe = ownName && mentionedName === ownName;
+          const isEveryone = mentionedName === '所有人' || mentionedName === '全体' || mentionedName.toLowerCase() === 'all';
+          const isMe = !!ownName && mentionedName === ownName;
           const isKnown = players.some((p) => p.name === mentionedName);
-          if (isMe || isKnown) {
+          if (isMe || isKnown || isEveryone) {
+            const highlight = isMe || isEveryone;
             return (
               <span
                 key={`m-${i}-${j}`}
                 style={{
-                  color: isMe ? '#ffd666' : '#95de64',
+                  color: isMe ? '#ffd666' : isEveryone ? '#ffd666' : '#95de64',
                   fontWeight: 600,
-                  background: isMe ? 'rgba(255,214,102,0.15)' : 'transparent',
+                  background: highlight ? 'rgba(255,214,102,0.15)' : 'transparent',
                   borderRadius: 4,
-                  padding: isMe ? '0 3px' : 0,
+                  padding: highlight ? '0 3px' : 0,
                 }}
               >
                 {part}
@@ -742,6 +867,35 @@ export const ChatRoom: React.FC = () => {
           delay: 0.1
         }}
       >
+        {/* @ 提及候选下拉 */}
+        <AnimatePresence>
+          {mentionOpen && mentionCandidates.length > 0 && (
+            <motion.div
+              className="mention-dropdown"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.12 }}
+            >
+              {mentionCandidates.map((name, idx) => (
+                <div
+                  key={name}
+                  className={`mention-item ${idx === mentionIndex ? 'active' : ''}`}
+                  onMouseEnter={() => setMentionIndex(idx)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectMention(name);
+                  }}
+                >
+                  <span className="mention-at">@</span>
+                  <span className="mention-name">{name}</span>
+                  {name === '所有人' && <span className="mention-tag">全体提醒</span>}
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="chat-input-wrapper">
           <Button
             type="text"
@@ -759,14 +913,37 @@ export const ChatRoom: React.FC = () => {
             title="发送图片"
             className="image-button"
           />
+
+          <Button
+            type="text"
+            icon={<DiceIcon size={22} />}
+            onClick={handleSendDice}
+            title="掷骰子（发送随机点数到聊天室）"
+            className="dice-button"
+          />
+
+          <Button
+            type="text"
+            icon={(
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              </svg>
+            )}
+            onClick={() => setShowRoomTools(true)}
+            title="房间小工具（倒计时 / 便签 / 多面骰）"
+            className="room-tools-button"
+          />
           
           <TextArea
             ref={textAreaRef}
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Shift+Enter换行"
+            placeholder="输入消息，@ 可提醒他人，Shift+Enter换行"
             autoSize={{ minRows: 1, maxRows: 3 }}
             maxLength={500}
             style={{ flex: 1 }}
@@ -781,6 +958,9 @@ export const ChatRoom: React.FC = () => {
           />
         </div>
       </motion.div>
+
+      {/* 房间小工具弹窗 */}
+      <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
       
       {/* 隐藏的文件输入 */}
       <input
