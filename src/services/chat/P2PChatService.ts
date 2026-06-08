@@ -32,6 +32,7 @@ class P2PChatService {
   private myVirtualIp: string = ''; // 本机虚拟IP，用于连接本机聊天服务器
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
+  private lastMessageTs: number = 0; // 已处理消息的最大时间戳(秒)，用于断线重连后按 since 补拉
 
   /**
    * 初始化服务
@@ -120,6 +121,8 @@ class P2PChatService {
 
       eventSource.onopen = () => {
         console.log('✅ [P2PChatService] 本机消息流已连接');
+        // 断线重连后，按 since 补拉断连期间错过的消息（去重保证不重复回调）
+        this.catchUpMissedMessages();
       };
 
       eventSource.onmessage = (event) => {
@@ -171,9 +174,38 @@ class P2PChatService {
   }
 
   /**
+   * 断线/Lagged 后，从本机服务器按 since 补拉错过的消息，交给 handleMessage（ID去重）
+   */
+  private async catchUpMissedMessages(): Promise<void> {
+    if (!this.myVirtualIp) return;
+    try {
+      const since = this.lastMessageTs;
+      const url = `http://${this.myVirtualIp}:${CHAT_SERVER_PORT}/api/chat/messages${since > 0 ? `?since=${since}` : ''}`;
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const msgs: BackendChatMessage[] = await resp.json();
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        console.log(`🔁 [P2PChatService] 重连补拉到 ${msgs.length} 条消息`);
+        // 按时间戳升序处理，保证顺序
+        msgs.sort((a, b) => a.timestamp - b.timestamp);
+        for (const m of msgs) {
+          this.handleMessage(m);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ [P2PChatService] 补拉消息失败（忽略）:', error);
+    }
+  }
+
+  /**
    * 处理接收到的消息
    */
   private handleMessage(msg: BackendChatMessage): void {
+    // 记录已见到的最大时间戳(秒)，用于重连后按 since 补拉
+    if (msg.timestamp && msg.timestamp > this.lastMessageTs) {
+      this.lastMessageTs = msg.timestamp;
+    }
+
     // 跳过自己发送的消息
     if (msg.player_id === this.currentPlayerId) {
       console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
@@ -266,15 +298,15 @@ class P2PChatService {
   }
 
   /**
-   * 发送文本消息
+   * 发送文本消息，返回送达统计 {delivered, total}
    */
-  async sendTextMessage(content: string): Promise<void> {
+  async sendTextMessage(content: string): Promise<{ delivered: number; total: number }> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
 
     try {
-      await invoke('send_p2p_chat_message', {
+      const res = await invoke<{ delivered: number; total: number }>('send_p2p_chat_message', {
         playerId: this.currentPlayerId,
         playerName: '', // 后端会自动填充
         content,
@@ -282,7 +314,8 @@ class P2PChatService {
         imageData: null,
         peerIps: this.peerIps,
       });
-      console.log('✅ [P2PChatService] 文本消息已发送');
+      console.log('✅ [P2PChatService] 文本消息已发送', res);
+      return res ?? { delivered: 0, total: 0 };
     } catch (error) {
       console.error('❌ [P2PChatService] 发送文本消息失败:', error);
       throw error;

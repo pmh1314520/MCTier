@@ -2908,7 +2908,7 @@ pub async fn send_p2p_chat_message(
     image_data: Option<Vec<u8>>,
     peer_ips: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     log::info!("💬 发送P2P聊天消息: {} - {}", player_name, content);
     
     let core = state.core.lock().await;
@@ -2954,6 +2954,8 @@ pub async fn send_p2p_chat_message(
     
     log::info!("📤 [ChatService] 向 {} 个其他玩家并发发送消息 (排除自己)", other_peer_ips.len());
     
+    let total = other_peer_ips.len();
+
     // 【优化】使用并发发送，提高图片传输速度
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10)) // 设置超时
@@ -2975,7 +2977,7 @@ pub async fn send_p2p_chat_message(
         let client_clone = client.clone();
         let url_clone = url.clone();
         
-        // 创建并发任务
+        // 创建并发任务，返回是否送达成功
         let task = tokio::spawn(async move {
             let start = std::time::Instant::now();
             match client_clone.post(&url_clone).json(&request).send().await {
@@ -2983,13 +2985,16 @@ pub async fn send_p2p_chat_message(
                     let elapsed = start.elapsed();
                     if response.status().is_success() {
                         log::info!("✅ 消息已发送到: {} (耗时: {:?})", url_clone, elapsed);
+                        true
                     } else {
                         log::warn!("⚠️ 发送消息失败 ({}): HTTP {}", url_clone, response.status());
+                        false
                     }
                 }
                 Err(e) => {
                     let elapsed = start.elapsed();
                     log::warn!("⚠️ 发送消息失败 ({}, 耗时: {:?}): {}", url_clone, elapsed, e);
+                    false
                 }
             }
         });
@@ -2997,17 +3002,16 @@ pub async fn send_p2p_chat_message(
         tasks.push(task);
     }
     
-    // 等待所有发送任务完成（但不阻塞主线程）
-    tokio::spawn(async move {
-        let start = std::time::Instant::now();
-        for task in tasks {
-            let _ = task.await;
+    // 等待所有发送完成，统计送达数量（用于给前端回执）
+    let mut delivered = 0usize;
+    for task in tasks {
+        if let Ok(true) = task.await {
+            delivered += 1;
         }
-        let total_elapsed = start.elapsed();
-        log::info!("🎉 [ChatService] 所有消息发送完成，总耗时: {:?}", total_elapsed);
-    });
+    }
+    log::info!("🎉 [ChatService] 消息发送完成：送达 {}/{}", delivered, total);
     
-    Ok(())
+    Ok(serde_json::json!({ "delivered": delivered, "total": total }))
 }
 
 /// 获取P2P聊天消息

@@ -147,8 +147,12 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ [ChatRoom] 乐观更新：本地显示消息');
       
       // 发送到P2P网络
-      await p2pChatService.sendTextMessage(messageContent);
-      console.log('✅ [ChatRoom] 文本消息已发送到P2P网络');
+      const res = await p2pChatService.sendTextMessage(messageContent);
+      console.log('✅ [ChatRoom] 文本消息已发送到P2P网络', res);
+      // 回执：有其他玩家但一个都没送达时，提示可能未送达
+      if (res && res.total > 0 && res.delivered === 0) {
+        antdMessage.warning('消息可能未送达：其他玩家暂时不可达');
+      }
     } catch (error) {
       console.error('发送聊天消息失败:', error);
       antdMessage.error('发送消息失败');
