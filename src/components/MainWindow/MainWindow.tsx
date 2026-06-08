@@ -7,6 +7,7 @@ import { useAppStore } from '../../stores';
 import { LobbyForm } from '../LobbyForm/LobbyForm';
 import { AboutWindow } from '../AboutWindow/AboutWindow';
 import { SettingsWindow } from '../SettingsWindow';
+import { OnboardingWizard, isOnboardingDone } from '../OnboardingWizard/OnboardingWizard';
 import { SettingsIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import './MainWindow.css';
@@ -25,6 +26,7 @@ export const MainWindow: React.FC = () => {
   const [formMode, setFormMode] = useState<'create' | 'join'>('create');
   const [showAbout, setShowAbout] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [enableGpuRendering, setEnableGpuRendering] = useState(true);
   
   const versionError = useAppStore((state) => state.versionError);
@@ -42,6 +44,14 @@ export const MainWindow: React.FC = () => {
     return () => {
       window.removeEventListener('gpuRenderingChanged', handleGpuRenderingChange as EventListener);
     };
+  }, []);
+
+  // 首次启动弹出新手引导
+  useEffect(() => {
+    if (!isOnboardingDone()) {
+      const timer = setTimeout(() => setShowOnboarding(true), 800);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   // ESC键返回 - 在表单或关于页面时返回主界面
@@ -327,8 +337,17 @@ export const MainWindow: React.FC = () => {
           transition={{ delay: 0.7, duration: 0.4 }}
         >
           按 ESC 可快速返回上一页
+          <span
+            onClick={() => setShowOnboarding(true)}
+            style={{ marginLeft: 10, cursor: 'pointer', textDecoration: 'underline', opacity: 0.8 }}
+          >
+            新手引导
+          </span>
         </motion.div>
       </motion.div>
+
+      {/* 新手引导向导 */}
+      <OnboardingWizard visible={showOnboarding} onClose={() => setShowOnboarding(false)} />
 
       {/* 设置界面 - 作为overlay覆盖在主界面上，避免透明闪烁 */}
       <AnimatePresence>
