@@ -18,9 +18,9 @@ interface BackendChatMessage {
   image_data?: number[]; // Uint8Array转换为number[]
 }
 
-// 本机聊天服务器监听地址（服务器绑定 0.0.0.0:14540，通过回环访问最稳定，
-// 不依赖虚拟网卡或其它网卡，避免 Clash 等多网卡环境下的路由问题）
-const SELF_STREAM_URL = 'http://127.0.0.1:14540/api/chat/stream';
+// 本机聊天服务器端口（服务器现在仅绑定在虚拟网卡 IP 上，不再监听 0.0.0.0，
+// 因此自订阅也必须连接到本机的虚拟 IP，而不是 127.0.0.1）
+const CHAT_SERVER_PORT = 14540;
 
 class P2PChatService {
   private selfEventSource: EventSource | null = null; // 仅订阅“自己”的消息流
@@ -29,6 +29,7 @@ class P2PChatService {
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
+  private myVirtualIp: string = ''; // 本机虚拟IP，用于连接本机聊天服务器
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
 
@@ -39,6 +40,7 @@ class P2PChatService {
     // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
+    this.myVirtualIp = myVirtualIp;
 
     console.log('✅ [P2PChatService] 初始化完成');
     console.log('  - 当前玩家ID:', currentPlayerId);
@@ -53,6 +55,7 @@ class P2PChatService {
     this.stopListening();
     this.peerIps = [];
     this.currentPlayerId = '';
+    this.myVirtualIp = '';
     this.onMessageCallback = undefined;
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
@@ -103,10 +106,17 @@ class P2PChatService {
       this.selfEventSource = null;
     }
 
-    console.log(`📡 [P2PChatService] 连接到本机消息流: ${SELF_STREAM_URL}`);
+    if (!this.myVirtualIp) {
+      console.warn('⚠️ [P2PChatService] 虚拟IP未就绪，稍后重试连接本机消息流');
+      this.scheduleSelfReconnect();
+      return;
+    }
+
+    const streamUrl = `http://${this.myVirtualIp}:${CHAT_SERVER_PORT}/api/chat/stream`;
+    console.log(`📡 [P2PChatService] 连接到本机消息流: ${streamUrl}`);
 
     try {
-      const eventSource = new EventSource(SELF_STREAM_URL);
+      const eventSource = new EventSource(streamUrl);
 
       eventSource.onopen = () => {
         console.log('✅ [P2PChatService] 本机消息流已连接');
@@ -134,24 +144,30 @@ class P2PChatService {
           // 忽略关闭异常
         }
         this.selfEventSource = null;
-
-        // 2秒后重连（仅在仍处于监听状态时）
-        if (this.selfReconnectTimer) {
-          clearTimeout(this.selfReconnectTimer);
-        }
-        this.selfReconnectTimer = window.setTimeout(() => {
-          this.selfReconnectTimer = null;
-          if (this.isListening) {
-            console.log('🔄 [P2PChatService] 重新连接本机消息流');
-            this.connectToSelfStream();
-          }
-        }, 2000);
+        this.scheduleSelfReconnect();
       };
 
       this.selfEventSource = eventSource;
     } catch (error) {
       console.error('❌ [P2PChatService] 创建本机消息流连接失败:', error);
+      this.scheduleSelfReconnect();
     }
+  }
+
+  /**
+   * 安排在 2 秒后重连本机消息流（仅在仍处于监听状态时）
+   */
+  private scheduleSelfReconnect(): void {
+    if (this.selfReconnectTimer) {
+      clearTimeout(this.selfReconnectTimer);
+    }
+    this.selfReconnectTimer = window.setTimeout(() => {
+      this.selfReconnectTimer = null;
+      if (this.isListening) {
+        console.log('🔄 [P2PChatService] 重新连接本机消息流');
+        this.connectToSelfStream();
+      }
+    }, 2000);
   }
 
   /**

@@ -100,6 +100,9 @@ impl ChatService {
 
     /// 启动HTTP聊天服务器
     pub async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // 【修复】启动前先停止可能存在的旧实例，避免端口占用与任务句柄泄漏（重进大厅场景）
+        self.stop_server().await;
+
         let virtual_ip = match self.get_virtual_ip() {
             Some(ip) => ip,
             None => {
@@ -132,8 +135,8 @@ impl ChatService {
             }
         }
 
-        let addr = format!("0.0.0.0:{}", CHAT_SERVER_PORT);
-        log::info!("📍 [ChatService] 聊天服务器将监听: {}", addr);
+        let addr = format!("{}:{}", virtual_ip, CHAT_SERVER_PORT);
+        log::info!("📍 [ChatService] 聊天服务器将监听虚拟IP: {}", addr);
 
         let local_messages = self.local_messages.clone();
         let message_tx = self.message_tx.clone();
@@ -176,7 +179,7 @@ impl ChatService {
         *self.server_handle.write() = Some(server_task);
 
         log::info!("✅ [ChatService] 聊天服务器启动成功！");
-        log::info!("📡 [ChatService] 监听地址: 0.0.0.0:{}", CHAT_SERVER_PORT);
+        log::info!("📡 [ChatService] 监听地址: {}:{}（仅虚拟网卡）", virtual_ip, CHAT_SERVER_PORT);
         log::info!("📡 [ChatService] 虚拟IP: {}", virtual_ip);
         
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

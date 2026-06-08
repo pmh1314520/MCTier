@@ -1,5 +1,6 @@
 use std::net::{UdpSocket, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -95,6 +96,12 @@ pub struct P2PSignalingService {
     
     /// Tauri 应用句柄
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
+
+    /// 服务是否正在运行（用于让后台任务能够干净退出，避免任务/套接字泄漏）
+    running: Arc<AtomicBool>,
+
+    /// 后台任务句柄（接收/发现广播/心跳），停止时统一 abort
+    task_handles: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl P2PSignalingService {
@@ -111,6 +118,8 @@ impl P2PSignalingService {
             listen_port,
             actual_port: Arc::new(RwLock::new(listen_port)),
             app_handle: Arc::new(RwLock::new(None)),
+            running: Arc::new(AtomicBool::new(false)),
+            task_handles: Arc::new(RwLock::new(Vec::new())),
         }
     }
     
@@ -176,6 +185,10 @@ impl P2PSignalingService {
         
         *self.socket.write().await = Some(socket);
         
+        // 标记为运行中，并清空可能残留的旧任务句柄
+        self.running.store(true, Ordering::SeqCst);
+        self.task_handles.write().await.clear();
+        
         // 启动接收线程
         self.start_receiver().await?;
         
@@ -208,11 +221,12 @@ impl P2PSignalingService {
         let local_player_id = Arc::clone(&self.local_player_id);
         let local_player_name = Arc::clone(&self.local_player_name);
         let actual_port = Arc::clone(&self.actual_port);
+        let running = Arc::clone(&self.running);
         
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut buf = [0u8; 65536];
             
-            loop {
+            while running.load(Ordering::Relaxed) {
                 match socket_clone.recv_from(&mut buf) {
                     Ok((len, src_addr)) => {
                         if let Ok(msg_str) = std::str::from_utf8(&buf[..len]) {
@@ -271,8 +285,10 @@ impl P2PSignalingService {
                     }
                 }
             }
+            log::info!("UDP接收线程已退出");
         });
         
+        self.task_handles.write().await.push(handle);
         log::info!("UDP接收线程已启动");
         Ok(())
     }
@@ -456,11 +472,12 @@ impl P2PSignalingService {
         let local_player_name = Arc::clone(&self.local_player_name);
         let socket = Arc::clone(&self.socket);
         let actual_port = Arc::clone(&self.actual_port);
+        let running = Arc::clone(&self.running);
         
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut count = 0;
             
-            loop {
+            while running.load(Ordering::Relaxed) {
                 // 前10秒每秒发送一次，之后每5秒发送一次
                 let interval = if count < 10 {
                     tokio::time::Duration::from_secs(1)
@@ -498,8 +515,10 @@ impl P2PSignalingService {
                     }
                 }
             }
+            log::info!("玩家发现广播任务已退出");
         });
         
+        self.task_handles.write().await.push(handle);
         log::info!("✅ 玩家发现广播任务已启动");
     }
     
@@ -561,10 +580,14 @@ impl P2PSignalingService {
         let actual_port = Arc::clone(&self.actual_port);
         let peers = Arc::clone(&self.peers);
         let app_handle = Arc::clone(&self.app_handle);
+        let running = Arc::clone(&self.running);
         
-        tokio::spawn(async move {
-            loop {
+        let handle = tokio::spawn(async move {
+            while running.load(Ordering::Relaxed) {
                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                if !running.load(Ordering::Relaxed) {
+                    break;
+                }
                 
                 // 发送心跳
                 if let Some(player_id) = local_player_id.read().await.as_ref() {
@@ -576,8 +599,9 @@ impl P2PSignalingService {
                     if let Some(sock) = socket.read().await.as_ref() {
                         if let Ok(msg_json) = serde_json::to_string(&message) {
                             let port = *actual_port.read().await;
-                            // 使用虚拟网络的广播地址
-                            let broadcast_addr = format!("192.168.0.255:{}", port);
+                            // 使用全局广播地址，与发现广播保持一致（修复此前硬编码 192.168.0.255
+                            // 导致非该网段子网收不到心跳的问题）
+                            let broadcast_addr = format!("255.255.255.255:{}", port);
                             let _ = sock.send_to(msg_json.as_bytes(), broadcast_addr);
                         }
                     }
@@ -613,7 +637,10 @@ impl P2PSignalingService {
                     }
                 }
             }
+            log::info!("心跳任务已退出");
         });
+        
+        self.task_handles.write().await.push(handle);
     }
     
     /// 停止服务
@@ -628,12 +655,24 @@ impl P2PSignalingService {
             let _ = self.broadcast(message).await;
         }
         
+        // 标记停止，让后台 loop 任务自行退出
+        self.running.store(false, Ordering::SeqCst);
+        
+        // 强制 abort 所有后台任务（接收/发现广播/心跳），彻底回收任务与克隆的套接字句柄
+        {
+            let mut handles = self.task_handles.write().await;
+            for handle in handles.drain(..) {
+                handle.abort();
+            }
+        }
+        
         // 关闭套接字
         *self.socket.write().await = None;
         
         // 清理对等节点
         self.peers.write().await.clear();
         
+        log::info!("✅ P2P信令服务已停止，后台任务已回收");
         Ok(())
     }
     

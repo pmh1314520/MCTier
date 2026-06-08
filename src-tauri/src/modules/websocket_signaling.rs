@@ -164,8 +164,13 @@ impl WebSocketSignalingServer {
         // 启动接受连接的任务
         tokio::spawn(async move {
             while *is_running.read().await {
-                match listener.accept().await {
-                    Ok((stream, addr)) => {
+                // 用 1 秒超时包裹 accept，避免 accept 永久阻塞导致 stop() 后无法退出循环；
+                // 超时后回到 while 重新检查 is_running，从而能够干净停止。
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    listener.accept(),
+                ).await {
+                    Ok(Ok((stream, addr))) => {
                         log::info!("新客户端连接: {}", addr);
                         
                         let clients_clone = Arc::clone(&clients);
@@ -177,9 +182,12 @@ impl WebSocketSignalingServer {
                             }
                         });
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         log::error!("接受连接失败: {}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                    Err(_) => {
+                        // accept 超时，回到循环顶部重新检查 is_running
                     }
                 }
             }

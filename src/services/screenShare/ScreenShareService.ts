@@ -174,14 +174,10 @@ class ScreenShareService {
       }
 
       // 创建PeerConnection
+      // 【稳定性修复】成员都在同一 EasyTier 虚拟局域网，使用 host 候选直连即可，
+      // 移除被墙的 Google STUN，避免连接/重连卡顿与超时失败
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-        ],
-        // 【优化】启用ICE重启，提高连接稳定性
+        iceServers: [],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -516,14 +512,9 @@ class ScreenShareService {
       this.broadcastShareUpdate(share);
 
       // 创建PeerConnection
+      // 【稳定性修复】同一虚拟局域网内 host 候选直连，移除被墙的 Google STUN
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-        ],
-        // 【优化】启用ICE重启，提高连接稳定性
+        iceServers: [],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -537,10 +528,10 @@ class ScreenShareService {
       pc.onconnectionstatechange = () => {
         console.log(`🔗 [ScreenShareService] 连接状态变化: ${pc.connectionState}`);
         
-        // 【修复】只在连接完全关闭时才清除查看者标记
-        // disconnected和failed状态可能是暂时的，会自动重连
-        if (pc.connectionState === 'closed') {
-          console.log('🔌 [ScreenShareService] 连接已关闭，清除查看者标记');
+        // 连接完全关闭或彻底失败时，清除查看者标记，避免共享被"幽灵观看者"永久锁定。
+        // disconnected 可能是暂时的（会自动重连），保留标记。
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          console.log(`🔌 [ScreenShareService] 连接 ${pc.connectionState}，清除查看者标记`);
           const currentShare = this.activeShares.get(offer.shareId);
           if (currentShare && currentShare.viewerId === offer.playerId) {
             currentShare.viewerId = undefined;
@@ -549,10 +540,14 @@ class ScreenShareService {
             // 广播状态更新
             this.broadcastShareUpdate(currentShare);
           }
-        } else if (pc.connectionState === 'failed') {
-          console.warn('⚠️ [ScreenShareService] 连接失败，但保留查看者标记（可能会重连）');
+          // 失败/关闭时一并回收该 PeerConnection，避免泄漏
+          const failedPc = this.peerConnections.get(connectionKey);
+          if (failedPc) {
+            try { failedPc.close(); } catch { /* 忽略 */ }
+            this.peerConnections.delete(connectionKey);
+          }
         } else if (pc.connectionState === 'disconnected') {
-          console.warn('⚠️ [ScreenShareService] 连接断开，但保留查看者标记（可能会重连）');
+          console.warn('⚠️ [ScreenShareService] 连接断开，暂时保留查看者标记（可能会重连）');
         }
       };
 
