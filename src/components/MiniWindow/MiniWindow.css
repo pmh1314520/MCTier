@@ -403,6 +403,14 @@
   border-color: rgba(160, 160, 160, 0.15);
 }
 
+/* 玩家虚拟IP与延迟同行显示 */
+.player-ip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .mini-player-info {
   display: flex;
   align-items: center;
@@ -416,6 +424,16 @@
   width: 28px;
   height: 28px;
   flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.12s ease;
+}
+
+/* 说话时：圆形绿色边框 */
+.player-avatar.speaking {
+  box-shadow: 0 0 0 2px #52c41a, 0 0 8px rgba(82, 196, 26, 0.55);
 }
 
 .mini-player-icon {
@@ -555,6 +573,15 @@
 .mini-player-actions {
   display: flex;
   gap: 3px;
+  flex-shrink: 0;
+}
+
+/* 房主视角：4 个操作按钮排成 2x2 正方形（上：皇冠+踢出，下：听筒+麦克风） */
+.mini-player-actions.host-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 26px);
+  grid-template-rows: repeat(2, 26px);
+  gap: 4px;
 }
 
 .mini-action-btn {

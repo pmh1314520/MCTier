@@ -641,7 +641,7 @@ export const ChatRoom: React.FC = () => {
                 style={{
                   color: accent,
                   fontWeight: 700,
-                  WebkitTextStroke: '0.6px rgba(0, 0, 0, 0.9)',
+                  WebkitTextStroke: '1.1px rgba(0, 0, 0, 0.95)',
                   paintOrder: 'stroke fill',
                   margin: '0 1px',
                 }}

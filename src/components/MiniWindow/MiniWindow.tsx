@@ -1071,7 +1071,7 @@ export const MiniWindow: React.FC = () => {
           <h3 className="mini-window-title">
             {collapsed && lobby ? (
               <>
-                {lobby.name.length > 5 ? `${lobby.name.substring(0, 5)}...` : lobby.name} ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''}人)
+                {lobby.name.length > 5 ? `${lobby.name.substring(0, 5)}...` : lobby.name} ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
               </>
             ) : (
               'MCTier'
@@ -1236,7 +1236,7 @@ export const MiniWindow: React.FC = () => {
                     }}
                   >
                     <div className="mini-player-info">
-                      <div className="player-avatar" style={currentPlayerId && speakingPlayers.has(currentPlayerId) ? { boxShadow: '0 0 0 2px #52c41a, 0 0 8px #52c41a', borderRadius: '50%', transition: 'box-shadow .12s' } : { transition: 'box-shadow .12s' }}>
+                      <div className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}>
                         <PlayerIcon className="mini-player-icon" />
                       </div>
                       <div className="player-details">
@@ -1290,7 +1290,7 @@ export const MiniWindow: React.FC = () => {
                           }}
                         >
                           <div className="mini-player-info">
-                            <div className="player-avatar" style={speakingPlayers.has(player.id) ? { boxShadow: '0 0 0 2px #52c41a, 0 0 8px #52c41a', borderRadius: '50%', transition: 'box-shadow .12s' } : { transition: 'box-shadow .12s' }}>
+                            <div className={`player-avatar ${speakingPlayers.has(player.id) ? 'speaking' : ''}`}>
                               <PlayerIcon className="mini-player-icon" />
                             </div>
                             <div className="player-details">
@@ -1306,46 +1306,48 @@ export const MiniWindow: React.FC = () => {
                                   <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
                                 )}
                               </span>
-                              {(() => {
-                                const lat = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
-                                if (lat === undefined) return null;
-                                const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
-                                const text = lat === null ? '离线' : `${lat}ms`;
-                                return (
-                                  <span
-                                    title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, marginLeft: 6 }}
-                                  >
-                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
-                                    {text}
-                                  </span>
-                                );
-                              })()}
-                              <motion.button
-                                className="player-virtual-ip-btn"
-                                onClick={async () => {
-                                  try {
-                                    // 根据玩家的useDomain决定显示和复制什么
-                                    const textToCopy = (player.useDomain && player.virtualDomain) 
-                                      ? player.virtualDomain 
-                                      : (player.virtualIp || lobby?.virtualIp || '10.126.126.1');
-                                    await writeText(textToCopy);
-                                    const label = (player.useDomain && player.virtualDomain) ? '虚拟域名' : '虚拟IP';
-                                    message.success(`${label}已复制`);
-                                  } catch (error) {
-                                    console.error('复制失败:', error);
-                                    message.error('复制失败，请重试');
+                              <div className="player-ip-row">
+                                <motion.button
+                                  className="player-virtual-ip-btn"
+                                  onClick={async () => {
+                                    try {
+                                      // 根据玩家的useDomain决定显示和复制什么
+                                      const textToCopy = (player.useDomain && player.virtualDomain) 
+                                        ? player.virtualDomain 
+                                        : (player.virtualIp || lobby?.virtualIp || '10.126.126.1');
+                                      await writeText(textToCopy);
+                                      const label = (player.useDomain && player.virtualDomain) ? '虚拟域名' : '虚拟IP';
+                                      message.success(`${label}已复制`);
+                                    } catch (error) {
+                                      console.error('复制失败:', error);
+                                      message.error('复制失败，请重试');
+                                    }
+                                  }}
+                                  title={(player.useDomain && player.virtualDomain) ? '点击复制虚拟域名' : '点击复制虚拟IP'}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                >
+                                  {(player.useDomain && player.virtualDomain)
+                                    ? `虚拟域名: ${player.virtualDomain}` 
+                                    : `虚拟IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                   }
-                                }}
-                                title={(player.useDomain && player.virtualDomain) ? '点击复制虚拟域名' : '点击复制虚拟IP'}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                              >
-                                {(player.useDomain && player.virtualDomain)
-                                  ? `虚拟域名: ${player.virtualDomain}` 
-                                  : `虚拟IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
-                                }
-                              </motion.button>
+                                </motion.button>
+                                {(() => {
+                                  const lat = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
+                                  if (lat === undefined) return null;
+                                  const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
+                                  const text = lat === null ? '离线' : `${lat}ms`;
+                                  return (
+                                    <span
+                                      title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, flexShrink: 0 }}
+                                    >
+                                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                                      {text}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                               {/* 玩家独立音量控制 */}
                               <div className="player-volume-control">
                                 <SpeakerIcon muted={isPlayerMuted} size={12} />
@@ -1364,85 +1366,76 @@ export const MiniWindow: React.FC = () => {
                               </div>
                             </div>
                           </div>
-                          <div className="mini-player-actions">
+                          <div className={`mini-player-actions ${isHost ? 'host-grid' : ''}`}>
+                            {isHost && (
+                              <motion.button
+                                className="mini-action-btn"
+                                onClick={() => {
+                                  Modal.confirm({
+                                    title: '转让房主',
+                                    content: `确定把房主转让给 ${player.name} 吗？`,
+                                    okText: '转让',
+                                    cancelText: '取消',
+                                    centered: true,
+                                    onOk: () => { webrtcClient.transferHost(player.id); },
+                                  });
+                                }}
+                                title="转让房主"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                              >
+                                <CrownIcon size={16} color="currentColor" />
+                              </motion.button>
+                            )}
+                            {isHost && (
+                              <motion.button
+                                className="mini-action-btn kick-btn"
+                                onClick={() => {
+                                  Modal.confirm({
+                                    title: '踢出玩家',
+                                    content: `确定把 ${player.name} 移出大厅吗？`,
+                                    okText: '踢出',
+                                    okButtonProps: { danger: true },
+                                    cancelText: '取消',
+                                    centered: true,
+                                    onOk: () => { webrtcClient.kickPlayer(player.id); },
+                                  });
+                                }}
+                                title="踢出大厅"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff7875" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M18 6 6 18M6 6l12 12"></path>
+                                </svg>
+                              </motion.button>
+                            )}
                             <motion.button
-                              className={`mini-action-btn ${
-                                isPlayerMuted ? 'muted' : ''
-                              }`}
+                              className={`mini-action-btn ${isPlayerMuted ? 'muted' : ''}`}
                               onClick={() => handleMutePlayer(player.id)}
-                              title={
-                                isPlayerMuted
-                                  ? '取消静音'
-                                  : '静音此玩家'
-                              }
+                              title={isPlayerMuted ? '取消静音' : '静音此玩家'}
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
                             >
-                              <SpeakerIcon 
-                                muted={isPlayerMuted} 
-                                size={16}
-                              />
+                              <SpeakerIcon muted={isPlayerMuted} size={16} />
                             </motion.button>
                             {isHost && (
-                              <>
-                                <motion.button
-                                  className={`mini-action-btn ${hostMutedPlayers.has(player.id) ? 'muted' : ''}`}
-                                  onClick={() => {
-                                    const muted = !hostMutedPlayers.has(player.id);
-                                    webrtcClient.setPlayerMuted(player.id, muted);
-                                  }}
-                                  title={hostMutedPlayers.has(player.id) ? '解除禁言' : '禁言该玩家（房主）'}
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                                  </svg>
-                                </motion.button>
-                                <motion.button
-                                  className="mini-action-btn"
-                                  onClick={() => {
-                                    Modal.confirm({
-                                      title: '转让房主',
-                                      content: `确定把房主转让给 ${player.name} 吗？`,
-                                      okText: '转让',
-                                      cancelText: '取消',
-                                      centered: true,
-                                      onOk: () => { webrtcClient.transferHost(player.id); },
-                                    });
-                                  }}
-                                  title="转让房主"
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M2 18h20l-2-9-4 3-4-7-4 7-4-3z"></path>
-                                  </svg>
-                                </motion.button>
-                                <motion.button
-                                  className="mini-action-btn"
-                                  onClick={() => {
-                                    Modal.confirm({
-                                      title: '踢出玩家',
-                                      content: `确定把 ${player.name} 移出大厅吗？`,
-                                      okText: '踢出',
-                                      okButtonProps: { danger: true },
-                                      cancelText: '取消',
-                                      centered: true,
-                                      onOk: () => { webrtcClient.kickPlayer(player.id); },
-                                    });
-                                  }}
-                                  title="踢出大厅"
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff7875" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M18 6 6 18M6 6l12 12"></path>
-                                  </svg>
-                                </motion.button>
-                              </>
+                              <motion.button
+                                className={`mini-action-btn ${hostMutedPlayers.has(player.id) ? 'muted' : ''}`}
+                                onClick={() => {
+                                  const muted = !hostMutedPlayers.has(player.id);
+                                  webrtcClient.setPlayerMuted(player.id, muted);
+                                }}
+                                title={hostMutedPlayers.has(player.id) ? '解除禁言' : '禁言该玩家（房主）'}
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                              </motion.button>
                             )}
                           </div>
                         </motion.div>
