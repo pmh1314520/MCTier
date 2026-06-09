@@ -408,7 +408,8 @@ impl NetworkService {
         
         // ========== DNS 配置 ==========
         if config.accept_dns {
-            cmd.arg("--accept-dns");
+            // 当前 easytier-core 要求 --accept-dns 必须带布尔值
+            cmd.arg("--accept-dns").arg("true");
             log::info!("  ✅ 启用魔法 DNS");
         }
         
@@ -885,11 +886,15 @@ impl NetworkService {
         log::info!("EasyTier 进程已启动，等待获取虚拟 IP...");
 
         // 启动输出监控任务
+        // 注意：easytier-core 2.5.0 把运行日志（含 tun device error 等致命错误）写到 stdout，
+        // 因此 stdout 监控也必须参与错误检测和日志缓存，否则真正的失败原因会被丢失
         let virtual_ip_clone = Arc::clone(&self.virtual_ip);
         let status_clone = Arc::clone(&self.status);
+        let is_running_stdout = Arc::clone(&self.is_running);
+        let stderr_buf_stdout = Arc::clone(&self.last_stderr);
 
         tokio::spawn(async move {
-            Self::monitor_stdout(stdout, virtual_ip_clone, status_clone).await;
+            Self::monitor_stdout(stdout, virtual_ip_clone, status_clone, is_running_stdout, stderr_buf_stdout).await;
         });
 
         let is_running_clone = Arc::clone(&self.is_running);
@@ -1077,11 +1082,30 @@ impl NetworkService {
     ///
     /// 主要覆盖 Windows 下的几个高频致命退出码。
     fn describe_exit_failure(exit_code: Option<i32>, recent_stderr: &[String]) -> String {
-        // 优先使用 stderr 中的关键信息
+        // 这些是 easytier-core 的通用汇总行，本身不包含真正原因，需要跳过，
+        // 优先展示更靠前、更具体的致命错误（如 tun device error）
+        let is_generic_summary = |s: &str| {
+            let l = s.to_lowercase();
+            l.contains("some instances stopped with errors")
+                || l.contains("instance stopped")
+                || l.trim() == "error: some instances stopped with errors"
+        };
+
+        // 先在最近日志里找"虚拟网卡创建失败"这类最关键的具体原因
+        if recent_stderr.iter().any(|l| {
+            l.contains("tun device error") || l.contains("Failed to create adapter")
+        }) {
+            return "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请重启电脑后重试".to_string();
+        }
+
+        // 优先使用 stderr/stdout 中的具体错误信息（跳过通用汇总行）
         let stderr_hint = recent_stderr
             .iter()
             .rev()
             .find(|l| {
+                if is_generic_summary(l) {
+                    return false;
+                }
                 let s = l.to_lowercase();
                 s.contains("error") || s.contains("failed") || s.contains("panic")
             })
@@ -1125,10 +1149,16 @@ impl NetworkService {
     }
 
     /// 监控标准输出，解析虚拟 IP
+    ///
+    /// 注意：easytier-core 2.5.0 将运行日志（包括 `tun device error`、
+    /// `Failed to create adapter` 等致命错误）输出到 stdout 而非 stderr，
+    /// 因此这里必须同时承担错误检测与最近日志缓存的职责。
     async fn monitor_stdout(
         stdout: tokio::process::ChildStdout,
         virtual_ip: Arc<Mutex<Option<String>>>,
         status: Arc<Mutex<ConnectionStatus>>,
+        is_running: Arc<Mutex<bool>>,
+        last_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
     ) {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -1136,6 +1166,30 @@ impl NetworkService {
         while let Ok(Some(line)) = lines.next_line().await {
             // 打印所有输出用于调试
             log::info!("EasyTier stdout: {}", line);
+
+            // 将含关键信息的行缓存进 last_stderr（统一作为"最近日志"缓冲区），
+            // 供进程意外退出时 describe_exit_failure 定位真正原因
+            {
+                let lower = line.to_lowercase();
+                if lower.contains("error") || lower.contains("failed") || lower.contains("panic") {
+                    let mut buf = last_stderr.lock().await;
+                    buf.push_back(line.clone());
+                    while buf.len() > 30 {
+                        buf.pop_front();
+                    }
+                }
+            }
+
+            // 虚拟网卡（TUN）创建失败——这是 Windows 上最高频的致命错误，
+            // 在 2.5.0 中通过 stdout 输出，必须在此处捕获并给出可操作的提示
+            if line.contains("tun device error") || line.contains("Failed to create adapter") {
+                log::error!("检测到虚拟网卡创建失败: {}", line);
+                *is_running.lock().await = false;
+                *status.lock().await = ConnectionStatus::Error(
+                    "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请重启电脑后重试".to_string(),
+                );
+                continue;
+            }
 
             // WebSocket 节点升级失败（通常是反向代理/上游配置问题）
             if line.contains("DidNotSwitchProtocols(502)") {
