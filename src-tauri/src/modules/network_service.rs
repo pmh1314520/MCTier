@@ -681,7 +681,17 @@ impl NetworkService {
         
         // 根据服务器节点协议自动选择监听器和默认协议
         let is_ws_peer = server_node.starts_with("ws://") || server_node.starts_with("wss://");
-        let listener = if is_ws_peer { "ws://0.0.0.0:0/" } else { "udp://0.0.0.0:0" };
+        // 【二次使用关键修复】不再使用端口 0（由系统自动分配），因为系统分配的
+        // 临时端口可能落入 Windows(Hyper-V/Docker winnat) 保留端口段而触发 os error 10013。
+        // 改为预先探测一个可用的显式端口给监听器使用，确保稳定。
+        let listener_port = Self::find_available_rpc_port_randomized().await
+            .unwrap_or(0); // 兜底：万一找不到则退回端口 0 让系统分配
+        let listener = if is_ws_peer {
+            format!("ws://0.0.0.0:{}/", listener_port)
+        } else {
+            format!("udp://0.0.0.0:{}", listener_port)
+        };
+        log::info!("✅ 监听器使用显式端口: {} -> {}", listener_port, listener);
         let default_protocol = if is_ws_peer { "ws" } else { "udp" };
 
         // 读取高级功能配置
@@ -805,7 +815,7 @@ impl NetworkService {
             .arg("--config-dir")
             .arg(&config_dir)
             .arg("--rpc-portal")
-            .arg(format!("{}", rpc_port)) // 只传递端口号，EasyTier会自动在localhost上监听
+            .arg(format!("127.0.0.1:{}", rpc_port)) // 显式绑定回环地址：避免裸端口被绑到 0.0.0.0 而撞上 Windows(Hyper-V/Docker) 保留端口段导致 os error 10013
             .arg("--listeners")
             .arg(listener)
             .arg("--default-protocol")
@@ -1150,7 +1160,25 @@ impl NetworkService {
         if recent_stderr.iter().any(|l| {
             l.contains("10013") || l.contains("os error 10013")
         }) {
-            return "端口被占用或访问被拒绝（os error 10013）：通常是上一次的网络进程未完全退出。请稍等几秒后重试；若仍失败，请重启 MCTier 或重启电脑，并将本软件加入防火墙白名单".to_string();
+            // 尝试从错误链里找出到底是哪个操作/端口绑定失败（含 bind/portal/listener 的行）
+            let detail = recent_stderr
+                .iter()
+                .rev()
+                .find(|l| {
+                    let s = l.to_lowercase();
+                    (s.contains("bind") || s.contains("portal") || s.contains("listener"))
+                        && !s.contains("os error 10013")
+                })
+                .map(|l| {
+                    // 去掉前面的时间戳/链序号噪声，只保留有用部分
+                    l.trim().to_string()
+                });
+
+            let base = "端口被占用或访问被拒绝（os error 10013）：通常是上一次的网络进程未完全退出，或端口被 Windows 保留端口段/防火墙占用。请稍等几秒后重试；若反复出现，请在管理员命令行执行 \"net stop winnat\" 再 \"net start winnat\"，或重启电脑";
+            if let Some(d) = detail {
+                return format!("{}（失败详情: {}）", base, d);
+            }
+            return base.to_string();
         }
 
         // 优先使用 stderr/stdout 中的具体错误信息（跳过通用汇总行）
@@ -1223,13 +1251,30 @@ impl NetworkService {
             log::info!("EasyTier stdout: {}", line);
 
             // 将含关键信息的行缓存进 last_stderr（统一作为"最近日志"缓冲区），
-            // 供进程意外退出时 describe_exit_failure 定位真正原因
+            // 供进程意外退出时 describe_exit_failure 定位真正原因。
+            // easytier 的致命错误以 anyhow 错误链形式输出（形如 "0: xxx" / "1: yyy" / "2: ..."），
+            // 真正的失败操作（绑定哪个端口/监听器）在链的前几层，必须一并捕获。
             {
                 let lower = line.to_lowercase();
-                if lower.contains("error") || lower.contains("failed") || lower.contains("panic") {
+                let trimmed = line.trim_start();
+                let is_error_chain_line = trimmed
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                    && trimmed.contains(':');
+                if lower.contains("error")
+                    || lower.contains("failed")
+                    || lower.contains("panic")
+                    || lower.contains("bind")
+                    || lower.contains("listener")
+                    || lower.contains("portal")
+                    || lower.contains("10013")
+                    || is_error_chain_line
+                {
                     let mut buf = last_stderr.lock().await;
                     buf.push_back(line.clone());
-                    while buf.len() > 30 {
+                    while buf.len() > 40 {
                         buf.pop_front();
                     }
                 }
