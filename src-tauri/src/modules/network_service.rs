@@ -663,8 +663,8 @@ impl NetworkService {
         }
         log::info!("配置目录: {:?}", config_dir);
 
-        // 查找可用的RPC端口（从15889开始，最多尝试10个端口）
-        let rpc_port = Self::find_available_rpc_port(15889, 10).await?;
+        // 查找可用的RPC端口（随机化起点，避免二次使用时端口粘连导致 os error 10013）
+        let rpc_port = Self::find_available_rpc_port_randomized().await?;
         log::info!("✅ 将使用RPC端口: {}", rpc_port);
         
         // 保存RPC端口
@@ -1001,17 +1001,31 @@ impl NetworkService {
     /// * `false` - 端口被占用
     async fn is_port_available(port: u16) -> bool {
         use tokio::net::TcpListener;
-        
-        match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
-            Ok(_) => {
-                log::debug!("端口 {} 可用", port);
-                true
-            }
-            Err(_) => {
-                log::debug!("端口 {} 被占用", port);
-                false
+
+        // 同时测试 0.0.0.0 与 127.0.0.1：
+        // easytier 的 RPC portal 实际绑定在 0.0.0.0，若只测 127.0.0.1，
+        // 当某端口被其他进程以独占方式占用 0.0.0.0 时，会误判为"可用"，
+        // 随后交给 easytier 绑定就会触发 os error 10013（访问权限不允许）。
+        let addrs = [
+            format!("0.0.0.0:{}", port),
+            format!("127.0.0.1:{}", port),
+        ];
+
+        for addr in &addrs {
+            match TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    // 立即释放，确保不会持有端口
+                    drop(listener);
+                }
+                Err(_) => {
+                    log::debug!("端口 {} 在 {} 上不可用", port, addr);
+                    return false;
+                }
             }
         }
+
+        log::debug!("端口 {} 可用", port);
+        true
     }
     
     /// 查找可用的RPC端口
@@ -1039,6 +1053,39 @@ impl NetworkService {
             start_port,
             start_port + max_attempts - 1
         )))
+    }
+
+    /// 查找可用的RPC端口（随机化起点）
+    ///
+    /// 【二次使用关键修复】不再固定从 15889 开始扫描。上一次的 easytier-core
+    /// 退出后，其 RPC 套接字会以独占方式在系统中残留一段时间（TIME_WAIT），
+    /// 若二次启动仍选中同一端口，Windows 会返回 os error 10013（访问权限不允许）。
+    /// 这里每次启动从一个随机的高位端口起点扫描，彻底避开端口粘连与
+    /// Windows 动态/保留端口段的冲突。
+    async fn find_available_rpc_port_randomized() -> Result<u16, AppError> {
+        // 在 20000-55000 之间随机选取若干个起点，每个起点向后扫描若干端口
+        const RANGE_LOW: u16 = 20000;
+        const RANGE_HIGH: u16 = 55000;
+        const SCAN_PER_BASE: u16 = 8;
+        const BASE_ATTEMPTS: u16 = 12;
+
+        for _ in 0..BASE_ATTEMPTS {
+            let base = RANGE_LOW + (rand::random::<u16>() % (RANGE_HIGH - RANGE_LOW));
+            for i in 0..SCAN_PER_BASE {
+                let port = base.saturating_add(i);
+                if port < RANGE_LOW {
+                    continue;
+                }
+                if Self::is_port_available(port).await {
+                    log::info!("✅ 找到可用的RPC端口（随机化）: {}", port);
+                    return Ok(port);
+                }
+            }
+        }
+
+        // 兜底：退回到旧的固定段扫描
+        log::warn!("⚠️ 随机化端口查找未命中，退回固定段 15889 扫描");
+        Self::find_available_rpc_port(15889, 20).await
     }
 
     /// 启动前清理孤儿 EasyTier 进程（仅 Windows）
@@ -1096,6 +1143,14 @@ impl NetworkService {
             l.contains("tun device error") || l.contains("Failed to create adapter")
         }) {
             return "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请重启电脑后重试".to_string();
+        }
+
+        // 端口绑定被拒绝（os error 10013 / WSAEACCES）——常见于二次使用时上一个
+        // 实例的端口尚未释放，或被防火墙/Hyper-V 保留端口段占用
+        if recent_stderr.iter().any(|l| {
+            l.contains("10013") || l.contains("os error 10013")
+        }) {
+            return "端口被占用或访问被拒绝（os error 10013）：通常是上一次的网络进程未完全退出。请稍等几秒后重试；若仍失败，请重启 MCTier 或重启电脑，并将本软件加入防火墙白名单".to_string();
         }
 
         // 优先使用 stderr/stdout 中的具体错误信息（跳过通用汇总行）
