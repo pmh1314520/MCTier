@@ -25,6 +25,13 @@
     "core:window:allow-minimize",
     "core:window:allow-unminimize",
     "core:window:allow-start-dragging",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart"
   ]
 }

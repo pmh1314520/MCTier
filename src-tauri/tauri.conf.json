@@ -37,6 +37,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -66,5 +67,16 @@
     "category": "Game",
     "shortDescription": "虚拟局域网通用联机工具",
     "longDescription": "MCTier 是一款桌面应用程序，允许玩家通过虚拟局域网（VLAN）技术实现跨物理网络的联机游戏。该应用集成了虚拟网络组建、实时语音通信和玩家状态管理功能，为玩家提供流畅的联机体验。"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAxRjlCQjY5Q0VDNDBGODcKUldTSEQ4VE9hYnY1QVh0ZlBnRVdtdzVjVXNpd0Fwak5KZDBmVUtVVHFBOGdLZ3ZQQ09MOC96V2YK",
+      "endpoints": [
+        "https://gitee.com/peng-minghang/mctier/raw/master/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

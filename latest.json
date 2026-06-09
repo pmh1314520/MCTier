@@ -1,0 +1,11 @@
+{
+    "version":  "1.7.0",
+    "notes":  "应用内自动更新上线；优化界面配色(草方块绿+棕+红)、悬停提示、皇冠图标；修复禁言/转让/踢出等问题。",
+    "pub_date":  "2026-06-09T07:43:01Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSEQ4VE9hYnY1QVRzVE5GWm9BcVhydUUxYzZSalg4dmlBZXltVzlOekVzTGx5OWE2dTF0cFZKZWJ1b2lvQ1dsYzBudldhS2w1bWZMWFlXc1VzRktvZmxDRTRkS2JNendNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwOTkwOTU4CWZpbGU6TUNUaWVyXzEuNy4wX3g2NC1zZXR1cC5leGUKY3VsZkNMaG9MS2p4OU9lRVZyQW8zcVZCVkVOYmdNb1pSZnlheDd1NGlGRERKL1BUc2REZzRIaFluOVIrMFRCeFBhazBuTmVGWEFBL05mOVNQTjJ3RGc9PQo=",
+                                             "url":  "https://gitee.com/peng-minghang/mctier/releases/download/v1.7.0/MCTier_1.7.0_x64-setup.exe"
+                                         }
+                  }
+}
