@@ -49,7 +49,7 @@ export const MiniWindow: React.FC = () => {
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
 
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
 
   const [collapsed, setCollapsed] = useState(false);
   const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
@@ -332,6 +332,11 @@ export const MiniWindow: React.FC = () => {
 
   const handleToggleMic = async () => {
     try {
+      // 若已被房主禁言，禁止开启麦克风（关闭则允许）
+      if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && !micEnabled) {
+        message.warning('你已被房主禁言，无法开启麦克风');
+        return;
+      }
       // 调用后端的toggle_mic命令
       await invoke<boolean>('toggle_mic');
       // 后端会发送mic-toggled事件，前端会自动更新UI
@@ -443,6 +448,8 @@ export const MiniWindow: React.FC = () => {
   useEffect(() => {
     if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && micEnabled) {
       try {
+        // 物理关闭后端麦克风（toggle_mic 当前为开 → 关），处理快捷键绕过的情况
+        invoke('toggle_mic').catch(() => {});
         webrtcClient.setMicEnabled(false);
         useAppStore.getState().setMicEnabled(false);
         message.warning('你已被房主禁言，麦克风已关闭');
@@ -1371,7 +1378,7 @@ export const MiniWindow: React.FC = () => {
                               <motion.button
                                 className="mini-action-btn"
                                 onClick={() => {
-                                  Modal.confirm({
+                                  modal.confirm({
                                     title: '转让房主',
                                     content: `确定把房主转让给 ${player.name} 吗？`,
                                     okText: '转让',
@@ -1391,7 +1398,7 @@ export const MiniWindow: React.FC = () => {
                               <motion.button
                                 className="mini-action-btn kick-btn"
                                 onClick={() => {
-                                  Modal.confirm({
+                                  modal.confirm({
                                     title: '踢出玩家',
                                     content: `确定把 ${player.name} 移出大厅吗？`,
                                     okText: '踢出',

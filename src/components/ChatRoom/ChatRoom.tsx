@@ -634,7 +634,7 @@ export const ChatRoom: React.FC = () => {
           const isMe = !!ownName && mentionedName === ownName;
           const isKnown = players.some((p) => p.name === mentionedName);
           if (isMe || isKnown || isEveryone) {
-            const accent = isMe ? '#ffe066' : isEveryone ? '#ffe066' : '#aee27a';
+            const accent = '#ffe066';
             return (
               <span
                 key={`m-${i}-${j}`}
