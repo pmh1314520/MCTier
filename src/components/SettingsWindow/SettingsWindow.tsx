@@ -532,6 +532,10 @@ interface EasyTierNode {
 // 默认内置节点（不可删除）
 const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
   {
+    name: 'MCTier 官方服务器',
+    address: 'wss://mctiers.pmhs.top'
+  },
+  {
     name: '明月清风节点',
     address: 'wss://public.qtet.cc.cd'
   },
