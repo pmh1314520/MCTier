@@ -566,8 +566,9 @@
   font-size: 10px;
   color: rgba(255, 255, 255, 0.6);
   font-weight: 500;
-  min-width: 32px;
-  text-align: right;
+  min-width: 30px;
+  text-align: left;
+  margin-left: -2px;
 }
 
 .mini-player-actions {

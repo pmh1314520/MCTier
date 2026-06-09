@@ -170,9 +170,9 @@ export class WebRTCClient {
       console.log('⏭️ 跳过麦克风初始化，等待用户手动开启');
       this.localStream = null;
 
-      // 连接到WebSocket信令服务器
+      // 连接到WebSocket信令服务器（带重试，缓解二次加入时的瞬时 DNS 解析失败）
       console.log('正在连接到WebSocket信令服务器...');
-      await this.connectToSignalingServer();
+      await this.connectToSignalingServerWithRetry();
       console.log('✅ 已连接到WebSocket信令服务器');
 
       // 监听后端信令消息（保留用于状态更新等）
@@ -205,6 +205,39 @@ export class WebRTCClient {
       await this.cleanup();
       throw new Error(`无法初始化语音系统: ${error}`);
     }
+  }
+
+  /**
+   * 连接信令服务器（带重试）
+   * 二次加入大厅时，虚拟网卡的 Magic DNS 可能短暂影响公网域名解析，
+   * 导致信令域名出现 ERR_NAME_NOT_RESOLVED，这里做有限次重试以自愈。
+   */
+  private async connectToSignalingServerWithRetry(maxAttempts = 3): Promise<void> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.connectToSignalingServer();
+        return;
+      } catch (e) {
+        lastErr = e;
+        console.warn(`⚠️ 第 ${attempt}/${maxAttempts} 次连接信令服务器失败:`, e);
+        // 清理失败的连接，避免句柄残留
+        try {
+          if (this.websocket) {
+            this.websocket.onopen = null;
+            this.websocket.onmessage = null;
+            this.websocket.onerror = null;
+            this.websocket.onclose = null;
+            this.websocket.close();
+            this.websocket = null;
+          }
+        } catch { /* ignore */ }
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error('无法连接到信令服务器');
   }
 
   /**
