@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import { Modal, App as AntdApp } from 'antd';
+import React from 'react';
+import { Modal } from 'antd';
 import { motion } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-shell';
-import { updaterService } from '../../services/version/UpdaterService';
 import './VersionUpdateModal.css';
 
 interface VersionUpdateModalProps {
@@ -15,7 +14,6 @@ interface VersionUpdateModalProps {
 
 /**
  * 版本更新提示弹窗组件
- * 支持应用内一键下载并自动安装更新（Tauri updater）
  */
 export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
   visible,
@@ -24,40 +22,13 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
   updateMessage,
   onClose,
 }) => {
-  const { message } = AntdApp.useApp();
-  const [updating, setUpdating] = useState(false);
-  const [percent, setPercent] = useState(0);
-  const [phase, setPhase] = useState<'idle' | 'downloading' | 'installing'>('idle');
-
-  // 应用内一键更新：下载 → 安装 → 重启
-  const handleUpdate = async () => {
-    if (updating) return;
-    setUpdating(true);
-    setPhase('downloading');
-    setPercent(0);
+  // 打开下载页面
+  const handleDownload = async () => {
     try {
-      await updaterService.downloadAndInstall((downloaded, total) => {
-        if (total > 0) {
-          const p = Math.min(100, Math.round((downloaded / total) * 100));
-          setPercent(p);
-          if (p >= 100) setPhase('installing');
-        }
-      });
-      setPhase('installing');
-      message.success('更新已下载完成，即将重启应用…');
-      // 安装完成后重启应用
-      setTimeout(() => {
-        void updaterService.relaunchApp();
-      }, 800);
+      await open('https://gitee.com/peng-minghang/mctier/releases');
+      onClose();
     } catch (error) {
-      console.error('❌ 自动更新失败:', error);
-      message.error('自动更新失败，将为你打开下载页面');
-      // 失败兜底：打开下载页面
-      try {
-        await open('https://gitee.com/peng-minghang/mctier/releases');
-      } catch { /* ignore */ }
-      setUpdating(false);
-      setPhase('idle');
+      console.error('❌ 打开下载页面失败:', error);
     }
   };
 
@@ -74,9 +45,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
         </div>
       }
       open={visible}
-      onCancel={updating ? undefined : onClose}
-      maskClosable={!updating}
-      closable={!updating}
+      onCancel={onClose}
       footer={null}
       centered
       width={420}
@@ -127,45 +96,28 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
           </div>
         </div>
 
-        {/* 下载进度 */}
-        {updating && (
-          <div className="version-update-progress">
-            <div className="version-update-progress-bar">
-              <div
-                className="version-update-progress-fill"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <div className="version-update-progress-text">
-              {phase === 'installing' ? '正在安装，请稍候…' : `正在下载更新… ${percent}%`}
-            </div>
-          </div>
-        )}
-
         {/* 操作按钮 */}
         <div className="version-update-actions">
           <motion.button
             className="version-update-btn later"
             onClick={onClose}
-            disabled={updating}
-            whileHover={updating ? undefined : { scale: 1.02 }}
-            whileTap={updating ? undefined : { scale: 0.98 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             稍后更新
           </motion.button>
           <motion.button
             className="version-update-btn download"
-            onClick={handleUpdate}
-            disabled={updating}
-            whileHover={updating ? undefined : { scale: 1.02 }}
-            whileTap={updating ? undefined : { scale: 0.98 }}
+            onClick={handleDownload}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>{updating ? '更新中…' : '立即更新'}</span>
+            <span>立即下载</span>
           </motion.button>
         </div>
       </div>

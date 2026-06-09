@@ -14,8 +14,6 @@ import { hotkeyManager, webrtcClient, audioService, fileShareService } from './s
 import { screenShareService } from './services/screenShare/ScreenShareService';
 import { speakingDetector } from './services/voice/SpeakingDetector';
 import { versionCheckService } from './services/version/VersionCheckService';
-import { updaterService } from './services/version/UpdaterService';
-import { getVersion } from '@tauri-apps/api/app';
 import type { UserConfig } from './types';
 import './App.css';
 
@@ -108,32 +106,35 @@ function App() {
           return;
         }
 
-        console.log('🔍 [VersionCheck] 开始检查版本更新（Tauri updater）...');
-
-        // 使用 Tauri updater 检查（从 endpoint 拉取 latest.json 并校验签名）
-        const info = await updaterService.checkForUpdate();
-
+        console.log('🔍 [VersionCheck] 开始检查版本更新...');
+        
+        // 获取最新版本信息
+        const info = await versionCheckService.fetchLatestVersion();
+        
         if (!info) {
-          console.warn('⚠️ [VersionCheck] 更新检查失败或更新源不可达');
+          console.warn('⚠️ [VersionCheck] 获取版本信息失败');
           return;
         }
 
-        if (info.available) {
-          console.log('🎉 [VersionCheck] 发现新版本:', info.version);
-          const current = await getVersion().catch(() => '');
-          const notes = (info.notes || '')
-            .split('\n')
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
+        if (info.hasUpdate && info.updateMessage) {
+          console.log('🎉 [VersionCheck] 发现新版本:', info.latestVersion);
+          
+          // 格式化更新日志
+          const formattedMessage = versionCheckService.formatUpdateMessage(info.updateMessage);
+          
+          // 设置版本信息并显示弹窗
           setVersionInfo({
-            latestVersion: info.version,
-            currentVersion: current,
-            updateMessage: notes.length > 0 ? notes : ['修复了若干问题并优化了体验'],
+            latestVersion: info.latestVersion,
+            currentVersion: info.currentVersion,
+            updateMessage: formattedMessage,
           });
           setShowVersionModal(true);
+          
+          // 标记已显示更新提示
           versionCheckService.markUpdatePromptShown();
         } else {
           console.log('✅ [VersionCheck] 当前已是最新版本');
+          // 即使是最新版本，也标记已检查过，避免每次启动都检查
           versionCheckService.markUpdatePromptShown();
         }
       } catch (error) {

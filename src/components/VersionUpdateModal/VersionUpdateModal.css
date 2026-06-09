@@ -267,29 +267,3 @@
 .version-update-btn.download:active {
   transform: translateY(0);
 }
-
-/* 更新下载进度 */
-.version-update-progress {
-  margin: 4px 0 14px;
-}
-
-.version-update-progress-bar {
-  height: 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-}
-
-.version-update-progress-fill {
-  height: 100%;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #5a9428 0%, #7ed321 100%);
-  transition: width 0.2s ease;
-}
-
-.version-update-progress-text {
-  margin-top: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  text-align: center;
-}
