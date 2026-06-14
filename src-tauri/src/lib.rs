@@ -115,6 +115,56 @@ fn open_devtools(_app: tauri::AppHandle) {
     { log::warn!("开发者工具仅在 debug 模式下可用"); }
 }
 
+/// 【#1】确保窗口在可视范围内：若窗口已完全移出所有显示器，则自动居中。
+/// 仅在窗口与所有显示器都没有任何重叠（完全丢失）时触发，避免拖拽贴边时误触发。
+fn ensure_window_visible(window: &tauri::Window) {
+    let pos = match window.outer_position() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let size = match window.outer_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let win_left = pos.x;
+    let win_top = pos.y;
+    let win_right = pos.x + size.width as i32;
+    let win_bottom = pos.y + size.height as i32;
+
+    let monitors = match window.available_monitors() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    if monitors.is_empty() {
+        return;
+    }
+
+    // 计算窗口与任一显示器的最大可见重叠面积
+    let mut max_overlap: i64 = 0;
+    for monitor in &monitors {
+        let mp = monitor.position();
+        let ms = monitor.size();
+        let mon_left = mp.x;
+        let mon_top = mp.y;
+        let mon_right = mp.x + ms.width as i32;
+        let mon_bottom = mp.y + ms.height as i32;
+
+        let ox = (win_right.min(mon_right) - win_left.max(mon_left)).max(0) as i64;
+        let oy = (win_bottom.min(mon_bottom) - win_top.max(mon_top)).max(0) as i64;
+        let overlap = ox * oy;
+        if overlap > max_overlap {
+            max_overlap = overlap;
+        }
+    }
+
+    // 完全没有任何重叠 => 窗口已丢失到屏幕外，居中找回
+    if max_overlap == 0 {
+        log::warn!("检测到窗口移出可视范围，自动居中找回");
+        let _ = window.center();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 在应用启动时检查并应用 GPU 设置
@@ -400,6 +450,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // 【#1】窗口越界自动回中：当窗口被拖到所有显示器可视范围之外时，自动居中找回
+            if let tauri::WindowEvent::Moved(_pos) = event {
+                ensure_window_visible(window);
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let ah = window.app_handle().clone();
