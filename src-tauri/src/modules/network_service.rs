@@ -800,15 +800,47 @@ impl NetworkService {
         log::info!("  - 延迟优先: {}", final_config.latency_first);
         log::info!("========================================");
 
+        // 【可靠性关键修复】构建冗余 peer 列表，显著提升创建/加入大厅成功率：
+        // 1) 单节点连不上时（节点宕机/被墙/UDP 被运营商限制），不会再 60 秒超时失败，
+        //    EasyTier 会自动尝试其它内置公共节点，只要任意一个可达即可成功组网；
+        // 2) 解决“房主选官方节点、加入者选海波节点”导致连到不同中继而互相找不到的问题——
+        //    双方都带上全部内置公共节点后，必定存在共同可达的中继，从而能够互相发现。
+        // 仅当主节点属于内置公共节点时才追加冗余节点；私有服务器/自定义节点保持隔离，原样使用。
+        const BUILTIN_PUBLIC_NODES: &[&str] = &[
+            "udp://us01.225284.xyz:11010",        // MCTier 官方
+            "tcp://225284.xyz:11010",             // 海波
+            "tcp://easytier.weiai.org.cn:11010",  // 唯爱
+            "wss://public.456469.xyz",            // 明月清风
+        ];
+        let primary_node = server_node.trim().to_string();
+        let mut peer_nodes: Vec<String> = vec![primary_node.clone()];
+        let is_builtin_public = BUILTIN_PUBLIC_NODES
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(primary_node.trim_end_matches('/')));
+        if is_builtin_public {
+            for n in BUILTIN_PUBLIC_NODES {
+                if !n.eq_ignore_ascii_case(primary_node.trim_end_matches('/'))
+                    && !peer_nodes.iter().any(|p| p.eq_ignore_ascii_case(n))
+                {
+                    peer_nodes.push(n.to_string());
+                }
+            }
+            log::info!("✅ 使用内置公共节点，启用多节点冗余以提升成功率，共 {} 个 peer", peer_nodes.len());
+        } else {
+            log::info!("使用私有/自定义节点，按隔离策略仅连接该节点: {}", primary_node);
+        }
+
         // 构建命令行参数
         let mut cmd = Command::new(&easytier_path);
         cmd.arg("--network-name")
             .arg(&network_name)
             .arg("--network-secret")
-            .arg(&network_key)
-            .arg("--peers")
-            .arg(&server_node) // 单个节点地址
-            .arg("--hostname")
+            .arg(&network_key);
+        // 依次加入所有 peer（主节点优先，其余为冗余备用）
+        for peer in &peer_nodes {
+            cmd.arg("--peers").arg(peer);
+        }
+        cmd.arg("--hostname")
             .arg(&sanitized_hostname) // 设置主机名用于Magic DNS
             .arg("--instance-name")
             .arg(&instance_name)
