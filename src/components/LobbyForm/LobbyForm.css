@@ -503,3 +503,35 @@
 .lobby-action-btn:hover .lobby-action-label {
   color: rgba(255, 255, 255, 0.95);
 }
+
+/* 已启用私有服务器信息块（#7） */
+.private-server-info {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(82, 196, 26, 0.3);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.1) 0%, rgba(82, 196, 26, 0.04) 100%);
+}
+
+.private-server-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7ed957;
+  margin-bottom: 8px;
+}
+
+.private-server-info-row {
+  display: flex;
+  font-size: 13px;
+  line-height: 1.9;
+  word-break: break-all;
+}
+
+.private-server-info-label {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.private-server-info-value {
+  color: rgba(255, 255, 255, 0.92);
+}

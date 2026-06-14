@@ -259,14 +259,16 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     message.info('已填入公开大厅信息，点击加入即可');
   };
 
-  const resolvedPreferredServer =
-    config.preferredServer === 'custom'
-      ? 'custom'
-      : isLegacyOfficialServer(config.preferredServer)
-        ? OFFICIAL_EASYTIER_SERVER
-        : config.preferredServer === OFFICIAL_EASYTIER_SERVER
-          ? OFFICIAL_EASYTIER_SERVER
-          : OFFICIAL_EASYTIER_SERVER;
+  // 解析上次成功使用的首选节点（#10 记住上次成功进入大厅的节点）
+  const resolvedPreferredServer = (() => {
+    const pref = config.preferredServer;
+    if (!pref) return OFFICIAL_EASYTIER_SERVER;
+    if (pref === 'custom') return 'custom';
+    // 旧版官方节点地址自动迁移到当前官方节点
+    if (isLegacyOfficialServer(pref)) return OFFICIAL_EASYTIER_SERVER;
+    // 直接使用上次成功连上的节点地址（官方/备用/自定义节点）
+    return pref;
+  })();
 
   const initialValues: Partial<LobbyFormValues> = {
     playerName: config.playerName || '',
@@ -1009,46 +1011,59 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               />
             </Form.Item>
 
-            <Form.Item
-              label="服务器节点"
-              name="serverNode"
-              rules={[{ required: true, message: '请选择服务器节点' }]}
-              tooltip={privateServerConfig.usePrivateServer ? '已启用私有服务器，将使用设置中配置的服务器地址' : undefined}
-            >
-              <Select 
-                size="large" 
-                disabled={loading || privateServerConfig.usePrivateServer}
-                onChange={(value) => setShowCustomServer(value === 'custom')}
-              >
-                {serverNodes.map((node) => {
-                  const lat = nodeLatencies[node.value];
-                  let suffix = '';
-                  if (node.value !== 'custom') {
-                    if (lat === 'testing') suffix = ' · 测速中…';
-                    else if (typeof lat === 'number') suffix = ` · ${lat}ms`;
-                    else if (lat === null) suffix = ' · 不可达';
-                  }
-                  return (
-                    <Option key={node.value} value={node.value}>
-                      {node.label}{suffix}
-                    </Option>
-                  );
-                })}
-              </Select>
-            </Form.Item>
-
-            {!privateServerConfig.usePrivateServer && (
-              <div style={{ marginTop: '-8px', marginBottom: '12px', textAlign: 'right' }}>
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={handleTestNodes}
-                  loading={testingNodes}
-                  disabled={loading}
-                >
-                  一键使用最优节点
-                </Button>
+            {privateServerConfig.usePrivateServer ? (
+              <div className="private-server-info">
+                <div className="private-server-info-title">已启用私有服务器</div>
+                <div className="private-server-info-row">
+                  <span className="private-server-info-label">EasyTier 节点：</span>
+                  <span className="private-server-info-value">{privateServerConfig.privateEasytierServer}</span>
+                </div>
+                <div className="private-server-info-row">
+                  <span className="private-server-info-label">信令服务器：</span>
+                  <span className="private-server-info-value">{privateServerConfig.privateSignalingServer}</span>
+                </div>
               </div>
+            ) : (
+              <>
+                <Form.Item
+                  label="服务器节点"
+                  name="serverNode"
+                  rules={[{ required: true, message: '请选择服务器节点' }]}
+                >
+                  <Select 
+                    size="large" 
+                    disabled={loading}
+                    onChange={(value) => setShowCustomServer(value === 'custom')}
+                  >
+                    {serverNodes.map((node) => {
+                      const lat = nodeLatencies[node.value];
+                      let suffix = '';
+                      if (node.value !== 'custom') {
+                        if (lat === 'testing') suffix = ' · 测速中…';
+                        else if (typeof lat === 'number') suffix = ` · ${lat}ms`;
+                        else if (lat === null) suffix = ' · 不可达';
+                      }
+                      return (
+                        <Option key={node.value} value={node.value}>
+                          {node.label}{suffix}
+                        </Option>
+                      );
+                    })}
+                  </Select>
+                </Form.Item>
+
+                <div style={{ marginTop: '-8px', marginBottom: '12px', textAlign: 'right' }}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={handleTestNodes}
+                    loading={testingNodes}
+                    disabled={loading}
+                  >
+                    一键使用最优节点
+                  </Button>
+                </div>
+              </>
             )}
 
             {showCustomServer && !privateServerConfig.usePrivateServer && (
