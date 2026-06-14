@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Switch, message, Tooltip } from 'antd';
+import { Form, Input, Switch, message, Tooltip, App } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
@@ -438,6 +438,41 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                         ]}>
                         <Input placeholder="wss://mctier.pmhs.top/signaling" onBlur={handleFieldBlur} />
                       </Form.Item>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '-4px', marginBottom: '10px', lineHeight: 1.6 }}>
+                        提示：MCTier 官网仅提供信令服务器源码
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="settings-action-btn settings-action-btn-green"
+                          onClick={async () => {
+                            try {
+                              const { open } = await import('@tauri-apps/plugin-shell');
+                              await open('https://mctier.pmhs.top');
+                            } catch (e) {
+                              console.error('打开官网失败:', e);
+                              message.error('打开官网失败');
+                            }
+                          }}
+                        >
+                          前往 MCTier 官网
+                        </button>
+                        <button
+                          type="button"
+                          className="settings-action-btn settings-action-btn-reset"
+                          onClick={async () => {
+                            const defaults = {
+                              privateEasytierServer: 'wss://mctiers.pmhs.top',
+                              privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
+                            };
+                            form.setFieldsValue(defaults);
+                            await saveAll(defaults);
+                            message.success('已重置为默认私有服务器地址');
+                          }}
+                        >
+                          重置
+                        </button>
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -533,15 +568,11 @@ interface EasyTierNode {
 const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
   {
     name: 'MCTier 官方服务器',
-    address: 'wss://mctiers.pmhs.top'
+    address: 'udp://us01.225284.xyz:11010'
   },
   {
     name: '明月清风节点',
-    address: 'wss://public.qtet.cc.cd'
-  },
-  {
-    name: '海波节点',
-    address: 'udp://us01.225284.xyz:11010'
+    address: 'wss://public.456469.xyz'
   }
 ];
 
@@ -549,6 +580,7 @@ const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
 const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
 
 const CustomNodeManager: React.FC = () => {
+  const { modal } = App.useApp();
   const [nodes, setNodes] = useState<EasyTierNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -654,6 +686,16 @@ const CustomNodeManager: React.FC = () => {
       return;
     }
 
+    // 检查地址是否已存在（含内置节点与其它自定义节点，编辑自身时跳过）
+    const normalizedAddr = editForm.address.trim();
+    const duplicated = nodes.some(
+      (n, i) => i !== editingIndex && n.address.trim() === normalizedAddr
+    );
+    if (duplicated) {
+      message.warning('该节点地址已存在，请勿重复添加');
+      return;
+    }
+
     const newNodes = [...nodes];
     if (editingIndex !== null) {
       if (editingIndex >= newNodes.length) {
@@ -682,9 +724,20 @@ const CustomNodeManager: React.FC = () => {
       message.warning('默认备用节点不可删除');
       return;
     }
-    
-    const newNodes = nodes.filter((_, i) => i !== index);
-    await saveNodes(newNodes);
+
+    const target = nodes[index];
+    modal.confirm({
+      title: '删除自定义节点',
+      content: `确定要删除节点「${target?.name ?? ''}」吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      centered: true,
+      onOk: async () => {
+        const newNodes = nodes.filter((_, i) => i !== index);
+        await saveNodes(newNodes);
+      },
+    });
   };
 
   if (loading) {
@@ -993,7 +1046,7 @@ const ConfigManager: React.FC = () => {
           )}
         </motion.button>
         <motion.button
-          className="config-btn config-btn-import"
+          className="config-btn config-btn-export"
           onClick={handleExportLogs}
           disabled={exportingLogs}
           whileHover={{ scale: 1.02 }}

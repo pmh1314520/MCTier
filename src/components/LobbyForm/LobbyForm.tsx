@@ -32,13 +32,13 @@ interface LobbyFormValues {
   useDomain: boolean;
 }
 
-// 官方 EasyTier 服务器节点（仅保留 CDN WebSockets）
-const OFFICIAL_EASYTIER_SERVER = 'wss://mctiers.pmhs.top';
+// 官方 EasyTier 服务器节点（使用海波节点作为官方中继）
+const OFFICIAL_EASYTIER_SERVER = 'udp://us01.225284.xyz:11010';
 
 // 默认备用节点（与SettingsWindow中的定义保持一致）
 const DEFAULT_BUILTIN_NODE = {
   name: '明月清风节点',
-  address: 'wss://public.qtet.cc.cd'
+  address: 'wss://public.456469.xyz'
 };
 
 // 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
@@ -61,9 +61,8 @@ interface CustomEasyTierNode {
 // 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
-    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器 (WSS)' },
+    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器' },
     { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
-    { value: 'udp://us01.225284.xyz:11010', label: '海波节点 (备用)' },
   ];
   
   // 添加自定义节点
@@ -1047,7 +1046,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   loading={testingNodes}
                   disabled={loading}
                 >
-                  测速并自动选最优
+                  一键使用最优节点
                 </Button>
               </div>
             )}

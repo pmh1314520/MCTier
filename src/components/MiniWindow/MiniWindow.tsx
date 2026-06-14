@@ -555,7 +555,7 @@ export const MiniWindow: React.FC = () => {
       console.log('🔌 [MiniWindow] 正在使用新配置重新加入大厅...');
       const serverNode = (settings.usePrivateServer && settings.privateEasytierServer)
         ? settings.privateEasytierServer 
-        : 'wss://mctiers.pmhs.top';
+        : 'udp://us01.225284.xyz:11010';
       const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
         ? settings.privateSignalingServer 
         : 'wss://mctier.pmhs.top/signaling';

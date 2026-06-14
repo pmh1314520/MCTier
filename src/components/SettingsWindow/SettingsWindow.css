@@ -564,12 +564,12 @@
 }
 
 .node-btn-edit {
-  background: rgba(24, 144, 255, 0.15);
-  color: #1890ff;
+  background: rgba(82, 196, 26, 0.15);
+  color: #52c41a;
 }
 
 .node-btn-edit:hover {
-  background: rgba(24, 144, 255, 0.25);
+  background: rgba(82, 196, 26, 0.25);
 }
 
 .node-btn-delete {
@@ -734,4 +734,41 @@
 
 .settings-card-icon-purple svg {
   color: rgba(186, 104, 200, 0.95);
+}
+
+/* 私有服务器操作按钮 */
+.settings-action-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.settings-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.settings-action-btn-green {
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.18) 0%, rgba(82, 196, 26, 0.1) 100%);
+  border-color: rgba(82, 196, 26, 0.35);
+  color: #7ed957;
+}
+
+.settings-action-btn-green:hover {
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.28) 0%, rgba(82, 196, 26, 0.16) 100%);
+}
+
+.settings-action-btn-reset {
+  background: linear-gradient(135deg, rgba(140, 100, 60, 0.2) 0%, rgba(140, 100, 60, 0.12) 100%);
+  border-color: rgba(160, 110, 60, 0.4);
+  color: #d2a679;
+  flex: 0 0 80px;
+}
+
+.settings-action-btn-reset:hover {
+  background: linear-gradient(135deg, rgba(140, 100, 60, 0.3) 0%, rgba(140, 100, 60, 0.18) 100%);
 }
