@@ -63,7 +63,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         useDomain: ud,
         usePrivateServer: ups,
         // 只在后端返回 null/undefined 时使用默认值
-        privateEasytierServer: settings.privateEasytierServer ?? 'wss://mctiers.pmhs.top',
+        privateEasytierServer: settings.privateEasytierServer ?? 'udp://us01.225284.xyz:11010',
         privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
         alwaysOnTop: aot,
         rememberWindowPosition: rwp,
@@ -93,7 +93,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         playerName: '',
         useDomain: false,
         usePrivateServer: false,
-        privateEasytierServer: 'wss://mctiers.pmhs.top',
+        privateEasytierServer: 'udp://us01.225284.xyz:11010',
         privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
         alwaysOnTop: true,
         rememberWindowPosition: false,
@@ -432,7 +432,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           { required: true, message: '请输入 EasyTier 节点服务器地址' },
                           { pattern: /^(tcp|udp|ws|wss|txt):\/\/.+$/, message: '格式：tcp://、udp://、ws://、wss:// 或 txt:// 开头' },
                         ]}>
-                        <Input placeholder="wss://mctiers.pmhs.top" onBlur={handleFieldBlur} />
+                        <Input placeholder="udp://us01.225284.xyz:11010" onBlur={handleFieldBlur} />
                       </Form.Item>
                       <Form.Item name="privateSignalingServer" label="WebRTC 信令服务器"
                         rules={[
@@ -465,7 +465,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           className="settings-action-btn settings-action-btn-reset"
                           onClick={async () => {
                             const defaults = {
-                              privateEasytierServer: 'wss://mctiers.pmhs.top',
+                              privateEasytierServer: 'udp://us01.225284.xyz:11010',
                               privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
                             };
                             form.setFieldsValue(defaults);

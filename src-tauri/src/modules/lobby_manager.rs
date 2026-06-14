@@ -210,12 +210,13 @@ impl LobbyManager {
         if trimmed == "tcp://mctiers.pmhs.top:11010"
             || trimmed == "udp://mctiers.pmhs.top:11010"
             || trimmed == "ws://mctiers.pmhs.top:11011"
+            || trimmed == "wss://mctiers.pmhs.top"
             || trimmed == "tcp://mctier.pmhs.top:11010"
             || trimmed == "udp://mctier.pmhs.top:11010"
             || trimmed == "ws://mctier.pmhs.top/signaling"
             || trimmed == "wss://mctier.pmhs.top/signaling"
         {
-            return "wss://mctiers.pmhs.top".to_string();
+            return "udp://us01.225284.xyz:11010".to_string();
         }
 
         trimmed.to_string()

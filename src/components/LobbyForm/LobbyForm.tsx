@@ -148,7 +148,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     privateSignalingServer: string;
   }>({
     usePrivateServer: false,
-    privateEasytierServer: 'wss://mctiers.pmhs.top',
+    privateEasytierServer: 'udp://us01.225284.xyz:11010',
     privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
   });
   // @ts-ignore - customNodes is used in useEffect to load custom nodes
@@ -296,7 +296,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         setPrivateServerConfig({
           usePrivateServer: settings.usePrivateServer || false,
           // 使用 ?? 运算符，只在 null/undefined 时使用默认值
-          privateEasytierServer: settings.privateEasytierServer ?? 'wss://mctiers.pmhs.top',
+          privateEasytierServer: settings.privateEasytierServer ?? 'udp://us01.225284.xyz:11010',
           privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
         });
         
@@ -1030,19 +1030,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               />
             </Form.Item>
 
-            {privateServerConfig.usePrivateServer ? (
-              <div className="private-server-info">
-                <div className="private-server-info-title">已启用私有服务器</div>
-                <div className="private-server-info-row">
-                  <span className="private-server-info-label">EasyTier 节点：</span>
-                  <span className="private-server-info-value">{privateServerConfig.privateEasytierServer}</span>
-                </div>
-                <div className="private-server-info-row">
-                  <span className="private-server-info-label">信令服务器：</span>
-                  <span className="private-server-info-value">{privateServerConfig.privateSignalingServer}</span>
-                </div>
-              </div>
-            ) : (
+            {!privateServerConfig.usePrivateServer && (
               <>
                 <Form.Item
                   label="服务器节点"
@@ -1099,7 +1087,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   ]}
                 >
                   <Input
-                    placeholder="例如：wss://mctiers.pmhs.top 或 tcp://your-server.com:11010"
+                    placeholder="例如：udp://us01.225284.xyz:11010 或 wss://your-server.com"
                     size="large"
                     disabled={loading}
                   />
@@ -1135,7 +1123,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 <div style={{ fontSize: '14px', color: 'rgba(126, 211, 33, 0.9)', marginBottom: '8px' }}>
                   ✓ 已启用私有服务器
                 </div>
-                <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+                <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)', wordBreak: 'break-all', lineHeight: 1.9 }}>
                   EasyTier: {privateServerConfig.privateEasytierServer}
                   <br />
                   信令服务器: {privateServerConfig.privateSignalingServer}

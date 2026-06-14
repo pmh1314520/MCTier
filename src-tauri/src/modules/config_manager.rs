@@ -399,7 +399,7 @@ impl Default for UserConfig {
             auto_startup: Some(false),
             auto_lobby: Some(AutoLobbyConfig::default()),
             use_private_server: Some(false),
-            private_easytier_server: Some("wss://mctiers.pmhs.top".to_string()),
+            private_easytier_server: Some("udp://us01.225284.xyz:11010".to_string()),
             private_signaling_server: Some("wss://mctier.pmhs.top/signaling".to_string()),
             always_on_top: Some(true),
             remember_window_position: Some(false),
