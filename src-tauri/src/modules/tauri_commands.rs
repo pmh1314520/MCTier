@@ -3321,26 +3321,31 @@ pub async fn send_p2p_chat_message(
         let client_clone = client.clone();
         let url_clone = url.clone();
         
-        // 创建并发任务，返回是否送达成功
+        // 创建并发任务，返回是否送达成功（带一次快速重试，降低瞬时抖动导致的漏发）
         let task = tokio::spawn(async move {
-            let start = std::time::Instant::now();
-            match client_clone.post(&url_clone).json(&request).send().await {
-                Ok(response) => {
-                    let elapsed = start.elapsed();
-                    if response.status().is_success() {
-                        log::info!("✅ 消息已发送到: {} (耗时: {:?})", url_clone, elapsed);
-                        true
-                    } else {
-                        log::warn!("⚠️ 发送消息失败 ({}): HTTP {}", url_clone, response.status());
-                        false
+            for attempt in 0..2 {
+                let start = std::time::Instant::now();
+                match client_clone.post(&url_clone).json(&request).send().await {
+                    Ok(response) => {
+                        let elapsed = start.elapsed();
+                        if response.status().is_success() {
+                            log::info!("✅ 消息已发送到: {} (耗时: {:?}, 第{}次)", url_clone, elapsed, attempt + 1);
+                            return true;
+                        } else {
+                            log::warn!("⚠️ 发送消息失败 ({}): HTTP {} (第{}次)", url_clone, response.status(), attempt + 1);
+                        }
+                    }
+                    Err(e) => {
+                        let elapsed = start.elapsed();
+                        log::warn!("⚠️ 发送消息失败 ({}, 耗时: {:?}, 第{}次): {}", url_clone, elapsed, attempt + 1, e);
                     }
                 }
-                Err(e) => {
-                    let elapsed = start.elapsed();
-                    log::warn!("⚠️ 发送消息失败 ({}, 耗时: {:?}): {}", url_clone, elapsed, e);
-                    false
+                if attempt == 0 {
+                    // 第一次失败后稍等再重试一次
+                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
                 }
             }
+            false
         });
         
         tasks.push(task);

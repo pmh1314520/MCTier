@@ -25,6 +25,7 @@ const CHAT_SERVER_PORT = 14540;
 class P2PChatService {
   private selfEventSource: EventSource | null = null; // 仅订阅“自己”的消息流
   private selfReconnectTimer: number | null = null;
+  private reconcileTimer: number | null = null; // 周期性对账拉取定时器（补偿推送失败的消息）
   private isListening: boolean = false;
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
@@ -91,6 +92,63 @@ class P2PChatService {
     console.log('✅ [P2PChatService] 开始监听消息（订阅本机消息流，SSE事件驱动）');
     this.isListening = true;
     this.connectToSelfStream();
+    // 同时启动周期性对账拉取，作为推送失败/SSE 抖动时的兜底，确保消息最终一致
+    this.startReconcileLoop();
+  }
+
+  /**
+   * 启动周期性对账拉取（关键可靠性保障）
+   *
+   * 发送方是「一次性 HTTP 推送」，若某次推送因瞬时网络抖动/对端服务器未就绪而失败，
+   * 接收方将永久收不到那条消息（SSE 重连补拉只查本机，补不回从未到达的消息）。
+   * 由于每个发送方都会把自己发的消息存在本机，这里周期性地从所有 peer 拉取最近窗口的
+   * 消息（按已见最大时间戳回退一个窗口），交给 handleMessage（按 ID 去重），
+   * 即可把任何推送失败的消息补回来。窗口化拉取避免每轮重复全量传输图片。
+   */
+  private startReconcileLoop(): void {
+    if (this.reconcileTimer) return;
+    this.reconcileTimer = window.setInterval(() => {
+      void this.reconcileOnce();
+    }, 10000); // 每 10 秒对账一次
+  }
+
+  private stopReconcileLoop(): void {
+    if (this.reconcileTimer) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
+  }
+
+  /**
+   * 执行一次对账：并发从所有 peer 拉取最近窗口的消息并按 ID 去重补入
+   */
+  private async reconcileOnce(): Promise<void> {
+    const ips = this.peerIps.filter((ip) => ip && ip !== this.myVirtualIp);
+    if (ips.length === 0) return;
+
+    // 以「已见最大时间戳」回退 20 秒为窗口，覆盖瞬时失败；ID 去重保证不重复回调。
+    const sinceSec = this.lastMessageTs > 20 ? this.lastMessageTs - 20 : 0;
+
+    const collected: BackendChatMessage[] = [];
+    await Promise.all(
+      ips.map(async (ip) => {
+        try {
+          const url = `http://${ip}:${CHAT_SERVER_PORT}/api/chat/messages${sinceSec > 0 ? `?since=${sinceSec}` : ''}`;
+          const resp = await fetch(url);
+          if (!resp.ok) return;
+          const msgs: BackendChatMessage[] = await resp.json();
+          if (Array.isArray(msgs)) collected.push(...msgs);
+        } catch {
+          // 单个 peer 拉取失败忽略，下一轮继续
+        }
+      })
+    );
+
+    if (collected.length === 0) return;
+    collected.sort((a, b) => a.timestamp - b.timestamp);
+    for (const m of collected) {
+      this.handleMessage(m);
+    }
   }
 
   /**
@@ -285,6 +343,8 @@ class P2PChatService {
       clearTimeout(this.selfReconnectTimer);
       this.selfReconnectTimer = null;
     }
+
+    this.stopReconcileLoop();
 
     if (this.selfEventSource) {
       try {
