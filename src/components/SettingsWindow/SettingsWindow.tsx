@@ -574,6 +574,14 @@ const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
     address: 'udp://us01.225284.xyz:11010'
   },
   {
+    name: '海波节点',
+    address: 'tcp://225284.xyz:11010'
+  },
+  {
+    name: '唯爱节点',
+    address: 'tcp://easytier.weiai.org.cn:11010'
+  },
+  {
     name: '明月清风节点',
     address: 'wss://public.456469.xyz'
   }

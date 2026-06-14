@@ -62,6 +62,8 @@ interface CustomEasyTierNode {
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
     { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器' },
+    { value: 'tcp://225284.xyz:11010', label: '海波节点 (备用)' },
+    { value: 'tcp://easytier.weiai.org.cn:11010', label: '唯爱节点 (备用)' },
     { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
   ];
   
