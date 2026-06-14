@@ -3405,35 +3405,52 @@ pub async fn get_p2p_chat_messages(
         .connect_timeout(std::time::Duration::from_millis(300)) // 300ms连接超时
         .build()
         .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-    
-    // 从所有其他玩家获取消息
+
+    // 【#13 修复】并发从所有其他玩家获取消息。
+    // 之前是顺序 await，某个玩家若发送了大图片，其响应体大、耗时长，会阻塞
+    // 拉取其它所有玩家的消息（队头阻塞）。改为每个 peer 一个并发任务后，
+    // 单个大响应不再拖慢其他人的消息接收。
+    let mut tasks = Vec::new();
     for peer_ip in other_peer_ips {
         let url = if let Some(ts) = since {
             format!("http://{}:14540/api/chat/messages?since={}", peer_ip, ts)
         } else {
             format!("http://{}:14540/api/chat/messages", peer_ip)
         };
-        
-        match client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    match response.json::<Vec<ChatServiceMessage>>().await {
-                        Ok(messages) => {
-                            log::debug!("✅ 从 {} 获取到 {} 条消息", peer_ip, messages.len());
-                            all_messages.extend(messages);
+        let client_clone = client.clone();
+        let peer_ip_clone = peer_ip.clone();
+        tasks.push(tokio::spawn(async move {
+            match client_clone.get(&url).send().await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        match response.json::<Vec<ChatServiceMessage>>().await {
+                            Ok(messages) => {
+                                log::debug!("✅ 从 {} 获取到 {} 条消息", peer_ip_clone, messages.len());
+                                messages
+                            }
+                            Err(e) => {
+                                log::warn!("⚠️ 解析消息失败 ({}): {}", peer_ip_clone, e);
+                                Vec::new()
+                            }
                         }
-                        Err(e) => {
-                            log::warn!("⚠️ 解析消息失败 ({}): {}", peer_ip, e);
-                        }
+                    } else {
+                        log::warn!("⚠️ HTTP请求失败 ({}): 状态码 {}", peer_ip_clone, response.status());
+                        Vec::new()
                     }
-                } else {
-                    log::warn!("⚠️ HTTP请求失败 ({}): 状态码 {}", peer_ip, response.status());
+                }
+                Err(e) => {
+                    // 超时或连接失败不打印警告，避免日志刷屏
+                    log::debug!("⚠️ 获取消息失败 ({}): {}", peer_ip_clone, e);
+                    Vec::new()
                 }
             }
-            Err(e) => {
-                // 超时或连接失败不打印警告，避免日志刷屏
-                log::debug!("⚠️ 获取消息失败 ({}): {}", peer_ip, e);
-            }
+        }));
+    }
+
+    // 汇总所有并发任务的结果
+    for task in tasks {
+        if let Ok(messages) = task.await {
+            all_messages.extend(messages);
         }
     }
     
