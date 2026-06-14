@@ -29,6 +29,7 @@ function formatTime(ts: number): string {
 export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, onSelectLobby }) => {
   const [lobbies, setLobbies] = useState<RecentLobby[]>([]);
   const [players, setPlayers] = useState<RecentPlayer[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('lobbies');
 
   const refresh = () => {
     setLobbies(recentService.getRecentLobbies());
@@ -117,18 +118,41 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
     </div>
   );
 
+  const handleClear = () => {
+    if (activeTab === 'lobbies') {
+      recentService.clearLobbies();
+      message.success('已清空最近大厅');
+    } else {
+      recentService.clearPlayers();
+      message.success('已清空最近玩家');
+    }
+    refresh();
+  };
+
   return (
     <Modal
       title="最近联机"
       open={visible}
       onCancel={onClose}
       footer={[
+        <Popconfirm
+          key="clear"
+          title={activeTab === 'lobbies' ? '确定清空全部最近大厅？' : '确定清空全部最近玩家？'}
+          onConfirm={handleClear}
+          okText="清空"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+        >
+          <Button danger style={{ float: 'left' }}>清空</Button>
+        </Popconfirm>,
         <Button key="close" type="primary" onClick={onClose}>关闭</Button>,
       ]}
       width={500}
       centered
     >
       <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           { key: 'lobbies', label: '最近大厅', children: lobbiesTab },
           { key: 'players', label: '最近玩家', children: playersTab },

@@ -379,6 +379,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           }}
                         />
                       </div>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '4px', lineHeight: 1.7 }}>
+                        说明：自动大厅会沿用与手动创建大厅相同的服务器。若已开启「使用私有服务器」，则使用你在私有服务器中配置的 EasyTier 节点与信令服务器；否则使用上次成功进入大厅的节点（默认为 MCTier 官方服务器）。
+                      </div>
                     </div>
                   </motion.div>
                 )}
