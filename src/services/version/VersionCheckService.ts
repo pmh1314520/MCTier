@@ -209,6 +209,43 @@ class VersionCheckService {
       return [];
     }
   }
+  /**
+   * 从 Gitee Releases API 获取最新版安装包(.exe) 的直链地址
+   * 用于客户端内一键更新（下载并运行安装包）
+   */
+  async fetchLatestInstallerUrl(): Promise<string | null> {
+    try {
+      const apiUrl = 'https://gitee.com/api/v5/repos/peng-minghang/mctier/releases/latest';
+      console.log('📡 [VersionCheckService] 请求最新 Release:', apiUrl);
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        console.error('❌ [VersionCheckService] 获取最新 Release 失败:', response.status);
+        return null;
+      }
+      const release = await response.json();
+      const assets: Array<{ name: string; browser_download_url: string }> = release?.assets || [];
+      if (!assets.length) {
+        console.warn('⚠️ [VersionCheckService] 最新 Release 没有任何安装包附件');
+        return null;
+      }
+      // 优先匹配 NSIS 安装包 *-setup.exe，其次匹配任意 .exe
+      const setup =
+        assets.find((a) => /setup\.exe$/i.test(a.name)) ||
+        assets.find((a) => /\.exe$/i.test(a.name));
+      if (!setup) {
+        console.warn('⚠️ [VersionCheckService] 未找到 .exe 安装包附件');
+        return null;
+      }
+      console.log('✅ [VersionCheckService] 安装包直链:', setup.browser_download_url);
+      return setup.browser_download_url;
+    } catch (error) {
+      console.error('❌ [VersionCheckService] 获取安装包直链失败:', error);
+      return null;
+    }
+  }
 }
 
 export const versionCheckService = new VersionCheckService();

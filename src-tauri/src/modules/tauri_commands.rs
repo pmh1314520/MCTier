@@ -1141,6 +1141,94 @@ pub async fn cancel_lobby_connecting() -> Result<(), String> {
     Ok(())
 }
 
+/// 【#14/#15/#16】客户端内一键更新：下载安装包到临时目录并运行，然后退出应用
+///
+/// * `url` - 最新安装包(.exe) 的直链地址
+/// 下载过程通过 "update-download-progress" 事件向前端汇报进度。
+#[tauri::command]
+pub async fn download_and_run_installer(
+    url: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    use tokio::io::AsyncWriteExt;
+    use futures_util::StreamExt;
+
+    log::info!("📥 开始客户端内更新，下载地址: {}", url);
+
+    // 目标临时文件
+    let mut tmp_path = std::env::temp_dir();
+    tmp_path.push("MCTier_update_setup.exe");
+
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(false)
+        .build()
+        .map_err(|e| format!("创建下载客户端失败: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("请求下载失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("下载失败，服务器返回状态: {}", resp.status()));
+    }
+
+    let total = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+
+    let mut file = tokio::fs::File::create(&tmp_path)
+        .await
+        .map_err(|e| format!("创建临时文件失败: {}", e))?;
+
+    let mut stream = resp.bytes_stream();
+    let mut last_emit = std::time::Instant::now();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载数据出错: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        // 限制事件频率，避免过于频繁
+        if last_emit.elapsed().as_millis() >= 150 {
+            let _ = app_handle.emit(
+                "update-download-progress",
+                serde_json::json!({ "downloaded": downloaded, "total": total }),
+            );
+            last_emit = std::time::Instant::now();
+        }
+    }
+    file.flush().await.map_err(|e| format!("刷新文件失败: {}", e))?;
+    drop(file);
+
+    // 最终进度
+    let _ = app_handle.emit(
+        "update-download-progress",
+        serde_json::json!({ "downloaded": downloaded, "total": total }),
+    );
+
+    log::info!("✅ 安装包下载完成: {:?}（{} 字节）", tmp_path, downloaded);
+
+    // 启动安装包（NSIS，currentUser 模式会自动覆盖安装并重启应用）
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new(&tmp_path)
+            .spawn()
+            .map_err(|e| format!("启动安装包失败: {}", e))?;
+    }
+
+    // 稍作延迟后退出应用，让安装程序接管覆盖文件
+    let ah = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+        ah.exit(0);
+    });
+
+    Ok(())
+}
+
 // ==================== 网络诊断命令 ====================
 
 /// 检查虚拟网卡是否存在

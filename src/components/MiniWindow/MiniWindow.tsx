@@ -10,6 +10,8 @@ import { p2pChatService } from '../../services/chat/P2PChatService';
 import { speakingDetector } from '../../services/voice/SpeakingDetector';
 import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
+import { versionCheckService } from '../../services/version/VersionCheckService';
+import { listen } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
 import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
@@ -722,6 +724,46 @@ export const MiniWindow: React.FC = () => {
     }
   };
 
+  // 【#16】版本过低弹窗：客户端内一键更新
+  const [versionUpdating, setVersionUpdating] = useState(false);
+  const [versionUpdateProgress, setVersionUpdateProgress] = useState(0);
+  useEffect(() => {
+    if (!versionUpdating) return;
+    let unlisten: (() => void) | undefined;
+    listen<{ downloaded: number; total: number }>('update-download-progress', (e) => {
+      const { downloaded, total } = e.payload;
+      if (total > 0) setVersionUpdateProgress(Math.min(100, Math.round((downloaded / total) * 100)));
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, [versionUpdating]);
+
+  const handleInAppUpdate = async () => {
+    if (versionUpdating) return;
+    try {
+      setVersionUpdating(true);
+      setVersionUpdateProgress(0);
+      message.loading({ content: '正在获取最新安装包…', key: 'mctier-update', duration: 0 });
+      const url = await versionCheckService.fetchLatestInstallerUrl();
+      if (!url) {
+        message.destroy('mctier-update');
+        message.warning('未找到可下载的安装包，将打开下载页面');
+        await handleOpenWebsite();
+        setVersionUpdating(false);
+        return;
+      }
+      message.loading({ content: '正在下载并更新，请勿关闭软件…', key: 'mctier-update', duration: 0 });
+      await invoke('download_and_run_installer', { url });
+      message.destroy('mctier-update');
+      message.success('下载完成，即将启动安装程序…');
+    } catch (error) {
+      console.error('客户端内更新失败:', error);
+      message.destroy('mctier-update');
+      message.error('更新失败，将打开下载页面');
+      await handleOpenWebsite();
+      setVersionUpdating(false);
+    }
+  };
+
   // 复制官网链接
   const handleCopyWebsiteUrl = async () => {
     if (!versionError) return;
@@ -861,16 +903,16 @@ export const MiniWindow: React.FC = () => {
             <div className="version-error-actions">
               <motion.button
                 className="version-error-btn primary"
-                onClick={handleOpenWebsite}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                onClick={handleInAppUpdate}
+                whileHover={{ scale: versionUpdating ? 1 : 1.02 }}
+                whileTap={{ scale: versionUpdating ? 1 : 0.98 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '10px' }}>
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                  <polyline points="15 3 21 3 21 9"></polyline>
-                  <line x1="10" y1="14" x2="21" y2="3"></line>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                <span>前往官网下载</span>
+                <span>{versionUpdating ? `更新中 ${versionUpdateProgress}%` : '立即更新到最新版'}</span>
               </motion.button>
             </div>
           </motion.div>
