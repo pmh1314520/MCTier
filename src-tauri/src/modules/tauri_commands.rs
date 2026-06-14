@@ -1105,6 +1105,42 @@ pub async fn force_stop_easytier(state: State<'_, AppState>) -> Result<(), Strin
     }
 }
 
+/// 【#4】取消创建/加入大厅过程中的连接（强制手动停止）
+///
+/// 关键点：create_lobby/join_lobby 在 start_easytier 的等待期间会一直持有
+/// network_service 锁，因此不能通过会抢同一把锁的 force_stop_easytier 来取消。
+/// 这里直接用 taskkill 终止 easytier-core 进程（不加任何锁），进程退出后
+/// start_easytier 的进程监控任务会把 is_running 置为 false，等待循环随即
+/// 返回错误，create_lobby/join_lobby 得以结束并释放锁。
+#[tauri::command]
+pub async fn cancel_lobby_connecting() -> Result<(), String> {
+    log::info!("🛑 收到取消连接命令，直接终止 easytier-core 进程以解除阻塞");
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        for image in ["easytier-core.exe", "easytier-cli.exe"] {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/F", "/IM", image])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .await;
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = tokio::process::Command::new("pkill")
+            .args(["-9", "-f", "easytier-core"])
+            .output()
+            .await;
+    }
+
+    log::info!("✅ 已发送终止信号给 easytier-core 进程");
+    Ok(())
+}
+
 // ==================== 网络诊断命令 ====================
 
 /// 检查虚拟网卡是否存在

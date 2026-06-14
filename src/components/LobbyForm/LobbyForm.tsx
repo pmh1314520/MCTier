@@ -818,6 +818,25 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     onClose();
   };
 
+  // 【#4】创建/加入过程中强制手动停止：杀掉 EasyTier 进程，
+  // 后端 create_lobby/join_lobby 会因进程被终止而返回错误，从而解除阻塞
+  const [forceStopping, setForceStopping] = useState(false);
+  const handleForceStop = async () => {
+    if (forceStopping) return;
+    setForceStopping(true);
+    try {
+      message.info('正在强制停止…');
+      await invoke('cancel_lobby_connecting');
+    } catch (e) {
+      console.warn('强制停止时出错（忽略）:', e);
+    } finally {
+      setLoading(false);
+      setForceStopping(false);
+      setAppState('idle');
+      message.success('已停止本次操作');
+    }
+  };
+
   return (
     <div className="lobby-form-container">
       {/* 顶部拖拽区域 */}
@@ -1142,11 +1161,12 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 >
                   <Button
                     size="large"
-                    onClick={handleCancel}
-                    disabled={loading}
+                    danger={loading}
+                    onClick={loading ? handleForceStop : handleCancel}
+                    loading={forceStopping}
                     block
                   >
-                    取消
+                    {loading ? '强制停止' : '取消'}
                   </Button>
                 </motion.div>
                 <motion.div
