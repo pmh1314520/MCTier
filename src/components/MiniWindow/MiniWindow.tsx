@@ -1178,7 +1178,17 @@ export const MiniWindow: React.FC = () => {
             </motion.button>
             <motion.button
               className="mini-control-btn close-btn"
-              onClick={handleLeaveLobby}
+              onClick={() => {
+                modal.confirm({
+                  title: '退出大厅',
+                  content: '确定要退出当前大厅吗？退出后将断开与好友的组网。',
+                  okText: '退出',
+                  okType: 'danger',
+                  cancelText: '取消',
+                  centered: true,
+                  onOk: () => { void handleLeaveLobby(); },
+                });
+              }}
               title="返回主界面"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
@@ -1309,8 +1319,8 @@ export const MiniWindow: React.FC = () => {
                           whileTap={{ scale: 0.98 }}
                         >
                           {lobby?.useDomain && lobby?.virtualDomain 
-                            ? `虚拟域名: ${lobby.virtualDomain}` 
-                            : `虚拟IP: ${lobby?.virtualIp || '10.126.126.1'}`
+                            ? `域名: ${lobby.virtualDomain}` 
+                            : `IP: ${lobby?.virtualIp || '10.126.126.1'}`
                           }
                         </motion.button>
                       </div>
@@ -1377,8 +1387,8 @@ export const MiniWindow: React.FC = () => {
                                   whileTap={{ scale: 0.98 }}
                                 >
                                   {(player.useDomain && player.virtualDomain)
-                                    ? `虚拟域名: ${player.virtualDomain}` 
-                                    : `虚拟IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
+                                    ? `域名: ${player.virtualDomain}` 
+                                    : `IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                   }
                                 </motion.button>
                                 {(() => {
