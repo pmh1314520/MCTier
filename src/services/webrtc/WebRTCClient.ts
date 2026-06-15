@@ -264,7 +264,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '1.8.0',
+              clientVersion: '2.0.0',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
@@ -480,6 +480,15 @@ export class WebRTCClient {
         case 'players-list':
           // 收到当前在线玩家列表
           console.log(`当前在线玩家: ${message.players.length} 人`);
+          // 自我域名映射：把自己的虚拟域名也写入 hosts，使本机也能用自己的域名访问（便于测试/本机服务）
+          if (this.useDomain && this.virtualDomain && this.virtualIp) {
+            try {
+              await invoke('add_player_domain', { domain: this.virtualDomain, ip: this.virtualIp });
+              console.log(`✅ 自身域名映射已添加: ${this.virtualDomain} -> ${this.virtualIp}`);
+            } catch (error) {
+              console.error('❌ 添加自身域名映射失败（请确认以管理员身份运行）:', error);
+            }
+          }
           for (const player of message.players) {
             console.log(`  - ${player.playerName} (${player.playerId})`);
 

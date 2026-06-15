@@ -7,7 +7,7 @@
 ### 虚拟局域网通用联机工具
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.8.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
 </p>
