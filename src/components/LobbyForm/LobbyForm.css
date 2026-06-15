@@ -289,8 +289,16 @@
   background: rgba(139, 111, 71, 0.2);
 }
 
-.lobby-form-actions .ant-btn:not(.ant-btn-primary):hover:not(:disabled) {
-  border-color: rgba(139, 111, 71, 0.8);
+/* 连接中"强制停止"按钮：强制红色(取消时仍为上面的棕色) */
+.lobby-form-actions .ant-btn.force-stop-btn,
+.lobby-form-actions .ant-btn.force-stop-btn:hover:not(:disabled),
+.lobby-form-actions .ant-btn.force-stop-btn:not(.ant-btn-primary) {
+  background: #ff4d4f !important;
+  border: 2px solid #ff4d4f !important;
+  color: #ffffff !important;
+}
+
+.lobby-form-actions .ant-btn:not(.ant-btn-primary):hover:not(:disabled) {  border-color: rgba(139, 111, 71, 0.8);
   color: #ffffff;
   background: rgba(139, 111, 71, 0.3);
 }
