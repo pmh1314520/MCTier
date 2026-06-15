@@ -982,6 +982,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 }
                 size="large"
                 disabled={loading}
+                autoComplete="off"
+                spellCheck={false}
               />
             </Form.Item>
 
@@ -1012,6 +1014,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 placeholder="输入密码（至少8个字符，包含字母和数字）"
                 size="large"
                 disabled={loading}
+                autoComplete="new-password"
+                spellCheck={false}
               />
             </Form.Item>
 
@@ -1029,6 +1033,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 size="large"
                 disabled={loading}
                 maxLength={8}
+                autoComplete="off"
+                spellCheck={false}
               />
             </Form.Item>
 
@@ -1092,6 +1098,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     placeholder="例如：udp://us01.225284.xyz:11010 或 wss://your-server.com"
                     size="large"
                     disabled={loading}
+                    autoComplete="off"
+                    spellCheck={false}
                   />
                 </Form.Item>
                 <Form.Item
@@ -1109,6 +1117,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     placeholder="例如：wss://mctier.pmhs.top/signaling"
                     size="large"
                     disabled={loading}
+                    autoComplete="off"
+                    spellCheck={false}
                   />
                 </Form.Item>
               </>
