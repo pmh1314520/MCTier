@@ -39,6 +39,9 @@ interface DownloadTask {
   isBatchDownload?: boolean; // 是否为批量下载（文件夹）
 }
 
+// 模块级缓存：跨组件卸载/重挂(返回大厅再进文件共享视图)保留下载记录，避免记录丢失
+let downloadsCache: DownloadTask[] = [];
+
 export const FileShareManagerNew: React.FC = () => {
   // 基础状态
   const [activeTab, setActiveTab] = useState<'local' | 'remote' | 'transfers'>('local');
@@ -53,8 +56,20 @@ export const FileShareManagerNew: React.FC = () => {
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   
-  // 下载状态
-  const [downloads, setDownloads] = useState<DownloadTask[]>([]);
+  // 下载状态（用模块级缓存初始化，并在每次更新时同步到缓存，使记录跨视图保留）
+  const [downloads, _setDownloads] = useState<DownloadTask[]>(() => downloadsCache);
+  const setDownloads = React.useCallback(
+    (updater: DownloadTask[] | ((prev: DownloadTask[]) => DownloadTask[])) => {
+      _setDownloads(prev => {
+        const next = typeof updater === 'function'
+          ? (updater as (p: DownloadTask[]) => DownloadTask[])(prev)
+          : updater;
+        downloadsCache = next;
+        return next;
+      });
+    },
+    [],
+  );
   const [transferSubTab, setTransferSubTab] = useState<'downloading' | 'completed'>('downloading');
   
   // 密码验证

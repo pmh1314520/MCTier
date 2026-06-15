@@ -156,6 +156,21 @@
   cursor: text; /* 显示文本光标 */
 }
 
+/* 图片消息：去掉气泡背景/内边距/尾巴，直接圆角展示图片本身 */
+.message-content.message-content-image,
+.chat-message.own .message-content.message-content-image,
+.chat-message.other .message-content.message-content-image {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+.message-content.message-content-image::after {
+  display: none !important;
+}
+.message-content-image .chat-image {
+  border-radius: 12px;
+}
+
 /* 消息框尾巴（直角三角形） */
 .message-content::after {
   content: '';

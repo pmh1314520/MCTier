@@ -723,7 +723,7 @@ export const ChatRoom: React.FC = () => {
                   {isOwnMessage && ' (我)'}
                 </span>
                 
-                <div className="message-content">
+                <div className={`message-content${message.type === 'image' && message.imageData ? ' message-content-image' : ''}`}>
                   {message.type === 'image' && message.imageData ? (
                     <div className="chat-image-wrapper">
                       <img 
