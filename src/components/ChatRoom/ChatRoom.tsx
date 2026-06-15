@@ -731,6 +731,7 @@ export const ChatRoom: React.FC = () => {
                         alt="聊天图片" 
                         className="chat-image"
                         onClick={() => setPreviewImage(message.imageData!)}
+                        onLoad={() => { try { scrollToBottom(); } catch { /* ignore */ } }}
                       />
                       <button
                         className="image-download-btn"
