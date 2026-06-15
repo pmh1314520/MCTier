@@ -1161,10 +1161,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 >
                   <Button
                     size="large"
-                    danger={loading}
                     onClick={loading ? handleForceStop : handleCancel}
                     loading={forceStopping}
                     block
+                    style={loading ? { background: '#ff4d4f', borderColor: '#ff4d4f', color: '#fff' } : undefined}
                   >
                     {loading ? '强制停止' : '取消'}
                   </Button>
