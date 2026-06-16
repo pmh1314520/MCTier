@@ -289,12 +289,16 @@
   background: rgba(139, 111, 71, 0.2);
 }
 
-/* 连接中"强制停止"按钮：强制红色(取消时仍为上面的棕色) */
+/* 连接中"强制停止"按钮：与取消按钮同样的半透明风格，仅颜色换成红色 */
 .lobby-form-actions .ant-btn.force-stop-btn,
-.lobby-form-actions .ant-btn.force-stop-btn:hover:not(:disabled),
 .lobby-form-actions .ant-btn.force-stop-btn:not(.ant-btn-primary) {
-  background: #ff4d4f !important;
-  border: 2px solid #ff4d4f !important;
+  background: rgba(255, 77, 79, 0.2) !important;
+  border: 2px solid rgba(255, 77, 79, 0.5) !important;
+  color: #ffffff !important;
+}
+.lobby-form-actions .ant-btn.force-stop-btn:hover:not(:disabled) {
+  background: rgba(255, 77, 79, 0.3) !important;
+  border-color: rgba(255, 77, 79, 0.8) !important;
   color: #ffffff !important;
 }
 
