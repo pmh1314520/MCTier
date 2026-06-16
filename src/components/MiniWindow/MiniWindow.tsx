@@ -12,6 +12,8 @@ import { speakingDetector } from '../../services/voice/SpeakingDetector';
 import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
 import { statsService } from '../../services/stats/statsService';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { versionCheckService } from '../../services/version/VersionCheckService';
 import { listen } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
@@ -140,6 +142,7 @@ async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasE
 }
 
 export const MiniWindow: React.FC = () => {
+  useTranslation(); // 订阅语言切换，配合 tl 双语取词在切换时重渲染
   const {
     lobby,
     players,
@@ -1058,7 +1061,7 @@ export const MiniWindow: React.FC = () => {
                   onClick={handleCopyWebsiteUrl}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  title="复制链接"
+                  title={tl('复制链接', 'Copy Link')}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -1405,7 +1408,7 @@ export const MiniWindow: React.FC = () => {
                       <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
-                        title="复制大厅信息"
+                        title={tl('复制大厅信息', 'Copy Lobby Info')}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -1417,7 +1420,7 @@ export const MiniWindow: React.FC = () => {
                       <motion.button
                         className="copy-lobby-btn"
                         onClick={() => setShowQrModal(true)}
-                        title="大厅二维码（手机 MCTier 扫码加入）"
+                        title={tl('大厅二维码（手机 MCTier 扫码加入）', 'Lobby QR (scan with MCTier)')}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -1432,7 +1435,7 @@ export const MiniWindow: React.FC = () => {
                   </div>
                   <div className="lobby-card-info">
                     <span className="lobby-info-label">
-                      {lobby.useDomain && lobby.virtualDomain ? '您的虚拟域名:' : '您的虚拟IP:'}
+                      {lobby.useDomain && lobby.virtualDomain ? tl('您的虚拟域名:', 'Your domain:') : tl('您的虚拟IP:', 'Your IP:')}
                     </span>
                     <motion.button
                       className="virtual-ip-btn"
@@ -1449,7 +1452,7 @@ export const MiniWindow: React.FC = () => {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      无法联机?
+                      {tl('无法联机?', 'Cannot connect?')}
                     </motion.button>
                   </div>
                 </motion.div>
@@ -1478,7 +1481,7 @@ export const MiniWindow: React.FC = () => {
                 transition={{ delay: 0.15, duration: 0.3 }}
               >
                 <h5 className="mini-section-title">
-                  玩家列表 ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
+                  {tl('玩家列表', 'Players')} ({players.length + 1}{maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
                 </h5>
                 <div className="mini-player-list">
                   {/* 先显示当前玩家 */}
@@ -1503,10 +1506,10 @@ export const MiniWindow: React.FC = () => {
                             <CrownIcon size={13} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
                           )}
                           {currentPlayerId && hostMutedPlayers.has(currentPlayerId) && (
-                            <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
+                            <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>{tl('已禁言', 'Muted')}</span>
                           )}
                           {currentPlayerId && speakingPlayers.has(currentPlayerId) && (
-                            <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                            <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>{tl('说话中', 'Speaking')}</span>
                           )}
                           {myVoiceGroup !== 0 && (
                             <span className="mini-vg-badge">{myVoiceGroup}队</span>
@@ -1571,10 +1574,10 @@ export const MiniWindow: React.FC = () => {
                                   <CrownIcon size={13} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
                                 )}
                                 {hostMutedPlayers.has(player.id) && (
-                                  <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>已禁言</span>
+                                  <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>{tl('已禁言', 'Muted')}</span>
                                 )}
                                 {speakingPlayers.has(player.id) && (
-                                  <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                                  <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>{tl('说话中', 'Speaking')}</span>
                                 )}
                                 {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
                                   <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
@@ -1769,7 +1772,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className="mini-lobby-settings-btn"
                   onClick={() => setShowLobbySettings(true)}
-                  title="大厅动态设置"
+                  title={tl('大厅动态设置', 'Lobby Settings')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1780,7 +1783,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className="mini-lobby-settings-btn"
                   onClick={() => setShowRoomTools(true)}
-                  title="房间小工具"
+                  title={tl('房间小工具', 'Room Tools')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1910,10 +1913,10 @@ export const MiniWindow: React.FC = () => {
         footer={null}
         centered
         width={300}
-        title="大厅二维码"
+        title={tl('大厅二维码', 'Lobby QR Code')}
       >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '4px 0' }}>
-          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>手机用 MCTier 扫码即可加入本大厅</div>
+          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>{tl('手机用 MCTier 扫码即可加入本大厅', 'Scan with MCTier on your phone to join')}</div>
           <div style={{ background: '#fff', borderRadius: 10, padding: 8 }}>
             <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 132, height: 132 }} />
           </div>
@@ -1925,7 +1928,7 @@ export const MiniWindow: React.FC = () => {
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              下载二维码
+              {tl('下载二维码', 'Download QR')}
             </button>
             <button
               className="qr-download-btn"
@@ -1941,7 +1944,7 @@ export const MiniWindow: React.FC = () => {
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
               </svg>
-              复制链接
+              {tl('复制链接', 'Copy Link')}
             </button>
           </div>
         </div>

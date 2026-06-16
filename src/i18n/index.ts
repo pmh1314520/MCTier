@@ -38,4 +38,12 @@ export function getLanguage(): 'zh' | 'en' {
   return (i18n.language === 'en' ? 'en' : 'zh');
 }
 
+/**
+ * 轻量双语取词:直接传中/英文,按当前语言返回。
+ * 用于尚未抽取为 key 的零散文案。组件需通过 useTranslation() 订阅以在切换语言时重渲染。
+ */
+export function tl(zh: string, en: string): string {
+  return i18n.language === 'en' ? en : zh;
+}
+
 export default i18n;
