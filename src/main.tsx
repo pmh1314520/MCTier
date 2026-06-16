@@ -6,10 +6,10 @@ import { initializeStore } from './stores';
 // 初始化应用 Store
 initializeStore();
 
-// 应用持久化的主题主色（提示音与主题设置）
+// 主题主色配置已移除，统一使用品牌绿；清理历史遗留的自定义主色，避免旧的橙色等残留
 try {
-  const primary = localStorage.getItem('mctier_theme_primary');
-  if (primary) document.documentElement.style.setProperty('--mctier-primary', primary);
+  localStorage.removeItem('mctier_theme_primary');
+  document.documentElement.style.removeProperty('--mctier-primary');
 } catch { /* ignore */ }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
