@@ -13,6 +13,8 @@ import { recentService, type RecentLobby } from '../../services/recent/recentSer
 import { statsService } from '../../services/stats/statsService';
 import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
 import type { PublicLobby } from '../../services/lobby/publicLobbies';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './LobbyForm.css';
 
 const { Title } = Typography;
@@ -137,6 +139,7 @@ const generateRandomPassword = (): string => {
  * 用于创建或加入大厅
  */
 export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
+  useTranslation();
   const { message } = AntdApp.useApp();
   const { setAppState, setLobby, config } = useAppStore();
   const [form] = Form.useForm<LobbyFormValues>();
@@ -227,7 +230,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       password,
     });
     
-    message.success('已随机生成大厅名称和密码');
+    message.success(tl('已随机生成大厅名称和密码', 'Random lobby name and password generated'));
   };
 
   // 处理选择常用大厅
@@ -259,7 +262,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       password: lobby.password,
       playerName: config.playerName || '',
     });
-    message.info('已填入公开大厅信息，点击加入即可');
+    message.info(tl('已填入公开大厅信息，点击加入即可', 'Public lobby info filled, click Join'));
   };
 
   // 解析上次成功使用的首选节点（#10 记住上次成功进入大厅的节点）
@@ -363,7 +366,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (!clipboardText) {
         // 只在手动识别时提示剪贴板为空
         if (!isAuto) {
-          message.info('剪贴板为空');
+          message.info(tl('剪贴板为空', 'Clipboard is empty'));
         }
         return;
       }
@@ -394,7 +397,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             lobbyName,
             password,
           });
-          message.success('已自动识别并填写大厅信息');
+          message.success(tl('已自动识别并填写大厅信息', 'Lobby info auto-detected and filled'));
           console.log('自动填写大厅信息成功');
           return;
         } else {
@@ -418,7 +421,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             lobbyName: lobbyName.trim(),
             password: password.trim(),
           });
-          message.success('已自动识别并填写大厅信息');
+          message.success(tl('已自动识别并填写大厅信息', 'Lobby info auto-detected and filled'));
           console.log('自动填写大厅信息（旧格式）成功');
           return;
         }
@@ -426,14 +429,14 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       
       // 如果没有匹配到任何格式，只在手动识别时提示
       if (!isAuto) {
-        message.warning('剪贴板中没有识别到有效的大厅信息');
+        message.warning(tl('剪贴板中没有识别到有效的大厅信息', 'No valid lobby info found in clipboard'));
       }
     } catch (error) {
       // 静默失败，不影响用户体验
       console.log('无法读取剪贴板或格式不匹配:', error);
       // 只在手动识别时显示错误提示
       if (!isAuto) {
-        message.error('读取剪贴板失败，请检查权限');
+        message.error(tl('读取剪贴板失败，请检查权限', 'Failed to read clipboard, check permissions'));
       }
     }
   };
@@ -483,7 +486,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         const bestLabel = candidates.find((n) => n.value === best.value)?.label ?? best.value;
         message.success(`已自动选择延迟最低的节点：${bestLabel}（${best.latency}ms）`);
       } else {
-        message.warning('所有节点均不可达，请检查网络或稍后重试');
+        message.warning(tl('所有节点均不可达，请检查网络或稍后重试', 'All nodes unreachable, check your network or retry later'));
       }
     } finally {
       setTestingNodes(false);
@@ -499,15 +502,15 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
       // 验证输入
       if (!values.lobbyName?.trim()) {
-        message.error('大厅名称不能为空');
+        message.error(tl('大厅名称不能为空', 'Lobby name cannot be empty'));
         return;
       }
       if (!values.password?.trim()) {
-        message.error('密码不能为空');
+        message.error(tl('密码不能为空', 'Password cannot be empty'));
         return;
       }
       if (!values.playerName?.trim()) {
-        message.error('玩家名称不能为空');
+        message.error(tl('玩家名称不能为空', 'Player name cannot be empty'));
         return;
       }
 
@@ -534,11 +537,11 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       } else if (values.serverNode === 'custom') {
         // 使用临时自定义服务器（不添加默认备用节点）
         if (!values.customEasytierServer?.trim()) {
-          message.error('请输入 EasyTier 节点服务器地址');
+          message.error(tl('请输入 EasyTier 节点服务器地址', 'Enter the EasyTier node server address'));
           return;
         }
         if (!values.customSignalingServer?.trim()) {
-          message.error('请输入信令服务器地址');
+          message.error(tl('请输入信令服务器地址', 'Enter the signaling server address'));
           return;
         }
         serverNode = values.customEasytierServer.trim();
@@ -853,7 +856,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     if (forceStopping) return;
     setForceStopping(true);
     try {
-      message.info('正在强制停止…');
+      message.info(tl('正在强制停止…', 'Force stopping...'));
       await invoke('cancel_lobby_connecting');
     } catch (e) {
       console.warn('强制停止时出错（忽略）:', e);
@@ -861,7 +864,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       setLoading(false);
       setForceStopping(false);
       setAppState('idle');
-      message.success('已停止本次操作');
+      message.success(tl('已停止本次操作', 'Operation stopped'));
     }
   };
 
@@ -891,20 +894,20 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               <motion.button
                 onClick={() => setShowFavoritesModal(true)}
                 disabled={loading}
-                title="常用大厅信息"
+                title={tl('常用大厅信息', 'Favorite lobbies')}
                 className="lobby-action-btn"
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.94 }}
               >
                 <StarIcon size={18} />
-                <span className="lobby-action-label">常用</span>
+                <span className="lobby-action-label">{tl('常用', 'Favorites')}</span>
               </motion.button>
 
               {/* 最近联机按钮 */}
               <motion.button
                 onClick={() => setShowRecentModal(true)}
                 disabled={loading}
-                title="最近联机（快速重进）"
+                title={tl('最近联机（快速重进）', 'Recent (quick rejoin)')}
                 className="lobby-action-btn"
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.94 }}
@@ -913,14 +916,14 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
-                <span className="lobby-action-label">最近</span>
+                <span className="lobby-action-label">{tl('最近', 'Recent')}</span>
               </motion.button>
 
               {/* 公开广场按钮 */}
               <motion.button
                 onClick={() => setShowPublicPlaza(true)}
                 disabled={loading}
-                title="公开广场（浏览并加入公开大厅）"
+                title={tl('公开广场（浏览并加入公开大厅）', 'Public Plaza')}
                 className="lobby-action-btn"
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.94 }}
@@ -930,26 +933,26 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   <line x1="2" y1="12" x2="22" y2="12"></line>
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                 </svg>
-                <span className="lobby-action-label">广场</span>
+                <span className="lobby-action-label">{tl('广场', 'Plaza')}</span>
               </motion.button>
 
               {mode === 'create' ? (
                 <motion.button
                   onClick={handleRandomGenerate}
                   disabled={loading}
-                  title="随机生成大厅名称和密码"
+                  title={tl('随机生成大厅名称和密码', 'Generate random name and password')}
                   className="lobby-action-btn"
                   whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.94 }}
                 >
                   <DiceIcon size={20} />
-                  <span className="lobby-action-label">随机</span>
+                  <span className="lobby-action-label">{tl('随机', 'Random')}</span>
                 </motion.button>
               ) : (
                 <motion.button
                   onClick={() => recognizeClipboard(false)}
                   disabled={loading}
-                  title="识别剪贴板中的大厅信息"
+                  title={tl('识别剪贴板中的大厅信息', 'Detect lobby info from clipboard')}
                   className="lobby-action-btn"
                   whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.94 }}
@@ -960,7 +963,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     <line x1="9" y1="12" x2="15" y2="12" />
                     <line x1="9" y1="16" x2="15" y2="16" />
                   </svg>
-                  <span className="lobby-action-label">识别</span>
+                  <span className="lobby-action-label">{tl('识别', 'Detect')}</span>
                 </motion.button>
               )}
             </div>
@@ -980,7 +983,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             className="lobby-form"
           >
             <Form.Item
-              label="大厅名称"
+              label={tl('大厅名称', 'Lobby Name')}
               name="lobbyName"
               rules={[
                 { required: true, message: '请输入大厅名称' },
@@ -1014,7 +1017,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             </Form.Item>
 
             <Form.Item
-              label="密码"
+              label={tl('密码', 'Password')}
               name="password"
               rules={[
                 { required: true, message: '请输入密码' },
@@ -1037,7 +1040,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               ]}
             >
               <Input.Password
-                placeholder="输入密码（至少8个字符，包含字母和数字）"
+                placeholder={tl('输入密码（至少8个字符，包含字母和数字）', 'Password (min 8 chars, letters and digits)')}
                 size="large"
                 disabled={loading}
                 autoComplete="new-password"
@@ -1046,7 +1049,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             </Form.Item>
 
             <Form.Item
-              label="玩家名称"
+              label={tl('玩家名称', 'Player Name')}
               name="playerName"
               rules={[
                 { required: true, message: '请输入玩家名称' },
@@ -1055,7 +1058,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               ]}
             >
               <Input
-                placeholder="输入你的玩家名称（最多8个字）"
+                placeholder={tl('输入你的玩家名称（最多8个字）', 'Your player name (max 8 chars)')}
                 size="large"
                 disabled={loading}
                 maxLength={8}
@@ -1067,9 +1070,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             {!privateServerConfig.usePrivateServer && (
               <>
                 <Form.Item
-                  label="服务器节点"
+                  label={tl('服务器节点', 'Server Node')}
                   name="serverNode"
-                  rules={[{ required: true, message: '请选择服务器节点' }]}
+                  rules={[{ required: true, message: tl('请选择服务器节点', 'Please select a server node') }]}
                 >
                   <Select 
                     size="large" 
@@ -1110,7 +1113,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             {showCustomServer && !privateServerConfig.usePrivateServer && (
               <>
                 <Form.Item
-                  label="临时 EasyTier 节点服务器"
+                  label={tl('临时 EasyTier 节点服务器', 'Temporary EasyTier node server')}
                   name="customEasytierServer"
                   rules={[
                     { required: true, message: '请输入 EasyTier 节点服务器地址' },
@@ -1121,7 +1124,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   ]}
                 >
                   <Input
-                    placeholder="例如：udp://us01.225284.xyz:11010 或 wss://your-server.com"
+                    placeholder={tl('例如：udp://us01.225284.xyz:11010 或 wss://your-server.com', 'e.g. udp://us01.225284.xyz:11010 or wss://your-server.com')}
                     size="large"
                     disabled={loading}
                     autoComplete="off"
@@ -1129,7 +1132,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   />
                 </Form.Item>
                 <Form.Item
-                  label="临时 WebRTC 信令服务器"
+                  label={tl('临时 WebRTC 信令服务器', 'Temporary WebRTC signaling server')}
                   name="customSignalingServer"
                   rules={[
                     { required: true, message: '请输入信令服务器地址' },
@@ -1140,7 +1143,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   ]}
                 >
                   <Input
-                    placeholder="例如：wss://mctier.pmhs.top/signaling"
+                    placeholder={tl('例如：wss://mctier.pmhs.top/signaling', 'e.g. wss://mctier.pmhs.top/signaling')}
                     size="large"
                     disabled={loading}
                     autoComplete="off"
@@ -1170,7 +1173,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             )}
 
             <Form.Item
-              label="使用虚拟域名"
+              label={tl('使用虚拟域名', 'Use virtual domain')}
               name="useDomain"
               valuePropName="checked"
               tooltip="开启后，您的虚拟IP将显示为域名格式，便于记忆与访问"
@@ -1223,19 +1226,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         >
           <WarningIcon size={20} className="network-tip-icon" />
           <div className="network-tip-content">
-            <div className="network-tip-title">重要提示</div>
+            <div className="network-tip-title">{tl('重要提示', 'Important')}</div>
             <div className="network-tip-text">
-              <strong>网络环境：</strong>本软件使用纯 P2P 方式连接，为确保联机成功：
+              <strong>{tl('网络环境：', 'Network: ')}</strong>{tl('本软件使用纯 P2P 方式连接，为确保联机成功：', 'This app connects purely via P2P. For a successful connection:')}
               <br />
-              ✓ 推荐使用家庭 WiFi 网络
+              {tl('✓ 推荐使用家庭 WiFi 网络', '✓ Home WiFi is recommended')}
               <br />
-              ✗ 不建议使用校园网、手机流量或热点
-              <br />
-              <br />
-              <strong>虚拟域名：</strong>虚拟域名仅能用于访问网站使用，Minecraft 多人游戏不支持使用虚拟域名。加入 Minecraft 服务器时，请使用虚拟IP+端口号（例如：10.126.126.1:25565）
+              {tl('✗ 不建议使用校园网、手机流量或热点', '✗ Campus networks, mobile data or hotspots are not recommended')}
               <br />
               <br />
-              <strong>代理工具：</strong>使用虚拟域名功能时，请务必关闭代理工具（如梯子、VPN等），否则域名解析将失效
+              <strong>{tl('虚拟域名：', 'Virtual domain: ')}</strong>{tl('虚拟域名仅能用于访问网站使用，Minecraft 多人游戏不支持使用虚拟域名。加入 Minecraft 服务器时，请使用虚拟IP+端口号（例如：10.126.126.1:25565）', 'Virtual domains only work for websites; Minecraft multiplayer does not support them. Use virtual IP + port (e.g. 10.126.126.1:25565) to join a server.')}
+              <br />
+              <br />
+              <strong>{tl('代理工具：', 'Proxy tools: ')}</strong>{tl('使用虚拟域名功能时，请务必关闭代理工具（如梯子、VPN等），否则域名解析将失效', 'When using virtual domains, turn off proxy tools (VPN, etc.) or domain resolution will fail.')}
             </div>
           </div>
         </motion.div>
