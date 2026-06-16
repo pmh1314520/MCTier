@@ -47,9 +47,29 @@ export const MiniWindow: React.FC = () => {
     hostId,
     hostMutedPlayers,
     maxPlayers,
+    announcement,
+    setAnnouncement,
+    myVoiceGroup,
+    setMyVoiceGroup,
+    playerVoiceGroups,
   } = useAppStore();
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
+
+  // 新玩家加入时，房主补发公告、各成员补发自己的语音小队，确保新人状态一致
+  const prevPlayerCountRef = React.useRef(0);
+  useEffect(() => {
+    const count = players.length;
+    if (count > prevPlayerCountRef.current && prevPlayerCountRef.current > 0) {
+      const t = setTimeout(() => {
+        if (isHost && announcement) void p2pChatService.sendControlMessage('announce', announcement);
+        if (myVoiceGroup !== 0) void p2pChatService.sendControlMessage('voicegroup', String(myVoiceGroup));
+      }, 1600);
+      prevPlayerCountRef.current = count;
+      return () => clearTimeout(t);
+    }
+    prevPlayerCountRef.current = count;
+  }, [players.length, isHost, announcement, myVoiceGroup]);
 
   const { message, modal } = AntdApp.useApp();
 
@@ -1287,6 +1307,54 @@ export const MiniWindow: React.FC = () => {
                 </motion.div>
               )}
 
+              {/* 大厅公告 */}
+              {(announcement || isHost) && (
+                <div className="mini-announcement">
+                  {announcement ? (
+                    <div className="mini-announce-box">
+                      <div className="mini-announce-head">
+                        <span className="mini-announce-title">📢 大厅公告</span>
+                        {isHost && (
+                          <button className="mini-announce-edit" onClick={() => {
+                            const v = window.prompt('设置大厅公告（留空清空）', announcement);
+                            if (v !== null) {
+                              setAnnouncement(v.trim());
+                              void p2pChatService.sendControlMessage('announce', v.trim());
+                            }
+                          }}>编辑</button>
+                        )}
+                      </div>
+                      <div className="mini-announce-text">{announcement}</div>
+                    </div>
+                  ) : (
+                    <button className="mini-announce-set" onClick={() => {
+                      const v = window.prompt('设置大厅公告（玩法规则/服务器地址等，新人进来即见）', '');
+                      if (v !== null && v.trim()) {
+                        setAnnouncement(v.trim());
+                        void p2pChatService.sendControlMessage('announce', v.trim());
+                      }
+                    }}>+ 设置大厅公告</button>
+                  )}
+                </div>
+              )}
+
+              {/* 语音小队 */}
+              <div className="mini-voicegroup">
+                <span className="mini-vg-label">语音</span>
+                {[0, 1, 2, 3, 4].map((g) => (
+                  <button
+                    key={g}
+                    className={`mini-vg-chip ${myVoiceGroup === g ? 'active' : ''}`}
+                    onClick={() => {
+                      setMyVoiceGroup(g);
+                      void p2pChatService.sendControlMessage('voicegroup', String(g));
+                    }}
+                  >
+                    {g === 0 ? '公共' : `${g}队`}
+                  </button>
+                ))}
+              </div>
+
               {/* 玩家列表 */}
               <motion.div
                 className="mini-players-section"
@@ -1324,6 +1392,9 @@ export const MiniWindow: React.FC = () => {
                           )}
                           {currentPlayerId && speakingPlayers.has(currentPlayerId) && (
                             <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                          )}
+                          {myVoiceGroup !== 0 && (
+                            <span className="mini-vg-badge">{myVoiceGroup}队</span>
                           )}
                         </span>
                         <motion.button
@@ -1378,6 +1449,9 @@ export const MiniWindow: React.FC = () => {
                                 )}
                                 {speakingPlayers.has(player.id) && (
                                   <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>说话中</span>
+                                )}
+                                {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
+                                  <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
                                 )}
                               </span>
                               <div className="player-ip-row">

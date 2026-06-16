@@ -154,6 +154,22 @@ interface AppStore {
   /** 获取最近N条消息 */
   getRecentMessages: (count: number) => ChatMessage[];
 
+  // ==================== 大厅公告 / 语音小队 ====================
+  /** 大厅公告（房主设置，新人进入即见） */
+  announcement: string;
+  /** 设置大厅公告 */
+  setAnnouncement: (text: string) => void;
+  /** 我的语音小队（0=公共，1~4=小队） */
+  myVoiceGroup: number;
+  /** 设置我的语音小队 */
+  setMyVoiceGroup: (group: number) => void;
+  /** 各玩家语音小队 */
+  playerVoiceGroups: Map<string, number>;
+  /** 设置某玩家语音小队 */
+  setPlayerVoiceGroup: (playerId: string, group: number) => void;
+  /** 重算小队听音路由 */
+  applyVoiceGroupRouting: () => void;
+
   // ==================== 配置管理 ====================
   /** 用户配置 */
   config: UserConfig;
@@ -242,6 +258,11 @@ const initialState = {
   // 聊天室
   chatMessages: [],
 
+  // 大厅公告 / 语音小队
+  announcement: '',
+  myVoiceGroup: 0,
+  playerVoiceGroups: new Map<string, number>(),
+
   // 配置
   config: defaultConfig,
 };
@@ -296,6 +317,7 @@ export const useAppStore = create<AppStore>()(
           isPublicLobby: false,
           hostMutedPlayers: new Set<string>(),
         }, false, 'clearLobby/resetVoiceState');
+        set({ announcement: '', myVoiceGroup: 0, playerVoiceGroups: new Map<string, number>() }, false, 'clearLobby/resetAnnounce');
         console.log('✅ 语音状态已重置为默认值');
       },
 
@@ -606,6 +628,43 @@ export const useAppStore = create<AppStore>()(
       getRecentMessages: (count: number) => {
         const messages = get().chatMessages;
         return messages.slice(-count);
+      },
+
+      // ==================== 大厅公告 / 语音小队操作 ====================
+      setAnnouncement: (text: string) => {
+        set({ announcement: text }, false, 'setAnnouncement');
+      },
+
+      setMyVoiceGroup: (group: number) => {
+        set((state) => {
+          const playerVoiceGroups = new Map(state.playerVoiceGroups);
+          const me = state.currentPlayerId;
+          if (me) playerVoiceGroups.set(me, group);
+          return { myVoiceGroup: group, playerVoiceGroups };
+        }, false, 'setMyVoiceGroup');
+        get().applyVoiceGroupRouting();
+      },
+
+      setPlayerVoiceGroup: (playerId: string, group: number) => {
+        set((state) => {
+          const playerVoiceGroups = new Map(state.playerVoiceGroups);
+          playerVoiceGroups.set(playerId, group);
+          return { playerVoiceGroups };
+        }, false, 'setPlayerVoiceGroup');
+        get().applyVoiceGroupRouting();
+      },
+
+      // 小队听音路由：公共(0)听所有人；小队只听同队，其余静音
+      applyVoiceGroupRouting: () => {
+        const st = get();
+        const myGroup = st.myVoiceGroup;
+        st.players.forEach((p) => {
+          if (p.id === st.currentPlayerId) return;
+          const theirGroup = st.playerVoiceGroups.get(p.id) ?? 0;
+          const shouldHear = myGroup === 0 || theirGroup === myGroup;
+          const target = shouldHear ? (st.playerVolumes.get(p.id) ?? 1.0) || 1.0 : 0;
+          try { webrtcClient.setPlayerVolume(p.id, target); } catch { /* ignore */ }
+        });
       },
 
       // ==================== 配置操作 ====================

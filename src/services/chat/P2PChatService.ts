@@ -264,6 +264,14 @@ class P2PChatService {
       this.lastMessageTs = msg.timestamp;
     }
 
+    // 控制消息（大厅公告 / 语音小队）：不计入聊天，分发到状态后返回
+    const mtype = (msg as { message_type: string }).message_type;
+    if (mtype === 'announce' || mtype === 'voicegroup') {
+      if (msg.player_id === this.currentPlayerId) return;
+      void this.handleControlMessage(mtype, msg);
+      return;
+    }
+
     // 跳过自己发送的消息
     if (msg.player_id === this.currentPlayerId) {
       console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
@@ -314,7 +322,44 @@ class P2PChatService {
   }
 
   /**
-   * 播放新消息音效
+   * 处理控制消息（大厅公告 / 语音小队），更新全局状态
+   */
+  private async handleControlMessage(type: string, msg: BackendChatMessage): Promise<void> {
+    try {
+      const { useAppStore } = await import('../../stores/appStore');
+      const store = useAppStore.getState();
+      if (type === 'announce') {
+        store.setAnnouncement(msg.content ?? '');
+      } else if (type === 'voicegroup') {
+        const g = parseInt((msg.content ?? '0').trim(), 10);
+        store.setPlayerVoiceGroup(msg.player_id, Number.isFinite(g) ? g : 0);
+      }
+    } catch (error) {
+      console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
+    }
+  }
+
+  /**
+   * 发送控制消息（公告/语音小队）
+   */
+  async sendControlMessage(type: 'announce' | 'voicegroup', content: string): Promise<void> {
+    if (!this.currentPlayerId) return;
+    try {
+      await invoke('send_p2p_chat_message', {
+        playerId: this.currentPlayerId,
+        playerName: '',
+        content,
+        messageType: type,
+        imageData: null,
+        peerIps: this.peerIps,
+      });
+    } catch (error) {
+      console.error('❌ [P2PChatService] 发送控制消息失败:', error);
+    }
+  }
+
+  /**
+   * 处理新消息音效
    */
   private async playNewMessageSound(): Promise<void> {
     try {

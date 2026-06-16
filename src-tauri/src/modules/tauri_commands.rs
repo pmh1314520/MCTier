@@ -3260,6 +3260,8 @@ pub async fn send_p2p_chat_message(
     // 解析消息类型
     let msg_type = match message_type.as_str() {
         "image" => MessageType::Image,
+        "announce" => MessageType::Announce,
+        "voicegroup" => MessageType::VoiceGroup,
         _ => MessageType::Text,
     };
     

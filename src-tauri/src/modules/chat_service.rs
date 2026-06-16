@@ -44,6 +44,10 @@ pub struct ChatMessage {
 pub enum MessageType {
     Text,
     Image,
+    /// 大厅公告（控制消息，不计入聊天记录）
+    Announce,
+    /// 语音小队组别（控制消息）
+    VoiceGroup,
 }
 
 /// 获取消息请求参数

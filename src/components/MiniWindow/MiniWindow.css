@@ -1542,3 +1542,40 @@
 .reconnect-modal .ant-spin-dot-item {
   background-color: #52c41a !important;
 }
+
+/* ==================== 大厅公告 ==================== */
+.mini-announcement { margin: 8px 0; }
+.mini-announce-box {
+  background: rgba(255, 210, 74, 0.12);
+  border: 1px solid rgba(255, 210, 74, 0.35);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.mini-announce-head { display: flex; align-items: center; justify-content: space-between; }
+.mini-announce-title { font-size: 11px; color: #FFD24A; font-weight: 600; }
+.mini-announce-edit {
+  background: transparent; border: none; color: rgba(255,255,255,0.6);
+  font-size: 11px; cursor: pointer; padding: 0 4px;
+}
+.mini-announce-edit:hover { color: #fff; }
+.mini-announce-text { font-size: 12px; color: rgba(255,255,255,0.9); margin-top: 3px; word-break: break-word; }
+.mini-announce-set {
+  width: 100%; background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.2);
+  border-radius: 8px; color: rgba(255,255,255,0.55); font-size: 12px; padding: 6px; cursor: pointer;
+}
+.mini-announce-set:hover { color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.4); }
+
+/* ==================== 语音小队 ==================== */
+.mini-voicegroup { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.mini-vg-label { font-size: 12px; color: rgba(255,255,255,0.6); }
+.mini-vg-chip {
+  background: rgba(255,255,255,0.08); border: none; border-radius: 12px;
+  color: rgba(255,255,255,0.7); font-size: 12px; padding: 4px 12px; cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mini-vg-chip:hover { background: rgba(255,255,255,0.15); }
+.mini-vg-chip.active { background: #52C41A; color: #fff; font-weight: 600; }
+.mini-vg-badge {
+  background: rgba(59,130,246,0.22); color: #7FB3FF; font-size: 10px;
+  border-radius: 6px; padding: 1px 6px; margin-left: 6px;
+}
