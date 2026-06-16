@@ -8,6 +8,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, Button, Spin, Empty, message, Tag, InputNumber, Tooltip } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { useAppStore } from '../../stores/appStore';
 
 interface DiscoveredServer {
@@ -30,6 +32,7 @@ const DEFAULT_MC_PORT = 25565;
 const MC_PORT_KEY = 'mctier_mc_scan_port';
 
 export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visible, onClose }) => {
+  useTranslation();
   const { players, lobby, currentPlayerId, config } = useAppStore();
   const [scanning, setScanning] = useState(false);
   const [servers, setServers] = useState<DiscoveredServer[]>([]);
@@ -43,12 +46,12 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
   const buildIpNameMap = useCallback((): Map<string, string> => {
     const map = new Map<string, string>();
     if (lobby?.virtualIp) {
-      map.set(lobby.virtualIp, `${config.playerName || '我'}（我）`);
+      map.set(lobby.virtualIp, `${config.playerName || tl('我', 'Me')}${tl('（我）', ' (Me)')}`);
     }
     players.forEach(p => {
       if (p.virtualIp) {
         const isSelf = p.id === currentPlayerId;
-        map.set(p.virtualIp, isSelf ? `${p.name}（我）` : p.name);
+        map.set(p.virtualIp, isSelf ? `${p.name}${tl('（我）', ' (Me)')}` : p.name);
       }
     });
     return map;
@@ -75,7 +78,7 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
       setServers(withNames);
     } catch (error) {
       console.error('扫描局域网世界失败:', error);
-      message.error('扫描失败，请重试');
+      message.error(tl('扫描失败，请重试', 'Scan failed, please retry'));
     } finally {
       setScanning(false);
     }
@@ -93,9 +96,9 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
     const addr = server.port === 25565 ? server.ip : `${server.ip}:${server.port}`;
     try {
       await writeText(addr);
-      message.success(`已复制服务器地址：${addr}，在 Minecraft「多人游戏 → 直接连接」粘贴即可加入`);
+      message.success(`${tl('已复制服务器地址：', 'Server address copied: ')}${addr}${tl('，在 Minecraft「多人游戏 → 直接连接」粘贴即可加入', ' — paste it in Minecraft "Multiplayer → Direct Connect" to join')}`);
     } catch {
-      message.error('复制失败，请手动输入地址：' + addr);
+      message.error(tl('复制失败，请手动输入地址：', 'Copy failed, please enter the address manually: ') + addr);
     }
   };
 
@@ -103,20 +106,20 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
     <Modal
       open={visible}
       onCancel={onClose}
-      title="局域网世界"
+      title={tl('局域网世界', 'LAN Worlds')}
       width={560}
       footer={[
         <Button key="refresh" onClick={() => void handleScan()} loading={scanning}>
-          重新扫描
+          {tl('重新扫描', 'Rescan')}
         </Button>,
         <Button key="close" type="primary" onClick={onClose}>
-          关闭
+          {tl('关闭', 'Close')}
         </Button>,
       ]}
     >
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>扫描端口</span>
-        <Tooltip title="Minecraft「对局域网开放」默认端口为 25565；若你自建服务器或修改过端口，请填写实际端口后重新扫描">
+        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{tl('扫描端口', 'Scan Port')}</span>
+        <Tooltip title={tl('Minecraft「对局域网开放」默认端口为 25565；若你自建服务器或修改过端口，请填写实际端口后重新扫描', 'The default port for Minecraft "Open to LAN" is 25565. If you run your own server or changed the port, enter the actual port and rescan')}>
           <InputNumber
             min={1}
             max={65535}
@@ -130,22 +133,22 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
           />
         </Tooltip>
         <Button size="small" onClick={() => { setPort(DEFAULT_MC_PORT); try { localStorage.setItem(MC_PORT_KEY, String(DEFAULT_MC_PORT)); } catch { /* ignore */ } }}>
-          默认
+          {tl('默认', 'Default')}
         </Button>
         <Button size="small" type="primary" onClick={() => void handleScan()} loading={scanning}>
-          扫描此端口
+          {tl('扫描此端口', 'Scan This Port')}
         </Button>
       </div>
       <div style={{ marginBottom: 12, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-        自动扫描大厅成员是否在端口 {port} 上开启了 Minecraft 世界（需对方开启「对局域网开放」或自建服务器）。
+        {tl(`自动扫描大厅成员是否在端口 ${port} 上开启了 Minecraft 世界（需对方开启「对局域网开放」或自建服务器）。`, `Automatically scans whether lobby members have a Minecraft world open on port ${port} (they must use "Open to LAN" or run a server).`)}
       </div>
 
       {scanning && servers.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '32px 0' }}>
-          <Spin tip="正在扫描局域网世界..." />
+          <Spin tip={tl('正在扫描局域网世界...', 'Scanning LAN worlds...')} />
         </div>
       ) : servers.length === 0 ? (
-        <Empty description="未发现可加入的世界。请确认对方已在游戏中点击「对局域网开放」或已开服。" />
+        <Empty description={tl('未发现可加入的世界。请确认对方已在游戏中点击「对局域网开放」或已开服。', 'No joinable worlds found. Make sure others have clicked "Open to LAN" in-game or started a server.')} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {servers.map((s) => (
@@ -163,14 +166,14 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
             >
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontWeight: 600, marginBottom: 2 }}>
-                  {s.playerName} 的世界
+                  {s.playerName} {tl('的世界', '\'s World')}
                 </div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {s.motd || '（无描述）'}
+                  {s.motd || tl('（无描述）', '(No description)')}
                 </div>
                 <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <Tag color="blue">{s.version}</Tag>
-                  <Tag color="green">{s.onlinePlayers}/{s.maxPlayers} 人</Tag>
+                  <Tag color="green">{s.onlinePlayers}/{s.maxPlayers} {tl('人', '')}</Tag>
                   <Tag color={s.latencyMs < 80 ? 'green' : s.latencyMs < 200 ? 'gold' : 'red'}>
                     {s.latencyMs}ms
                   </Tag>
@@ -178,7 +181,7 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
                 </div>
               </div>
               <Button type="primary" onClick={() => void handleCopy(s)}>
-                复制地址
+                {tl('复制地址', 'Copy Address')}
               </Button>
             </div>
           ))}

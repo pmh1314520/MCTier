@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal, Form, Input, Switch, InputNumber, Select, message, Spin } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './ExitNodeAdvancedModal.css';
 
 interface PortForwardRule {
@@ -21,6 +23,7 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
   onClose,
   onSaved,
 }) => {
+  useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -74,7 +77,7 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
       console.log('✅ [ExitNodeAdvanced] 配置加载完成');
     } catch (error) {
       console.error('❌ [ExitNodeAdvanced] 加载配置失败:', error);
-      message.error('加载配置失败');
+      message.error(tl('加载配置失败', 'Failed to load configuration'));
     } finally {
       setLoading(false);
     }
@@ -109,13 +112,13 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
       });
       
       console.log('✅ [ExitNodeAdvanced] 配置已保存');
-      message.success('配置已保存');
+      message.success(tl('配置已保存', 'Configuration saved'));
       
       onSaved();
       onClose();
     } catch (error) {
       console.error('❌ [ExitNodeAdvanced] 保存配置失败:', error);
-      message.error('保存配置失败');
+      message.error(tl('保存配置失败', 'Failed to save configuration'));
     } finally {
       setSaving(false);
     }
@@ -153,8 +156,8 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
     >
       <div className="exit-node-advanced-content">
         <div className="exit-node-advanced-header">
-          <h2>出口节点高级配置</h2>
-          <p>配置 SOCKS5 代理、端口转发和其他高级功能</p>
+          <h2>{tl('出口节点高级配置', 'Exit Node Advanced Config')}</h2>
+          <p>{tl('配置 SOCKS5 代理、端口转发和其他高级功能', 'Configure SOCKS5 proxy, port forwarding and other advanced features')}</p>
         </div>
 
         <Spin spinning={loading}>
@@ -165,11 +168,11 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
           >
             {/* SOCKS5 代理 */}
             <div className="config-section">
-              <h3>SOCKS5 代理</h3>
+              <h3>{tl('SOCKS5 代理', 'SOCKS5 Proxy')}</h3>
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">启用 SOCKS5 代理</span>
-                  <span className="toggle-desc">开启后可以通过 SOCKS5 协议访问虚拟网络</span>
+                  <span className="toggle-label">{tl('启用 SOCKS5 代理', 'Enable SOCKS5 Proxy')}</span>
+                  <span className="toggle-desc">{tl('开启后可以通过 SOCKS5 协议访问虚拟网络', 'When enabled, access the virtual network via the SOCKS5 protocol')}</span>
                 </div>
                 <Switch
                   checked={enableSocks5}
@@ -191,15 +194,15 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
                   >
                     <Form.Item
                       name="socks5Port"
-                      label="SOCKS5 端口"
+                      label={tl('SOCKS5 端口', 'SOCKS5 Port')}
                       rules={[
-                        { required: true, message: '请输入端口号' },
-                        { type: 'number', min: 1024, max: 65535, message: '端口号必须在 1024-65535 之间' },
+                        { required: true, message: tl('请输入端口号', 'Please enter a port number') },
+                        { type: 'number', min: 1024, max: 65535, message: tl('端口号必须在 1024-65535 之间', 'Port must be between 1024 and 65535') },
                       ]}
                     >
                       <InputNumber
                         style={{ width: '100%' }}
-                        placeholder="例如：5678"
+                        placeholder={tl('例如：5678', 'e.g. 5678')}
                         min={1024}
                         max={65535}
                       />
@@ -211,9 +214,9 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
 
             {/* 端口转发 */}
             <div className="config-section">
-              <h3>端口转发</h3>
+              <h3>{tl('端口转发', 'Port Forwarding')}</h3>
               <p className="section-desc">
-                将本地端口转发到虚拟网络中的远程端口。例如：将出口节点的 SOCKS5 端口转发到本地。
+                {tl('将本地端口转发到虚拟网络中的远程端口。例如：将出口节点的 SOCKS5 端口转发到本地。', 'Forward a local port to a remote port in the virtual network. e.g. forward the exit node\'s SOCKS5 port locally.')}
               </p>
               
               <div className="port-forward-list">
@@ -233,20 +236,20 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
                     <Input
                       value={rule.bind_addr}
                       onChange={(e) => handleUpdatePortForwardRule(index, 'bind_addr', e.target.value)}
-                      placeholder="本地地址（例如：0.0.0.0:5678）"
+                      placeholder={tl('本地地址（例如：0.0.0.0:5678）', 'Local address (e.g. 0.0.0.0:5678)')}
                       style={{ flex: 1 }}
                     />
                     <span className="arrow">→</span>
                     <Input
                       value={rule.dst_addr}
                       onChange={(e) => handleUpdatePortForwardRule(index, 'dst_addr', e.target.value)}
-                      placeholder="目标地址（例如：10.2.2.1:5678）"
+                      placeholder={tl('目标地址（例如：10.2.2.1:5678）', 'Target address (e.g. 10.2.2.1:5678)')}
                       style={{ flex: 1 }}
                     />
                     <button
                       className="remove-rule-btn"
                       onClick={() => handleRemovePortForwardRule(index)}
-                      title="删除规则"
+                      title={tl('删除规则', 'Delete rule')}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -265,42 +268,42 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                <span>添加转发规则</span>
+                <span>{tl('添加转发规则', 'Add Forwarding Rule')}</span>
               </button>
             </div>
 
             {/* 高级选项 */}
             <div className="config-section">
-              <h3>高级选项</h3>
+              <h3>{tl('高级选项', 'Advanced Options')}</h3>
               
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">无 TUN 模式</span>
-                  <span className="toggle-desc">不创建虚拟网卡，仅通过子网代理访问节点</span>
+                  <span className="toggle-label">{tl('无 TUN 模式', 'No TUN Mode')}</span>
+                  <span className="toggle-desc">{tl('不创建虚拟网卡，仅通过子网代理访问节点', 'Do not create a virtual adapter; access nodes only via subnet proxy')}</span>
                 </div>
                 <Switch checked={noTun} onChange={setNoTun} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">系统转发</span>
-                  <span className="toggle-desc">通过系统内核转发子网代理数据包</span>
+                  <span className="toggle-label">{tl('系统转发', 'System Forwarding')}</span>
+                  <span className="toggle-desc">{tl('通过系统内核转发子网代理数据包', 'Forward subnet proxy packets through the system kernel')}</span>
                 </div>
                 <Switch checked={proxyForwardBySystem} onChange={setProxyForwardBySystem} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">仅使用物理网卡</span>
-                  <span className="toggle-desc">绑定物理设备避免路由问题</span>
+                  <span className="toggle-label">{tl('仅使用物理网卡', 'Use Physical Adapter Only')}</span>
+                  <span className="toggle-desc">{tl('绑定物理设备避免路由问题', 'Bind the physical device to avoid routing issues')}</span>
                 </div>
                 <Switch checked={bindDevice} onChange={setBindDevice} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">启用多线程</span>
-                  <span className="toggle-desc">使用多线程运行时提升性能</span>
+                  <span className="toggle-label">{tl('启用多线程', 'Enable Multithreading')}</span>
+                  <span className="toggle-desc">{tl('使用多线程运行时提升性能', 'Use a multithreaded runtime to improve performance')}</span>
                 </div>
                 <Switch checked={multiThread} onChange={setMultiThread} />
               </div>
@@ -316,14 +319,14 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
                   >
                     <Form.Item
                       name="multiThreadCount"
-                      label="线程数量"
+                      label={tl('线程数量', 'Thread Count')}
                       rules={[
-                        { type: 'number', min: 2, message: '线程数量必须大于等于 2' },
+                        { type: 'number', min: 2, message: tl('线程数量必须大于等于 2', 'Thread count must be at least 2') },
                       ]}
                     >
                       <InputNumber
                         style={{ width: '100%' }}
-                        placeholder="默认：2"
+                        placeholder={tl('默认：2', 'Default: 2')}
                         min={2}
                       />
                     </Form.Item>
@@ -333,32 +336,32 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">启用 smoltcp</span>
-                  <span className="toggle-desc">为子网代理和 KCP 代理启用 smoltcp 堆栈</span>
+                  <span className="toggle-label">{tl('启用 smoltcp', 'Enable smoltcp')}</span>
+                  <span className="toggle-desc">{tl('为子网代理和 KCP 代理启用 smoltcp 堆栈', 'Enable the smoltcp stack for subnet proxy and KCP proxy')}</span>
                 </div>
                 <Switch checked={useSmoltcp} onChange={setUseSmoltcp} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">启用 KCP 代理</span>
-                  <span className="toggle-desc">使用 KCP 代理 TCP 流，提高在 UDP 丢包网络上的性能</span>
+                  <span className="toggle-label">{tl('启用 KCP 代理', 'Enable KCP Proxy')}</span>
+                  <span className="toggle-desc">{tl('使用 KCP 代理 TCP 流，提高在 UDP 丢包网络上的性能', 'Proxy TCP streams over KCP to improve performance on lossy UDP networks')}</span>
                 </div>
                 <Switch checked={enableKcpProxy} onChange={setEnableKcpProxy} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">启用 QUIC 代理</span>
-                  <span className="toggle-desc">使用 QUIC 代理 TCP 流，提高在 UDP 丢包网络上的性能</span>
+                  <span className="toggle-label">{tl('启用 QUIC 代理', 'Enable QUIC Proxy')}</span>
+                  <span className="toggle-desc">{tl('使用 QUIC 代理 TCP 流，提高在 UDP 丢包网络上的性能', 'Proxy TCP streams over QUIC to improve performance on lossy UDP networks')}</span>
                 </div>
                 <Switch checked={enableQuicProxy} onChange={setEnableQuicProxy} />
               </div>
 
               <div className="config-toggle">
                 <div className="toggle-info">
-                  <span className="toggle-label">延迟优先模式</span>
-                  <span className="toggle-desc">使用最低延迟路径转发流量</span>
+                  <span className="toggle-label">{tl('延迟优先模式', 'Latency-First Mode')}</span>
+                  <span className="toggle-desc">{tl('使用最低延迟路径转发流量', 'Forward traffic over the lowest-latency path')}</span>
                 </div>
                 <Switch checked={latencyFirst} onChange={setLatencyFirst} />
               </div>
@@ -373,14 +376,14 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
             onClick={onClose}
             disabled={saving}
           >
-            取消
+            {tl('取消', 'Cancel')}
           </button>
           <button
             className="exit-node-advanced-btn exit-node-advanced-btn-save"
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? '保存中...' : '保存配置'}
+            {saving ? tl('保存中...', 'Saving...') : tl('保存配置', 'Save Config')}
           </button>
         </div>
       </div>
