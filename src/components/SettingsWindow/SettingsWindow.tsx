@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Switch, message, Tooltip, App } from 'antd';
+import { Form, Input, Switch, message, Tooltip, App, Slider } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
@@ -652,21 +652,32 @@ const SoundThemeManager: React.FC = () => {
 
       <div className="st-row">
         <span className="st-label">提示音量</span>
-        <input type="range" min="0" max="1" step="0.05" value={volume}
-          onChange={(e) => { const v = parseFloat(e.target.value); setVolume(v); audioService.setVolume(v); }}
-          style={{ flex: 1, margin: '0 10px' }} />
+        <div className="st-slider">
+          <Slider
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(v) => { setVolume(v as number); audioService.setVolume(v as number); }}
+            tooltip={{ formatter: (v) => `${Math.round((v ?? 0) * 100)}%` }}
+          />
+        </div>
         <span className="st-value">{Math.round(volume * 100)}%</span>
       </div>
 
       {(Object.keys(labels) as SoundType[]).map((t) => (
-        <div className="st-row" key={t}>
-          <span className="st-label">{labels[t]}提示音</span>
-          <span className="st-sub">{custom[t] ? '自定义' : '默认音'}</span>
-          <button className="st-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>选择</button>
-          <button className="st-btn" onClick={() => audioService.play(t)}>试听</button>
-          {custom[t] && (
-            <button className="st-btn st-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
-          )}
+        <div className="st-row st-sound-row" key={t}>
+          <div className="st-sound-info">
+            <span className="st-label">{labels[t]}提示音</span>
+            <span className="st-sub">{custom[t] ? '自定义' : '默认音'}</span>
+          </div>
+          <div className="st-sound-btns">
+            <button className="st-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>选择</button>
+            <button className="st-btn" onClick={() => audioService.play(t)}>试听</button>
+            {custom[t] && (
+              <button className="st-btn st-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
+            )}
+          </div>
         </div>
       ))}
 
@@ -675,21 +686,23 @@ const SoundThemeManager: React.FC = () => {
         <Switch checked={dndEnabled} onChange={(v) => { setDndEnabled(v); audioService.setDnd(v); }} />
       </div>
       {dndEnabled && (
-        <div className="st-row">
+        <div className="st-dnd">
           <span className="st-label">免打扰时段</span>
-          <input type="time" value={minutesToHHMM(dndStart)} onChange={(e) => {
-            const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
-            setDndStart(mins); audioService.setDnd(true, mins, dndEnd);
-          }} />
-          <span style={{ margin: '0 8px', color: 'rgba(255,255,255,0.6)' }}>至</span>
-          <input type="time" value={minutesToHHMM(dndEnd)} onChange={(e) => {
-            const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
-            setDndEnd(mins); audioService.setDnd(true, dndStart, mins);
-          }} />
+          <div className="st-dnd-times">
+            <input type="time" value={minutesToHHMM(dndStart)} onChange={(e) => {
+              const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
+              setDndStart(mins); audioService.setDnd(true, mins, dndEnd);
+            }} />
+            <span className="st-dnd-sep">至</span>
+            <input type="time" value={minutesToHHMM(dndEnd)} onChange={(e) => {
+              const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
+              setDndEnd(mins); audioService.setDnd(true, dndStart, mins);
+            }} />
+          </div>
         </div>
       )}
 
-      <div className="st-row st-theme-row">
+      <div className="st-theme-row">
         <span className="st-label">主题主色</span>
         <div className="st-colors">
           {PRIMARY_PRESETS.map((p) => (

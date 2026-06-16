@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, InputNumber, Switch, Input, Button, Typography, Space, App as AntdApp } from 'antd';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
+import { p2pChatService } from '../../services/chat/P2PChatService';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -24,17 +25,21 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
   const isPublicLobby = useAppStore((s) => s.isPublicLobby);
   const lobby = useAppStore((s) => s.lobby);
   const players = useAppStore((s) => s.players);
+  const announcement = useAppStore((s) => s.announcement);
+  const setAnnouncement = useAppStore((s) => s.setAnnouncement);
 
   const [maxValue, setMaxValue] = useState<number>(maxPlayers ?? 0);
   const [pub, setPub] = useState<boolean>(isPublicLobby);
   const [desc, setDesc] = useState<string>('');
+  const [announceDraft, setAnnounceDraft] = useState<string>('');
 
   useEffect(() => {
     if (visible) {
       setMaxValue(maxPlayers ?? 0);
       setPub(isPublicLobby);
+      setAnnounceDraft(announcement);
     }
-  }, [visible, maxPlayers, isPublicLobby]);
+  }, [visible, maxPlayers, isPublicLobby, announcement]);
 
   // 当前在线人数（含自己）= 其他玩家 + 1
   const currentCount = players.length + 1;
@@ -58,6 +63,13 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
       password: checked ? (lobby?.password || '') : undefined,
     });
     message.success(checked ? '已发布到公开广场' : '已从公开广场下架');
+  };
+
+  const publishAnnounce = () => {
+    const text = announceDraft.trim();
+    setAnnouncement(text);
+    void p2pChatService.sendControlMessage('announce', text);
+    message.success(text ? '公告已发布' : '已清空公告');
   };
 
   return (
@@ -92,6 +104,26 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
             autoSize={{ minRows: 2, maxRows: 4 }}
             maxLength={100}
           />
+        </div>
+
+        <div>
+          <Text strong>大厅公告</Text>
+          <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 8 }}>
+            公告会在所有成员的大厅顶部以滚动条形式展示，新加入的玩家也会自动看到（适合写玩法规则、服务器地址等）。
+          </Paragraph>
+          <TextArea
+            value={announceDraft}
+            onChange={(e) => setAnnounceDraft(e.target.value)}
+            placeholder="输入公告内容，留空并发布可清除公告"
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            maxLength={200}
+          />
+          <Space style={{ marginTop: 10 }}>
+            <Button type="primary" onClick={publishAnnounce}>发布公告</Button>
+            {announcement && (
+              <Button onClick={() => { setAnnounceDraft(''); setAnnouncement(''); void p2pChatService.sendControlMessage('announce', ''); message.success('已清空公告'); }}>清空</Button>
+            )}
+          </Space>
         </div>
       </Space>
     </Modal>

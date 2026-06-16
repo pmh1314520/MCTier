@@ -1543,27 +1543,32 @@
   background-color: #52c41a !important;
 }
 
-/* ==================== 大厅公告 ==================== */
-.mini-announcement { margin: 8px 0; }
-.mini-announce-box {
+/* ==================== 大厅公告（跑马灯） ==================== */
+.mini-announcement {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 7px 12px;
   background: rgba(255, 210, 74, 0.12);
-  border: 1px solid rgba(255, 210, 74, 0.35);
+  border: 1px solid rgba(255, 210, 74, 0.32);
   border-radius: 10px;
-  padding: 8px 10px;
+  overflow: hidden;
 }
-.mini-announce-head { display: flex; align-items: center; justify-content: space-between; }
-.mini-announce-title { font-size: 11px; color: #FFD24A; font-weight: 600; }
-.mini-announce-edit {
-  background: transparent; border: none; color: rgba(255,255,255,0.6);
-  font-size: 11px; cursor: pointer; padding: 0 4px;
+.mini-announce-icon { color: #FFD24A; display: inline-flex; flex-shrink: 0; }
+.mini-announce-viewport { flex: 1; overflow: hidden; white-space: nowrap; position: relative; }
+.mini-announce-marquee {
+  display: inline-block;
+  padding-left: 100%;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.92);
+  animation: mctier-marquee 14s linear infinite;
 }
-.mini-announce-edit:hover { color: #fff; }
-.mini-announce-text { font-size: 12px; color: rgba(255,255,255,0.9); margin-top: 3px; word-break: break-word; }
-.mini-announce-set {
-  width: 100%; background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.2);
-  border-radius: 8px; color: rgba(255,255,255,0.55); font-size: 12px; padding: 6px; cursor: pointer;
+.mini-announce-viewport:hover .mini-announce-marquee { animation-play-state: paused; }
+@keyframes mctier-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
 }
-.mini-announce-set:hover { color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.4); }
 
 /* ==================== 语音小队 ==================== */
 .mini-voicegroup { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
@@ -1579,3 +1584,20 @@
   background: rgba(59,130,246,0.22); color: #7FB3FF; font-size: 10px;
   border-radius: 6px; padding: 1px 6px; margin-left: 6px;
 }
+
+/* ==================== 二维码海报下载按钮 ==================== */
+.qr-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(82, 196, 26, 0.5);
+  background: rgba(82, 196, 26, 0.16);
+  color: #7ee03c;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.qr-download-btn:hover { background: rgba(82, 196, 26, 0.28); color: #fff; }

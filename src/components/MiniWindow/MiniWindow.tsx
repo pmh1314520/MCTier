@@ -48,9 +48,7 @@ export const MiniWindow: React.FC = () => {
     hostMutedPlayers,
     maxPlayers,
     announcement,
-    setAnnouncement,
     myVoiceGroup,
-    setMyVoiceGroup,
     playerVoiceGroups,
   } = useAppStore();
 
@@ -88,6 +86,50 @@ export const MiniWindow: React.FC = () => {
   const [peerConnTypes, setPeerConnTypes] = useState<Record<string, string>>({}); // 虚拟IP -> p2p/relay // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
+  const qrPosterRef = React.useRef<HTMLDivElement>(null); // 二维码弹窗容器，用于下载海报
+
+  // 把二维码合成为一张 MCTier 主题海报图并下载，方便分享
+  const downloadQrPoster = () => {
+    const src = qrPosterRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!src || !lobby) { message.error('二维码尚未就绪'); return; }
+    const accent = (localStorage.getItem('mctier_theme_primary') || '#52C41A');
+    const W = 640, H = 880;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    // 背景渐变
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1c1c2a'); g.addColorStop(1, '#101018');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // 顶部主色条
+    ctx.fillStyle = accent; ctx.fillRect(0, 0, W, 10);
+    // 标题
+    ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center';
+    ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
+    ctx.fillText('MCTier 联机邀请', W / 2, 90);
+    ctx.fillStyle = accent;
+    ctx.font = '20px "Microsoft YaHei", sans-serif';
+    ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 130);
+    // 二维码白色卡片
+    const qr = 400, qx = (W - qr) / 2, qy = 170;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); (ctx as any).roundRect(qx - 24, qy - 24, qr + 48, qr + 48, 24); ctx.fill();
+    ctx.drawImage(src, qx, qy, qr, qr);
+    // 大厅名 / 密码
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px "Microsoft YaHei", sans-serif';
+    ctx.fillText(lobby.name, W / 2, qy + qr + 90);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '22px "Microsoft YaHei", sans-serif';
+    ctx.fillText(`密码：${lobby.password || '（无）'}`, W / 2, qy + qr + 134);
+    // 底部链接
+    ctx.fillStyle = accent; ctx.font = '20px "Microsoft YaHei", sans-serif';
+    ctx.fillText('https://mctier.pmhs.top', W / 2, H - 40);
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png');
+    a.download = `MCTier-邀请-${lobby.name}.png`;
+    a.click();
+    message.success('二维码海报已保存');
+  };
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -1317,53 +1359,20 @@ export const MiniWindow: React.FC = () => {
                 </motion.div>
               )}
 
-              {/* 大厅公告 */}
-              {(announcement || isHost) && (
+              {/* 大厅公告（只读跑马灯滚动展示；房主在“房主管理”中设置） */}
+              {announcement && (
                 <div className="mini-announcement">
-                  {announcement ? (
-                    <div className="mini-announce-box">
-                      <div className="mini-announce-head">
-                        <span className="mini-announce-title">📢 大厅公告</span>
-                        {isHost && (
-                          <button className="mini-announce-edit" onClick={() => {
-                            const v = window.prompt('设置大厅公告（留空清空）', announcement);
-                            if (v !== null) {
-                              setAnnouncement(v.trim());
-                              void p2pChatService.sendControlMessage('announce', v.trim());
-                            }
-                          }}>编辑</button>
-                        )}
-                      </div>
-                      <div className="mini-announce-text">{announcement}</div>
-                    </div>
-                  ) : (
-                    <button className="mini-announce-set" onClick={() => {
-                      const v = window.prompt('设置大厅公告（玩法规则/服务器地址等，新人进来即见）', '');
-                      if (v !== null && v.trim()) {
-                        setAnnouncement(v.trim());
-                        void p2pChatService.sendControlMessage('announce', v.trim());
-                      }
-                    }}>+ 设置大厅公告</button>
-                  )}
+                  <span className="mini-announce-icon" title="大厅公告">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 11l18-5v12L3 14v-3z"></path>
+                      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>
+                    </svg>
+                  </span>
+                  <div className="mini-announce-viewport">
+                    <span className="mini-announce-marquee">{announcement}</span>
+                  </div>
                 </div>
               )}
-
-              {/* 语音小队 */}
-              <div className="mini-voicegroup">
-                <span className="mini-vg-label">语音</span>
-                {[0, 1, 2, 3, 4].map((g) => (
-                  <button
-                    key={g}
-                    className={`mini-vg-chip ${myVoiceGroup === g ? 'active' : ''}`}
-                    onClick={() => {
-                      setMyVoiceGroup(g);
-                      void p2pChatService.sendControlMessage('voicegroup', String(g));
-                    }}
-                  >
-                    {g === 0 ? '公共' : `${g}队`}
-                  </button>
-                ))}
-              </div>
 
               {/* 玩家列表 */}
               <motion.div
@@ -1802,16 +1811,26 @@ export const MiniWindow: React.FC = () => {
         width={320}
         title="大厅二维码"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+        <div ref={qrPosterRef} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>手机用 MCTier 扫码即可加入本大厅</div>
           {lobby && (
             <QRCode
               value={`——————— 邀请您加入大厅 ———————\n大厅名称：${lobby.name}\n密码：${lobby.password || ''}\n————— https://mctier.pmhs.top —————`}
               size={220}
-              errorLevel="M"
+              errorLevel="H"
+              icon="/MCTierIcon.png"
+              iconSize={48}
             />
           )}
           <div style={{ color: '#fff', fontWeight: 600 }}>{lobby?.name}</div>
+          <button className="qr-download-btn" onClick={downloadQrPoster}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            下载二维码海报
+          </button>
         </div>
       </Modal>
     </>

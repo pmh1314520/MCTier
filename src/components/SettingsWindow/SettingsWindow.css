@@ -774,26 +774,35 @@
 }
 
 /* ==================== 提示音与主题设置 ==================== */
-.sound-theme-manager { display: flex; flex-direction: column; gap: 12px; }
-.st-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.st-label { font-size: 13px; color: rgba(255, 255, 255, 0.85); min-width: 80px; }
-.st-sub { font-size: 12px; color: rgba(255, 255, 255, 0.45); flex: 1; }
-.st-value { font-size: 12px; color: rgba(255, 255, 255, 0.6); min-width: 40px; text-align: right; }
+.sound-theme-manager { display: flex; flex-direction: column; gap: 16px; padding: 4px 2px; }
+.st-row { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+.st-label { font-size: 13px; color: rgba(255, 255, 255, 0.85); min-width: 88px; flex-shrink: 0; }
+.st-slider { flex: 1; padding: 0 6px; }
+.st-value { font-size: 12px; color: rgba(255, 255, 255, 0.6); min-width: 42px; text-align: right; flex-shrink: 0; }
+.st-sound-row { justify-content: space-between; }
+.st-sound-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.st-sound-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.st-sub { font-size: 12px; color: rgba(255, 255, 255, 0.45); }
 .st-btn {
-  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px; color: rgba(255, 255, 255, 0.85); font-size: 12px;
-  padding: 4px 10px; cursor: pointer; transition: all 0.15s ease;
+  padding: 5px 12px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
 }
-.st-btn:hover { background: rgba(82, 196, 26, 0.2); border-color: rgba(82, 196, 26, 0.5); }
+.st-btn:hover { background: rgba(82, 196, 26, 0.2); border-color: rgba(82, 196, 26, 0.5); color: #fff; }
 .st-btn.st-reset { color: rgba(255, 255, 255, 0.6); }
-.st-row input[type="time"] {
-  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px; color: #fff; padding: 4px 8px; color-scheme: dark;
+/* 免打扰时段：换行展示 */
+.st-dnd { display: flex; flex-direction: column; gap: 8px; padding-left: 2px; }
+.st-dnd-times { display: flex; align-items: center; gap: 10px; }
+.st-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
+.st-dnd input[type="time"], .st-row input[type="time"] {
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px; color: #fff; padding: 6px 10px; color-scheme: dark; font-size: 13px;
 }
-.st-colors { display: flex; gap: 10px; }
+.st-theme-row { display: flex; flex-direction: column; gap: 12px; }
+.st-colors { display: flex; gap: 12px; padding-left: 2px; }
 .st-color {
-  width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25);
+  width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25);
   cursor: pointer; padding: 0; transition: transform 0.15s ease;
 }
-.st-color:hover { transform: scale(1.1); }
-.st-color.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3); }
+.st-color:hover { transform: scale(1.12); }
+.st-color.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }

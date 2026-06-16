@@ -409,3 +409,34 @@
   background: rgba(255, 255, 255, 0.08);
   margin: 0 0 14px 0;
 }
+
+/* ==================== 语音频道（小队语音） ==================== */
+.lobby-vc-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(126, 211, 33, 0.08);
+  border: 1px solid rgba(126, 211, 33, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.lobby-vc-hint strong { color: rgba(126, 211, 33, 0.95); }
+.lobby-vc-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.lobby-vc-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lobby-vc-chip:hover { background: rgba(126, 211, 33, 0.15); border-color: rgba(126, 211, 33, 0.4); }
+.lobby-vc-chip.active {
+  background: var(--mctier-primary, #52C41A);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
