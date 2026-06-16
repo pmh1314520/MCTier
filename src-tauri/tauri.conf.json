@@ -34,6 +34,13 @@
     },
     "withGlobalTauri": false
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["mctier"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

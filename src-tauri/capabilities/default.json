@@ -9,6 +9,7 @@
     "shell:allow-open",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
+    "deep-link:default",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
     "core:window:allow-set-always-on-top",

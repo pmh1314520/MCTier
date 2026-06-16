@@ -338,6 +338,24 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }, 300);
   }, [form, mode, config.preferredServer]);
   
+  // 检测邀请 deep link 预填（仅填表，不自动提交）：mctier://join?name=&pwd=
+  useEffect(() => {
+    const apply = () => {
+      const dl = (window as any).__deepLinkConfig;
+      if (!dl) return;
+      delete (window as any).__deepLinkConfig;
+      form.setFieldsValue({
+        lobbyName: dl.lobbyName ?? '',
+        password: dl.password ?? '',
+        playerName: config.playerName || '',
+      });
+    };
+    apply();
+    const onDeepLink = () => apply();
+    window.addEventListener('mctier-deep-link', onDeepLink as EventListener);
+    return () => window.removeEventListener('mctier-deep-link', onDeepLink as EventListener);
+  }, [form, config.playerName]);
+
   // 从剪贴板识别大厅信息的函数
   const recognizeClipboard = async (isAuto = false) => {
     try {

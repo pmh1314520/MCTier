@@ -154,6 +154,30 @@ function App() {
   // 窗口置顶状态完全由用户在设置中配置，应用于整个应用生命周期
   // 注意：lib.rs 中已经在应用启动时设置了初始置顶状态，这里不需要重复设置
 
+  // 邀请 deep link：监听后端转发的 URL，解析并预填加入表单（仅填表，不自动连接）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const setup = async () => {
+      unlisten = await listen<string>('deep-link-join', (event) => {
+        try {
+          const raw = String(event.payload || '');
+          const m = raw.match(/^mctier:\/\/join\/?\?(.*)$/i);
+          if (!m) return;
+          const params = new URLSearchParams(m[1]);
+          const name = params.get('name') || '';
+          const pwd = params.get('pwd') || '';
+          if (!name) return;
+          (window as any).__deepLinkConfig = { lobbyName: name, password: pwd };
+          window.dispatchEvent(new CustomEvent('mctier-open-join'));
+        } catch (e) {
+          console.warn('解析 deep link 失败（忽略）:', e);
+        }
+      });
+    };
+    void setup();
+    return () => { if (unlisten) unlisten(); };
+  }, []);
+
   // 全局禁用右键菜单
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {

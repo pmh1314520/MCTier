@@ -32,7 +32,7 @@ import './MiniWindow.css';
  */
 // ==================== 二维码工具 ====================
 const buildInviteText = (name: string, pwd: string) =>
-  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n————— https://mctier.pmhs.top —————`;
+  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n一键加入：mctier://join?name=${encodeURIComponent(name)}&pwd=${encodeURIComponent(pwd)}\n————— https://mctier.pmhs.top —————`;
 
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
@@ -953,6 +953,7 @@ export const MiniWindow: React.FC = () => {
 完整复制后打开 MCTier-加入大厅 界面（自动识别）
 大厅名称：${lobby.name}
 密码：${lobby.password || ''}
+一键加入：mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}
 ————— https://mctier.pmhs.top —————`;
       
       await writeText(lobbyInfo);

@@ -54,6 +54,18 @@ export const MainWindow: React.FC = () => {
     }
   }, []);
 
+  // 邀请 deep link：收到后切到加入模式并打开表单（LobbyForm 自行读取预填）
+  useEffect(() => {
+    const onDeepLink = () => {
+      setFormMode('join');
+      setShowForm(true);
+      // 再次派发，确保已挂载的 LobbyForm 也能立即读取
+      setTimeout(() => window.dispatchEvent(new CustomEvent('mctier-deep-link')), 50);
+    };
+    window.addEventListener('mctier-open-join', onDeepLink as EventListener);
+    return () => window.removeEventListener('mctier-open-join', onDeepLink as EventListener);
+  }, []);
+
   // ESC键返回 - 在表单或关于页面时返回主界面
   useEscapeKey(() => {
     if (showForm) {

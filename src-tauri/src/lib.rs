@@ -204,6 +204,20 @@ pub fn run() {
     let app_state = AppState { core: Arc::new(Mutex::new(app_core)) };
 
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 应用已在运行：第二个实例通常由点击 deep link 触发，argv 含 mctier:// URL
+            use tauri::Emitter;
+            if let Some(url) = argv.iter().find(|a| a.starts_with("mctier://")) {
+                let _ = app.emit("deep-link-join", url.clone());
+            }
+            // 聚焦主窗口
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+                let _ = w.show();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -253,6 +267,22 @@ pub fn run() {
             info!("Tauri 应用设置完成");
             println!("🚀 [Setup] Tauri 应用设置开始");
             let app_handle = app.handle().clone();
+
+            // 邀请 deep link：注册运行时 scheme 并监听冷启动/运行时打开的链接
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                {
+                    let _ = app.deep_link().register_all();
+                }
+                let dh = app_handle.clone();
+                app.deep_link().on_open_url(move |event| {
+                    use tauri::Emitter;
+                    if let Some(url) = event.urls().first() {
+                        let _ = dh.emit("deep-link-join", url.to_string());
+                    }
+                });
+            }
             
             println!("🔍 [Setup] 尝试获取 AppState...");
             if let Some(state) = app.try_state::<AppState>() {
