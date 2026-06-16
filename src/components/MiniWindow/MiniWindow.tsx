@@ -1,7 +1,7 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
-import { Modal, Spin, Tooltip, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
+import { Modal, Spin, Tooltip, QRCode, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
@@ -62,6 +62,7 @@ export const MiniWindow: React.FC = () => {
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
+  const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
   const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
@@ -1245,6 +1246,20 @@ export const MiniWindow: React.FC = () => {
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                         </svg>
                       </motion.button>
+                      <motion.button
+                        className="copy-lobby-btn"
+                        onClick={() => setShowQrModal(true)}
+                        title="大厅二维码（手机 MCTier 扫码加入）"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                          <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                          <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                          <path d="M14 14h3v3h-3zM20 14v7M14 20h7"></path>
+                        </svg>
+                      </motion.button>
                     </div>
                   </div>
                   <div className="lobby-card-info">
@@ -1662,6 +1677,28 @@ export const MiniWindow: React.FC = () => {
 
       {/* 房主管理面板 */}
       <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />
+
+      {/* 大厅二维码弹窗：手机端 MCTier 扫码即可加入 */}
+      <Modal
+        open={showQrModal}
+        onCancel={() => setShowQrModal(false)}
+        footer={null}
+        centered
+        width={320}
+        title="大厅二维码"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>手机用 MCTier 扫码即可加入本大厅</div>
+          {lobby && (
+            <QRCode
+              value={`——————— 邀请您加入大厅 ———————\n大厅名称：${lobby.name}\n密码：${lobby.password || ''}\n————— https://mctier.pmhs.top —————`}
+              size={220}
+              errorLevel="M"
+            />
+          )}
+          <div style={{ color: '#fff', fontWeight: 600 }}>{lobby?.name}</div>
+        </div>
+      </Modal>
     </>
   );
 };
