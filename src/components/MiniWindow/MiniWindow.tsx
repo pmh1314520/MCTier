@@ -32,7 +32,7 @@ import './MiniWindow.css';
  */
 // ==================== 二维码工具 ====================
 const buildInviteText = (name: string, pwd: string) =>
-  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n一键加入：mctier://join?name=${encodeURIComponent(name)}&pwd=${encodeURIComponent(pwd)}\n————— https://mctier.pmhs.top —————`;
+  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n————— https://mctier.pmhs.top —————`;
 
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
@@ -80,31 +80,61 @@ async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: num
 
 /** 合成 MCTier 主题邀请图（名片比例的竖向长方形，绿色主题） */
 async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasElement> {
-  const W = 560, H = 940;
+  const W = 600, H = 880;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d')!;
+  // 背景渐变
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#1c1c2a'); g.addColorStop(1, '#101018');
+  g.addColorStop(0, '#16361b'); g.addColorStop(0.5, '#13131f'); g.addColorStop(1, '#0e0e16');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#52C41A'; ctx.fillRect(0, 0, W, 10);
+
+  const M = 44; // 外边距
+  // 内层卡片
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  roundRectPath(ctx, M, M, W - M * 2, H - M * 2, 28); ctx.fill();
+  ctx.strokeStyle = 'rgba(82,196,26,0.35)'; ctx.lineWidth = 1.5;
+  roundRectPath(ctx, M, M, W - M * 2, H - M * 2, 28); ctx.stroke();
+
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 40px "Microsoft YaHei", sans-serif';
-  ctx.fillText('MCTier 组网邀请', W / 2, 96);
-  ctx.fillStyle = '#52C41A'; ctx.font = '18px "Microsoft YaHei", sans-serif';
-  ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 132);
-  const qrSize = 380, qx = (W - qrSize) / 2, qy = 180;
+  // 顶部品牌
+  ctx.fillStyle = '#52C41A'; ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
+  ctx.fillText('MCTier', W / 2, 132);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
+  ctx.fillText('组网邀请', W / 2, 174);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '17px "Microsoft YaHei", sans-serif';
+  ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 210);
+
+  // 二维码白卡（带柔和阴影）
+  const qrSize = 360, qx = (W - qrSize) / 2, qy = 250;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
   ctx.fillStyle = '#ffffff';
-  roundRectPath(ctx, qx - 22, qy - 22, qrSize + 44, qrSize + 44, 24); ctx.fill();
+  roundRectPath(ctx, qx - 24, qy - 24, qrSize + 48, qrSize + 48, 22); ctx.fill();
+  ctx.restore();
   const qc = document.createElement('canvas');
   await drawQrWithLogo(qc, buildInviteText(name, pwd), qrSize);
   ctx.drawImage(qc, qx, qy);
-  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px "Microsoft YaHei", sans-serif';
-  ctx.fillText(name, W / 2, qy + qrSize + 92);
-  ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.font = '22px "Microsoft YaHei", sans-serif';
-  ctx.fillText(`密码：${pwd || '（无）'}`, W / 2, qy + qrSize + 138);
-  ctx.fillStyle = '#52C41A'; ctx.font = '19px "Microsoft YaHei", sans-serif';
-  ctx.fillText('https://mctier.pmhs.top', W / 2, H - 48);
+
+  // 大厅名
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 34px "Microsoft YaHei", sans-serif';
+  ctx.fillText(name, W / 2, qy + qrSize + 96);
+
+  // 密码药丸
+  const pwdText = `密码  ${pwd || '（无）'}`;
+  ctx.font = '22px "Microsoft YaHei", sans-serif';
+  const pw = ctx.measureText(pwdText).width + 56;
+  const px = (W - pw) / 2, py = qy + qrSize + 120;
+  ctx.fillStyle = 'rgba(82,196,26,0.16)';
+  roundRectPath(ctx, px, py, pw, 46, 23); ctx.fill();
+  ctx.fillStyle = '#7ee23f'; ctx.fillText(pwdText, W / 2, py + 31);
+
+  // 分隔线
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(M + 40, H - 96); ctx.lineTo(W - M - 40, H - 96); ctx.stroke();
+  // 底部站点
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '18px "Microsoft YaHei", sans-serif';
+  ctx.fillText('https://mctier.pmhs.top', W / 2, H - 60);
   return cv;
 }
 
@@ -953,7 +983,6 @@ export const MiniWindow: React.FC = () => {
 完整复制后打开 MCTier-加入大厅 界面（自动识别）
 大厅名称：${lobby.name}
 密码：${lobby.password || ''}
-一键加入：mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}
 ————— https://mctier.pmhs.top —————`;
       
       await writeText(lobbyInfo);
@@ -1538,15 +1567,6 @@ export const MiniWindow: React.FC = () => {
                                 {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
                                   <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
                                 )}
-                                {player.virtualIp && peerConnTypes[player.virtualIp] && (
-                                  <span
-                                    className="mini-conn-badge"
-                                    title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
-                                    style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#b07c46', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(176,124,70,0.18)' }}
-                                  >
-                                    {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
-                                  </span>
-                                )}
                                 <span
                                   className="fav-player-star"
                                   title={favPlayers.includes(player.name) ? '取消收藏队友' : '收藏队友'}
@@ -1586,14 +1606,35 @@ export const MiniWindow: React.FC = () => {
                                     : `IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                   }
                                 </motion.button>
+                                {player.virtualIp && peerConnTypes[player.virtualIp] && (
+                                  <span
+                                    className="mini-conn-badge"
+                                    title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
+                                    style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#fa8c16', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(250,140,22,0.18)' }}
+                                  >
+                                    {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
+                                  </span>
+                                )}
                                 {(() => {
                                   const q = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
                                   if (q === undefined) return null;
                                   const lat = q.latencyMs;
+                                  // 同时只显示一个：有丢包时显示丢包，否则显示延迟
+                                  if (q.lossRate > 0) {
+                                    const lossColor = q.lossRate < 10 ? '#faad14' : '#ff4d4f';
+                                    return (
+                                      <span
+                                        title={`丢包率 ${q.lossRate}%`}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: lossColor, flexShrink: 0 }}
+                                      >
+                                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: lossColor, display: 'inline-block' }} />
+                                        丢包{q.lossRate}%
+                                      </span>
+                                    );
+                                  }
                                   const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
                                   const text = lat === null ? '离线' : `${lat}ms`;
                                   return (
-                                    <>
                                     <span
                                       title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, flexShrink: 0 }}
@@ -1601,15 +1642,6 @@ export const MiniWindow: React.FC = () => {
                                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
                                       {text}
                                     </span>
-                                    {q.lossRate > 0 && (
-                                      <span
-                                        title={`丢包率 ${q.lossRate}%`}
-                                        style={{ fontSize: 11, color: q.lossRate < 10 ? '#faad14' : '#ff4d4f', flexShrink: 0 }}
-                                      >
-                                        丢包{q.lossRate}%
-                                      </span>
-                                    )}
-                                    </>
                                   );
                                 })()}
                               </div>
@@ -1745,17 +1777,12 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className="mini-lobby-settings-btn"
                   onClick={() => setShowRoomTools(true)}
-                  title="房间小工具（掷骰子 / 倒计时 / 待办清单）"
+                  title="房间小工具"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="3"></rect>
-                    <circle cx="8" cy="8" r="1.3" fill="currentColor"></circle>
-                    <circle cx="16" cy="8" r="1.3" fill="currentColor"></circle>
-                    <circle cx="12" cy="12" r="1.3" fill="currentColor"></circle>
-                    <circle cx="8" cy="16" r="1.3" fill="currentColor"></circle>
-                    <circle cx="16" cy="16" r="1.3" fill="currentColor"></circle>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z" />
                   </svg>
                 </motion.button>
                 {isHost && (
@@ -1879,23 +1906,41 @@ export const MiniWindow: React.FC = () => {
         onCancel={() => setShowQrModal(false)}
         footer={null}
         centered
-        width={320}
+        width={300}
         title="大厅二维码"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
-          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>手机用 MCTier 扫码即可加入本大厅</div>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 10 }}>
-            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 240, height: 240 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>手机用 MCTier 扫码即可加入本大厅</div>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 8 }}>
+            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 168, height: 168 }} />
           </div>
-          <div style={{ color: '#fff', fontWeight: 600 }}>{lobby?.name}</div>
-          <button className="qr-download-btn" onClick={downloadQrPoster}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            下载二维码
-          </button>
+          <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{lobby?.name}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="qr-download-btn" onClick={downloadQrPoster}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              下载二维码
+            </button>
+            <button
+              className="qr-download-btn"
+              title="复制可一键加入的邀请链接，发给好友在浏览器打开即可加入"
+              onClick={async () => {
+                if (!lobby) return;
+                const dl = `mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}`;
+                try { await writeText(dl); message.success('邀请链接已复制，发给好友在浏览器打开即可加入'); }
+                catch { message.error('复制失败'); }
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              复制邀请链接
+            </button>
+          </div>
         </div>
       </Modal>
     </>

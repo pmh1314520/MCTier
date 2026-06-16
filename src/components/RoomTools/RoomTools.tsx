@@ -271,7 +271,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
                 value={t.assignee || ''}
                 onChange={(v) => assignTodo(t.id, v)}
                 style={{ width: 96 }}
-                getPopupContainer={popupContainer}
                 options={assigneeOptions}
               />
               <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">
@@ -302,7 +301,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
         placeholder={t('roomTools.clipPlaceholder')}
         autoSize={{ minRows: 4, maxRows: 8 }}
         maxLength={CLIP_MAX}
-        showCount
       />
       <Space style={{ marginTop: 12 }}>
         <Button onClick={() => void readSystemClipboard()}>{t('roomTools.readClipboard')}</Button>
@@ -317,8 +315,11 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const whiteboardTab = <Whiteboard active={visible} />;
 
   return (
-    <Modal title={t('roomTools.title')} open={visible} onCancel={onClose} footer={null} width={520} centered className="room-tools-modal">
+    <Modal title={t('roomTools.title')} open={visible} onCancel={onClose} footer={null} width={600} centered className="room-tools-modal">
       <Tabs
+        size="small"
+        tabBarGutter={4}
+        more={{ icon: null }}
         items={[
           { key: 'dice', label: t('roomTools.dice'), children: diceTab },
           { key: 'timer', label: t('roomTools.timer'), children: timerTab },

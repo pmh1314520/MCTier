@@ -274,6 +274,14 @@ class P2PChatService {
       mtype === 'whiteboard'
     ) {
       if (msg.player_id === this.currentPlayerId) return;
+      // 按消息 ID 去重：避免对账/SSE 重复投递导致控制消息反复触发（如剪贴板反复弹窗、白板重复笔画）
+      if (this.seenMessageIds.has(msg.id)) return;
+      this.seenMessageIds.add(msg.id);
+      this.seenMessageOrder.push(msg.id);
+      if (this.seenMessageOrder.length > 1000) {
+        const oldest = this.seenMessageOrder.shift();
+        if (oldest) this.seenMessageIds.delete(oldest);
+      }
       void this.handleControlMessage(mtype, msg);
       return;
     }
@@ -357,7 +365,8 @@ class P2PChatService {
           const op = JSON.parse(msg.content ?? '{}');
           if (op && op.op === 'clear') {
             store.clearWhiteboard();
-          } else if (op && op.op === 'stroke') {
+          } else if (op && (op.op === 'stroke' || Array.isArray(op.points))) {
+            // 兼容对端省略 op 字段的情况：只要带 points 即视为一笔
             store.addWhiteboardStroke(op);
           }
         } catch {
