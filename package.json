@@ -23,9 +23,11 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "@types/qrcode": "^1.5.6",
     "antd": "^5.22.6",
     "dayjs": "^1.11.19",
     "framer-motion": "^11.15.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.2"

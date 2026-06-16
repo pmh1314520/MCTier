@@ -435,8 +435,13 @@
 }
 .lobby-vc-chip:hover { background: rgba(126, 211, 33, 0.15); border-color: rgba(126, 211, 33, 0.4); }
 .lobby-vc-chip.active {
-  background: var(--mctier-primary, #52C41A);
+  background: #52C41A;
   border-color: transparent;
   color: #fff;
   font-weight: 600;
 }
+
+/* ==================== 网络配置分区标题 ==================== */
+.lobby-config-section-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.lobby-config-section-title { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+.lobby-config-section-note { font-size: 11px; color: rgba(255, 210, 74, 0.85); }

@@ -187,11 +187,10 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         <div className="lobby-voice-section">
           <div className="lobby-voice-section-title">语音频道</div>
           <div className="lobby-vc-hint">
-            选择一个语音频道后，你将<strong>只能听到同频道的队友</strong>，也只有同频道的人能听到你。
-            适合多人一起开黑时分成小队各聊各的，互不打扰。默认所有人都在「公共频道」，能听到大厅里每个人说话。
+            选择一个语音频道后，你将<strong>只能听到同频道玩家的声音</strong>，也只有同频道的人能听到你的声音。
           </div>
           <div className="lobby-vc-chips">
-            {[0, 1, 2, 3, 4].map((g) => (
+            {[0, 1, 2, 3, 4, 5, 6].map((g) => (
               <button
                 key={g}
                 type="button"
@@ -208,6 +207,10 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         </div>
         <div className="lobby-voice-divider" />
 
+        <div className="lobby-config-section-head">
+          <span className="lobby-config-section-title">EasyTier 网络配置</span>
+          <span className="lobby-config-section-note">仅以下网络配置需要点底部「保存」，语音设备与频道选择即时生效</span>
+        </div>
         <Spin spinning={loading}>
           <div className="use-global-config-switch">
             <span>使用全局配置</span>

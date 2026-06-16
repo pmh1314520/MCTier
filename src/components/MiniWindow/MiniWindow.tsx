@@ -1,7 +1,8 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
-import { Modal, Spin, Tooltip, QRCode, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
+import { Modal, Spin, Tooltip, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
+import QRCodeLib from 'qrcode';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
@@ -27,6 +28,84 @@ import './MiniWindow.css';
  * 迷你窗口组件
  * 显示精简的大厅信息和语音控制
  */
+// ==================== 二维码工具 ====================
+const buildInviteText = (name: string, pwd: string) =>
+  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n————— https://mctier.pmhs.top —————`;
+
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** 在画布上绘制二维码 + 中心圆角 Logo（高纠错，确保可扫） */
+async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: number): Promise<void> {
+  await QRCodeLib.toCanvas(canvas, text, {
+    errorCorrectionLevel: 'H', margin: 1, width: size,
+    color: { dark: '#000000', light: '#ffffff' },
+  });
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  try {
+    const logo = await loadImg('/MCTierIcon.png');
+    const ls = Math.round(size * 0.2);
+    const cx = size / 2, cy = size / 2;
+    const pad = Math.round(ls * 0.16);
+    const r = ls / 2 + pad;
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    roundRectPath(ctx, cx - r, cy - r, r * 2, r * 2, Math.round(r * 0.36));
+    ctx.fill();
+    roundRectPath(ctx, cx - ls / 2, cy - ls / 2, ls, ls, Math.round(ls * 0.24));
+    ctx.clip();
+    ctx.drawImage(logo, cx - ls / 2, cy - ls / 2, ls, ls);
+    ctx.restore();
+  } catch { /* Logo 加载失败则仅二维码 */ }
+}
+
+/** 合成 MCTier 主题邀请图（名片比例的竖向长方形，绿色主题） */
+async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasElement> {
+  const W = 560, H = 940;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1c1c2a'); g.addColorStop(1, '#101018');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#52C41A'; ctx.fillRect(0, 0, W, 10);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 40px "Microsoft YaHei", sans-serif';
+  ctx.fillText('MCTier 组网邀请', W / 2, 96);
+  ctx.fillStyle = '#52C41A'; ctx.font = '18px "Microsoft YaHei", sans-serif';
+  ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 132);
+  const qrSize = 380, qx = (W - qrSize) / 2, qy = 180;
+  ctx.fillStyle = '#ffffff';
+  roundRectPath(ctx, qx - 22, qy - 22, qrSize + 44, qrSize + 44, 24); ctx.fill();
+  const qc = document.createElement('canvas');
+  await drawQrWithLogo(qc, buildInviteText(name, pwd), qrSize);
+  ctx.drawImage(qc, qx, qy);
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px "Microsoft YaHei", sans-serif';
+  ctx.fillText(name, W / 2, qy + qrSize + 92);
+  ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.font = '22px "Microsoft YaHei", sans-serif';
+  ctx.fillText(`密码：${pwd || '（无）'}`, W / 2, qy + qrSize + 138);
+  ctx.fillStyle = '#52C41A'; ctx.font = '19px "Microsoft YaHei", sans-serif';
+  ctx.fillText('https://mctier.pmhs.top', W / 2, H - 48);
+  return cv;
+}
+
 export const MiniWindow: React.FC = () => {
   const {
     lobby,
@@ -86,49 +165,30 @@ export const MiniWindow: React.FC = () => {
   const [peerConnTypes, setPeerConnTypes] = useState<Record<string, string>>({}); // 虚拟IP -> p2p/relay // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
-  const qrPosterRef = React.useRef<HTMLDivElement>(null); // 二维码弹窗容器，用于下载海报
+  const qrCanvasRef = React.useRef<HTMLCanvasElement>(null); // 弹窗内二维码画布
 
-  // 把二维码合成为一张 MCTier 主题海报图并下载，方便分享
-  const downloadQrPoster = () => {
-    const src = qrPosterRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
-    if (!src || !lobby) { message.error('二维码尚未就绪'); return; }
-    const accent = (localStorage.getItem('mctier_theme_primary') || '#52C41A');
-    const W = 640, H = 880;
-    const cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    // 背景渐变
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#1c1c2a'); g.addColorStop(1, '#101018');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    // 顶部主色条
-    ctx.fillStyle = accent; ctx.fillRect(0, 0, W, 10);
-    // 标题
-    ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center';
-    ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
-    ctx.fillText('MCTier 联机邀请', W / 2, 90);
-    ctx.fillStyle = accent;
-    ctx.font = '20px "Microsoft YaHei", sans-serif';
-    ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 130);
-    // 二维码白色卡片
-    const qr = 400, qx = (W - qr) / 2, qy = 170;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); (ctx as any).roundRect(qx - 24, qy - 24, qr + 48, qr + 48, 24); ctx.fill();
-    ctx.drawImage(src, qx, qy, qr, qr);
-    // 大厅名 / 密码
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px "Microsoft YaHei", sans-serif';
-    ctx.fillText(lobby.name, W / 2, qy + qr + 90);
-    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '22px "Microsoft YaHei", sans-serif';
-    ctx.fillText(`密码：${lobby.password || '（无）'}`, W / 2, qy + qr + 134);
-    // 底部链接
-    ctx.fillStyle = accent; ctx.font = '20px "Microsoft YaHei", sans-serif';
-    ctx.fillText('https://mctier.pmhs.top', W / 2, H - 40);
-    const a = document.createElement('a');
-    a.href = cv.toDataURL('image/png');
-    a.download = `MCTier-邀请-${lobby.name}.png`;
-    a.click();
-    message.success('二维码海报已保存');
+  // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
+  useEffect(() => {
+    if (showQrModal && lobby && qrCanvasRef.current) {
+      void drawQrWithLogo(qrCanvasRef.current, buildInviteText(lobby.name, lobby.password || ''), 240);
+    }
+  }, [showQrModal, lobby]);
+
+  // 下载二维码：合成 MCTier 主题邀请图，弹出系统保存对话框让用户选择位置
+  const downloadQrPoster = async () => {
+    if (!lobby) return;
+    try {
+      const cv = await buildInvitePoster(lobby.name, lobby.password || '');
+      const dataUrl = cv.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+      const path = await invoke<string | null>('select_save_location', { defaultName: `MCTier-邀请-${lobby.name}.png` });
+      if (!path) return;
+      await invoke('save_file', { path, data: Array.from(bytes) });
+      message.success('二维码已保存');
+    } catch (e) {
+      console.error('保存二维码失败:', e);
+      message.error('保存失败，请重试');
+    }
   };
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
@@ -1363,9 +1423,9 @@ export const MiniWindow: React.FC = () => {
               {announcement && (
                 <div className="mini-announcement">
                   <span className="mini-announce-icon" title="大厅公告">
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 11l18-5v12L3 14v-3z"></path>
-                      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                      <path d="M20 5.5v13a1 1 0 0 1-1.55.83L12 14.9V9.1l6.45-4.43A1 1 0 0 1 20 5.5z"></path>
+                      <path d="M10 9H6.5A2.5 2.5 0 0 0 4 11.5v1A2.5 2.5 0 0 0 6.5 15H7v3.2a.8.8 0 0 0 .8.8h1.4a.8.8 0 0 0 .8-.8V15h0V9z"></path>
                     </svg>
                   </span>
                   <div className="mini-announce-viewport">
@@ -1811,17 +1871,11 @@ export const MiniWindow: React.FC = () => {
         width={320}
         title="大厅二维码"
       >
-        <div ref={qrPosterRef} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0' }}>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>手机用 MCTier 扫码即可加入本大厅</div>
-          {lobby && (
-            <QRCode
-              value={`——————— 邀请您加入大厅 ———————\n大厅名称：${lobby.name}\n密码：${lobby.password || ''}\n————— https://mctier.pmhs.top —————`}
-              size={220}
-              errorLevel="H"
-              icon="/MCTierIcon.png"
-              iconSize={48}
-            />
-          )}
+          <div style={{ background: '#fff', borderRadius: 12, padding: 10 }}>
+            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 240, height: 240 }} />
+          </div>
           <div style={{ color: '#fff', fontWeight: 600 }}>{lobby?.name}</div>
           <button className="qr-download-btn" onClick={downloadQrPoster}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1829,7 +1883,7 @@ export const MiniWindow: React.FC = () => {
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            下载二维码海报
+            下载二维码
           </button>
         </div>
       </Modal>

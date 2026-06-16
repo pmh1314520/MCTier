@@ -773,36 +773,49 @@
   background: linear-gradient(135deg, rgba(140, 100, 60, 0.3) 0%, rgba(140, 100, 60, 0.18) 100%);
 }
 
-/* ==================== 提示音与主题设置 ==================== */
-.sound-theme-manager { display: flex; flex-direction: column; gap: 16px; padding: 4px 2px; }
-.st-row { display: flex; align-items: center; gap: 10px; min-height: 34px; }
-.st-label { font-size: 13px; color: rgba(255, 255, 255, 0.85); min-width: 88px; flex-shrink: 0; }
-.st-slider { flex: 1; padding: 0 6px; }
-.st-value { font-size: 12px; color: rgba(255, 255, 255, 0.6); min-width: 42px; text-align: right; flex-shrink: 0; }
-.st-sound-row { justify-content: space-between; }
-.st-sound-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.st-sound-btns { display: flex; gap: 8px; flex-shrink: 0; }
-.st-sub { font-size: 12px; color: rgba(255, 255, 255, 0.45); }
-.st-btn {
+/* ==================== 提示音设置 ==================== */
+.snd-manager { display: flex; flex-direction: column; gap: 18px; }
+.snd-block { display: flex; flex-direction: column; gap: 8px; }
+.snd-block-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: rgba(255, 255, 255, 0.85); font-weight: 500; }
+.snd-vol-val { color: var(--mctier-primary, #52C41A); font-size: 13px; font-weight: 600; }
+.snd-block-title-text { font-size: 13px; color: rgba(255, 255, 255, 0.85); font-weight: 500; }
+.snd-block-desc { font-size: 11px; color: rgba(255, 255, 255, 0.45); margin-top: 2px; }
+
+.snd-list { display: flex; flex-direction: column; gap: 10px; }
+.snd-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px; padding: 12px 14px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.snd-card:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+.snd-card-left { display: flex; align-items: center; gap: 10px; }
+.snd-card-name { font-size: 14px; color: rgba(255, 255, 255, 0.92); }
+.snd-card-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.5);
+}
+.snd-card-tag.is-custom { background: rgba(82, 196, 26, 0.18); color: #7ee03c; }
+.snd-card-actions { display: flex; align-items: center; gap: 8px; }
+.snd-icon-btn {
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: none; cursor: pointer;
+  background: var(--mctier-primary, #52C41A); color: #fff; transition: transform 0.12s ease, filter 0.15s ease;
+}
+.snd-icon-btn:hover { filter: brightness(1.1); transform: scale(1.06); }
+.snd-text-btn {
   background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px; color: rgba(255, 255, 255, 0.85); font-size: 12px;
   padding: 5px 12px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
 }
-.st-btn:hover { background: rgba(82, 196, 26, 0.2); border-color: rgba(82, 196, 26, 0.5); color: #fff; }
-.st-btn.st-reset { color: rgba(255, 255, 255, 0.6); }
-/* 免打扰时段：换行展示 */
-.st-dnd { display: flex; flex-direction: column; gap: 8px; padding-left: 2px; }
-.st-dnd-times { display: flex; align-items: center; gap: 10px; }
-.st-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
-.st-dnd input[type="time"], .st-row input[type="time"] {
+.snd-text-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.snd-text-btn.snd-reset { color: rgba(255, 255, 255, 0.55); }
+
+.snd-dnd-head { display: flex; align-items: center; justify-content: space-between; }
+.snd-dnd-times { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.snd-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
+.snd-dnd-times input[type="time"] {
   background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px; color: #fff; padding: 6px 10px; color-scheme: dark; font-size: 13px;
+  border-radius: 8px; color: #fff; padding: 7px 12px; color-scheme: dark; font-size: 13px;
 }
-.st-theme-row { display: flex; flex-direction: column; gap: 12px; }
-.st-colors { display: flex; gap: 12px; padding-left: 2px; }
-.st-color {
-  width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25);
-  cursor: pointer; padding: 0; transition: transform 0.15s ease;
-}
-.st-color:hover { transform: scale(1.12); }
-.st-color.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }

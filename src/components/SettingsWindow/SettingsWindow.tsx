@@ -524,14 +524,14 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-purple">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/>
                   </svg>
                 </div>
-                <span className="settings-card-title">提示音与主题</span>
+                <span className="settings-card-title">提示音</span>
               </div>
               <div className="settings-card-desc">
-                自定义提示音（可恢复默认）、音量、消息免打扰时段与主题配色
+                自定义各类提示音（可恢复默认）、调节音量与设置消息免打扰时段
               </div>
               <SoundThemeManager />
             </motion.div>
@@ -598,17 +598,7 @@ const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
 // 内置节点地址集合（用于过滤和删除保护判断）
 const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
 
-// ==================== 提示音与主题设置 ====================
-const PRIMARY_PRESETS: { hex: string; label: string }[] = [
-  { hex: '#52C41A', label: '默认绿' },
-  { hex: '#3B82F6', label: '蓝' },
-  { hex: '#A855F7', label: '紫' },
-  { hex: '#F59E0B', label: '橙' },
-  { hex: '#EF4444', label: '红' },
-  { hex: '#06B6D4', label: '青' },
-];
-const THEME_KEY = 'mctier_theme_primary';
-
+// ==================== 提示音设置 ====================
 const minutesToHHMM = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const SoundThemeManager: React.FC = () => {
@@ -619,17 +609,10 @@ const SoundThemeManager: React.FC = () => {
   const [dndEnabled, setDndEnabled] = useState(init.dndEnabled);
   const [dndStart, setDndStart] = useState(init.dndStart);
   const [dndEnd, setDndEnd] = useState(init.dndEnd);
-  const [primary, setPrimary] = useState<string>(() => localStorage.getItem(THEME_KEY) || '#52C41A');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pickTarget, setPickTarget] = useState<SoundType | null>(null);
 
   const labels: Record<SoundType, string> = { newMessage: '新消息', userJoined: '玩家加入', userLeft: '玩家离开' };
-
-  const applyPrimary = (hex: string) => {
-    setPrimary(hex);
-    localStorage.setItem(THEME_KEY, hex);
-    document.documentElement.style.setProperty('--mctier-primary', hex);
-  };
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -647,69 +630,65 @@ const SoundThemeManager: React.FC = () => {
   };
 
   return (
-    <div className="sound-theme-manager">
+    <div className="snd-manager">
       <input ref={fileInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onPickFile} />
 
-      <div className="st-row">
-        <span className="st-label">提示音量</span>
-        <div className="st-slider">
-          <Slider
-            min={0}
-            max={1}
-            step={0.05}
-            value={volume}
-            onChange={(v) => { setVolume(v as number); audioService.setVolume(v as number); }}
-            tooltip={{ formatter: (v) => `${Math.round((v ?? 0) * 100)}%` }}
-          />
+      {/* 音量 */}
+      <div className="snd-block">
+        <div className="snd-block-title">
+          <span>提示音量</span>
+          <span className="snd-vol-val">{Math.round(volume * 100)}%</span>
         </div>
-        <span className="st-value">{Math.round(volume * 100)}%</span>
+        <Slider
+          min={0} max={1} step={0.05} value={volume}
+          onChange={(v) => { setVolume(v as number); audioService.setVolume(v as number); }}
+          tooltip={{ formatter: (v) => `${Math.round((v ?? 0) * 100)}%` }}
+        />
       </div>
 
-      {(Object.keys(labels) as SoundType[]).map((t) => (
-        <div className="st-row st-sound-row" key={t}>
-          <div className="st-sound-info">
-            <span className="st-label">{labels[t]}提示音</span>
-            <span className="st-sub">{custom[t] ? '自定义' : '默认音'}</span>
+      {/* 各事件提示音 */}
+      <div className="snd-list">
+        {(Object.keys(labels) as SoundType[]).map((t) => (
+          <div className="snd-card" key={t}>
+            <div className="snd-card-left">
+              <span className="snd-card-name">{labels[t]}</span>
+              <span className={`snd-card-tag ${custom[t] ? 'is-custom' : ''}`}>{custom[t] ? '自定义' : '默认音'}</span>
+            </div>
+            <div className="snd-card-actions">
+              <button className="snd-icon-btn" title="试听" onClick={() => audioService.play(t)}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+              <button className="snd-text-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>更换</button>
+              {custom[t] && (
+                <button className="snd-text-btn snd-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
+              )}
+            </div>
           </div>
-          <div className="st-sound-btns">
-            <button className="st-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>选择</button>
-            <button className="st-btn" onClick={() => audioService.play(t)}>试听</button>
-            {custom[t] && (
-              <button className="st-btn st-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
-            )}
-          </div>
-        </div>
-      ))}
-
-      <div className="st-row">
-        <span className="st-label">消息免打扰</span>
-        <Switch checked={dndEnabled} onChange={(v) => { setDndEnabled(v); audioService.setDnd(v); }} />
+        ))}
       </div>
-      {dndEnabled && (
-        <div className="st-dnd">
-          <span className="st-label">免打扰时段</span>
-          <div className="st-dnd-times">
+
+      {/* 免打扰 */}
+      <div className="snd-block">
+        <div className="snd-dnd-head">
+          <div>
+            <div className="snd-block-title-text">消息免打扰</div>
+            <div className="snd-block-desc">开启后，下方时段内不播放任何提示音</div>
+          </div>
+          <Switch checked={dndEnabled} onChange={(v) => { setDndEnabled(v); audioService.setDnd(v); }} />
+        </div>
+        {dndEnabled && (
+          <div className="snd-dnd-times">
             <input type="time" value={minutesToHHMM(dndStart)} onChange={(e) => {
               const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
               setDndStart(mins); audioService.setDnd(true, mins, dndEnd);
             }} />
-            <span className="st-dnd-sep">至</span>
+            <span className="snd-dnd-sep">至</span>
             <input type="time" value={minutesToHHMM(dndEnd)} onChange={(e) => {
               const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
               setDndEnd(mins); audioService.setDnd(true, dndStart, mins);
             }} />
           </div>
-        </div>
-      )}
-
-      <div className="st-theme-row">
-        <span className="st-label">主题主色</span>
-        <div className="st-colors">
-          {PRIMARY_PRESETS.map((p) => (
-            <button key={p.hex} className={`st-color ${primary === p.hex ? 'active' : ''}`}
-              style={{ background: p.hex }} title={p.label} onClick={() => applyPrimary(p.hex)} />
-          ))}
-        </div>
+        )}
       </div>
     </div>
   );
