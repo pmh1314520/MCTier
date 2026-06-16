@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, Empty, Slider } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { MicrophoneIcon, VolumeIcon, PlayerIcon } from '../icons';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
@@ -11,6 +13,7 @@ import './PlayerList.css';
  * 显示所有在线玩家及其状态
  */
 export const PlayerList: React.FC = () => {
+  useTranslation();
   const players = useAppStore((state) => state.players);
   const togglePlayerMute = useAppStore((state) => state.togglePlayerMute);
   const mutedPlayers = useAppStore((state) => state.mutedPlayers);
@@ -64,7 +67,7 @@ export const PlayerList: React.FC = () => {
       <div className="player-list-empty">
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂无玩家"
+          description={tl('暂无玩家', 'No players')}
           style={{ margin: 0 }}
         />
       </div>
@@ -116,12 +119,12 @@ export const PlayerList: React.FC = () => {
                       transition={{ type: 'spring', stiffness: 500 }}
                     >
                       <MicrophoneIcon enabled={true} size={12} />
-                      <span>说话中</span>
+                      <span>{tl('说话中', 'Speaking')}</span>
                     </motion.span>
                   ) : (
                     <span className="player-status-badge">
                       <MicrophoneIcon enabled={false} size={12} />
-                      <span>静音</span>
+                      <span>{tl('静音', 'Muted')}</span>
                     </span>
                   )}
                 </div>
@@ -130,7 +133,7 @@ export const PlayerList: React.FC = () => {
               {/* 操作按钮 */}
               <div className="player-item-actions">
                 {/* 音量控制按钮 */}
-                <Tooltip title="调节音量">
+                <Tooltip title={tl('调节音量', 'Adjust volume')}>
                   <motion.div
                     className={`player-volume-toggle ${isExpanded ? 'active' : ''}`}
                     whileHover={{ scale: 1.1 }}
@@ -156,7 +159,7 @@ export const PlayerList: React.FC = () => {
                   >
                     <div className="player-volume-slider-wrapper">
                       {/* 听筒图标 - 点击切换静音 */}
-                      <Tooltip title={isMuted ? '取消静音' : '静音该玩家'}>
+                      <Tooltip title={isMuted ? tl('取消静音', 'Unmute') : tl('静音该玩家', 'Mute this player')}>
                         <motion.div
                           className="player-volume-icon-inline"
                           whileHover={{ scale: 1.1 }}

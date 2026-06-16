@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Tooltip } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { ChevronIcon, CloseIcon } from '../icons';
 import { PlayerList } from '../PlayerList/PlayerList';
 import { VoiceControls } from '../VoiceControls/VoiceControls';
@@ -18,6 +20,7 @@ interface StatusWindowProps {
  * PUBG 风格的游戏内状态显示
  */
 export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
+  useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [isDragging, setIsDragging] = useState(false);
@@ -143,7 +146,7 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
             }}
           />
           <span className="status-window-title">
-            {lobby?.name || '大厅'}
+            {lobby?.name || tl('大厅', 'Lobby')}
           </span>
         </div>
 
@@ -155,10 +158,10 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 15 }}
           >
-            {players.length} 人
+            {players.length} {tl('人', '')}
           </motion.span>
 
-          <Tooltip title={collapsed ? '展开' : '收起'}>
+          <Tooltip title={collapsed ? tl('展开', 'Expand') : tl('收起', 'Collapse')}>
             <Button
               type="text"
               size="small"
@@ -168,7 +171,7 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
             />
           </Tooltip>
 
-          <Tooltip title="退出大厅">
+          <Tooltip title={tl('退出大厅', 'Leave Lobby')}>
             <Button
               type="text"
               size="small"
@@ -207,7 +210,7 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15, duration: 0.2 }}
             >
-              <div className="status-window-section-title">玩家列表</div>
+              <div className="status-window-section-title">{tl('玩家列表', 'Players')}</div>
               <PlayerList />
             </motion.div>
 
@@ -220,7 +223,7 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
                 transition={{ delay: 0.2, duration: 0.2 }}
               >
                 <div className="status-window-info">
-                  <span className="status-window-info-label">虚拟 IP:</span>
+                  <span className="status-window-info-label">{tl('虚拟 IP:', 'Virtual IP:')}</span>
                   <span className="status-window-info-value">
                     {lobby.virtualIp}
                   </span>
@@ -232,7 +235,7 @@ export const StatusWindow: React.FC<StatusWindowProps> = ({ onClose }) => {
                   className="diagnostic-button"
                   style={{ marginTop: '8px', width: '100%' }}
                 >
-                  🔍 网络诊断
+                  🔍 {tl('网络诊断', 'Network Diagnostics')}
                 </Button>
               </motion.div>
             )}

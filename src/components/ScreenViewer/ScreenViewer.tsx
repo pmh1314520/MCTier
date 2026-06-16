@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
 import './ScreenViewer.css';
 
@@ -10,6 +12,7 @@ interface ScreenViewerProps {
 }
 
 export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName }) => {
+  useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +52,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         // 如果超时
         if (attempts >= maxAttempts) {
           console.error('❌ [ScreenViewer] 等待屏幕流超时');
-          setError('无法获取屏幕共享流，请重试');
+          setError(tl('无法获取屏幕共享流，请重试', 'Unable to get the screen share stream, please retry'));
           setIsLoading(false);
           if (checkInterval) {
             clearInterval(checkInterval);
@@ -59,7 +62,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         console.error('❌ [ScreenViewer] 获取流时出错:', err);
         
         if (attempts >= maxAttempts) {
-          setError('获取屏幕共享流失败');
+          setError(tl('获取屏幕共享流失败', 'Failed to get the screen share stream'));
           setIsLoading(false);
           if (checkInterval) {
             clearInterval(checkInterval);
@@ -105,10 +108,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
             <line x1="8" y1="21" x2="16" y2="21" />
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
-          <span>{playerName} 的屏幕</span>
+          <span>{playerName} {tl('的屏幕', '\'s Screen')}</span>
         </div>
         
-        <button className="close-viewer-btn" onClick={handleClose} title="关闭">
+        <button className="close-viewer-btn" onClick={handleClose} title={tl('关闭', 'Close')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
@@ -121,7 +124,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         {isLoading && (
           <div className="viewer-loading">
             <div className="loading-spinner" />
-            <p>正在加载屏幕...</p>
+            <p>{tl('正在加载屏幕...', 'Loading screen...')}</p>
           </div>
         )}
 
@@ -134,7 +137,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
             </svg>
             <p>{error}</p>
             <button className="retry-btn" onClick={handleClose}>
-              关闭窗口
+              {tl('关闭窗口', 'Close Window')}
             </button>
           </div>
         )}
