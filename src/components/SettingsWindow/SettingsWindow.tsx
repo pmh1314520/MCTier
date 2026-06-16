@@ -6,6 +6,8 @@ import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
 import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
 import { StatsPanel } from '../StatsPanel/StatsPanel';
+import { useTranslation } from 'react-i18next';
+import { setLanguage, getLanguage } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import './SettingsWindow.css';
 
@@ -21,6 +23,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [enableGpuRendering, setEnableGpuRendering] = useState(true);
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const { t } = useTranslation();
+  const [lang, setLang] = useState<'zh' | 'en'>(getLanguage());
   const [pendingGpuValue, setPendingGpuValue] = useState(true);
   // 用ref保存完整设置，避免Switch切换时丢失输入框的已填数据
   const settingsRef = useRef<Record<string, any>>({});
@@ -540,17 +544,35 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-purple">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{t('settings.language')}</span>
+              </div>
+              <div className="settings-card-desc">
+                切换界面语言 / Switch interface language
+              </div>
+              <Button.Group>
+                <Button type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguage('zh'); setLang('zh'); }}>简体中文</Button>
+                <Button type={lang === 'en' ? 'primary' : 'default'} onClick={() => { setLanguage('en'); setLang('en'); }}>English</Button>
+              </Button.Group>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-green">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M5 9.2h3V19H5V9.2zM10.6 5h3v14h-3V5zm5.6 8H19v6h-2.8v-6z"/>
                   </svg>
                 </div>
-                <span className="settings-card-title">数据统计</span>
+                <span className="settings-card-title">{t('settings.dataStats')}</span>
               </div>
               <div className="settings-card-desc">
                 查看你的联机时长、活跃时段、常玩伙伴排行等使用情况（仅本地保存）
               </div>
-              <Button onClick={() => setShowStats(true)}>查看数据统计</Button>
+              <Button onClick={() => setShowStats(true)}>{t('settings.viewStats')}</Button>
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initializeStore } from './stores';
+import './i18n';
 
 // 初始化应用 Store
 initializeStore();

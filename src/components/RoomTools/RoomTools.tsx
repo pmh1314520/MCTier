@@ -10,6 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, Checkbox, message } from 'antd';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores';
 import type { TodoItem } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
@@ -31,6 +32,7 @@ const popupContainer = (triggerNode: HTMLElement) =>
   (triggerNode.parentElement as HTMLElement) || document.body;
 
 export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
+  const { t } = useTranslation();
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
   const config = useAppStore((s) => s.config);
   const addChatMessage = useAppStore((s) => s.addChatMessage);
@@ -315,14 +317,14 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const whiteboardTab = <Whiteboard active={visible} />;
 
   return (
-    <Modal title="房间小工具" open={visible} onCancel={onClose} footer={null} width={520} centered className="room-tools-modal">
+    <Modal title={t('roomTools.title')} open={visible} onCancel={onClose} footer={null} width={520} centered className="room-tools-modal">
       <Tabs
         items={[
-          { key: 'dice', label: '掷骰子', children: diceTab },
-          { key: 'timer', label: '倒计时', children: timerTab },
-          { key: 'todo', label: '待办协同', children: todoTab },
-          { key: 'clipboard', label: '共享剪贴板', children: clipboardTab },
-          { key: 'whiteboard', label: '共享白板', children: whiteboardTab },
+          { key: 'dice', label: t('roomTools.dice'), children: diceTab },
+          { key: 'timer', label: t('roomTools.timer'), children: timerTab },
+          { key: 'todo', label: t('roomTools.todo'), children: todoTab },
+          { key: 'clipboard', label: t('roomTools.clipboard'), children: clipboardTab },
+          { key: 'whiteboard', label: t('roomTools.whiteboard'), children: whiteboardTab },
         ]}
       />
     </Modal>

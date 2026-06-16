@@ -5,6 +5,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Modal, Empty, Popconfirm, Button, message } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { statsService, formatDuration, BUCKET_LABELS, type ComputedStats } from '../../services/stats/statsService';
 import './StatsPanel.css';
 
@@ -16,6 +17,7 @@ interface StatsPanelProps {
 const fmtDate = (ts: number) => (ts > 0 ? new Date(ts).toLocaleDateString() : '—');
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
+  const { t } = useTranslation();
   const [refreshKey, setRefreshKey] = useState(0);
   const stats: ComputedStats = useMemo(() => statsService.getStats(), [visible, refreshKey]);
 
@@ -26,9 +28,9 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
   };
 
   return (
-    <Modal title="数据统计" open={visible} onCancel={onClose} footer={null} width={520} centered className="stats-modal">
+    <Modal title={t('stats.title')} open={visible} onCancel={onClose} footer={null} width={520} centered className="stats-modal">
       {!stats.hasData ? (
-        <Empty description="还没有联机记录，开始一局组网吧～" />
+        <Empty description={t('stats.empty')} />
       ) : (
         <div className="stats-body">
           <div className="stats-grid">

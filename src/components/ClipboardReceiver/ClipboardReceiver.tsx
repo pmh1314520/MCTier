@@ -6,11 +6,13 @@
 import React from 'react';
 import { Modal, Button, Typography, message } from 'antd';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores';
 
 const { Paragraph, Text } = Typography;
 
 export const ClipboardReceiver: React.FC = () => {
+  const { t } = useTranslation();
   const incoming = useAppStore((s) => s.incomingClipboard);
   const setIncomingClipboard = useAppStore((s) => s.setIncomingClipboard);
 
@@ -20,7 +22,7 @@ export const ClipboardReceiver: React.FC = () => {
     if (!incoming) return;
     try {
       await writeText(incoming.text);
-      message.success('已复制到剪贴板');
+      message.success(t('clipboard.copied'));
       close();
     } catch {
       message.error('复制失败');
@@ -29,18 +31,18 @@ export const ClipboardReceiver: React.FC = () => {
 
   return (
     <Modal
-      title="收到共享剪贴板"
+      title={t('clipboard.received')}
       open={!!incoming}
       onCancel={close}
       centered
       footer={[
-        <Button key="close" onClick={close}>关闭</Button>,
-        <Button key="copy" type="primary" onClick={() => void copy()}>复制到剪贴板</Button>,
+        <Button key="close" onClick={close}>{t('common.close')}</Button>,
+        <Button key="copy" type="primary" onClick={() => void copy()}>{t('clipboard.copyToClipboard')}</Button>,
       ]}
     >
       {incoming && (
         <>
-          <Text type="secondary" style={{ fontSize: 12 }}>来自 {incoming.from}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{t('clipboard.from', { name: incoming.from })}</Text>
           <Paragraph
             copyable={false}
             style={{
