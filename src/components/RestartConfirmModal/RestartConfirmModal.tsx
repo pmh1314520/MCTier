@@ -1,5 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './RestartConfirmModal.css';
 
 interface RestartConfirmModalProps {
@@ -15,6 +17,7 @@ export const RestartConfirmModal: React.FC<RestartConfirmModalProps> = ({
   onCancel,
   enableGpu,
 }) => {
+  useTranslation();
   return (
     <AnimatePresence>
       {visible && (
@@ -57,11 +60,14 @@ export const RestartConfirmModal: React.FC<RestartConfirmModalProps> = ({
               </div>
 
               {/* 标题 */}
-              <h3 className="restart-modal-title">需要重启应用</h3>
+              <h3 className="restart-modal-title">{tl('需要重启应用', 'Restart Required')}</h3>
 
               {/* 描述 */}
               <p className="restart-modal-description">
-                GPU 渲染设置已{enableGpu ? '启用' : '禁用'}，需要重启 MCTier 才能生效
+                {tl(
+                  `GPU 渲染设置已${enableGpu ? '启用' : '禁用'}，需要重启 MCTier 才能生效`,
+                  `GPU rendering has been ${enableGpu ? 'enabled' : 'disabled'}. Restart MCTier for it to take effect`
+                )}
               </p>
 
               {/* 按钮组 */}
@@ -73,7 +79,7 @@ export const RestartConfirmModal: React.FC<RestartConfirmModalProps> = ({
                   whileTap={{ scale: 0.95 }}
                   transition={{ type: 'spring', stiffness: 400, damping: 17 }}
                 >
-                  <span>稍后重启</span>
+                  <span>{tl('稍后重启', 'Restart Later')}</span>
                 </motion.button>
                 <motion.button
                   className="restart-modal-btn restart-modal-btn-confirm"
@@ -88,7 +94,7 @@ export const RestartConfirmModal: React.FC<RestartConfirmModalProps> = ({
                       fill="currentColor"
                     />
                   </svg>
-                  <span>立即重启</span>
+                  <span>{tl('立即重启', 'Restart Now')}</span>
                 </motion.button>
               </div>
             </div>

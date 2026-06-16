@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button, Typography, Divider, Modal } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { GitHubIcon, GiteeIcon, GamepadIcon, LightbulbIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { OnboardingWizard } from '../OnboardingWizard/OnboardingWizard';
@@ -17,6 +19,7 @@ interface AboutWindowProps {
  * 显示软件信息、技术栈、功能说明等
  */
 export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
+  useTranslation();
   const [showSponsorModal, setShowSponsorModal] = useState(false);
   const [enlargedQRCode, setEnlargedQRCode] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -53,7 +56,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
           transition={{ delay: 0.1, duration: 0.4 }}
         >
           <Title level={2} className="about-title">
-            关于 MCTier
+            {tl('关于 MCTier', 'About MCTier')}
           </Title>
         </motion.div>
 
@@ -65,23 +68,30 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
         >
           <div className="about-section">
             <Title level={4} className="section-title">
-              软件简介
+              {tl('软件简介', 'Overview')}
             </Title>
             <Paragraph className="section-text">
-              MCTier 是一款通用的虚拟局域网联机工具，支持所有局域网联机游戏。
-              基于 EasyTier 和 WebRTC 技术，让您可以轻松与好友跨越网络限制，
-              享受联机游戏的乐趣。支持实时语音通话、P2P聊天、文件共享和屏幕共享等功能。
+              {tl(
+                'MCTier 是一款通用的虚拟局域网联机工具，支持所有局域网联机游戏。基于 EasyTier 和 WebRTC 技术，让您可以轻松与好友跨越网络限制，享受联机游戏的乐趣。支持实时语音通话、P2P聊天、文件共享和屏幕共享等功能。',
+                'MCTier is a universal virtual LAN gaming tool that supports all LAN multiplayer games. Built on EasyTier and WebRTC, it lets you easily play with friends across network barriers and enjoy multiplayer gaming. It supports real-time voice calls, P2P chat, file sharing, screen sharing and more.'
+              )}
             </Paragraph>
             <div className="game-scope-tip">
               <GamepadIcon size={18} className="game-scope-icon" />
               <Text className="game-scope-text">
-                适用于任何支持局域网联机的游戏，不仅仅只有 Minecraft
+                {tl(
+                  '适用于任何支持局域网联机的游戏，不仅仅只有 Minecraft',
+                  'Works with any game that supports LAN multiplayer, not just Minecraft'
+                )}
               </Text>
             </div>
             <div className="lan-access-tip">
               <span className="lan-access-icon">🌐</span>
               <Text className="lan-access-text">
-                同一大厅内的玩家可以互相访问本地开放的网站和服务（如本地Web服务器、文件共享等）
+                {tl(
+                  '同一大厅内的玩家可以互相访问本地开放的网站和服务（如本地Web服务器、文件共享等）',
+                  'Players in the same lobby can access each other\'s local sites and services (local web servers, file shares, etc.)'
+                )}
               </Text>
             </div>
             <Button
@@ -92,7 +102,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
               className="onboarding-entry-button"
               icon={<LightbulbIcon size={16} />}
             >
-              查看新手引导
+              {tl('查看新手引导', 'View Getting Started')}
             </Button>
           </div>
 
@@ -100,44 +110,55 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section">
             <Title level={4} className="section-title">
-              核心技术
+              {tl('核心技术', 'Core Technology')}
             </Title>
             <div className="tech-list">
               <div className="tech-item">
                 <span className="tech-icon">🌐</span>
                 <div>
-                  <Text strong>EasyTier 虚拟网络</Text>
+                  <Text strong>{tl('EasyTier 虚拟网络', 'EasyTier Virtual Network')}</Text>
                   <Paragraph className="tech-desc">
-                    基于 P2P 技术的虚拟局域网，实现跨网络的直连通信
+                    {tl(
+                      '基于 P2P 技术的虚拟局域网，实现跨网络的直连通信',
+                      'P2P-based virtual LAN enabling direct cross-network communication'
+                    )}
                   </Paragraph>
                 </div>
               </div>
               <div className="tech-item">
                 <span className="tech-icon">🎙️</span>
                 <div>
-                  <Text strong>WebRTC 语音通信</Text>
-                  <Paragraph className="tech-desc">低延迟、高质量的实时语音通话技术</Paragraph>
+                  <Text strong>{tl('WebRTC 语音通信', 'WebRTC Voice')}</Text>
+                  <Paragraph className="tech-desc">
+                    {tl('低延迟、高质量的实时语音通话技术', 'Low-latency, high-quality real-time voice calls')}
+                  </Paragraph>
                 </div>
               </div>
               <div className="tech-item">
                 <span className="tech-icon">💬</span>
                 <div>
                   <Text strong>HTTP over WireGuard</Text>
-                  <Paragraph className="tech-desc">基于虚拟网络的P2P聊天和文件共享</Paragraph>
+                  <Paragraph className="tech-desc">
+                    {tl('基于虚拟网络的P2P聊天和文件共享', 'P2P chat and file sharing over the virtual network')}
+                  </Paragraph>
                 </div>
               </div>
               <div className="tech-item">
                 <span className="tech-icon">📺</span>
                 <div>
-                  <Text strong>WebRTC 屏幕共享</Text>
-                  <Paragraph className="tech-desc">实时屏幕共享，支持查看队友画面</Paragraph>
+                  <Text strong>{tl('WebRTC 屏幕共享', 'WebRTC Screen Sharing')}</Text>
+                  <Paragraph className="tech-desc">
+                    {tl('实时屏幕共享，支持查看队友画面', 'Real-time screen sharing to view teammates\' screens')}
+                  </Paragraph>
                 </div>
               </div>
               <div className="tech-item">
                 <span className="tech-icon">⚡</span>
                 <div>
                   <Text strong>Tauri + React</Text>
-                  <Paragraph className="tech-desc">现代化的桌面应用框架，轻量高效</Paragraph>
+                  <Paragraph className="tech-desc">
+                    {tl('现代化的桌面应用框架，轻量高效', 'Modern desktop app framework, lightweight and efficient')}
+                  </Paragraph>
                 </div>
               </div>
             </div>
@@ -147,20 +168,20 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section">
             <Title level={4} className="section-title">
-              主要功能
+              {tl('主要功能', 'Key Features')}
             </Title>
             <ul className="feature-list">
-              <li>🌐 虚拟局域网组网 - 基于 EasyTier 的 P2P 组网技术</li>
-              <li>🎙️ 实时语音通信 - WebRTC 低延迟语音，支持快捷键控制</li>
-              <li>💬 P2P 聊天室 - 支持文本和图片消息，基于虚拟网络传输</li>
-              <li>📁 文件夹共享 - HTTP 文件服务器，支持批量下载和先压后发</li>
-              <li>📺 屏幕共享 - WebRTC 实时屏幕共享，支持密码保护</li>
-              <li>🔧 多节点高可用 - 支持配置多个 EasyTier 节点，自动故障转移</li>
-              <li>🪟 迷你悬浮窗 - 游戏时不遮挡视野，可调节透明度和听筒音量</li>
-              <li>🔒 大厅隔离机制 - 不同大厅之间完全隔离，保护隐私安全</li>
-              <li>🚀 开机自启动 - 支持自动创建/加入大厅，一键启动</li>
-              <li>🌍 虚拟域名 - 支持 Magic DNS，使用域名代替 IP 地址</li>
-              <li>⚙️ 私有化部署 - 支持自建 EasyTier 节点和信令服务器</li>
+              <li>🌐 {tl('虚拟局域网组网 - 基于 EasyTier 的 P2P 组网技术', 'Virtual LAN networking - EasyTier-based P2P networking')}</li>
+              <li>🎙️ {tl('实时语音通信 - WebRTC 低延迟语音，支持快捷键控制', 'Real-time voice - WebRTC low-latency voice with hotkey control')}</li>
+              <li>💬 {tl('P2P 聊天室 - 支持文本和图片消息，基于虚拟网络传输', 'P2P chat - text and image messages over the virtual network')}</li>
+              <li>📁 {tl('文件夹共享 - HTTP 文件服务器，支持批量下载和先压后发', 'Folder sharing - HTTP file server with batch download and compression')}</li>
+              <li>📺 {tl('屏幕共享 - WebRTC 实时屏幕共享，支持密码保护', 'Screen sharing - WebRTC real-time screen sharing with password protection')}</li>
+              <li>🔧 {tl('多节点高可用 - 支持配置多个 EasyTier 节点，自动故障转移', 'Multi-node HA - configure multiple EasyTier nodes with auto failover')}</li>
+              <li>🪟 {tl('迷你悬浮窗 - 游戏时不遮挡视野，可调节透明度和听筒音量', 'Mini overlay - unobtrusive in-game, adjustable opacity and volume')}</li>
+              <li>🔒 {tl('大厅隔离机制 - 不同大厅之间完全隔离，保护隐私安全', 'Lobby isolation - full isolation between lobbies for privacy')}</li>
+              <li>🚀 {tl('开机自启动 - 支持自动创建/加入大厅，一键启动', 'Auto-start - auto create/join lobby on launch')}</li>
+              <li>🌍 {tl('虚拟域名 - 支持 Magic DNS，使用域名代替 IP 地址', 'Virtual domains - Magic DNS to use names instead of IPs')}</li>
+              <li>⚙️ {tl('私有化部署 - 支持自建 EasyTier 节点和信令服务器', 'Self-hosting - run your own EasyTier nodes and signaling server')}</li>
             </ul>
           </div>
 
@@ -168,11 +189,14 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section">
             <Title level={4} className="section-title">
-              开发者：青云制作_彭明航
+              {tl('开发者：青云制作_彭明航', 'Developer: QingYun Studio_PengMingHang')}
             </Title>
             <div className="developer-info">
               <Paragraph className="project-info">
-                这是我开源的第三款软件项目，希望能为 Minecraft 社区带来便利！
+                {tl(
+                  '这是我开源的第三款软件项目，希望能为 Minecraft 社区带来便利！',
+                  'This is my third open-source software project. I hope it brings convenience to the community!'
+                )}
               </Paragraph>
               <div className="repo-links">
                 <a
@@ -182,7 +206,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   className="repo-link"
                 >
                   <img src="/MCTierIcon.png" alt="MCTier" className="mctier-icon" />
-                  <span>MCTier 官网</span>
+                  <span>{tl('MCTier 官网', 'MCTier Website')}</span>
                 </a>
                 <a
                   href="https://github.com/pmh1314520/MCTier"
@@ -191,7 +215,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   className="repo-link"
                 >
                   <GitHubIcon size={16} />
-                  <span>GitHub 开源仓库</span>
+                  <span>{tl('GitHub 开源仓库', 'GitHub Repository')}</span>
                 </a>
                 <a
                   href="https://gitee.com/peng-minghang/mctier"
@@ -200,7 +224,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   className="repo-link"
                 >
                   <GiteeIcon size={16} />
-                  <span>Gitee 开源仓库</span>
+                  <span>{tl('Gitee 开源仓库', 'Gitee Repository')}</span>
                 </a>
               </div>
             </div>
@@ -210,37 +234,39 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section license-section">
             <Title level={4} className="section-title">
-              开源协议
+              {tl('开源协议', 'License')}
             </Title>
             <div className="license-content">
               <Paragraph className="license-text">
-                本软件采用自定义开源协议，使用前请仔细阅读：
+                {tl('本软件采用自定义开源协议，使用前请仔细阅读：', 'This software uses a custom open-source license. Please read carefully before use:')}
               </Paragraph>
               <ul className="license-list">
                 <li className="license-item">
                   <span className="license-icon">🚫</span>
                   <Text className="license-desc">
-                    禁止商业用途 - 本软件仅供个人学习和非商业使用
+                    {tl('禁止商业用途 - 本软件仅供个人学习和非商业使用', 'No commercial use - for personal learning and non-commercial use only')}
                   </Text>
                 </li>
                 <li className="license-item">
                   <span className="license-icon">✅</span>
-                  <Text className="license-desc">允许二次开发 - 欢迎基于本项目进行修改和扩展</Text>
+                  <Text className="license-desc">
+                    {tl('允许二次开发 - 欢迎基于本项目进行修改和扩展', 'Modification allowed - feel free to modify and extend this project')}
+                  </Text>
                 </li>
                 <li className="license-item">
                   <span className="license-icon">📝</span>
                   <Text className="license-desc">
-                    必须标明原作者 - 二次开发项目需注明原作者信息
+                    {tl('必须标明原作者 - 二次开发项目需注明原作者信息', 'Attribution required - derivative projects must credit the original author')}
                   </Text>
                 </li>
                 <li className="license-item">
                   <span className="license-icon">🔓</span>
                   <Text className="license-desc">
-                    二次开发必须开源 - 衍生项目必须以相同协议开源
+                    {tl('二次开发必须开源 - 衍生项目必须以相同协议开源', 'Derivatives must be open source under the same license')}
                   </Text>
                 </li>
               </ul>
-              <Paragraph className="license-note">使用本软件即表示您同意遵守以上协议条款</Paragraph>
+              <Paragraph className="license-note">{tl('使用本软件即表示您同意遵守以上协议条款', 'By using this software you agree to the terms above')}</Paragraph>
             </div>
           </div>
 
@@ -248,10 +274,10 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section sponsor-section">
             <Title level={4} className="section-title">
-              支持开发者
+              {tl('支持开发者', 'Support the Developer')}
             </Title>
             <Paragraph className="sponsor-text">
-              如果这个软件对您有帮助，欢迎请开发者喝杯咖啡 ☕
+              {tl('如果这个软件对您有帮助，欢迎请开发者喝杯咖啡 ☕', 'If this software helps you, feel free to buy the developer a coffee ☕')}
             </Paragraph>
             <Button
               type="default"
@@ -260,7 +286,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
               onClick={() => setShowSponsorModal(true)}
               className="sponsor-button"
             >
-              💖 赞助支持
+              💖 {tl('赞助支持', 'Sponsor')}
             </Button>
           </div>
 
@@ -270,11 +296,11 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
             <div className="blessing-text">
               <span className="blessing-icon">🎮</span>
               <Text className="blessing-content">
-                祝各位玩家游玩愉快，享受与好友联机的快乐时光！
+                {tl('祝各位玩家游玩愉快，享受与好友联机的快乐时光！', 'Wishing everyone happy gaming and great times with friends!')}
               </Text>
               <span className="blessing-icon">✨</span>
             </div>
-            <Paragraph className="free-text">✨ 本软件完全免费开源 ✨</Paragraph>
+            <Paragraph className="free-text">✨ {tl('本软件完全免费开源', 'Completely free and open source')} ✨</Paragraph>
           </div>
         </motion.div>
 
@@ -285,7 +311,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
           transition={{ delay: 0.4, duration: 0.4 }}
         >
           <Button type="primary" size="large" block onClick={onClose} className="close-button">
-            返回
+            {tl('返回', 'Back')}
           </Button>
         </motion.div>
       </motion.div>
@@ -304,17 +330,17 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
       >
         <div className="sponsor-modal-content">
           <Title level={3} className="sponsor-modal-title">
-            感谢您的支持 💖
+            {tl('感谢您的支持', 'Thank You for Your Support')} 💖
           </Title>
-          <Paragraph className="sponsor-modal-desc">您的支持是我持续开发的动力！</Paragraph>
+          <Paragraph className="sponsor-modal-desc">{tl('您的支持是我持续开发的动力！', 'Your support keeps me developing!')}</Paragraph>
           <div className="qrcode-container">
             <div className="qrcode-item" onClick={() => setEnlargedQRCode('/zfb.jpg')}>
-              <img src="/zfb.jpg" alt="支付宝收款码" className="qrcode-image" />
-              <Text className="qrcode-label">支付宝</Text>
+              <img src="/zfb.jpg" alt="Alipay" className="qrcode-image" />
+              <Text className="qrcode-label">{tl('支付宝', 'Alipay')}</Text>
             </div>
             <div className="qrcode-item" onClick={() => setEnlargedQRCode('/wx.png')}>
-              <img src="/wx.png" alt="微信收款码" className="qrcode-image" />
-              <Text className="qrcode-label">微信</Text>
+              <img src="/wx.png" alt="WeChat" className="qrcode-image" />
+              <Text className="qrcode-label">{tl('微信', 'WeChat')}</Text>
             </div>
           </div>
         </div>
@@ -335,7 +361,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
         {enlargedQRCode && (
           <img
             src={enlargedQRCode}
-            alt="收款码"
+            alt="QR Code"
             className="qrcode-enlarged-image"
             onClick={() => setEnlargedQRCode(null)}
           />

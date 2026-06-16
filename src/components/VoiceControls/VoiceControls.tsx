@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Tooltip, message, Slider } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { MicrophoneIcon, VolumeIcon } from '../icons';
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
@@ -12,6 +14,7 @@ import './VoiceControls.css';
  * 提供麦克风和全局静音控制
  */
 export const VoiceControls: React.FC = () => {
+  useTranslation();
   const micEnabled = useAppStore((state) => state.micEnabled);
   const globalMuted = useAppStore((state) => state.globalMuted);
   const toggleMic = useAppStore((state) => state.toggleMic);
@@ -80,10 +83,10 @@ export const VoiceControls: React.FC = () => {
     try {
       setMicLoading(true);
       toggleMic();
-      message.success(micEnabled ? '麦克风已关闭' : '麦克风已开启');
+      message.success(micEnabled ? tl('麦克风已关闭', 'Microphone off') : tl('麦克风已开启', 'Microphone on'));
     } catch (error) {
       console.error('切换麦克风失败:', error);
-      message.error('麦克风操作失败，请重试');
+      message.error(tl('麦克风操作失败，请重试', 'Microphone operation failed, please retry'));
     } finally {
       setTimeout(() => setMicLoading(false), 300);
     }
@@ -94,10 +97,10 @@ export const VoiceControls: React.FC = () => {
     try {
       setMuteLoading(true);
       toggleGlobalMute();
-      message.success(globalMuted ? '已取消全局静音' : '已开启全局静音');
+      message.success(globalMuted ? tl('已取消全局静音', 'Global mute disabled') : tl('已开启全局静音', 'Global mute enabled'));
     } catch (error) {
       console.error('切换全局静音失败:', error);
-      message.error('静音操作失败，请重试');
+      message.error(tl('静音操作失败，请重试', 'Mute operation failed, please retry'));
     } finally {
       setTimeout(() => setMuteLoading(false), 300);
     }
@@ -131,7 +134,7 @@ export const VoiceControls: React.FC = () => {
         >
           <div className="volume-slider-label">
             <VolumeIcon muted={volume === 0} size={16} />
-            <span>音量: {volume}%</span>
+            <span>{tl('音量', 'Volume')}: {volume}%</span>
           </div>
           <Slider
             min={0}
@@ -152,7 +155,7 @@ export const VoiceControls: React.FC = () => {
         transition={{ duration: 0.3 }}
       >
         <Tooltip
-          title={micEnabled ? `关闭麦克风 (${micHotkey})` : `开启麦克风 (${micHotkey})`}
+          title={micEnabled ? `${tl('关闭麦克风', 'Turn off microphone')} (${micHotkey})` : `${tl('开启麦克风', 'Turn on microphone')} (${micHotkey})`}
           placement="top"
         >
           <motion.div
@@ -170,7 +173,7 @@ export const VoiceControls: React.FC = () => {
               block
             >
               <span className="voice-control-label">
-                {micEnabled ? '麦克风开启' : '麦克风关闭'}
+                {micEnabled ? tl('麦克风开启', 'Mic On') : tl('麦克风关闭', 'Mic Off')}
               </span>
             </Button>
           </motion.div>
@@ -203,7 +206,7 @@ export const VoiceControls: React.FC = () => {
         transition={{ duration: 0.3, delay: 0.1 }}
       >
         <Tooltip
-          title={globalMuted ? `取消全局静音 (${globalMuteHotkey})` : `全局静音所有玩家 (${globalMuteHotkey})`}
+          title={globalMuted ? `${tl('取消全局静音', 'Disable global mute')} (${globalMuteHotkey})` : `${tl('全局静音所有玩家', 'Mute all players')} (${globalMuteHotkey})`}
           placement="top"
         >
           <motion.div
@@ -222,7 +225,7 @@ export const VoiceControls: React.FC = () => {
               block
             >
               <span className="voice-control-label">
-                {globalMuted ? '全局静音中' : '全局音量'}
+                {globalMuted ? tl('全局静音中', 'Muted') : tl('全局音量', 'Global Volume')}
               </span>
             </Button>
           </motion.div>

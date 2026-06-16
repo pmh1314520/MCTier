@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-shell';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { versionCheckService } from '../../services/version/VersionCheckService';
 import './VersionUpdateModal.css';
 
@@ -25,6 +27,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
   updateMessage,
   onClose,
 }) => {
+  useTranslation();
   const [updating, setUpdating] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -51,27 +54,27 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
     try {
       setUpdating(true);
       setProgress(0);
-      message.loading({ content: '正在获取最新安装包…', key: 'mctier-update', duration: 0 });
+      message.loading({ content: tl('正在获取最新安装包…', 'Fetching the latest installer…'), key: 'mctier-update', duration: 0 });
 
       const url = await versionCheckService.fetchLatestInstallerUrl();
       if (!url) {
         message.destroy('mctier-update');
-        message.warning('未找到可下载的安装包，将打开下载页面');
+        message.warning(tl('未找到可下载的安装包，将打开下载页面', 'No installer found, opening the download page'));
         await open('https://gitee.com/peng-minghang/mctier/releases');
         setUpdating(false);
         onClose();
         return;
       }
 
-      message.loading({ content: '正在下载并更新，请勿关闭软件…', key: 'mctier-update', duration: 0 });
+      message.loading({ content: tl('正在下载并更新，请勿关闭软件…', 'Downloading and updating, please keep the app open…'), key: 'mctier-update', duration: 0 });
       // 下载完成后后端会自动运行安装包并退出应用
       await invoke('download_and_run_installer', { url });
       message.destroy('mctier-update');
-      message.success('下载完成，即将启动安装程序…');
+      message.success(tl('下载完成，即将启动安装程序…', 'Download complete, launching the installer…'));
     } catch (error) {
       console.error('❌ 客户端内更新失败:', error);
       message.destroy('mctier-update');
-      message.error('更新失败，将打开下载页面');
+      message.error(tl('更新失败，将打开下载页面', 'Update failed, opening the download page'));
       try {
         await open('https://gitee.com/peng-minghang/mctier/releases');
       } catch (_) {
@@ -90,7 +93,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-          <span>发现新版本</span>
+          <span>{tl('发现新版本', 'New Version Available')}</span>
         </div>
       }
       open={visible}
@@ -127,7 +130,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-            <span>更新内容</span>
+            <span>{tl('更新内容', 'What\'s New')}</span>
           </div>
           <div className="update-log-list">
             {updateMessage.map((item, index) => (
@@ -154,7 +157,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
             whileHover={{ scale: updating ? 1 : 1.02 }}
             whileTap={{ scale: updating ? 1 : 0.98 }}
           >
-            稍后更新
+            {tl('稍后更新', 'Update Later')}
           </motion.button>
           <motion.button
             className="version-update-btn download"
@@ -168,7 +171,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>{updating ? `更新中 ${progress}%` : '立即更新'}</span>
+            <span>{updating ? `${tl('更新中', 'Updating')} ${progress}%` : tl('立即更新', 'Update Now')}</span>
           </motion.button>
         </div>
       </div>

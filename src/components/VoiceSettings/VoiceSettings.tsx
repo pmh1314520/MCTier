@@ -12,6 +12,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Select, Button, Typography, Space, Progress, message } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { audioDevices } from '../../services/voice/audioDevices';
 import { webrtcClient } from '../../services';
 
@@ -31,6 +33,7 @@ interface VoiceDevicePanelProps {
  * 语音设备设置面板（无弹窗外壳，可内嵌）
  */
 export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = true }) => {
+  useTranslation();
   const [inputs, setInputs] = useState<DeviceOption[]>([]);
   const [outputs, setOutputs] = useState<DeviceOption[]>([]);
   const [inputId, setInputId] = useState<string>('');
@@ -57,20 +60,20 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
       } catch { /* 用户可能拒绝，仍尝试枚举 */ }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const ins: DeviceOption[] = [{ value: '', label: '系统默认麦克风' }];
-      const outs: DeviceOption[] = [{ value: '', label: '系统默认扬声器' }];
+      const ins: DeviceOption[] = [{ value: '', label: tl('系统默认麦克风', 'System Default Microphone') }];
+      const outs: DeviceOption[] = [{ value: '', label: tl('系统默认扬声器', 'System Default Speaker') }];
       devices.forEach((d) => {
         if (d.kind === 'audioinput') {
-          ins.push({ value: d.deviceId, label: d.label || `麦克风 ${ins.length}` });
+          ins.push({ value: d.deviceId, label: d.label || `${tl('麦克风', 'Microphone')} ${ins.length}` });
         } else if (d.kind === 'audiooutput') {
-          outs.push({ value: d.deviceId, label: d.label || `扬声器 ${outs.length}` });
+          outs.push({ value: d.deviceId, label: d.label || `${tl('扬声器', 'Speaker')} ${outs.length}` });
         }
       });
       setInputs(ins);
       setOutputs(outs);
       setSupportsOutput(typeof (HTMLMediaElement.prototype as any).setSinkId === 'function');
     } catch (e) {
-      message.error(`枚举音频设备失败：${e}`);
+      message.error(`${tl('枚举音频设备失败', 'Failed to enumerate audio devices')}：${e}`);
     }
   };
 
@@ -111,7 +114,7 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
       stopMicTest();
       void startMicTest(id);
     }
-    message.success('麦克风已切换，将在下次开启麦克风时生效');
+    message.success(tl('麦克风已切换，将在下次开启麦克风时生效', 'Microphone switched, effective next time you enable it'));
   };
 
   const handleOutputChange = async (id: string) => {
@@ -119,9 +122,9 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
     audioDevices.setOutputDeviceId(id);
     try {
       await webrtcClient.applyOutputDeviceToAll(id);
-      message.success('扬声器已切换并对当前通话生效');
+      message.success(tl('扬声器已切换并对当前通话生效', 'Speaker switched and applied to the current call'));
     } catch {
-      message.success('扬声器已切换');
+      message.success(tl('扬声器已切换', 'Speaker switched'));
     }
   };
 
@@ -155,7 +158,7 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
       };
       rafRef.current = window.requestAnimationFrame(tick);
     } catch (e) {
-      message.error(`无法打开麦克风试音：${e}`);
+      message.error(`${tl('无法打开麦克风试音', 'Unable to start microphone test')}：${e}`);
     }
   };
 
@@ -185,14 +188,14 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
         ctx.close().catch(() => {});
       }, 600);
     } catch (e) {
-      message.error(`扬声器试音失败：${e}`);
+      message.error(`${tl('扬声器试音失败', 'Speaker test failed')}：${e}`);
     }
   };
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <div>
-        <Text strong>麦克风（输入）</Text>
+        <Text strong>{tl('麦克风（输入）', 'Microphone (Input)')}</Text>
         <Select
           style={{ width: '100%', marginTop: 6 }}
           value={inputId}
@@ -203,18 +206,18 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
         <div style={{ marginTop: 10 }}>
           <Space>
             {!testing ? (
-              <Button size="small" onClick={() => void startMicTest()}>开始试音</Button>
+              <Button size="small" onClick={() => void startMicTest()}>{tl('开始试音', 'Start Test')}</Button>
             ) : (
-              <Button size="small" danger onClick={stopMicTest}>停止试音</Button>
+              <Button size="small" danger onClick={stopMicTest}>{tl('停止试音', 'Stop Test')}</Button>
             )}
-            <Text type="secondary" style={{ fontSize: 12 }}>说话并观察下方电平</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{tl('说话并观察下方电平', 'Speak and watch the level below')}</Text>
           </Space>
           <Progress percent={level} showInfo={false} strokeColor={level > 60 ? '#52c41a' : '#1677ff'} style={{ marginTop: 6 }} />
         </div>
       </div>
 
       <div>
-        <Text strong>扬声器（输出）</Text>
+        <Text strong>{tl('扬声器（输出）', 'Speaker (Output)')}</Text>
         {supportsOutput ? (
           <>
             <Select
@@ -225,12 +228,12 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
               getPopupContainer={popupContainer}
             />
             <div style={{ marginTop: 10 }}>
-              <Button size="small" onClick={() => void testOutput()}>扬声器试音</Button>
+              <Button size="small" onClick={() => void testOutput()}>{tl('扬声器试音', 'Test Speaker')}</Button>
             </div>
           </>
         ) : (
           <div style={{ marginTop: 6 }}>
-            <Text type="secondary">当前环境不支持切换输出设备，将使用系统默认扬声器。</Text>
+            <Text type="secondary">{tl('当前环境不支持切换输出设备，将使用系统默认扬声器。', 'Switching output device is not supported here; the system default speaker will be used.')}</Text>
           </div>
         )}
       </div>
@@ -247,9 +250,10 @@ interface VoiceSettingsProps {
  * 语音设备设置独立弹窗（兼容旧调用）
  */
 export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ visible, onClose }) => {
+  useTranslation();
   return (
-    <Modal title="语音设备设置" open={visible} onCancel={onClose} footer={[
-      <Button key="close" type="primary" onClick={onClose}>完成</Button>,
+    <Modal title={tl('语音设备设置', 'Voice Device Settings')} open={visible} onCancel={onClose} footer={[
+      <Button key="close" type="primary" onClick={onClose}>{tl('完成', 'Done')}</Button>,
     ]} width={460} centered>
       <VoiceDevicePanel active={visible} />
     </Modal>
