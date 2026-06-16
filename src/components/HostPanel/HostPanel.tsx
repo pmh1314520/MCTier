@@ -10,6 +10,8 @@ import { Modal, InputNumber, Switch, Input, Button, Typography, Space, App as An
 import { useAppStore } from '../../stores';
 import { webrtcClient } from '../../services';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -20,6 +22,7 @@ interface HostPanelProps {
 }
 
 export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
+  useTranslation();
   const { message } = AntdApp.useApp();
   const maxPlayers = useAppStore((s) => s.maxPlayers);
   const isPublicLobby = useAppStore((s) => s.isPublicLobby);
@@ -47,11 +50,11 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
   const applyMax = () => {
     const v = Math.max(0, Math.min(100, maxValue || 0));
     if (v !== 0 && v < currentCount) {
-      message.warning(`人数上限不能小于当前在线人数（${currentCount}）`);
+      message.warning(tl('人数上限不能小于当前在线人数（', 'Max players cannot be less than current online count (') + currentCount + '）');
       return;
     }
     webrtcClient.setLobbyOptions({ maxPlayers: v });
-    message.success(v === 0 ? '已取消人数上限' : `人数上限已设为 ${v}`);
+    message.success(v === 0 ? tl('已取消人数上限', 'Player limit removed') : tl('人数上限已设为 ', 'Max players set to ') + v);
   };
 
   const applyPublic = (checked: boolean) => {
@@ -69,59 +72,59 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
     const text = announceDraft.trim();
     setAnnouncement(text);
     void p2pChatService.sendControlMessage('announce', text);
-    message.success(text ? '公告已发布' : '已清空公告');
+    message.success(text ? tl('公告已发布', 'Announcement published') : tl('已清空公告', 'Announcement cleared'));
   };
 
   return (
-    <Modal title="房主管理" open={visible} onCancel={onClose} footer={[
-      <Button key="close" type="primary" onClick={onClose}>完成</Button>,
+    <Modal title={tl('房主管理', 'Host Panel')} open={visible} onCancel={onClose} footer={[
+      <Button key="close" type="primary" onClick={onClose}>{tl('完成', 'Done')}</Button>,
     ]} width={440} centered>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <div>
-          <Text strong>人数上限</Text>
+          <Text strong>{tl('人数上限', 'Max Players')}</Text>
           <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            0 表示不限制。当前在线 {currentCount} 人。
+            {tl('0 表示不限制。当前在线 ', '0 = unlimited. Online now: ')}{currentCount}{tl(' 人。', '')}
           </Paragraph>
           <Space>
             <InputNumber min={0} max={100} value={maxValue} onChange={(v) => setMaxValue(v ?? 0)} />
-            <Button type="primary" onClick={applyMax}>应用</Button>
+            <Button type="primary" onClick={applyMax}>{tl('应用', 'Apply')}</Button>
           </Space>
         </div>
 
         <div>
           <Space align="center">
-            <Text strong>发布到公开广场</Text>
+            <Text strong>{tl('发布到公开广场', 'Publish to Plaza')}</Text>
             <Switch checked={pub} onChange={applyPublic} />
           </Space>
           <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
-            公开后，陌生人可在「公开广场」看到该大厅并一键加入（会公开大厅密码用于加入）。适合开服自由联机。
+            {tl('公开后，陌生人可在「公开广场」看到该大厅并一键加入（会公开大厅密码用于加入）。适合开服自由联机。', 'Once public, anyone can see and join this lobby from the Public Plaza (the lobby password is exposed for joining).')}
           </Paragraph>
           <TextArea
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             onBlur={() => { if (pub) webrtcClient.setLobbyOptions({ isPublic: true, description: desc, password: lobby?.password || '' }); }}
-            placeholder="可选：填写大厅描述（如玩法、版本），展示在广场上"
+            placeholder={tl('可选：填写大厅描述（如玩法、版本），展示在广场上', 'Optional: lobby description (mode, version) shown in the plaza')}
             autoSize={{ minRows: 2, maxRows: 4 }}
             maxLength={100}
           />
         </div>
 
         <div>
-          <Text strong>大厅公告</Text>
+          <Text strong>{tl('大厅公告', 'Lobby Announcement')}</Text>
           <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 8 }}>
-            公告会在所有成员的大厅顶部以滚动条形式展示，新加入的玩家也会自动看到（适合写玩法规则、服务器地址等）。
+            {tl('公告会在所有成员的大厅顶部以滚动条形式展示，新加入的玩家也会自动看到（适合写玩法规则、服务器地址等）。', 'The announcement scrolls at the top of every member\u2019s lobby, including newcomers.')}
           </Paragraph>
           <TextArea
             value={announceDraft}
             onChange={(e) => setAnnounceDraft(e.target.value)}
-            placeholder="输入公告内容，留空并发布可清除公告"
+            placeholder={tl('输入公告内容，留空并发布可清除公告', 'Enter an announcement; publish empty to clear')}
             autoSize={{ minRows: 2, maxRows: 4 }}
             maxLength={200}
           />
           <Space style={{ marginTop: 10 }}>
-            <Button type="primary" onClick={publishAnnounce}>发布公告</Button>
+            <Button type="primary" onClick={publishAnnounce}>{tl('发布公告', 'Publish')}</Button>
             {announcement && (
-              <Button onClick={() => { setAnnounceDraft(''); setAnnouncement(''); void p2pChatService.sendControlMessage('announce', ''); message.success('已清空公告'); }}>清空</Button>
+              <Button onClick={() => { setAnnounceDraft(''); setAnnouncement(''); void p2pChatService.sendControlMessage('announce', ''); message.success(tl('已清空公告', 'Announcement cleared')); }}>{tl('清空', 'Clear')}</Button>
             )}
           </Space>
         </div>

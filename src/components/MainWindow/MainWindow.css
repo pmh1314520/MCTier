@@ -301,37 +301,37 @@ a,
 }
 
 .create-button {
-  background: linear-gradient(180deg, #6aa438 0%, #5a9428 100%) !important;
+  background: linear-gradient(135deg, #73d13d 0%, #52c41a 100%) !important;
   color: white !important;
-  box-shadow: 0 2px 8px rgba(90, 148, 40, 0.25);
+  box-shadow: 0 2px 10px rgba(82, 196, 26, 0.3);
 }
 
 .create-button:hover {
-  background: linear-gradient(180deg, #6aa438 0%, #5a9428 100%) !important;
-  box-shadow: 0 3px 12px rgba(90, 148, 40, 0.3);
+  background: linear-gradient(135deg, #85e84a 0%, #5fd424 100%) !important;
+  box-shadow: 0 4px 16px rgba(82, 196, 26, 0.42);
 }
 
 .create-button:active {
-  background: linear-gradient(180deg, #5a9428 0%, #4a7a20 100%) !important;
-  box-shadow: 0 1px 4px rgba(90, 148, 40, 0.2);
+  background: linear-gradient(135deg, #52c41a 0%, #3c9a12 100%) !important;
+  box-shadow: 0 1px 4px rgba(82, 196, 26, 0.25);
 }
 
 .join-button {
-  background: rgba(90, 148, 40, 0.12) !important;
-  color: rgba(150, 200, 100, 0.95) !important;
-  border: 1.5px solid rgba(90, 148, 40, 0.3) !important;
+  background: rgba(82, 196, 26, 0.12) !important;
+  color: rgba(150, 220, 100, 0.95) !important;
+  border: 1.5px solid rgba(82, 196, 26, 0.3) !important;
   backdrop-filter: blur(10px);
 }
 
 .join-button:hover {
-  background: rgba(90, 148, 40, 0.16) !important;
-  border-color: rgba(90, 148, 40, 0.4) !important;
-  color: rgba(170, 220, 120, 1) !important;
+  background: rgba(82, 196, 26, 0.18) !important;
+  border-color: rgba(82, 196, 26, 0.45) !important;
+  color: rgba(170, 230, 120, 1) !important;
 }
 
 .join-button:active {
-  background: rgba(90, 148, 40, 0.22) !important;
-  border-color: rgba(90, 148, 40, 0.5) !important;
+  background: rgba(82, 196, 26, 0.24) !important;
+  border-color: rgba(82, 196, 26, 0.55) !important;
 }
 
 .about-button {

@@ -8,12 +8,15 @@ import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
 import { EmojiIcon, ImageIcon } from '../icons';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
 const { TextArea } = Input;
 
 export const ChatRoom: React.FC = () => {
+  useTranslation();
   const { currentPlayerId, chatMessages, addChatMessage, config } = useAppStore();
   const players = useAppStore((state) => state.players);
   const [inputValue, setInputValue] = useState('');
@@ -166,11 +169,11 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ [ChatRoom] 文本消息已发送到P2P网络', res);
       // 回执：有其他玩家但一个都没送达时，提示可能未送达
       if (res && res.total > 0 && res.delivered === 0) {
-        antdMessage.warning('消息可能未送达：其他玩家暂时不可达');
+        antdMessage.warning(tl('消息可能未送达：其他玩家暂时不可达', 'Message may not be delivered: other players are unreachable'));
       }
     } catch (error) {
       console.error('发送聊天消息失败:', error);
-      antdMessage.error('发送消息失败');
+      antdMessage.error(tl('发送消息失败', 'Failed to send message'));
       // 发送失败时恢复输入框内容
       setInputValue(text);
     }
@@ -322,7 +325,7 @@ export const ChatRoom: React.FC = () => {
 
         // 检查文件大小（限制10MB，因为会压缩）
         if (file.size > 10 * 1024 * 1024) {
-          antdMessage.error('图片大小不能超过10MB');
+          antdMessage.error(tl('图片大小不能超过10MB', 'Image cannot exceed 10MB'));
           setIsUploading(false);
           return;
         }
@@ -352,13 +355,13 @@ export const ChatRoom: React.FC = () => {
           
           // 发送图片消息到P2P网络
           await p2pChatService.sendImageMessage(optimizedDataUrl);
-          antdMessage.success('图片发送成功');
+          antdMessage.success(tl('图片发送成功', 'Image sent'));
           
           // 滚动到底部
           setTimeout(() => scrollToBottom(), 100);
         } catch (error) {
           console.error('发送图片失败:', error);
-          antdMessage.error('发送图片失败');
+          antdMessage.error(tl('发送图片失败', 'Failed to send image'));
         } finally {
           setIsUploading(false);
         }
@@ -367,7 +370,7 @@ export const ChatRoom: React.FC = () => {
       input.click();
     } catch (error) {
       console.error('上传图片失败:', error);
-      antdMessage.error('上传图片失败');
+      antdMessage.error(tl('上传图片失败', 'Failed to upload image'));
       setIsUploading(false);
     }
   };
@@ -387,7 +390,7 @@ export const ChatRoom: React.FC = () => {
 
         // 检查文件大小
         if (file.size > 10 * 1024 * 1024) {
-          antdMessage.error('图片大小不能超过10MB');
+          antdMessage.error(tl('图片大小不能超过10MB', 'Image cannot exceed 10MB'));
           return;
         }
 
@@ -417,7 +420,7 @@ export const ChatRoom: React.FC = () => {
           // 发送图片消息到P2P网络
           await p2pChatService.sendImageMessage(optimizedDataUrl);
 
-          antdMessage.success('图片发送成功');
+          antdMessage.success(tl('图片发送成功', 'Image sent'));
           
           // 滚动到底部
           setTimeout(() => scrollToBottom(), 100);
@@ -425,7 +428,7 @@ export const ChatRoom: React.FC = () => {
           setIsUploading(false);
         } catch (error) {
           console.error('粘贴图片失败:', error);
-          antdMessage.error('粘贴图片失败');
+          antdMessage.error(tl('粘贴图片失败', 'Failed to paste image'));
           setIsUploading(false);
         }
         
@@ -446,13 +449,13 @@ export const ChatRoom: React.FC = () => {
     
     // 检查是否为图片
     if (!file.type.startsWith('image/')) {
-      antdMessage.error('只能拖拽图片文件');
+      antdMessage.error(tl('只能拖拽图片文件', 'Only image files can be dropped'));
       return;
     }
 
     // 检查文件大小
     if (file.size > 10 * 1024 * 1024) {
-      antdMessage.error('图片大小不能超过10MB');
+      antdMessage.error(tl('图片大小不能超过10MB', 'Image cannot exceed 10MB'));
       return;
     }
 
@@ -482,7 +485,7 @@ export const ChatRoom: React.FC = () => {
       // 发送图片消息到P2P网络
       await p2pChatService.sendImageMessage(optimizedDataUrl);
 
-      antdMessage.success('图片发送成功');
+      antdMessage.success(tl('图片发送成功', 'Image sent'));
       
       // 滚动到底部
       setTimeout(() => scrollToBottom(), 100);
@@ -490,7 +493,7 @@ export const ChatRoom: React.FC = () => {
       setIsUploading(false);
     } catch (error) {
       console.error('拖拽图片失败:', error);
-      antdMessage.error('拖拽图片失败');
+      antdMessage.error(tl('拖拽图片失败', 'Failed to drop image'));
       setIsUploading(false);
     }
   };
@@ -576,7 +579,7 @@ export const ChatRoom: React.FC = () => {
       
     } catch (error) {
       console.error('❌ 下载图片失败:', error);
-      antdMessage.error('下载图片失败');
+      antdMessage.error(tl('下载图片失败', 'Failed to download image'));
       setDownloadingImageId(null);
     }
   };
@@ -675,13 +678,13 @@ export const ChatRoom: React.FC = () => {
       >
         {isLoadingMore && (
           <div className="chat-loading">
-            <span>加载中...</span>
+            <span>{tl('加载中...', 'Loading...')}</span>
           </div>
         )}
         
         {!hasMoreMessages && chatMessages.length > displayedMessageCount && (
           <div className="chat-no-more">
-            <span>没有更多消息了</span>
+            <span>{tl('没有更多消息了', 'No more messages')}</span>
           </div>
         )}
         
@@ -734,7 +737,7 @@ export const ChatRoom: React.FC = () => {
                     <div className="chat-image-wrapper">
                       <img 
                         src={message.imageData} 
-                        alt="聊天图片" 
+                        alt={tl('聊天图片', 'Chat image')} 
                         className="chat-image"
                         onClick={() => setPreviewImage(message.imageData!)}
                         onLoad={() => { if (isAtBottom) { try { scrollToBottom(); } catch { /* ignore */ } } }}
@@ -746,7 +749,7 @@ export const ChatRoom: React.FC = () => {
                           handleDownloadImage(message.imageData!, message.id);
                         }}
                         disabled={downloadingImageId === message.id}
-                        title="下载图片"
+                        title={tl('下载图片', 'Download image')}
                       >
                         {downloadingImageId === message.id ? (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="downloading-icon">
@@ -787,7 +790,7 @@ export const ChatRoom: React.FC = () => {
                 </div>
                 <button
                   className="message-reply-btn"
-                  title="引用回复"
+                  title={tl('引用回复', 'Reply')}
                   onClick={() => setReplyTo(message)}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -817,7 +820,7 @@ export const ChatRoom: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
-            title="滚动到底部"
+            title={tl('滚动到底部', 'Scroll to bottom')}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 5v14M19 12l-7 7-7-7"/>
@@ -840,7 +843,7 @@ export const ChatRoom: React.FC = () => {
             <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
               <img 
                 src={previewImage} 
-                alt="预览" 
+                alt={tl('预览', 'Preview')} 
                 onClick={() => setPreviewImage(null)}
                 style={{ cursor: 'pointer' }}
               />
@@ -894,7 +897,7 @@ export const ChatRoom: React.FC = () => {
                 >
                   <span className="mention-at">@</span>
                   <span className="mention-name">{name}</span>
-                  {name === '所有人' && <span className="mention-tag">全体提醒</span>}
+                  {name === '所有人' && <span className="mention-tag">{tl('全体提醒', 'Everyone')}</span>}
                 </div>
               ))}
             </motion.div>
@@ -906,10 +909,10 @@ export const ChatRoom: React.FC = () => {
           <div className="reply-preview">
             <div className="reply-preview-bar" />
             <div className="reply-preview-body">
-              <div className="reply-preview-name">回复 {replyTo.playerName}</div>
-              <div className="reply-preview-text">{replyTo.type === 'image' ? '[图片]' : replyTo.content}</div>
+              <div className="reply-preview-name">{tl('回复 ', 'Reply to ')}{replyTo.playerName}</div>
+              <div className="reply-preview-text">{replyTo.type === 'image' ? tl('[图片]', '[Image]') : replyTo.content}</div>
             </div>
-            <button className="reply-preview-close" onClick={() => setReplyTo(null)} title="取消引用">×</button>
+            <button className="reply-preview-close" onClick={() => setReplyTo(null)} title={tl('取消引用', 'Cancel reply')}>×</button>
           </div>
         )}
 
@@ -918,7 +921,7 @@ export const ChatRoom: React.FC = () => {
             type="text"
             icon={<EmojiIcon size={22} />}
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            title="选择表情"
+            title={tl('选择表情', 'Emoji')}
             className="emoji-button"
           />
           
@@ -927,7 +930,7 @@ export const ChatRoom: React.FC = () => {
             icon={<ImageIcon size={22} />}
             onClick={handleImageUpload}
             loading={isUploading}
-            title="发送图片"
+            title={tl('发送图片', 'Send image')}
             className="image-button"
           />
           
@@ -937,7 +940,7 @@ export const ChatRoom: React.FC = () => {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="输入消息…"
+            placeholder={tl('输入消息…', 'Type a message...')}
             autoSize={{ minRows: 1, maxRows: 3 }}
             maxLength={500}
             style={{ flex: 1 }}
