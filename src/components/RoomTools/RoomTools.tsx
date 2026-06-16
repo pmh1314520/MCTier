@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, Checkbox, message } from 'antd';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { useAppStore } from '../../stores';
 import type { TodoItem } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
@@ -80,9 +81,9 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           addChatMessage(optimistic);
         }
         await p2pChatService.sendTextMessage(content);
-        message.success('已广播到聊天室');
+        message.success(tl('已广播到聊天室', 'Broadcast to chat'));
       } catch (e) {
-        message.error(`广播失败：${e}`);
+        message.error(`${tl('广播失败', 'Broadcast failed')}：${e}`);
       } finally {
         setRolling(false);
       }
@@ -102,7 +103,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const startCountdown = () => {
     const total = (minutes || 0) * 60 + (seconds || 0);
     if (total <= 0) {
-      message.warning('请设置大于 0 的时间');
+      message.warning(tl('请设置大于 0 的时间', 'Please set a time greater than 0'));
       return;
     }
     countdownService.start(total);
@@ -159,19 +160,19 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       const t = await readText();
       if (t) {
         setClipText(t.slice(0, CLIP_MAX));
-        message.success('已读取本机剪贴板');
+        message.success(tl('已读取本机剪贴板', 'Read from local clipboard'));
       } else {
-        message.info('本机剪贴板为空');
+        message.info(tl('本机剪贴板为空', 'Local clipboard is empty'));
       }
     } catch {
-      message.error('读取剪贴板失败');
+      message.error(tl('读取剪贴板失败', 'Failed to read clipboard'));
     }
   };
 
   const sendClipboard = async () => {
     const text = clipText.trim();
     if (!text) {
-      message.warning('请输入要共享的内容');
+      message.warning(tl('请输入要共享的内容', 'Please enter content to share'));
       return;
     }
     if (text.length > CLIP_MAX) {
@@ -181,7 +182,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     setSendingClip(true);
     try {
       await p2pChatService.sendControlMessage('clipboard', text);
-      message.success('已共享给全队');
+      message.success(tl('已共享给全队', 'Shared with the team'));
       setClipText('');
     } catch (e) {
       message.error(`共享失败：${e}`);

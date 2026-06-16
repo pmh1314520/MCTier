@@ -125,7 +125,7 @@ export const ScreenShareManager: React.FC = () => {
       const share = activeShares.find(s => s.id === viewingShareId);
       if (!share) {
         console.log('⚠️ [ScreenShareManager] 正在查看的共享已停止，自动退出查看界面');
-        message.info('共享者已停止屏幕共享');
+        message.info(tl('共享者已停止屏幕共享', 'The sharer stopped screen sharing'));
         handleStopViewing();
       }
     }
@@ -362,7 +362,7 @@ export const ScreenShareManager: React.FC = () => {
       setOriginalWindowSize(null);
     }
     
-    message.info('已停止查看屏幕');
+    message.info(tl('已停止查看屏幕', 'Stopped viewing screen'));
   };
 
   return (

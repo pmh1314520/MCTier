@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useTranslation } from 'react-i18next';
+import { tl, getLanguage } from './i18n';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { GlobalTooltip } from './components/GlobalTooltip/GlobalTooltip';
 import { GlobalButtonTheme } from './components/GlobalTooltip/GlobalButtonTheme';
@@ -18,6 +21,7 @@ import type { UserConfig } from './types';
 import './App.css';
 
 function App() {
+  useTranslation();
   const appState = useAppStore((state) => state.appState);
   const lobby = useAppStore((state) => state.lobby);
   const setMicEnabled = useAppStore((state) => state.setMicEnabled);
@@ -45,12 +49,12 @@ function App() {
     // 从URL参数中获取shareId和playerName
     const urlParams = new URLSearchParams(window.location.search);
     const shareId = urlParams.get('shareId') || '';
-    const playerName = urlParams.get('playerName') || '未知玩家';
+    const playerName = urlParams.get('playerName') || tl('未知玩家', 'Unknown Player');
     
     return (
       <ErrorBoundary>
         <ConfigProvider
-          locale={zhCN}
+          locale={getLanguage() === 'en' ? enUS : zhCN}
           theme={{
             algorithm: theme.darkAlgorithm,
             token: {
@@ -617,7 +621,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ConfigProvider
-        locale={zhCN}
+        locale={getLanguage() === 'en' ? enUS : zhCN}
         theme={{
           algorithm: theme.darkAlgorithm,
           token: {

@@ -7,6 +7,7 @@ import React from 'react';
 import { Modal, Button, Typography, message } from 'antd';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { useAppStore } from '../../stores';
 
 const { Paragraph, Text } = Typography;
@@ -25,7 +26,7 @@ export const ClipboardReceiver: React.FC = () => {
       message.success(t('clipboard.copied'));
       close();
     } catch {
-      message.error('复制失败');
+      message.error(tl('复制失败', 'Copy failed'));
     }
   };
 

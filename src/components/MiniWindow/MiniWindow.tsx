@@ -220,10 +220,10 @@ export const MiniWindow: React.FC = () => {
       const path = await invoke<string | null>('select_save_location', { defaultName: `MCTier-邀请-${lobby.name}.png` });
       if (!path) return;
       await invoke('save_file', { path, data: Array.from(bytes) });
-      message.success('二维码已保存');
+      message.success(tl('二维码已保存', 'QR code saved'));
     } catch (e) {
       console.error('保存二维码失败:', e);
-      message.error('保存失败，请重试');
+      message.error(tl('保存失败，请重试', 'Save failed, please retry'));
     }
   };
   
@@ -505,7 +505,7 @@ export const MiniWindow: React.FC = () => {
     try {
       // 若已被房主禁言，禁止开启麦克风（关闭则允许）
       if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && !micEnabled) {
-        message.warning('你已被房主禁言，无法开启麦克风');
+        message.warning(tl('你已被房主禁言，无法开启麦克风', 'You have been muted by the host and cannot enable the microphone'));
         return;
       }
       // 调用后端的toggle_mic命令
@@ -626,7 +626,7 @@ export const MiniWindow: React.FC = () => {
         invoke('toggle_mic').catch(() => {});
         webrtcClient.setMicEnabled(false);
         useAppStore.getState().setMicEnabled(false);
-        message.warning('你已被房主禁言，麦克风已关闭');
+        message.warning(tl('你已被房主禁言，麦克风已关闭', 'You have been muted by the host; the microphone is now off'));
       } catch { /* ignore */ }
     }
   }, [hostMutedPlayers, currentPlayerId, micEnabled]);
@@ -687,7 +687,7 @@ export const MiniWindow: React.FC = () => {
     
     if (!lobby || !currentPlayerId) {
       console.error('❌ [MiniWindow] 验证失败：lobby 或 currentPlayerId 无效');
-      message.error('当前未在大厅中或玩家ID无效');
+      message.error(tl('当前未在大厅中或玩家ID无效', 'Not in a lobby or invalid player ID'));
       return;
     }
 
@@ -771,7 +771,7 @@ export const MiniWindow: React.FC = () => {
       setIsRejoining(false);
       
       // 显示成功提示
-      message.success('设置已应用，重新加入大厅成功');
+      message.success(tl('设置已应用，重新加入大厅成功', 'Settings applied, rejoined the lobby successfully'));
     } catch (error) {
       console.error('❌ [MiniWindow] 重新加入大厅失败:', error);
       
@@ -889,10 +889,10 @@ export const MiniWindow: React.FC = () => {
       
       await open(url);
       console.log('已打开官网:', url);
-      message.success('已在浏览器中打开官网');
+      message.success(tl('已在浏览器中打开官网', 'Opened the website in your browser'));
     } catch (error) {
       console.error('打开官网失败:', error);
-      message.error('打开官网失败，请手动复制链接');
+      message.error(tl('打开官网失败，请手动复制链接', 'Failed to open the website, please copy the link manually'));
     }
   };
 
@@ -918,7 +918,7 @@ export const MiniWindow: React.FC = () => {
       const url = await versionCheckService.fetchLatestInstallerUrl();
       if (!url) {
         message.destroy('mctier-update');
-        message.warning('未找到可下载的安装包，将打开下载页面');
+        message.warning(tl('未找到可下载的安装包，将打开下载页面', 'No installer found, opening the download page'));
         await handleOpenWebsite();
         setVersionUpdating(false);
         return;
@@ -926,11 +926,11 @@ export const MiniWindow: React.FC = () => {
       message.loading({ content: '正在下载并更新，请勿关闭软件…', key: 'mctier-update', duration: 0 });
       await invoke('download_and_run_installer', { url });
       message.destroy('mctier-update');
-      message.success('下载完成，即将启动安装程序…');
+      message.success(tl('下载完成，即将启动安装程序…', 'Download complete, launching the installer…'));
     } catch (error) {
       console.error('客户端内更新失败:', error);
       message.destroy('mctier-update');
-      message.error('更新失败，将打开下载页面');
+      message.error(tl('更新失败，将打开下载页面', 'Update failed, opening the download page'));
       await handleOpenWebsite();
       setVersionUpdating(false);
     }
@@ -942,11 +942,11 @@ export const MiniWindow: React.FC = () => {
     
     try {
       await writeText(versionError.downloadUrl);
-      message.success('官网链接已复制到剪贴板');
+      message.success(tl('官网链接已复制到剪贴板', 'Website link copied to clipboard'));
       console.log('已复制官网链接:', versionError.downloadUrl);
     } catch (error) {
       console.error('复制链接失败:', error);
-      message.error('复制失败，请手动复制');
+      message.error(tl('复制失败，请手动复制', 'Copy failed, please copy manually'));
     }
   };
 
@@ -958,7 +958,7 @@ export const MiniWindow: React.FC = () => {
       // 根据useDomain决定复制IP还是域名
       const textToCopy = (lobby.useDomain && lobby.virtualDomain) ? lobby.virtualDomain : lobby.virtualIp;
       if (!textToCopy) {
-        message.warning('虚拟地址尚未获取');
+        message.warning(tl('虚拟地址尚未获取', 'Virtual address not available yet'));
         return;
       }
       
@@ -968,7 +968,7 @@ export const MiniWindow: React.FC = () => {
       console.log(`已复制${label}:`, textToCopy);
     } catch (error) {
       console.error('复制失败:', error);
-      message.error('复制失败，请重试');
+      message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
     }
   };
 
@@ -1000,7 +1000,7 @@ export const MiniWindow: React.FC = () => {
       console.log('已复制大厅信息:', lobbyInfo);
     } catch (error) {
       console.error('复制大厅信息失败:', error);
-      message.error('复制失败，请重试');
+      message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
     }
   };
 
@@ -1609,7 +1609,7 @@ export const MiniWindow: React.FC = () => {
                                       message.success(`${label}已复制`);
                                     } catch (error) {
                                       console.error('复制失败:', error);
-                                      message.error('复制失败，请重试');
+                                      message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
                                     }
                                   }}
                                   title={(player.useDomain && player.virtualDomain) ? '点击复制虚拟域名' : '点击复制虚拟IP'}
@@ -1936,8 +1936,8 @@ export const MiniWindow: React.FC = () => {
               onClick={async () => {
                 if (!lobby) return;
                 const dl = `mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}`;
-                try { await writeText(dl); message.success('邀请链接已复制，发给好友在浏览器打开即可加入'); }
-                catch { message.error('复制失败'); }
+                try { await writeText(dl); message.success(tl('邀请链接已复制，发给好友在浏览器打开即可加入', 'Invite link copied. Send it to a friend to open in a browser and join')); }
+                catch { message.error(tl('复制失败', 'Copy failed')); }
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
