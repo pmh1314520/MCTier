@@ -10,6 +10,7 @@ import { SettingsWindow } from '../SettingsWindow';
 import { OnboardingWizard, isOnboardingDone } from '../OnboardingWizard/OnboardingWizard';
 import { SettingsIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
+import { useTranslation } from 'react-i18next';
 import './MainWindow.css';
 
 const { Title, Paragraph } = Typography;
@@ -22,6 +23,7 @@ const APP_VERSION = '2.0.0';
  * 显示创建/加入大厅的入口
  */
 export const MainWindow: React.FC = () => {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'join'>('create');
   const [showAbout, setShowAbout] = useState(false);
@@ -222,7 +224,7 @@ export const MainWindow: React.FC = () => {
           whileHover={{ scale: 1.1, rotate: 30 }}
           whileTap={{ scale: 0.9 }}
           transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-          title="设置"
+          title={t('common.settings')}
         >
           <SettingsIcon size={20} color="rgba(255, 255, 255, 0.7)" />
         </motion.button>
@@ -282,7 +284,7 @@ export const MainWindow: React.FC = () => {
                 onClick={handleCreateLobby}
                 className="main-window-button create-button"
               >
-                创建大厅
+                {t('lobby.create')}
               </Button>
             </motion.div>
 
@@ -297,7 +299,7 @@ export const MainWindow: React.FC = () => {
                 onClick={handleJoinLobby}
                 className="main-window-button join-button"
               >
-                加入大厅
+                {t('lobby.join')}
               </Button>
             </motion.div>
 
@@ -312,7 +314,7 @@ export const MainWindow: React.FC = () => {
                 onClick={handleShowAbout}
                 className="main-window-button about-button"
               >
-                关于软件
+                {t('lobby.about')}
               </Button>
             </motion.div>
 
@@ -327,7 +329,7 @@ export const MainWindow: React.FC = () => {
                 onClick={handleCloseApp}
                 className="main-window-button close-app-button"
               >
-                退出软件
+                {t('lobby.exit')}
               </Button>
             </motion.div>
           </Space>

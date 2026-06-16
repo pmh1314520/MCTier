@@ -192,7 +192,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
 
   const remainingCount = todos.filter((t) => !t.done).length;
   const assigneeOptions = [
-    { value: '', label: '未分配' },
+    { value: '', label: t('roomTools.unassigned') },
     ...players.map((p) => ({ value: p.name, label: p.name })),
   ];
 
@@ -212,8 +212,8 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
         {lastRoll ? <Text strong style={{ fontSize: 16 }}>🎲 {lastRoll}</Text> : <Text type="secondary">点击下方按钮掷骰</Text>}
       </div>
       <Space>
-        <Button onClick={() => void handleRoll(false)}>本地掷骰</Button>
-        <Button type="primary" loading={rolling} onClick={() => void handleRoll(true)}>掷骰并广播</Button>
+        <Button onClick={() => void handleRoll(false)}>{t('roomTools.localRoll')}</Button>
+        <Button type="primary" loading={rolling} onClick={() => void handleRoll(true)}>{t('roomTools.rollBroadcast')}</Button>
       </Space>
     </div>
   );
@@ -227,7 +227,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
             <InputNumber min={0} max={59} value={seconds} onChange={(v) => setSeconds(v ?? 0)} addonAfter="秒" />
           </Space>
           <div style={{ marginTop: 14 }}>
-            <Button type="primary" onClick={startCountdown}>开始倒计时</Button>
+            <Button type="primary" onClick={startCountdown}>{t('roomTools.startTimer')}</Button>
           </div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
             倒计时在后台或切换界面时仍会继续计时，到点自动提醒。
@@ -238,7 +238,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           <div style={{ fontSize: 48, fontWeight: 700, letterSpacing: 2, color: remaining <= 10 ? '#ff4d4f' : undefined }}>
             {fmt(remaining)}
           </div>
-          <Button danger style={{ marginTop: 12 }} onClick={stopCountdown}>停止</Button>
+          <Button danger style={{ marginTop: 12 }} onClick={stopCountdown}>{t('roomTools.stop')}</Button>
         </div>
       )}
     </div>
@@ -251,15 +251,15 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           value={newTodo}
           onChange={(e) => setNewTodo(e.target.value)}
           onPressEnter={addTodo}
-          placeholder="添加一条待办事项，回车确认（全队同步）"
+          placeholder={t('roomTools.addTodoPlaceholder')}
           maxLength={100}
         />
-        <Button type="primary" onClick={addTodo}>添加</Button>
+        <Button type="primary" onClick={addTodo}>{t('roomTools.add')}</Button>
       </Space.Compact>
 
       <div className="room-todo-list">
         {todos.length === 0 ? (
-          <div className="room-todo-empty">还没有待办事项，添加一条试试～</div>
+          <div className="room-todo-empty">{t('roomTools.emptyTodo')}</div>
         ) : (
           todos.map((t) => (
             <div key={t.id} className={`room-todo-item ${t.done ? 'done' : ''}`}>
@@ -287,8 +287,8 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
 
       {todos.length > 0 && (
         <div className="room-todo-footer">
-          <Text type="secondary" style={{ fontSize: 12 }}>剩余 {remainingCount} 项待完成</Text>
-          <Button size="small" type="text" onClick={clearDone}>清除已完成</Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>{t('roomTools.remaining', { count: remainingCount })}</Text>
+          <Button size="small" type="text" onClick={clearDone}>{t('roomTools.clearDone')}</Button>
         </div>
       )}
     </div>
@@ -299,17 +299,17 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       <Input.TextArea
         value={clipText}
         onChange={(e) => setClipText(e.target.value)}
-        placeholder="输入要同步给全队的文本（坐标、指令、种子号等）"
+        placeholder={t('roomTools.clipPlaceholder')}
         autoSize={{ minRows: 4, maxRows: 8 }}
         maxLength={CLIP_MAX}
         showCount
       />
       <Space style={{ marginTop: 12 }}>
-        <Button onClick={() => void readSystemClipboard()}>读取本机剪贴板</Button>
-        <Button type="primary" loading={sendingClip} onClick={() => void sendClipboard()}>共享给全队</Button>
+        <Button onClick={() => void readSystemClipboard()}>{t('roomTools.readClipboard')}</Button>
+        <Button type="primary" loading={sendingClip} onClick={() => void sendClipboard()}>{t('roomTools.shareToTeam')}</Button>
       </Space>
       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-        全队成员会收到提示，可一键复制到自己的剪贴板。
+        {t('roomTools.clipHint')}
       </Text>
     </div>
   );
