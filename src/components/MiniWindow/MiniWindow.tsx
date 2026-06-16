@@ -11,6 +11,7 @@ import { p2pChatService } from '../../services/chat/P2PChatService';
 import { speakingDetector } from '../../services/voice/SpeakingDetector';
 import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
+import { statsService } from '../../services/stats/statsService';
 import { versionCheckService } from '../../services/version/VersionCheckService';
 import { listen } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
@@ -502,7 +503,10 @@ export const MiniWindow: React.FC = () => {
   const handleLeaveLobby = async () => {
     try {
       console.log('🚪 开始退出大厅流程...');
-      
+
+      // 数据统计：结束本次会话并累加时长
+      try { statsService.endSession(); } catch { /* ignore */ }
+
       // 显示退出中的提示
       setIsLeaving(true);
 

@@ -1,0 +1,137 @@
+.stats-body {
+  padding: 4px 2px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.stats-card {
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 10px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.stats-highlight {
+  grid-column: span 2;
+  background: rgba(82, 196, 26, 0.12);
+}
+
+.stats-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: #52c41a;
+}
+
+.stats-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.stats-row-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 2px 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.stats-buckets {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  height: 96px;
+  margin: 10px 4px 4px;
+}
+
+.stats-bucket {
+  flex: 1;
+  text-align: center;
+}
+
+.stats-bucket-bar-box {
+  height: 60px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.stats-bucket-bar {
+  width: 70%;
+  min-height: 3px;
+  background: linear-gradient(180deg, #73d13d, #52c41a);
+  border-radius: 6px 6px 0 0;
+  transition: height 0.3s ease;
+}
+
+.stats-bucket-label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.stats-bucket-count {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.stats-partner-title {
+  margin: 14px 2px 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.stats-partner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stats-partner-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.stats-partner-rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #52c41a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stats-partner-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.stats-partner-count {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.stats-empty-mini {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+  padding: 8px 2px;
+}
+
+.stats-footer {
+  margin-top: 14px;
+  text-align: right;
+}

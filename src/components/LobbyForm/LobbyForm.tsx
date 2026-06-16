@@ -10,6 +10,7 @@ import { useEscapeKey } from '../../hooks';
 import { FavoriteLobbyManager, type FavoriteLobby } from '../FavoriteLobbyManager/FavoriteLobbyManager';
 import { RecentManager } from '../RecentManager/RecentManager';
 import { recentService, type RecentLobby } from '../../services/recent/recentService';
+import { statsService } from '../../services/stats/statsService';
 import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
 import type { PublicLobby } from '../../services/lobby/publicLobbies';
 import './LobbyForm.css';
@@ -649,6 +650,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         });
       } catch (e) {
         console.warn('记录最近大厅失败（忽略）:', e);
+      }
+
+      // 数据统计：记录会话开始与身份（房主/成员）
+      try {
+        statsService.startSession(mode === 'create');
+      } catch (e) {
+        console.warn('记录统计会话失败（忽略）:', e);
       }
 
       message.success(

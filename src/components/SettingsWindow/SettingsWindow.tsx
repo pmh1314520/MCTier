@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Switch, message, Tooltip, App, Slider } from 'antd';
+import { Form, Input, Switch, message, Tooltip, App, Slider, Button } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
 import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
+import { StatsPanel } from '../StatsPanel/StatsPanel';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import './SettingsWindow.css';
 
@@ -19,6 +20,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [rememberWindowPosition, setRememberWindowPosition] = useState(false);
   const [enableGpuRendering, setEnableGpuRendering] = useState(true);
   const [showRestartModal, setShowRestartModal] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [pendingGpuValue, setPendingGpuValue] = useState(true);
   // 用ref保存完整设置，避免Switch切换时丢失输入框的已填数据
   const settingsRef = useRef<Record<string, any>>({});
@@ -537,6 +539,21 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-green">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M5 9.2h3V19H5V9.2zM10.6 5h3v14h-3V5zm5.6 8H19v6h-2.8v-6z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">数据统计</span>
+              </div>
+              <div className="settings-card-desc">
+                查看你的联机时长、活跃时段、常玩伙伴排行等使用情况（仅本地保存）
+              </div>
+              <Button onClick={() => setShowStats(true)}>查看数据统计</Button>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-desc">
                 导出或导入所有配置项，方便备份和迁移
               </div>
@@ -546,6 +563,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </Form>
         </motion.div>
       </div>
+
+      <StatsPanel visible={showStats} onClose={() => setShowStats(false)} />
 
       {/* 重启确认弹窗 */}
       <RestartConfirmModal
