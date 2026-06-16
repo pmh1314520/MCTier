@@ -84,7 +84,8 @@ export const MiniWindow: React.FC = () => {
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
-  const [peerLatencies, setPeerLatencies] = useState<Record<string, { latencyMs: number | null; lossRate: number }>>({}); // 各玩家虚拟IP->延迟ms
+  const [peerLatencies, setPeerLatencies] = useState<Record<string, { latencyMs: number | null; lossRate: number }>>({});
+  const [peerConnTypes, setPeerConnTypes] = useState<Record<string, string>>({}); // 虚拟IP -> p2p/relay // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
   
@@ -312,6 +313,14 @@ export const MiniWindow: React.FC = () => {
         const map: Record<string, { latencyMs: number | null; lossRate: number }> = {};
         results.forEach(r => { map[r.ip] = { latencyMs: r.latencyMs, lossRate: r.lossRate ?? 0 }; });
         setPeerLatencies(map);
+        // 连接类型(P2P/中继)：通过 easytier-cli 查询 RPC 路由
+        try {
+          const conns = await invoke<{ ip: string; connType: string }[]>('get_peer_connection_types');
+          if (cancelled) return;
+          const cmap: Record<string, string> = {};
+          conns.forEach(c => { cmap[c.ip] = c.connType; });
+          setPeerConnTypes(cmap);
+        } catch { /* 忽略：连接类型为可选信息 */ }
       } catch (error) {
         console.warn('测量延迟失败（忽略）:', error);
       }
@@ -1514,6 +1523,14 @@ export const MiniWindow: React.FC = () => {
                                         style={{ fontSize: 11, color: q.lossRate < 10 ? '#faad14' : '#ff4d4f', flexShrink: 0 }}
                                       >
                                         丢包{q.lossRate}%
+                                      </span>
+                                    )}
+                                    {player.virtualIp && peerConnTypes[player.virtualIp] && (
+                                      <span
+                                        title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
+                                        style={{ fontSize: 11, color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#b07c46', flexShrink: 0 }}
+                                      >
+                                        {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P直连' : '中继'}
                                       </span>
                                     )}
                                     </>

@@ -808,6 +808,82 @@ pub async fn get_virtual_ip(state: State<'_, AppState>) -> Result<Option<String>
     Ok(ip)
 }
 
+/// 对等连接类型（虚拟IP -> p2p/relay）
+#[derive(serde::Serialize)]
+pub struct PeerConnType {
+    pub ip: String,
+    #[serde(rename = "connType")]
+    pub conn_type: String,
+}
+
+/// 查询大厅内各对等节点的连接类型（P2P 直连 / 中继）。
+/// 通过 easytier-cli 连接 easytier-core 的 RPC 端口获取 peer 路由，cost==1 即 P2P 直连。
+#[tauri::command]
+pub async fn get_peer_connection_types(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<PeerConnType>, String> {
+    // 取当前 RPC 端口
+    let rpc_port = {
+        let core = state.core.lock().await;
+        let ns = core.get_network_service();
+        let svc = ns.lock().await;
+        svc.get_rpc_port().await
+    };
+    let port = match rpc_port {
+        Some(p) => p,
+        None => return Ok(vec![]),
+    };
+
+    let cli_path = crate::modules::resource_manager::ResourceManager::get_easytier_cli_path(&app_handle)
+        .map_err(|e| format!("获取 easytier-cli 失败: {}", e))?;
+
+    let mut cmd = tokio::process::Command::new(&cli_path);
+    cmd.args(["-p", &format!("127.0.0.1:{}", port), "-o", "json", "peer"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output())
+        .await
+        .map_err(|_| "easytier-cli 查询超时".to_string())?
+        .map_err(|e| format!("运行 easytier-cli 失败: {}", e))?;
+    if !output.status.success() {
+        return Ok(vec![]);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or(serde_json::Value::Null);
+
+    // 递归收集所有含 ipv4 + cost 的对象（兼容单/多实例的 JSON 结构）
+    let mut result: Vec<PeerConnType> = Vec::new();
+    fn walk(v: &serde_json::Value, out: &mut Vec<PeerConnType>) {
+        match v {
+            serde_json::Value::Array(arr) => arr.iter().for_each(|x| walk(x, out)),
+            serde_json::Value::Object(map) => {
+                let ip = map.get("ipv4").and_then(|x| x.as_str()).unwrap_or("");
+                let cost = map.get("cost").and_then(|x| x.as_str());
+                if let (false, Some(cost)) = (ip.is_empty(), cost) {
+                    if !cost.eq_ignore_ascii_case("local") {
+                        let conn = if cost.eq_ignore_ascii_case("p2p") { "p2p" } else { "relay" };
+                        out.push(PeerConnType { ip: ip.to_string(), conn_type: conn.to_string() });
+                    }
+                }
+                // 继续向下遍历（多实例结构里 peer 列表可能在子字段）
+                map.values().for_each(|x| walk(x, out));
+            }
+            _ => {}
+        }
+    }
+    walk(&parsed, &mut result);
+    // 去重（同一 IP 保留首个）
+    let mut seen = std::collections::HashSet::new();
+    result.retain(|e| seen.insert(e.ip.clone()));
+    Ok(result)
+}
+
 // ==================== 窗口控制命令 ====================
 
 /// 设置窗口置顶状态

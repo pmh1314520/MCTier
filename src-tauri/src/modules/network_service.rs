@@ -1927,6 +1927,11 @@ impl NetworkService {
         self.virtual_ip.lock().await.clone()
     }
 
+    /// 获取当前 EasyTier 实例的 RPC 端口（供 easytier-cli 查询对等连接类型）
+    pub async fn get_rpc_port(&self) -> Option<u16> {
+        *self.rpc_port.lock().await
+    }
+
     /// 检查服务是否正在运行
     /// 
     /// # 返回

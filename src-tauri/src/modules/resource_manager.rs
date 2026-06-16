@@ -8,6 +8,8 @@ use tauri::Manager;
 #[allow(dead_code)]
 static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-core.exe");
 #[allow(dead_code)]
+static EASYTIER_CLI_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-cli.exe");
+#[allow(dead_code)]
 static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.dll");
 #[allow(dead_code)]
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
@@ -144,6 +146,21 @@ impl ResourceManager {
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES)
+        }
+    }
+
+    /// 获取 easytier-cli 可执行文件的路径（用于查询对等连接类型 P2P/中继）
+    pub fn get_easytier_cli_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+        #[cfg(debug_assertions)]
+        {
+            if let Some(path) = Self::find_debug_binary(app_handle, "easytier-cli.exe") {
+                return Ok(path);
+            }
+            return Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES);
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES)
         }
     }
     
