@@ -5,6 +5,8 @@ import { getCurrentWindow, PhysicalSize } from '@tauri-apps/api/window';
 import { useAppStore } from '../../stores';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
 import { ScreenShareIcon, InfoIcon } from '../icons';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import type { ScreenShare } from '../../types';
 import './ScreenShareManager.css';
 
@@ -13,6 +15,7 @@ import './ScreenShareManager.css';
  * 完全独立管理屏幕共享状态，不依赖父组件
  */
 export const ScreenShareManager: React.FC = () => {
+  useTranslation();
   const { currentPlayerId } = useAppStore();
   const [activeShares, setActiveShares] = useState<ScreenShare[]>([]);
   const [myShareId, setMyShareId] = useState<string | null>(null);
@@ -107,7 +110,7 @@ export const ScreenShareManager: React.FC = () => {
             console.log('⚠️ [ScreenShareManager] 视频播放被中断（正常行为）');
           } else {
             console.error('❌ [ScreenShareManager] 视频播放失败:', playError);
-            message.error('视频播放失败');
+            message.error(tl('视频播放失败', 'Video playback failed'));
           }
         }
       };
@@ -156,18 +159,18 @@ export const ScreenShareManager: React.FC = () => {
       setMyShareId(shareId);
       setShowStartModal(false);
       setPassword('');
-      message.success('屏幕共享已启动');
+      message.success(tl('屏幕共享已启动', 'Screen sharing started'));
 
       console.log('✅ 屏幕共享已启动:', shareId);
     } catch (error: any) {
       console.error('❌ 启动屏幕共享失败:', error);
       
       if (error.name === 'NotAllowedError') {
-        message.error('用户拒绝了屏幕共享权限');
+        message.error(tl('用户拒绝了屏幕共享权限', 'Screen share permission denied'));
       } else if (error.name === 'NotFoundError') {
-        message.error('未找到可共享的屏幕');
+        message.error(tl('未找到可共享的屏幕', 'No screen available to share'));
       } else {
-        message.error('启动屏幕共享失败');
+        message.error(tl('启动屏幕共享失败', 'Failed to start screen sharing'));
       }
     }
   };
@@ -178,7 +181,7 @@ export const ScreenShareManager: React.FC = () => {
       console.log('🛑 [ScreenShareManager] 停止屏幕共享:', myShareId);
       screenShareService.stopSharing(myShareId);
       setMyShareId(null);
-      message.success('屏幕共享已停止');
+      message.success(tl('屏幕共享已停止', 'Screen sharing stopped'));
     }
   };
 
@@ -242,7 +245,7 @@ export const ScreenShareManager: React.FC = () => {
       console.log('✅ [ScreenShareManager] 已设置viewingShareId和pendingStream，等待useEffect播放视频');
     } catch (error) {
       console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
-      message.error('查看屏幕失败');
+      message.error(tl('查看屏幕失败', 'Failed to view screen'));
     }
   };
 
@@ -251,7 +254,7 @@ export const ScreenShareManager: React.FC = () => {
     if (!selectedShare) return;
 
     if (!passwordInput.trim()) {
-      message.warning('请输入密码');
+      message.warning(tl('请输入密码', 'Please enter the password'));
       return;
     }
 
@@ -391,7 +394,7 @@ export const ScreenShareManager: React.FC = () => {
                 onClick={handleStopViewing}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                title="停止查看"
+                title={tl('停止查看', 'Stop watching')}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -415,14 +418,14 @@ export const ScreenShareManager: React.FC = () => {
         {/* 提示信息 */}
         <div className="screen-share-hint">
           <InfoIcon size={14} />
-          <span>每个屏幕同时仅支持被一名玩家查看</span>
+          <span>{tl('每个屏幕同时仅支持被一名玩家查看', 'Each screen can be viewed by only one player at a time')}</span>
         </div>
         
         {activeShares.length === 0 ? (
           <div className="empty-state">
             <ScreenShareIcon size={48} />
-            <p>当前没有玩家共享屏幕</p>
-            <p className="empty-hint">点击"开始共享"按钮分享你的屏幕</p>
+            <p>{tl('当前没有玩家共享屏幕', 'No one is sharing their screen')}</p>
+            <p className="empty-hint">{tl('点击"开始共享"按钮分享你的屏幕', 'Click Start Sharing to share your screen')}</p>
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
@@ -459,7 +462,7 @@ export const ScreenShareManager: React.FC = () => {
 
                     <div className="share-badges">
                       {share.requirePassword && (
-                        <Tooltip title="需要密码" placement="top">
+                        <Tooltip title={tl('需要密码', 'Password required')} placement="top">
                           <div className="password-badge">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
@@ -469,7 +472,7 @@ export const ScreenShareManager: React.FC = () => {
                         </Tooltip>
                       )}
                       {isBeingViewed && (
-                        <Tooltip title="正在被查看" placement="top">
+                        <Tooltip title={tl('正在被查看', 'Being viewed')} placement="top">
                           <div className="viewing-badge">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -494,7 +497,7 @@ export const ScreenShareManager: React.FC = () => {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                         </svg>
-                        <span>查看中</span>
+                        <span>{tl('查看中', 'Viewing')}</span>
                       </>
                     ) : (
                       <>
@@ -502,7 +505,7 @@ export const ScreenShareManager: React.FC = () => {
                           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                           <circle cx="12" cy="12" r="3" />
                         </svg>
-                        <span>查看</span>
+                        <span>{tl('查看', 'View')}</span>
                       </>
                     )}
                   </motion.button>
@@ -523,7 +526,7 @@ export const ScreenShareManager: React.FC = () => {
             whileTap={{ scale: 0.95 }}
           >
             <ScreenShareIcon size={16} />
-            <span>开始共享</span>
+            <span>{tl('开始共享', 'Start Sharing')}</span>
           </motion.button>
         ) : (
           <motion.button
@@ -535,14 +538,14 @@ export const ScreenShareManager: React.FC = () => {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="6" y="6" width="12" height="12" />
             </svg>
-            <span>停止共享</span>
+            <span>{tl('停止共享', 'Stop Sharing')}</span>
           </motion.button>
         )}
       </div>
 
       {/* 开始共享模态框 */}
       <Modal
-        title="开始屏幕共享"
+        title={tl('开始屏幕共享', 'Start Screen Sharing')}
         open={showStartModal}
         onOk={handleStartSharingInternal}
         onCancel={() => {
@@ -556,7 +559,7 @@ export const ScreenShareManager: React.FC = () => {
       >
         <div className="start-share-modal-content">
           <div className="modal-option">
-            <span>需要密码才能查看</span>
+            <span>{tl('需要密码才能查看', 'Require a password to view')}</span>
             <Switch
               checked={requirePassword}
               onChange={setRequirePassword}
@@ -581,14 +584,14 @@ export const ScreenShareManager: React.FC = () => {
 
           <div className="modal-hint">
             <InfoIcon size={16} />
-            <span>其他玩家将能够实时查看你的屏幕</span>
+            <span>{tl('其他玩家将能够实时查看你的屏幕', 'Other players will be able to view your screen in real time')}</span>
           </div>
         </div>
       </Modal>
 
       {/* 密码验证模态框 */}
       <Modal
-        title="输入密码"
+        title={tl('输入密码', 'Enter Password')}
         open={showPasswordModal}
         onOk={handlePasswordSubmit}
         onCancel={() => {
@@ -601,9 +604,9 @@ export const ScreenShareManager: React.FC = () => {
         centered
       >
         <div className="password-modal-content">
-          <p>该屏幕共享需要密码才能查看</p>
+          <p>{tl('该屏幕共享需要密码才能查看', 'This screen share requires a password to view')}</p>
           <Input.Password
-            placeholder="请输入密码"
+            placeholder={tl('请输入密码', 'Enter password')}
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
             onPressEnter={handlePasswordSubmit}

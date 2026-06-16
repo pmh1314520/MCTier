@@ -12,6 +12,8 @@ import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../../stores/appStore';
 import type { SharedFolder, FileInfo } from '../../types/fileShare';
 import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './FileShareManager.css';
 
 // 简化的远程共享类型
@@ -43,6 +45,7 @@ interface DownloadTask {
 let downloadsCache: DownloadTask[] = [];
 
 export const FileShareManagerNew: React.FC = () => {
+  useTranslation();
   // 基础状态
   const [activeTab, setActiveTab] = useState<'local' | 'remote' | 'transfers'>('local');
   const [localShares, setLocalShares] = useState<SharedFolder[]>([]);
@@ -164,7 +167,7 @@ export const FileShareManagerNew: React.FC = () => {
         setCurrentPath('');
         setFiles([]);
         setSelectedFiles(new Set());
-        message.warning('该共享文件夹已被删除');
+        message.warning(tl('该共享文件夹已被删除', 'This shared folder has been deleted'));
       }
     }
     
@@ -245,7 +248,7 @@ export const FileShareManagerNew: React.FC = () => {
         setCurrentPath('');
         setFiles([]);
         setSelectedFiles(new Set());
-        message.warning('该共享文件夹已被删除');
+        message.warning(tl('该共享文件夹已被删除', 'This shared folder has been deleted'));
       }
     };
     
@@ -289,7 +292,7 @@ export const FileShareManagerNew: React.FC = () => {
                 setCurrentPath('');
                 setFiles([]);
                 setSelectedFiles(new Set());
-                message.warning('该共享文件夹已过期');
+                message.warning(tl('该共享文件夹已过期', 'This shared folder has expired'));
               }
             }
           }
@@ -331,10 +334,10 @@ export const FileShareManagerNew: React.FC = () => {
         // 不影响主流程
       }
       
-      message.success('删除共享成功');
+      message.success(tl('删除共享成功', 'Share deleted'));
       loadLocalShares();
     } catch (error) {
-      message.error('删除共享失败');
+      message.error(tl('删除共享失败', 'Failed to delete share'));
     }
   };
 
@@ -364,7 +367,7 @@ export const FileShareManagerNew: React.FC = () => {
           password: passwordToVerify,
         });
         if (!valid) {
-          message.error('密码错误');
+          message.error(tl('密码错误', 'Wrong password'));
           return;
         }
 
@@ -383,7 +386,7 @@ export const FileShareManagerNew: React.FC = () => {
       setPendingShare(null);
       pendingBrowsePathRef.current = '';
     } catch (error) {
-      message.error('打开共享失败');
+      message.error(tl('打开共享失败', 'Failed to open share'));
     }
   };
 
@@ -401,7 +404,7 @@ export const FileShareManagerNew: React.FC = () => {
       if (!response.ok) {
         if (response.status === 401) {
           const retryPath = path;
-          message.error('访问被拒绝，请重新输入密码');
+          message.error(tl('访问被拒绝，请重新输入密码', 'Access denied, please re-enter the password'));
           setSharePasswordMap(prev => {
             const next = { ...prev };
             delete next[getShareKey(remoteShare.ownerIp, remoteShare.share.id)];
@@ -425,7 +428,7 @@ export const FileShareManagerNew: React.FC = () => {
     } catch (error) {
       const errorMessage = String(error);
       if (!errorMessage.includes('HTTP 401')) {
-        message.error('加载文件列表失败');
+        message.error(tl('加载文件列表失败', 'Failed to load file list'));
       }
     } finally {
       setLoadingFiles(false);
@@ -497,7 +500,7 @@ export const FileShareManagerNew: React.FC = () => {
       // 开始下载
       startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       
-      message.success('开始下载文件');
+      message.success(tl('开始下载文件', 'Download started'));
     } catch (error) {
       message.error(`下载失败: ${error}`);
     }
@@ -544,7 +547,7 @@ export const FileShareManagerNew: React.FC = () => {
       setDownloads(prev => prev.map(task =>
         task.id === taskId ? { ...task, status: 'completed' as const, downloaded: fileSize || task.downloaded, speed: 0 } : task
       ));
-      message.success('下载完成');
+      message.success(tl('下载完成', 'Download complete'));
     } catch (error: any) {
       const errStr = String(error);
       // 用户主动取消不视为失败
@@ -564,14 +567,14 @@ export const FileShareManagerNew: React.FC = () => {
   // 批量下载选中的文件
   const handleBatchDownload = async () => {
     if (!selectedShare || selectedFiles.size === 0) {
-      message.warning('请先选择要下载的文件');
+      message.warning(tl('请先选择要下载的文件', 'Select files to download first'));
       return;
     }
 
     const selectedFileList = files.filter(f => !f.is_dir && selectedFiles.has(f.path));
     
     if (selectedFileList.length === 0) {
-      message.warning('没有选中任何文件');
+      message.warning(tl('没有选中任何文件', 'No files selected'));
       return;
     }
 
@@ -720,7 +723,7 @@ export const FileShareManagerNew: React.FC = () => {
       setDownloads(prev => [...prev, newTask]);
       startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       
-      message.success('开始下载');
+      message.success(tl('开始下载', 'Download started'));
       
       // 清空选中状态
       setSelectedFiles(new Set());
@@ -834,7 +837,7 @@ export const FileShareManagerNew: React.FC = () => {
     }
     
     setDownloads(prev => prev.filter(t => t.id !== taskId));
-    message.success('已取消下载');
+    message.success(tl('已取消下载', 'Download canceled'));
   };
 
   // 打开文件所在文件夹
@@ -892,7 +895,7 @@ export const FileShareManagerNew: React.FC = () => {
             onClick={() => setActiveTab('local')} 
             whileHover={{ x: 4 }} 
             whileTap={{ scale: 0.95 }} 
-            title="我的共享"
+            title={tl('我的共享', 'My Shares')}
           >
             <FolderIcon size={20} />
           </motion.div>
@@ -901,7 +904,7 @@ export const FileShareManagerNew: React.FC = () => {
             onClick={() => setActiveTab('remote')} 
             whileHover={{ x: 4 }} 
             whileTap={{ scale: 0.95 }} 
-            title="远程共享"
+            title={tl('远程共享', 'Remote Shares')}
           >
             <ShareIcon size={20} />
           </motion.div>
@@ -910,7 +913,7 @@ export const FileShareManagerNew: React.FC = () => {
             onClick={() => setActiveTab('transfers')} 
             whileHover={{ x: 4 }} 
             whileTap={{ scale: 0.95 }} 
-            title="传输列表"
+            title={tl('传输列表', 'Transfers')}
           >
             <DownloadIcon size={20} />
             {downloads.filter(t => t.status === 'downloading').length > 0 && (
@@ -925,7 +928,7 @@ export const FileShareManagerNew: React.FC = () => {
             {activeTab === 'local' && (
               <motion.div key="local" className="tab-content" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.2 }}>
                 <div className="share-list">
-                  <Button type="primary" icon={<FolderIcon size={16} />} onClick={() => setShowAddShare(true)} style={{ marginBottom: 16 }}>添加共享文件夹</Button>
+                  <Button type="primary" icon={<FolderIcon size={16} />} onClick={() => setShowAddShare(true)} style={{ marginBottom: 16 }}>{tl('添加共享文件夹', 'Add shared folder')}</Button>
                   <AnimatePresence>
                     {localShares.map((share) => (
                       <motion.div key={share.id} className="share-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
@@ -934,11 +937,11 @@ export const FileShareManagerNew: React.FC = () => {
                           <div className="share-name">{share.name}</div>
                           <div className="share-meta">{share.password && '🔒 '}{share.compress_before_send && '📦 '}{share.expire_time && `⏰ ${formatTime(share.expire_time)}`}</div>
                         </div>
-                        <button className="delete-share-btn" onClick={() => handleDeleteShare(share.id)} title="删除共享"><TrashIcon size={16} /></button>
+                        <button className="delete-share-btn" onClick={() => handleDeleteShare(share.id)} title={tl('删除共享', 'Delete share')}><TrashIcon size={16} /></button>
                       </motion.div>
                     ))}
                   </AnimatePresence>
-                  {localShares.length === 0 && <div className="empty-state"><ShareIcon size={48} /><p>还没有共享文件夹</p></div>}
+                  {localShares.length === 0 && <div className="empty-state"><ShareIcon size={48} /><p>{tl('还没有共享文件夹', 'No shared folders yet')}</p></div>}
                 </div>
               </motion.div>
             )}
@@ -957,10 +960,10 @@ export const FileShareManagerNew: React.FC = () => {
                           {/* 右上角状态图标 */}
                           <div className="share-status-icons">
                             {remoteShare.share.password && (
-                              <div className="status-icon lock-icon" title="需要密码">🔒</div>
+                              <div className="status-icon lock-icon" title={tl('需要密码', 'Password required')}>🔒</div>
                             )}
                             {remoteShare.share.compress_before_send && (
-                              <div className="status-icon compress-icon" title="先压后发">📦</div>
+                              <div className="status-icon compress-icon" title={tl('先压后发', 'Compress before send')}>📦</div>
                             )}
                             {remoteShare.share.expire_time && (
                               <div className="status-icon expiry-icon" title={`有效期至 ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`}>⏰</div>
@@ -969,22 +972,22 @@ export const FileShareManagerNew: React.FC = () => {
                         </motion.div>
                       ))}
                     </AnimatePresence>
-                    {remoteShares.length === 0 && <div className="empty-state"><ShareIcon size={48} /><p>暂无可用的共享文件夹</p></div>}
+                    {remoteShares.length === 0 && <div className="empty-state"><ShareIcon size={48} /><p>{tl('暂无可用的共享文件夹', 'No shared folders available')}</p></div>}
                   </div>
                 ) : (
                   <div className="file-browser">
                     <div className="browser-header">
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
-                        <Button size="small" onClick={handleGoBack} disabled={!currentPath} icon={<BackIcon size={16} />} title="返回上级" />
-                        <Button size="small" onClick={handleGoToRoot} disabled={!currentPath} title="返回根目录">根目录</Button>
-                        <Button size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? '取消全选' : '全选文件'}>
-                          {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? '取消全选' : '全选'}
+                        <Button size="small" onClick={handleGoBack} disabled={!currentPath} icon={<BackIcon size={16} />} title={tl('返回上级', 'Up')} />
+                        <Button size="small" onClick={handleGoToRoot} disabled={!currentPath} title={tl('返回根目录', 'Root')}>{tl('根目录', 'Root')}</Button>
+                        <Button size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? tl('取消全选', 'Deselect all') : tl('全选文件', 'Select all files')}>
+                          {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? tl('取消全选', 'Deselect all') : tl('全选', 'Select all')}
                         </Button>
                       </div>
-                      <Button size="small" onClick={handleExitShareBrowser} icon={<CloseIcon size={16} />} title="关闭" style={{ marginLeft: 'auto' }} />
+                      <Button size="small" onClick={handleExitShareBrowser} icon={<CloseIcon size={16} />} title={tl('关闭', 'Close')} style={{ marginLeft: 'auto' }} />
                     </div>
                     <div className="file-list">
-                      {loadingFiles ? <div className="loading-state">加载中...</div> : (
+                      {loadingFiles ? <div className="loading-state">{tl('加载中...', 'Loading...')}</div> : (
                         <AnimatePresence>
                           {files.map((file) => (
                             <motion.div 
@@ -1030,7 +1033,7 @@ export const FileShareManagerNew: React.FC = () => {
                                   size="small" 
                                   icon={<DownloadIcon size={14} />} 
                                   onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }} 
-                                  title="下载"
+                                  title={tl('下载', 'Download')}
                                   style={{ flexShrink: 0 }}
                                 />
                               )}
@@ -1038,7 +1041,7 @@ export const FileShareManagerNew: React.FC = () => {
                           ))}
                         </AnimatePresence>
                       )}
-                      {!loadingFiles && files.length === 0 && <div className="empty-state"><FolderIcon size={48} /><p>文件夹为空</p></div>}
+                      {!loadingFiles && files.length === 0 && <div className="empty-state"><FolderIcon size={48} /><p>{tl('文件夹为空', 'Folder is empty')}</p></div>}
                     </div>
                     {/* 悬浮批量下载按钮 */}
                     {selectedFiles.size > 0 && (
@@ -1129,7 +1132,7 @@ export const FileShareManagerNew: React.FC = () => {
                       return (
                         <div className="empty-state">
                           <DownloadIcon size={48} />
-                          <p>{transferSubTab === 'downloading' ? '暂无正在下载的任务' : '暂无已完成的任务'}</p>
+                          <p>{transferSubTab === 'downloading' ? tl('暂无正在下载的任务', 'No active downloads') : tl('暂无已完成的任务', 'No completed downloads')}</p>
                         </div>
                       );
                     }
@@ -1151,7 +1154,7 @@ export const FileShareManagerNew: React.FC = () => {
                               <button
                                 className="transfer-cancel-btn"
                                 onClick={(e) => { e.stopPropagation(); handleCancelDownload(task.id); }}
-                                title="取消下载"
+                                title={tl('取消下载', 'Cancel download')}
                               >
                                 <CloseIcon size={12} />
                               </button>
@@ -1202,6 +1205,7 @@ interface AddShareDialogProps {
 }
 
 const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuccess }) => {
+  useTranslation();
   const [folderPath, setFolderPath] = useState('');
   const [folderName, setFolderName] = useState('');
   const [hasPassword, setHasPassword] = useState(false);
