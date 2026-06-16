@@ -914,7 +914,7 @@ export const MiniWindow: React.FC = () => {
     try {
       setVersionUpdating(true);
       setVersionUpdateProgress(0);
-      message.loading({ content: '正在获取最新安装包…', key: 'mctier-update', duration: 0 });
+      message.loading({ content: tl('正在获取最新安装包…', 'Fetching the latest installer…'), key: 'mctier-update', duration: 0 });
       const url = await versionCheckService.fetchLatestInstallerUrl();
       if (!url) {
         message.destroy('mctier-update');
@@ -923,7 +923,7 @@ export const MiniWindow: React.FC = () => {
         setVersionUpdating(false);
         return;
       }
-      message.loading({ content: '正在下载并更新，请勿关闭软件…', key: 'mctier-update', duration: 0 });
+      message.loading({ content: tl('正在下载并更新，请勿关闭软件…', 'Downloading and updating, please keep the app open…'), key: 'mctier-update', duration: 0 });
       await invoke('download_and_run_installer', { url });
       message.destroy('mctier-update');
       message.success(tl('下载完成，即将启动安装程序…', 'Download complete, launching the installer…'));

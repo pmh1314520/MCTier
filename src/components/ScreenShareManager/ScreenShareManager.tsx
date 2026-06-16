@@ -553,8 +553,8 @@ export const ScreenShareManager: React.FC = () => {
           setPassword('');
           setRequirePassword(false);
         }}
-        okText="开始共享"
-        cancelText="取消"
+        okText={tl('开始共享', 'Start Sharing')}
+        cancelText={tl('取消', 'Cancel')}
         centered
       >
         <div className="start-share-modal-content">
@@ -574,7 +574,7 @@ export const ScreenShareManager: React.FC = () => {
               exit={{ opacity: 0, height: 0 }}
             >
               <Input.Password
-                placeholder="设置查看密码"
+                placeholder={tl('设置查看密码', 'Set a viewing password')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 maxLength={20}
@@ -599,8 +599,8 @@ export const ScreenShareManager: React.FC = () => {
           setPasswordInput('');
           setSelectedShare(null);
         }}
-        okText="确认"
-        cancelText="取消"
+        okText={tl('确认', 'Confirm')}
+        cancelText={tl('取消', 'Cancel')}
         centered
       >
         <div className="password-modal-content">

@@ -868,13 +868,13 @@ export const FileShareManagerNew: React.FC = () => {
   const formatTime = (timestamp: number): string => {
     const now = Math.floor(Date.now() / 1000);
     const remaining = timestamp - now;
-    if (remaining <= 0) return '已过期';
+    if (remaining <= 0) return tl('已过期', 'Expired');
     const days = Math.floor(remaining / (24 * 60 * 60));
     const hours = Math.floor((remaining % (24 * 60 * 60)) / (60 * 60));
     const minutes = Math.floor((remaining % (60 * 60)) / 60);
-    if (days > 0) return `${days}天${hours}时`;
-    else if (hours > 0) return `${hours}时${minutes}分`;
-    else return `${minutes}分钟`;
+    if (days > 0) return `${days}${tl('天', 'd')}${hours}${tl('时', 'h')}`;
+    else if (hours > 0) return `${hours}${tl('时', 'h')}${minutes}${tl('分', 'm')}`;
+    else return `${minutes}${tl('分钟', 'min')}`;
   };
 
   // 格式化速度
@@ -1190,8 +1190,8 @@ export const FileShareManagerNew: React.FC = () => {
         </div>
       </div>
       {showAddShare && <AddShareDialog visible={showAddShare} onClose={() => setShowAddShare(false)} onSuccess={() => { setShowAddShare(false); loadLocalShares(); }} />}
-      <Modal title="输入密码" open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText="确定" cancelText="取消" centered width={400}>
-        <div style={{ marginTop: 16 }}><Input.Password autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder="请输入共享密码" /></div>
+      <Modal title={tl('输入密码', 'Enter Password')} open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} centered width={400}>
+        <div style={{ marginTop: 16 }}><Input.Password autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder={tl('请输入共享密码', 'Enter the share password')} /></div>
       </Modal>
     </div>
   );
@@ -1226,7 +1226,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
       if (path) {
         setFolderPath(path);
         const name = await invoke<string>('get_folder_name', { path });
-        setFolderName(name || '未命名文件夹');
+        setFolderName(name || tl('未命名文件夹', 'Unnamed folder'));
       }
     } catch (error) {
       message.error(`${tl('选择文件夹失败', 'Failed to select folder')}: ${error}`);
@@ -1275,7 +1275,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
             from: currentPlayerId,
             shareId: share.id,
             shareName: share.name,
-            playerName: config.playerName || '未知玩家',
+            playerName: config.playerName || tl('未知玩家', 'Unknown Player'),
             hasPassword: !!share.password,
           });
         }
@@ -1294,34 +1294,34 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
   };
 
   return (
-    <Modal title="添加共享文件夹" open={visible} onCancel={onClose} onOk={handleSubmit} confirmLoading={loading} okText="确定" cancelText="取消" width={500}>
+    <Modal title={tl('添加共享文件夹', 'Add Shared Folder')} open={visible} onCancel={onClose} onOk={handleSubmit} confirmLoading={loading} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} width={500}>
       <div className="add-share-form">
         <div className="form-item">
-          <label>选择文件夹</label>
+          <label>{tl('选择文件夹', 'Select Folder')}</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Input value={folderPath} placeholder="点击选择文件夹" readOnly />
-            <Button onClick={handleSelectFolder}>选择</Button>
+            <Input value={folderPath} placeholder={tl('点击选择文件夹', 'Click to select a folder')} readOnly />
+            <Button onClick={handleSelectFolder}>{tl('选择', 'Select')}</Button>
           </div>
         </div>
         <div className="form-item">
-          <label><Switch checked={hasPassword} onChange={setHasPassword} /><span style={{ marginLeft: 8 }}>密码保护</span></label>
-          {hasPassword && <Input.Password value={password} onChange={(e) => setPassword(e.target.value)} placeholder="输入密码" style={{ marginTop: 8 }} />}
+          <label><Switch checked={hasPassword} onChange={setHasPassword} /><span style={{ marginLeft: 8 }}>{tl('密码保护', 'Password Protection')}</span></label>
+          {hasPassword && <Input.Password value={password} onChange={(e) => setPassword(e.target.value)} placeholder={tl('输入密码', 'Enter password')} style={{ marginTop: 8 }} />}
         </div>
         <div className="form-item">
-          <label><Switch checked={hasExpiry} onChange={setHasExpiry} /><span style={{ marginLeft: 8 }}>设置有效期</span></label>
+          <label><Switch checked={hasExpiry} onChange={setHasExpiry} /><span style={{ marginLeft: 8 }}>{tl('设置有效期', 'Set Expiry')}</span></label>
           {hasExpiry && (
             <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Input type="number" min={0} value={expiryDays} onChange={(e) => setExpiryDays(Math.max(0, parseInt(e.target.value) || 0))} placeholder="0" style={{ width: '80px' }} />
-                <span>天</span>
+                <span>{tl('天', 'd')}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Input type="number" min={0} max={23} value={expiryHours} onChange={(e) => setExpiryHours(Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))} placeholder="0" style={{ width: '80px' }} />
-                <span>时</span>
+                <span>{tl('时', 'h')}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Input type="number" min={0} max={59} value={expiryMinutes} onChange={(e) => setExpiryMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))} placeholder="0" style={{ width: '80px' }} />
-                <span>分</span>
+                <span>{tl('分', 'm')}</span>
               </div>
             </div>
           )}
@@ -1329,10 +1329,10 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
         <div className="form-item">
           <label>
             <Switch checked={compressBeforeSend} onChange={setCompressBeforeSend} />
-            <span style={{ marginLeft: 8 }}>先压后发</span>
+            <span style={{ marginLeft: 8 }}>{tl('先压后发', 'Compress Before Sending')}</span>
           </label>
           <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
-            开启后，其他玩家批量下载多个文件时，会先自动打包成ZIP压缩包再下载
+            {tl('开启后，其他玩家批量下载多个文件时，会先自动打包成ZIP压缩包再下载', 'When enabled, batch downloads of multiple files are packed into a ZIP archive first')}
           </div>
         </div>
       </div>
