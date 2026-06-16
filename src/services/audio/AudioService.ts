@@ -1,96 +1,140 @@
 /**
  * 音效服务
  * 管理应用中的所有音效播放
+ * 支持：自定义提示音（可恢复默认）、音量调节、消息免打扰时段
  */
 
+import { convertFileSrc } from '@tauri-apps/api/core';
+
 export type SoundType = 'newMessage' | 'userJoined' | 'userLeft';
+
+const DEFAULT_SRC: Record<SoundType, string> = {
+  newMessage: '/NewMsg.mp3',
+  userJoined: '/UserJoined.mp3',
+  userLeft: '/UserLeft.mp3',
+};
+
+const LS_KEY = 'mctier_sound_settings';
+
+interface SoundSettings {
+  volume: number; // 0~1
+  custom: Partial<Record<SoundType, string>>; // 自定义音频文件路径（空=默认）
+  dndEnabled: boolean;
+  dndStart: number; // 自 00:00 起的分钟数
+  dndEnd: number;
+}
+
+const defaultSettings: SoundSettings = {
+  volume: 0.5,
+  custom: {},
+  dndEnabled: false,
+  dndStart: 22 * 60,
+  dndEnd: 8 * 60,
+};
 
 class AudioService {
   private sounds: Map<SoundType, HTMLAudioElement> = new Map();
   private enabled: boolean = true;
+  private settings: SoundSettings = defaultSettings;
 
   constructor() {
+    this.loadSettings();
     this.initializeSounds();
   }
 
-  /**
-   * 初始化所有音效
-   */
-  private initializeSounds() {
+  private loadSettings() {
     try {
-      // 新消息音效
-      const newMessageSound = new Audio('/NewMsg.mp3');
-      newMessageSound.volume = 0.5;
-      this.sounds.set('newMessage', newMessageSound);
-
-      // 用户加入音效
-      const userJoinedSound = new Audio('/UserJoined.mp3');
-      userJoinedSound.volume = 0.5;
-      this.sounds.set('userJoined', userJoinedSound);
-
-      // 用户离开音效
-      const userLeftSound = new Audio('/UserLeft.mp3');
-      userLeftSound.volume = 0.5;
-      this.sounds.set('userLeft', userLeftSound);
-
-      console.log('音效系统初始化成功');
-    } catch (error) {
-      console.error('音效系统初始化失败:', error);
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) this.settings = { ...defaultSettings, ...JSON.parse(raw) };
+    } catch {
+      this.settings = { ...defaultSettings };
     }
   }
 
-  /**
-   * 播放指定音效
-   */
-  async play(soundType: SoundType): Promise<void> {
-    if (!this.enabled) {
-      console.log('音效已禁用，跳过播放:', soundType);
-      return;
-    }
+  private persist() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(this.settings)); } catch { /* ignore */ }
+  }
 
+  getSettings(): SoundSettings { return { ...this.settings, custom: { ...this.settings.custom } }; }
+
+  /** 初始化所有音效（按自定义/默认源） */
+  private initializeSounds() {
+    (Object.keys(DEFAULT_SRC) as SoundType[]).forEach((type) => {
+      this.rebuild(type);
+    });
+    console.log('音效系统初始化成功');
+  }
+
+  private rebuild(type: SoundType) {
+    try {
+      const custom = this.settings.custom[type];
+      let src: string;
+      if (!custom) src = DEFAULT_SRC[type];
+      else if (custom.startsWith('data:') || custom.startsWith('http')) src = custom; // data URL 或网络地址直接用
+      else src = convertFileSrc(custom); // 本地文件路径
+      const audio = new Audio(src);
+      audio.volume = this.settings.volume;
+      this.sounds.set(type, audio);
+    } catch (error) {
+      console.error('构建音效失败:', type, error);
+    }
+  }
+
+  /** 是否处于免打扰时段（支持跨午夜） */
+  private inDnd(): boolean {
+    if (!this.settings.dndEnabled) return false;
+    const now = new Date();
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const { dndStart: s, dndEnd: e } = this.settings;
+    return s <= e ? cur >= s && cur < e : cur >= s || cur < e;
+  }
+
+  /** 播放指定音效 */
+  async play(soundType: SoundType): Promise<void> {
+    if (!this.enabled) return;
+    if (this.inDnd()) { console.log('免打扰时段，跳过音效:', soundType); return; }
     try {
       const sound = this.sounds.get(soundType);
-      if (!sound) {
-        console.warn('未找到音效:', soundType);
-        return;
-      }
-
-      // 重置音频到开始位置
+      if (!sound) return;
       sound.currentTime = 0;
-      
-      // 播放音效
       await sound.play();
-      console.log('播放音效:', soundType);
     } catch (error) {
       console.error('播放音效失败:', soundType, error);
     }
   }
 
-  /**
-   * 设置音效音量
-   */
+  /** 设置音效音量（持久化） */
   setVolume(volume: number) {
-    const clampedVolume = Math.max(0, Math.min(1, volume));
-    this.sounds.forEach(sound => {
-      sound.volume = clampedVolume;
-    });
-    console.log('音效音量已设置为:', clampedVolume);
+    const v = Math.max(0, Math.min(1, volume));
+    this.settings.volume = v;
+    this.sounds.forEach((sound) => { sound.volume = v; });
+    this.persist();
   }
 
-  /**
-   * 启用或禁用音效
-   */
-  setEnabled(enabled: boolean) {
-    this.enabled = enabled;
-    console.log('音效系统', enabled ? '已启用' : '已禁用');
+  /** 设置自定义提示音（path 为本地文件绝对路径） */
+  setCustomSound(type: SoundType, path: string) {
+    this.settings.custom[type] = path;
+    this.rebuild(type);
+    this.persist();
   }
 
-  /**
-   * 获取音效启用状态
-   */
-  isEnabled(): boolean {
-    return this.enabled;
+  /** 恢复某提示音为默认 */
+  resetSound(type: SoundType) {
+    delete this.settings.custom[type];
+    this.rebuild(type);
+    this.persist();
   }
+
+  /** 设置免打扰时段 */
+  setDnd(enabled: boolean, start?: number, end?: number) {
+    this.settings.dndEnabled = enabled;
+    if (typeof start === 'number') this.settings.dndStart = start;
+    if (typeof end === 'number') this.settings.dndEnd = end;
+    this.persist();
+  }
+
+  setEnabled(enabled: boolean) { this.enabled = enabled; }
+  isEnabled(): boolean { return this.enabled; }
 }
 
 // 导出单例

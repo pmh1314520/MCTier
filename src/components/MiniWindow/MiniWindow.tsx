@@ -84,8 +84,9 @@ export const MiniWindow: React.FC = () => {
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
-  const [peerLatencies, setPeerLatencies] = useState<Record<string, number | null>>({}); // 各玩家虚拟IP->延迟ms
+  const [peerLatencies, setPeerLatencies] = useState<Record<string, { latencyMs: number | null; lossRate: number }>>({}); // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
+  const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
   
   // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
   const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
@@ -303,13 +304,13 @@ export const MiniWindow: React.FC = () => {
       const ips = players.map(p => p.virtualIp).filter(Boolean) as string[];
       if (ips.length === 0) return;
       try {
-        const results = await invoke<{ ip: string; latencyMs: number | null }[]>(
+        const results = await invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>(
           'measure_peers_latency',
           { peerIps: ips }
         );
         if (cancelled) return;
-        const map: Record<string, number | null> = {};
-        results.forEach(r => { map[r.ip] = r.latencyMs; });
+        const map: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+        results.forEach(r => { map[r.ip] = { latencyMs: r.latencyMs, lossRate: r.lossRate ?? 0 }; });
         setPeerLatencies(map);
       } catch (error) {
         console.warn('测量延迟失败（忽略）:', error);
@@ -1453,6 +1454,18 @@ export const MiniWindow: React.FC = () => {
                                 {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
                                   <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
                                 )}
+                                <span
+                                  className="fav-player-star"
+                                  title={favPlayers.includes(player.name) ? '取消收藏队友' : '收藏队友'}
+                                  onClick={() => {
+                                    const fav = recentService.toggleFavoritePlayer(player.name);
+                                    setFavPlayers(recentService.getFavoritePlayers());
+                                    message.success(fav ? `已收藏队友 ${player.name}` : `已取消收藏 ${player.name}`);
+                                  }}
+                                  style={{ marginLeft: 6, cursor: 'pointer', color: favPlayers.includes(player.name) ? '#FFD24A' : 'rgba(255,255,255,0.35)' }}
+                                >
+                                  {favPlayers.includes(player.name) ? '★' : '☆'}
+                                </span>
                               </span>
                               <div className="player-ip-row">
                                 <motion.button
@@ -1481,11 +1494,13 @@ export const MiniWindow: React.FC = () => {
                                   }
                                 </motion.button>
                                 {(() => {
-                                  const lat = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
-                                  if (lat === undefined) return null;
+                                  const q = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
+                                  if (q === undefined) return null;
+                                  const lat = q.latencyMs;
                                   const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
                                   const text = lat === null ? '离线' : `${lat}ms`;
                                   return (
+                                    <>
                                     <span
                                       title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, flexShrink: 0 }}
@@ -1493,6 +1508,15 @@ export const MiniWindow: React.FC = () => {
                                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
                                       {text}
                                     </span>
+                                    {q.lossRate > 0 && (
+                                      <span
+                                        title={`丢包率 ${q.lossRate}%`}
+                                        style={{ fontSize: 11, color: q.lossRate < 10 ? '#faad14' : '#ff4d4f', flexShrink: 0 }}
+                                      >
+                                        丢包{q.lossRate}%
+                                      </span>
+                                    )}
+                                    </>
                                   );
                                 })()}
                               </div>

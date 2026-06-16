@@ -34,6 +34,7 @@ export const ChatRoom: React.FC = () => {
   const [mentionStart, setMentionStart] = useState(-1);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -135,10 +136,15 @@ export const ChatRoom: React.FC = () => {
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !currentPlayerId) return;
     
-    const messageContent = inputValue.trim();
+    const text = inputValue.trim();
+    // 引用回复：在正文前加入 "> @名字 摘要" 引用行（与安卓端格式一致，跨端互通）
+    const messageContent = replyTo
+      ? `> @${replyTo.playerName} ${(replyTo.type === 'image' ? '[图片]' : (replyTo.content.split('\n')[0] || '')).slice(0, 40)}\n${text}`
+      : text;
     
     // 清空输入框
     setInputValue('');
+    setReplyTo(null);
     
     try {
       // 乐观更新：立即在本地显示自己发送的消息
@@ -166,7 +172,7 @@ export const ChatRoom: React.FC = () => {
       console.error('发送聊天消息失败:', error);
       antdMessage.error('发送消息失败');
       // 发送失败时恢复输入框内容
-      setInputValue(messageContent);
+      setInputValue(text);
     }
   };
 
@@ -762,9 +768,33 @@ export const ChatRoom: React.FC = () => {
                       )}
                     </div>
                   ) : (
-                    renderMessageText(message.content)
+                    (() => {
+                      const c = message.content;
+                      if (c.startsWith('> ')) {
+                        const nl = c.indexOf('\n');
+                        const quoteLine = (nl >= 0 ? c.slice(2, nl) : c.slice(2)).trim();
+                        const body = nl >= 0 ? c.slice(nl + 1) : '';
+                        return (
+                          <>
+                            {quoteLine && <div className="chat-quote">{quoteLine}</div>}
+                            {renderMessageText(body)}
+                          </>
+                        );
+                      }
+                      return renderMessageText(c);
+                    })()
                   )}
                 </div>
+                <button
+                  className="message-reply-btn"
+                  title="引用回复"
+                  onClick={() => setReplyTo(message)}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="9 17 4 12 9 7"></polyline>
+                    <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                  </svg>
+                </button>
                 
                 <span className="message-time-outside">
                   {formatTime(message.timestamp)}
@@ -870,6 +900,18 @@ export const ChatRoom: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* 引用回复预览 */}
+        {replyTo && (
+          <div className="reply-preview">
+            <div className="reply-preview-bar" />
+            <div className="reply-preview-body">
+              <div className="reply-preview-name">回复 {replyTo.playerName}</div>
+              <div className="reply-preview-text">{replyTo.type === 'image' ? '[图片]' : replyTo.content}</div>
+            </div>
+            <button className="reply-preview-close" onClick={() => setReplyTo(null)} title="取消引用">×</button>
+          </div>
+        )}
 
         <div className="chat-input-wrapper">
           <Button

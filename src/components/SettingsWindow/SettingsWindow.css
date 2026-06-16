@@ -772,3 +772,28 @@
 .settings-action-btn-reset:hover {
   background: linear-gradient(135deg, rgba(140, 100, 60, 0.3) 0%, rgba(140, 100, 60, 0.18) 100%);
 }
+
+/* ==================== 提示音与主题设置 ==================== */
+.sound-theme-manager { display: flex; flex-direction: column; gap: 12px; }
+.st-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-label { font-size: 13px; color: rgba(255, 255, 255, 0.85); min-width: 80px; }
+.st-sub { font-size: 12px; color: rgba(255, 255, 255, 0.45); flex: 1; }
+.st-value { font-size: 12px; color: rgba(255, 255, 255, 0.6); min-width: 40px; text-align: right; }
+.st-btn {
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; color: rgba(255, 255, 255, 0.85); font-size: 12px;
+  padding: 4px 10px; cursor: pointer; transition: all 0.15s ease;
+}
+.st-btn:hover { background: rgba(82, 196, 26, 0.2); border-color: rgba(82, 196, 26, 0.5); }
+.st-btn.st-reset { color: rgba(255, 255, 255, 0.6); }
+.st-row input[type="time"] {
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; color: #fff; padding: 4px 8px; color-scheme: dark;
+}
+.st-colors { display: flex; gap: 10px; }
+.st-color {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer; padding: 0; transition: transform 0.15s ease;
+}
+.st-color:hover { transform: scale(1.1); }
+.st-color.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3); }

@@ -21,6 +21,7 @@ export interface RecentPlayer {
 
 const LOBBIES_KEY = 'mctier_recent_lobbies';
 const PLAYERS_KEY = 'mctier_recent_players';
+const FAV_PLAYERS_KEY = 'mctier_favorite_players';
 const MAX_LOBBIES = 10;
 const MAX_PLAYERS = 30;
 
@@ -97,5 +98,26 @@ export const recentService = {
 
   clearPlayers(): void {
     writeJson(PLAYERS_KEY, []);
+  },
+
+  // ==================== 收藏队友 ====================
+  /** 获取收藏的队友名字列表 */
+  getFavoritePlayers(): string[] {
+    return readJson<string>(FAV_PLAYERS_KEY);
+  },
+
+  isFavoritePlayer(name: string): boolean {
+    return readJson<string>(FAV_PLAYERS_KEY).includes(name);
+  },
+
+  /** 切换收藏/取消收藏某队友，返回切换后的是否已收藏 */
+  toggleFavoritePlayer(name: string): boolean {
+    if (!name) return false;
+    let list = readJson<string>(FAV_PLAYERS_KEY);
+    let fav: boolean;
+    if (list.includes(name)) { list = list.filter(n => n !== name); fav = false; }
+    else { list = [...list, name]; fav = true; }
+    writeJson(FAV_PLAYERS_KEY, list);
+    return fav;
   },
 };

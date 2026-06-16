@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
 import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
+import { audioService, type SoundType } from '../../services/audio/AudioService';
 import './SettingsWindow.css';
 
 export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -527,8 +528,15 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                     <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
                   </svg>
                 </div>
-                <span className="settings-card-title">配置管理</span>
+                <span className="settings-card-title">提示音与主题</span>
               </div>
+              <div className="settings-card-desc">
+                自定义提示音（可恢复默认）、音量、消息免打扰时段与主题配色
+              </div>
+              <SoundThemeManager />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-desc">
                 导出或导入所有配置项，方便备份和迁移
               </div>
@@ -589,6 +597,110 @@ const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
 
 // 内置节点地址集合（用于过滤和删除保护判断）
 const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
+
+// ==================== 提示音与主题设置 ====================
+const PRIMARY_PRESETS: { hex: string; label: string }[] = [
+  { hex: '#52C41A', label: '默认绿' },
+  { hex: '#3B82F6', label: '蓝' },
+  { hex: '#A855F7', label: '紫' },
+  { hex: '#F59E0B', label: '橙' },
+  { hex: '#EF4444', label: '红' },
+  { hex: '#06B6D4', label: '青' },
+];
+const THEME_KEY = 'mctier_theme_primary';
+
+const minutesToHHMM = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+const SoundThemeManager: React.FC = () => {
+  const { message: antdMessage } = App.useApp();
+  const init = audioService.getSettings();
+  const [volume, setVolume] = useState(init.volume);
+  const [custom, setCustom] = useState(init.custom);
+  const [dndEnabled, setDndEnabled] = useState(init.dndEnabled);
+  const [dndStart, setDndStart] = useState(init.dndStart);
+  const [dndEnd, setDndEnd] = useState(init.dndEnd);
+  const [primary, setPrimary] = useState<string>(() => localStorage.getItem(THEME_KEY) || '#52C41A');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pickTarget, setPickTarget] = useState<SoundType | null>(null);
+
+  const labels: Record<SoundType, string> = { newMessage: '新消息', userJoined: '玩家加入', userLeft: '玩家离开' };
+
+  const applyPrimary = (hex: string) => {
+    setPrimary(hex);
+    localStorage.setItem(THEME_KEY, hex);
+    document.documentElement.style.setProperty('--mctier-primary', hex);
+  };
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const target = pickTarget;
+    e.target.value = '';
+    if (!file || !target) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      audioService.setCustomSound(target, dataUrl);
+      setCustom({ ...audioService.getSettings().custom });
+      antdMessage.success(`已设置「${labels[target]}」自定义提示音`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="sound-theme-manager">
+      <input ref={fileInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onPickFile} />
+
+      <div className="st-row">
+        <span className="st-label">提示音量</span>
+        <input type="range" min="0" max="1" step="0.05" value={volume}
+          onChange={(e) => { const v = parseFloat(e.target.value); setVolume(v); audioService.setVolume(v); }}
+          style={{ flex: 1, margin: '0 10px' }} />
+        <span className="st-value">{Math.round(volume * 100)}%</span>
+      </div>
+
+      {(Object.keys(labels) as SoundType[]).map((t) => (
+        <div className="st-row" key={t}>
+          <span className="st-label">{labels[t]}提示音</span>
+          <span className="st-sub">{custom[t] ? '自定义' : '默认音'}</span>
+          <button className="st-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>选择</button>
+          <button className="st-btn" onClick={() => audioService.play(t)}>试听</button>
+          {custom[t] && (
+            <button className="st-btn st-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
+          )}
+        </div>
+      ))}
+
+      <div className="st-row">
+        <span className="st-label">消息免打扰</span>
+        <Switch checked={dndEnabled} onChange={(v) => { setDndEnabled(v); audioService.setDnd(v); }} />
+      </div>
+      {dndEnabled && (
+        <div className="st-row">
+          <span className="st-label">免打扰时段</span>
+          <input type="time" value={minutesToHHMM(dndStart)} onChange={(e) => {
+            const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
+            setDndStart(mins); audioService.setDnd(true, mins, dndEnd);
+          }} />
+          <span style={{ margin: '0 8px', color: 'rgba(255,255,255,0.6)' }}>至</span>
+          <input type="time" value={minutesToHHMM(dndEnd)} onChange={(e) => {
+            const [h, m] = e.target.value.split(':').map(Number); const mins = h * 60 + m;
+            setDndEnd(mins); audioService.setDnd(true, dndStart, mins);
+          }} />
+        </div>
+      )}
+
+      <div className="st-row st-theme-row">
+        <span className="st-label">主题主色</span>
+        <div className="st-colors">
+          {PRIMARY_PRESETS.map((p) => (
+            <button key={p.hex} className={`st-color ${primary === p.hex ? 'active' : ''}`}
+              style={{ background: p.hex }} title={p.label} onClick={() => applyPrimary(p.hex)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const CustomNodeManager: React.FC = () => {
   const { modal } = App.useApp();

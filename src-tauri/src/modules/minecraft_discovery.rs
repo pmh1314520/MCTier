@@ -241,6 +241,9 @@ pub struct PeerLatency {
     /// 延迟（毫秒），None 表示不可达
     #[serde(rename = "latencyMs")]
     pub latency_ms: Option<u64>,
+    /// 丢包率（百分比 0~100）
+    #[serde(rename = "lossRate")]
+    pub loss_rate: u8,
 }
 
 /// 测量到某个虚拟 IP 的延迟（通过 TCP 连接其聊天端口 14540 估算 RTT）
@@ -257,15 +260,24 @@ async fn measure_one(ip: &str) -> Option<u64> {
     }
 }
 
-/// 批量测量到大厅内各玩家虚拟 IP 的延迟，用于连接质量面板
+/// 批量测量到大厅内各玩家虚拟 IP 的延迟与丢包率，用于连接质量面板。
+/// 每个 IP 探测 4 次：取可达样本的平均 RTT 作为延迟，未达比例作为丢包率。
 #[tauri::command]
 pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
     let mut tasks = Vec::new();
     for ip in peer_ips {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(async move {
-            let latency = measure_one(&ip_clone).await;
-            PeerLatency { ip: ip_clone, latency_ms: latency }
+            let probes = 4u32;
+            let mut oks: Vec<u64> = Vec::new();
+            for _ in 0..probes {
+                if let Some(rtt) = measure_one(&ip_clone).await {
+                    oks.push(rtt);
+                }
+            }
+            let latency = if oks.is_empty() { None } else { Some(oks.iter().sum::<u64>() / oks.len() as u64) };
+            let loss = (((probes as usize - oks.len()) * 100) / probes as usize) as u8;
+            PeerLatency { ip: ip_clone, latency_ms: latency, loss_rate: loss }
         }));
     }
     let mut results = Vec::new();
