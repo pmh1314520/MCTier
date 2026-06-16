@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, Form, Input, Space, message, Popconfirm, Switch } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './FavoriteLobbyManager.css';
 
 export interface FavoriteLobby {
@@ -28,6 +30,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
   onClose,
   onSelect,
 }) => {
+  useTranslation();
   const [favorites, setFavorites] = useState<FavoriteLobby[]>([]);
   const [editingFavorite, setEditingFavorite] = useState<FavoriteLobby | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -60,7 +63,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
       setFavorites(newFavorites);
     } catch (error) {
       console.error('保存常用大厅列表失败:', error);
-      message.error('保存失败');
+      message.error(tl('保存失败', 'Save failed'));
     }
   };
 
@@ -83,7 +86,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
             : fav
         );
         saveFavorites(updated);
-        message.success('修改成功');
+        message.success(tl('修改成功', 'Saved'));
       } else {
         // 添加新项
         const newFavorite: FavoriteLobby = {
@@ -95,7 +98,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
           createdAt: Date.now(),
         };
         saveFavorites([...favorites, newFavorite]);
-        message.success('添加成功');
+        message.success(tl('添加成功', 'Added'));
       }
       
       form.resetFields();
@@ -111,14 +114,14 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
   const handleDeleteFavorite = (id: string) => {
     const updated = favorites.filter(fav => fav.id !== id);
     saveFavorites(updated);
-    message.success('删除成功');
+    message.success(tl('删除成功', 'Deleted'));
   };
 
   // 选择常用大厅
   const handleSelectFavorite = (lobby: FavoriteLobby) => {
     onSelect(lobby);
     onClose();
-    message.success('已填入大厅信息');
+    message.success(tl('已填入大厅信息', 'Lobby info filled'));
   };
 
   // 开始编辑
@@ -143,7 +146,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
 
   return (
     <Modal
-      title="常用大厅信息"
+      title={tl('常用大厅信息', 'Favorite Lobbies')}
       open={visible}
       onCancel={onClose}
       footer={null}
@@ -164,19 +167,19 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
             >
               <Form form={form} layout="vertical">
                 <Form.Item
-                  label="大厅名称"
+                  label={tl('大厅名称', 'Lobby Name')}
                   name="name"
                   rules={[
-                    { required: true, message: '请输入大厅名称' },
-                    { min: 4, max: 32, message: '大厅名称长度为 4-32 个字符' },
+                    { required: true, message: tl('请输入大厅名称', 'Enter a lobby name') },
+                    { min: 4, max: 32, message: tl('大厅名称长度为 4-32 个字符', 'Lobby name must be 4-32 characters') },
                     {
                       pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]+$/,
-                      message: '大厅名称只能包含中文、字母、数字、下划线、连字符和空格',
+                      message: tl('大厅名称只能包含中文、字母、数字、下划线、连字符和空格', 'Lobby name may only contain letters, digits, underscore, hyphen and spaces'),
                     },
                   ]}
                 >
                   <Input 
-                    placeholder="输入大厅名称" 
+                    placeholder={tl('输入大厅名称', 'Enter lobby name')} 
                     onChange={(e) => {
                       const value = e.target.value;
                       const filtered = value.replace(/[^\u4e00-\u9fa5a-zA-Z0-9_\-\s]/g, '');
@@ -187,21 +190,21 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                   />
                 </Form.Item>
                 <Form.Item
-                  label="密码"
+                  label={tl('密码', 'Password')}
                   name="password"
                   rules={[
-                    { required: true, message: '请输入密码' },
-                    { min: 8, max: 32, message: '密码长度为 8-32 个字符' },
+                    { required: true, message: tl('请输入密码', 'Enter a password') },
+                    { min: 8, max: 32, message: tl('密码长度为 8-32 个字符', 'Password must be 8-32 characters') },
                     {
                       validator: (_, value) => {
                         if (!value) return Promise.resolve();
                         const hasLetter = /[a-zA-Z]/.test(value);
                         const hasDigit = /[0-9]/.test(value);
                         if (!hasLetter) {
-                          return Promise.reject(new Error('密码必须包含至少一个字母'));
+                          return Promise.reject(new Error(tl('密码必须包含至少一个字母', 'Password must contain at least one letter')));
                         }
                         if (!hasDigit) {
-                          return Promise.reject(new Error('密码必须包含至少一个数字'));
+                          return Promise.reject(new Error(tl('密码必须包含至少一个数字', 'Password must contain at least one digit')));
                         }
                         return Promise.resolve();
                       },
@@ -211,7 +214,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                   <div style={{ position: 'relative' }}>
                     <Input
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="输入密码（至少8个字符，包含字母和数字）"
+                      placeholder={tl('输入密码（至少8个字符，包含字母和数字）', 'Password (min 8 chars, letters and digits)')}
                       style={{ paddingRight: '40px' }}
                       className="custom-password-input"
                     />
@@ -252,18 +255,18 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                   </div>
                 </Form.Item>
                 <Form.Item
-                  label="玩家名称"
+                  label={tl('玩家名称', 'Player Name')}
                   name="playerName"
                   rules={[
-                    { required: true, message: '请输入玩家名称' },
-                    { whitespace: true, message: '玩家名称不能为空白字符' },
-                    { min: 1, max: 8, message: '玩家名称长度为 1-8 个字' },
+                    { required: true, message: tl('请输入玩家名称', 'Enter a player name') },
+                    { whitespace: true, message: tl('玩家名称不能为空白字符', 'Player name cannot be blank') },
+                    { min: 1, max: 8, message: tl('玩家名称长度为 1-8 个字', 'Player name must be 1-8 characters') },
                   ]}
                 >
-                  <Input placeholder="输入玩家名称" maxLength={8} />
+                  <Input placeholder={tl('输入玩家名称', 'Enter player name')} maxLength={8} />
                 </Form.Item>
                 <Form.Item
-                  label="开启虚拟域名"
+                  label={tl('开启虚拟域名', 'Enable virtual domain')}
                   name="useDomain"
                   valuePropName="checked"
                   initialValue={false}
@@ -274,9 +277,9 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                 <Form.Item>
                   <Space>
                     <Button type="primary" onClick={handleSaveFavorite}>
-                      {editingFavorite ? '保存修改' : '添加'}
+                      {editingFavorite ? tl('保存修改', 'Save') : tl('添加', 'Add')}
                     </Button>
-                    <Button onClick={handleCancelEdit}>取消</Button>
+                    <Button onClick={handleCancelEdit}>{tl('取消', 'Cancel')}</Button>
                   </Space>
                 </Form.Item>
               </Form>
@@ -292,16 +295,16 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
             onClick={() => setShowAddForm(true)}
             style={{ marginBottom: '16px' }}
           >
-            + 添加常用大厅
+            {tl('+ 添加常用大厅', '+ Add favorite lobby')}
           </Button>
         )}
 
         {/* 常用大厅列表 */}
         {favorites.length === 0 && !showAddForm ? (
           <div className="empty-state">
-            <p>暂无常用大厅</p>
+            <p>{tl('暂无常用大厅', 'No favorite lobbies')}</p>
             <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
-              点击上方按钮添加常用的大厅信息
+              {tl('点击上方按钮添加常用的大厅信息', 'Click the button above to add a favorite lobby')}
             </p>
           </div>
         ) : (
@@ -339,7 +342,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                       }}
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.9 }}
-                      title="编辑"
+                      title={tl('编辑', 'Edit')}
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -347,7 +350,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                       </svg>
                     </motion.button>
                     <Popconfirm
-                      title="确定删除这个常用大厅吗？"
+                      title={tl('确定删除这个常用大厅吗？', 'Delete this favorite lobby?')}
                       onConfirm={(e) => {
                         e?.stopPropagation();
                         handleDeleteFavorite(item.id);
@@ -361,7 +364,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                         onClick={(e) => e.stopPropagation()}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
-                        title="删除"
+                        title={tl('删除', 'Delete')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <polyline points="3 6 5 6 21 6"></polyline>

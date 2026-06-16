@@ -7,6 +7,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, Button, Empty, Spin, Typography, Tag, message } from 'antd';
 import { fetchPublicLobbies, type PublicLobby } from '../../services/lobby/publicLobbies';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 
 const { Text } = Typography;
 
@@ -20,6 +22,7 @@ interface PublicPlazaProps {
 }
 
 export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJoin, signalingServer }) => {
+  useTranslation();
   const [loading, setLoading] = useState(false);
   const [lobbies, setLobbies] = useState<PublicLobby[]>([]);
 
@@ -42,12 +45,12 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
 
   return (
     <Modal
-      title="公开广场"
+      title={tl('公开广场', 'Public Plaza')}
       open={visible}
       onCancel={onClose}
       footer={[
-        <Button key="refresh" onClick={() => void refresh()} loading={loading}>刷新</Button>,
-        <Button key="close" type="primary" onClick={onClose}>关闭</Button>,
+        <Button key="refresh" onClick={() => void refresh()} loading={loading}>{tl('刷新', 'Refresh')}</Button>,
+        <Button key="close" type="primary" onClick={onClose}>{tl('关闭', 'Close')}</Button>,
       ]}
       width={520}
       centered
@@ -91,12 +94,12 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
                   disabled={full}
                   onClick={() => { onJoin(l); onClose(); }}
                 >
-                  {full ? '已满' : '加入'}
+                  {full ? tl('已满', 'Full') : tl('加入', 'Join')}
                 </Button>
               </div>
             );
           })}
-          <Text type="secondary" style={{ fontSize: 12 }}>提示：公开大厅由房主主动公开，加入即进入对应虚拟局域网。</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{tl('提示：公开大厅由房主主动公开，加入即进入对应虚拟局域网。', 'Tip: public lobbies are opened by hosts; joining enters their virtual LAN.')}</Text>
         </div>
       )}
     </Modal>

@@ -7,6 +7,8 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, Empty, Tabs, Popconfirm, message } from 'antd';
 import { recentService, type RecentLobby, type RecentPlayer } from '../../services/recent/recentService';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 
 interface RecentManagerProps {
   visible: boolean;
@@ -18,15 +20,16 @@ interface RecentManagerProps {
 function formatTime(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60000);
-  if (min < 1) return '刚刚';
-  if (min < 60) return `${min} 分钟前`;
+  if (min < 1) return tl('刚刚', 'just now');
+  if (min < 60) return `${min}${tl(' 分钟前', ' min ago')}`;
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} 小时前`;
+  if (hour < 24) return `${hour}${tl(' 小时前', ' h ago')}`;
   const day = Math.floor(hour / 24);
-  return `${day} 天前`;
+  return `${day}${tl(' 天前', ' d ago')}`;
 }
 
 export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, onSelectLobby }) => {
+  useTranslation();
   const [lobbies, setLobbies] = useState<RecentLobby[]>([]);
   const [players, setPlayers] = useState<RecentPlayer[]>([]);
   const [activeTab, setActiveTab] = useState<string>('lobbies');
@@ -43,7 +46,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
   const handleSelect = (lobby: RecentLobby) => {
     onSelectLobby(lobby);
     onClose();
-    message.success('已填入大厅信息');
+    message.success(tl('已填入大厅信息', 'Lobby info filled'));
   };
 
   const lobbiesTab = (
@@ -73,14 +76,14 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
                 </div>
               </div>
               <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Button type="primary" size="small" onClick={() => handleSelect(l)}>快速重进</Button>
+                <Button type="primary" size="small" onClick={() => handleSelect(l)}>{tl('快速重进', 'Rejoin')}</Button>
                 <Popconfirm
-                  title="从最近列表移除？"
+                  title={tl('从最近列表移除？', 'Remove from recent list?')}
                   onConfirm={() => { recentService.removeLobby(l.name, l.password); refresh(); }}
-                  okText="移除"
-                  cancelText="取消"
+                  okText={tl('移除', 'Remove')}
+                  cancelText={tl('取消', 'Cancel')}
                 >
-                  <Button size="small" danger>删除</Button>
+                  <Button size="small" danger>{tl('删除', 'Delete')}</Button>
                 </Popconfirm>
               </div>
             </div>
@@ -121,31 +124,31 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
   const handleClear = () => {
     if (activeTab === 'lobbies') {
       recentService.clearLobbies();
-      message.success('已清空最近大厅');
+      message.success(tl('已清空最近大厅', 'Recent lobbies cleared'));
     } else {
       recentService.clearPlayers();
-      message.success('已清空最近玩家');
+      message.success(tl('已清空最近玩家', 'Recent players cleared'));
     }
     refresh();
   };
 
   return (
     <Modal
-      title="最近联机"
+      title={tl('最近联机', 'Recent')}
       open={visible}
       onCancel={onClose}
       footer={[
         <Popconfirm
           key="clear"
-          title={activeTab === 'lobbies' ? '确定清空全部最近大厅？' : '确定清空全部最近玩家？'}
+          title={activeTab === 'lobbies' ? tl('确定清空全部最近大厅？', 'Clear all recent lobbies?') : tl('确定清空全部最近玩家？', 'Clear all recent players?')}
           onConfirm={handleClear}
-          okText="清空"
-          cancelText="取消"
+          okText={tl('清空', 'Clear')}
+          cancelText={tl('取消', 'Cancel')}
           okButtonProps={{ danger: true }}
         >
-          <Button danger style={{ float: 'left' }}>清空</Button>
+          <Button danger style={{ float: 'left' }}>{tl('清空', 'Clear')}</Button>
         </Popconfirm>,
-        <Button key="close" type="primary" onClick={onClose}>关闭</Button>,
+        <Button key="close" type="primary" onClick={onClose}>{tl('关闭', 'Close')}</Button>,
       ]}
       width={500}
       centered
@@ -154,8 +157,8 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
-          { key: 'lobbies', label: '最近大厅', children: lobbiesTab },
-          { key: 'players', label: '最近玩家', children: playersTab },
+          { key: 'lobbies', label: tl('最近大厅', 'Recent Lobbies'), children: lobbiesTab },
+          { key: 'players', label: tl('最近玩家', 'Recent Players'), children: playersTab },
         ]}
       />
     </Modal>
