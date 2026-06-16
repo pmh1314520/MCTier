@@ -502,7 +502,7 @@ export const FileShareManagerNew: React.FC = () => {
       
       message.success(tl('开始下载文件', 'Download started'));
     } catch (error) {
-      message.error(`下载失败: ${error}`);
+      message.error(`${tl('下载失败', 'Download failed')}: ${error}`);
     }
   };
 
@@ -558,7 +558,7 @@ export const FileShareManagerNew: React.FC = () => {
       setDownloads(prev => prev.map(task =>
         task.id === taskId ? { ...task, status: 'failed' as const, error: errStr, speed: 0 } : task
       ));
-      message.error(`下载失败: ${errStr}`);
+      message.error(`${tl('下载失败', 'Download failed')}: ${errStr}`);
     }
   }
 
@@ -603,7 +603,7 @@ export const FileShareManagerNew: React.FC = () => {
         };
         
         setDownloads(prev => [...prev, newTask]);
-        message.info(`正在打包 ${selectedFileList.length} 个文件，请稍候...`);
+        message.info(`${tl('正在打包', 'Packing')} ${selectedFileList.length} ${tl('个文件，请稍候...', 'file(s), please wait...')}`);
         
         // 异步下载，不阻塞UI
         (async () => {
@@ -626,7 +626,7 @@ export const FileShareManagerNew: React.FC = () => {
             console.log('✅ [FileShareManager] 压缩包已保存:', tempZipPath);
             
             // 【新增】自动解压ZIP文件
-            message.loading({ content: '正在解压文件...', key: 'extracting', duration: 0 });
+            message.loading({ content: tl('正在解压文件...', 'Extracting files...'), key: 'extracting', duration: 0 });
             console.log('📦 [FileShareManager] 开始解压ZIP文件到:', saveDir);
             
             const extractedFiles = await invoke<string[]>('extract_zip', {
@@ -653,7 +653,7 @@ export const FileShareManagerNew: React.FC = () => {
               } : task
             ));
             
-            message.success(`下载完成 (${selectedFileList.length} 个文件)`);
+            message.success(`${tl('下载完成', 'Download complete')} (${selectedFileList.length} ${tl('个文件', 'file(s)')})`);
             
             // 清空选中状态
             setSelectedFiles(new Set());
@@ -664,16 +664,16 @@ export const FileShareManagerNew: React.FC = () => {
             setDownloads(prev => prev.map(task =>
               task.id === taskId ? { ...task, status: 'failed' as const, error: String(error), speed: 0 } : task
             ));
-            message.error(`下载失败: ${error}`);
+            message.error(`${tl('下载失败', 'Download failed')}: ${error}`);
           }
         })();
       } catch (error) {
         console.error('❌ [FileShareManager] 批量下载失败:', error);
-        message.error(`批量下载失败: ${error}`);
+        message.error(`${tl('批量下载失败', 'Batch download failed')}: ${error}`);
       }
     } else if (!selectedShare.share.compress_before_send && selectedFileList.length > 1) {
       // 【修复】如果没有启用"先压后发"，提示用户
-      message.warning('该共享未启用"先压后发"功能，将逐个下载文件');
+      message.warning(tl('该共享未启用"先压后发"功能，将逐个下载文件', 'This share does not have "compress before sending" enabled; files will be downloaded individually'));
       
       // 逐个下载
       for (const file of selectedFileList) {
@@ -697,7 +697,7 @@ export const FileShareManagerNew: React.FC = () => {
         startDownload(taskId, downloadUrl, savePath, file.size, downloadHeaders);
       }
       
-      message.success(`开始下载 ${selectedFileList.length} 个文件`);
+      message.success(`${tl('开始下载', 'Started downloading')} ${selectedFileList.length} ${tl('个文件', 'file(s)')}`);
       
       // 清空选中状态
       setSelectedFiles(new Set());
@@ -851,7 +851,7 @@ export const FileShareManagerNew: React.FC = () => {
         await invoke('open_file_location', { path: task.savePath });
       }
     } catch (error) {
-      message.error(`打开文件夹失败: ${error}`);
+      message.error(`${tl('打开文件夹失败', 'Failed to open folder')}: ${error}`);
     }
   };
 
@@ -1229,21 +1229,21 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
         setFolderName(name || '未命名文件夹');
       }
     } catch (error) {
-      message.error(`选择文件夹失败: ${error}`);
+      message.error(`${tl('选择文件夹失败', 'Failed to select folder')}: ${error}`);
     }
   };
 
   const handleSubmit = async () => {
     if (!folderPath) {
-      message.error('请选择要共享的文件夹');
+      message.error(tl('请选择要共享的文件夹', 'Please select a folder to share'));
       return;
     }
     if (hasPassword && !password) {
-      message.error('请输入密码');
+      message.error(tl('请输入密码', 'Please enter a password'));
       return;
     }
     if (hasExpiry && expiryDays === 0 && expiryHours === 0 && expiryMinutes === 0) {
-      message.error('请设置有效期时长');
+      message.error(tl('请设置有效期时长', 'Please set an expiry duration'));
       return;
     }
     try {
@@ -1284,10 +1284,10 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
         // 不影响主流程
       }
       
-      message.success('共享文件夹已添加');
+      message.success(tl('共享文件夹已添加', 'Shared folder added'));
       onSuccess();
     } catch (error) {
-      message.error(`添加共享失败: ${error}`);
+      message.error(`${tl('添加共享失败', 'Failed to add share')}: ${error}`);
     } finally {
       setLoading(false);
     }

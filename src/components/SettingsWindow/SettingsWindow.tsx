@@ -7,7 +7,7 @@ import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal'
 import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
 import { StatsPanel } from '../StatsPanel/StatsPanel';
 import { useTranslation } from 'react-i18next';
-import { setLanguage, getLanguage } from '../../i18n';
+import { setLanguage, getLanguage, tl } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import './SettingsWindow.css';
 
@@ -36,7 +36,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
     // 设置超时保护
     const timeoutId = setTimeout(() => {
       console.error('加载设置超时');
-      message.error('加载设置超时，请重试');
+      message.error(tl('加载设置超时，请重试', 'Loading settings timed out, please retry'));
       setLoading(false);
     }, 5000); // 5秒超时
 
@@ -181,10 +181,10 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         subnetProxyCidrs: merged.subnetProxyCidrs?.trim() || null,
       });
       console.log('设置已保存:', merged);
-      message.success('已保存', 1);
+      message.success(tl('已保存', 'Saved'), 1);
     } catch (e) {
       console.error('保存设置失败:', e);
-      message.error('保存失败');
+      message.error(tl('保存失败', 'Save failed'));
     }
   }, [form]);
 
@@ -461,7 +461,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                               await open('https://mctier.pmhs.top');
                             } catch (e) {
                               console.error('打开官网失败:', e);
-                              message.error('打开官网失败');
+                              message.error(tl('打开官网失败', 'Failed to open the website'));
                             }
                           }}
                         >
@@ -477,7 +477,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                             };
                             form.setFieldsValue(defaults);
                             await saveAll(defaults);
-                            message.success('已重置为默认私有服务器地址');
+                            message.success(tl('已重置为默认私有服务器地址', 'Reset to default private server address'));
                           }}
                         >
                           重置
@@ -606,12 +606,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
             await invoke('restart_app_with_gpu_settings', { enableGpu: pendingGpuValue });
           } catch (error) {
             console.error('重启应用失败:', error);
-            message.error('重启应用失败，请手动重启');
+            message.error(tl('重启应用失败，请手动重启', 'Failed to restart the app, please restart manually'));
           }
         }}
         onCancel={() => {
           setShowRestartModal(false);
-          message.info('设置已保存，下次启动时生效');
+          message.info(tl('设置已保存，下次启动时生效', 'Settings saved, effective on next launch'));
         }}
       />
     </div>
@@ -673,7 +673,7 @@ const SoundThemeManager: React.FC = () => {
       const dataUrl = reader.result as string;
       audioService.setCustomSound(target, dataUrl);
       setCustom({ ...audioService.getSettings().custom });
-      antdMessage.success(`已设置「${labels[target]}」自定义提示音`);
+      antdMessage.success(`${tl('已设置', 'Set custom sound for')}「${labels[target]}」${tl('自定义提示音', '')}`);
     };
     reader.readAsDataURL(file);
   };
@@ -704,12 +704,12 @@ const SoundThemeManager: React.FC = () => {
               <span className={`snd-card-tag ${custom[t] ? 'is-custom' : ''}`}>{custom[t] ? '自定义' : '默认音'}</span>
             </div>
             <div className="snd-card-actions">
-              <button className="snd-icon-btn" title="试听" onClick={() => audioService.play(t)}>
+              <button className="snd-icon-btn" title={tl('试听', 'Preview')} onClick={() => audioService.play(t)}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
-              <button className="snd-text-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>更换</button>
+              <button className="snd-text-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>{tl('更换', 'Change')}</button>
               {custom[t] && (
-                <button className="snd-text-btn snd-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success('已恢复默认提示音'); }}>恢复默认</button>
+                <button className="snd-text-btn snd-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success(tl('已恢复默认提示音', 'Default sound restored')); }}>{tl('恢复默认', 'Restore Default')}</button>
               )}
             </div>
           </div>
@@ -759,7 +759,7 @@ const CustomNodeManager: React.FC = () => {
       setNodes([...DEFAULT_BUILTIN_NODES, ...customNodes]);
     } catch (error) {
       console.error('加载节点列表失败:', error);
-      message.error('加载节点列表失败');
+      message.error(tl('加载节点列表失败', 'Failed to load node list'));
       // 即使加载失败，也要显示默认节点
       setNodes([...DEFAULT_BUILTIN_NODES]);
     } finally {
@@ -813,10 +813,10 @@ const CustomNodeManager: React.FC = () => {
         enableGpuRendering: cur.enableGpuRendering ?? null,
       });
       setNodes(newNodes);
-      message.success('节点列表已保存');
+      message.success(tl('节点列表已保存', 'Node list saved'));
     } catch (error) {
       console.error('保存节点列表失败:', error);
-      message.error('保存节点列表失败');
+      message.error(tl('保存节点列表失败', 'Failed to save node list'));
     }
   };
 
@@ -835,18 +835,18 @@ const CustomNodeManager: React.FC = () => {
   // 保存编辑
   const handleSave = async () => {
     if (!editForm.name.trim()) {
-      message.error('请输入节点名称');
+      message.error(tl('请输入节点名称', 'Please enter a node name'));
       return;
     }
     if (!editForm.address.trim()) {
-      message.error('请输入节点地址');
+      message.error(tl('请输入节点地址', 'Please enter a node address'));
       return;
     }
     
     // 验证地址格式
     const addressPattern = /^(tcp|udp|ws|wss|txt):\/\/.+$/;
     if (!addressPattern.test(editForm.address.trim())) {
-      message.error('节点地址格式错误，应以 tcp://、udp://、ws://、wss:// 或 txt:// 开头');
+      message.error(tl('节点地址格式错误，应以 tcp://、udp://、ws://、wss:// 或 txt:// 开头', 'Invalid node address format; it must start with tcp://, udp://, ws://, wss:// or txt://'));
       return;
     }
 
@@ -856,7 +856,7 @@ const CustomNodeManager: React.FC = () => {
       (n, i) => i !== editingIndex && n.address.trim() === normalizedAddr
     );
     if (duplicated) {
-      message.warning('该节点地址已存在，请勿重复添加');
+      message.warning(tl('该节点地址已存在，请勿重复添加', 'This node address already exists, do not add it again'));
       return;
     }
 
@@ -885,7 +885,7 @@ const CustomNodeManager: React.FC = () => {
   const handleDelete = async (index: number) => {
     // 检查是否是默认内置节点（不可删除）
     if (index < DEFAULT_BUILTIN_NODES.length) {
-      message.warning('默认备用节点不可删除');
+      message.warning(tl('默认备用节点不可删除', 'Default fallback nodes cannot be deleted'));
       return;
     }
 
@@ -1092,16 +1092,16 @@ const ConfigManager: React.FC = () => {
         // 调用后端导出配置
         await invoke('export_config', { exportPath: filePath });
         
-        message.success('配置已导出成功');
+        message.success(tl('配置已导出成功', 'Config exported successfully'));
       } catch (error) {
         console.error('导出配置失败:', error);
-        message.error(`导出配置失败: ${error}`);
+        message.error(`${tl('导出配置失败', 'Failed to export config')}: ${error}`);
       } finally {
         setExporting(false);
       }
     } catch (error) {
       console.error('导出配置失败:', error);
-      message.error(`导出配置失败: ${error}`);
+      message.error(`${tl('导出配置失败', 'Failed to export config')}: ${error}`);
       setExporting(false);
     }
   };
@@ -1126,16 +1126,16 @@ const ConfigManager: React.FC = () => {
         // 触发配置导入事件，通知设置窗口重新加载
         window.dispatchEvent(new CustomEvent('configImported'));
         
-        message.success('配置导入成功，设置已更新');
+        message.success(tl('配置导入成功，设置已更新', 'Config imported successfully, settings updated'));
       } catch (error) {
         console.error('导入配置失败:', error);
-        message.error(`导入配置失败: ${error}`);
+        message.error(`${tl('导入配置失败', 'Failed to import config')}: ${error}`);
       } finally {
         setImporting(false);
       }
     } catch (error) {
       console.error('导入配置失败:', error);
-      message.error(`导入配置失败: ${error}`);
+      message.error(`${tl('导入配置失败', 'Failed to import config')}: ${error}`);
       setImporting(false);
     }
   };
@@ -1145,7 +1145,7 @@ const ConfigManager: React.FC = () => {
     try {
       setExportingLogs(true);
       const zipPath = await invoke<string>('export_logs');
-      message.success('日志已导出到桌面');
+      message.success(tl('日志已导出到桌面', 'Logs exported to the desktop'));
       // 打开所在文件夹，方便用户找到
       try {
         await invoke('open_file_location', { path: zipPath });
@@ -1154,7 +1154,7 @@ const ConfigManager: React.FC = () => {
       }
     } catch (error) {
       console.error('导出日志失败:', error);
-      message.error(`导出日志失败: ${error}`);
+      message.error(`${tl('导出日志失败', 'Failed to export logs')}: ${error}`);
     } finally {
       setExportingLogs(false);
     }
