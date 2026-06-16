@@ -2,26 +2,25 @@
  * 房间内小工具
  * - 掷骰子：结果广播到聊天室（适合跑团/抽签/决定顺序）
  * - 倒计时：基于全局服务计时，切换界面/挂后台不中断，到点提醒
- * - 待办清单：一条一条的待办事项，可勾选完成 / 删除，本地持久化
+ * - 待办清单：多人协同，可勾选完成 / 分配给玩家 / 删除，实时同步全队
+ * - 共享剪贴板：把坐标/指令一键同步给全队
+ * - 共享白板：在白板上画标记并实时同步
  */
 
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, Checkbox, message } from 'antd';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
+import type { TodoItem } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { countdownService } from '../../services/roomtools/countdownService';
+import { Whiteboard } from '../Whiteboard/Whiteboard';
 import type { ChatMessage } from '../../types';
 import './RoomTools.css';
 
 const { Text } = Typography;
 
-const TODO_KEY = 'mctier_room_todos';
-
-interface TodoItem {
-  id: string;
-  text: string;
-  done: boolean;
-}
+const CLIP_MAX = 4000;
 
 interface RoomToolsProps {
   visible: boolean;
@@ -35,6 +34,11 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
   const config = useAppStore((s) => s.config);
   const addChatMessage = useAppStore((s) => s.addChatMessage);
+  const players = useAppStore((s) => s.players);
+  const todos = useAppStore((s) => s.todos);
+  const setTodos = useAppStore((s) => s.setTodos);
+
+  const myName = config.playerName || '我';
 
   // ===== 掷骰子 =====
   const [diceCount, setDiceCount] = useState(1);
@@ -50,7 +54,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       rolls.push(Math.floor(Math.random() * sides) + 1);
     }
     const sum = rolls.reduce((a, b) => a + b, 0);
-    // 本地显示
     const localText =
       count > 1 ? `${count}d${sides}：${rolls.join(' + ')} = ${sum}` : `d${sides}：${rolls[0]} 点`;
     setLastRoll(localText);
@@ -58,8 +61,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     if (broadcast) {
       setRolling(true);
       try {
-        const playerName = config.playerName || '我';
-        // 更友好、可读性更好的广播文案
+        const playerName = myName;
         const content =
           count > 1
             ? `🎲 ${playerName} 掷出 ${count}d${sides}：${rolls.join(' + ')} = ${sum}`
@@ -85,7 +87,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     }
   };
 
-  // ===== 倒计时（使用全局服务，切换界面/挂后台不中断）=====
+  // ===== 倒计时 =====
   const [minutes, setMinutes] = useState(5);
   const [seconds, setSeconds] = useState(0);
   const [remaining, setRemaining] = useState<number | null>(countdownService.getRemaining());
@@ -104,9 +106,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     countdownService.start(total);
   };
 
-  const stopCountdown = () => {
-    countdownService.stop();
-  };
+  const stopCountdown = () => countdownService.stop();
 
   const fmt = (s: number) => {
     const m = Math.floor(s / 60);
@@ -114,48 +114,85 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
 
-  // ===== 待办清单 =====
-  const [todos, setTodos] = useState<TodoItem[]>([]);
+  // ===== 待办清单（多人协同）=====
   const [newTodo, setNewTodo] = useState('');
 
-  useEffect(() => {
-    if (visible) {
-      try {
-        const raw = localStorage.getItem(TODO_KEY);
-        setTodos(raw ? JSON.parse(raw) : []);
-      } catch {
-        setTodos([]);
-      }
-    }
-  }, [visible]);
-
-  const persistTodos = (items: TodoItem[]) => {
+  const broadcastTodos = (items: TodoItem[]) => {
     setTodos(items);
-    try {
-      localStorage.setItem(TODO_KEY, JSON.stringify(items));
-    } catch {
-      /* ignore */
-    }
+    void p2pChatService.sendControlMessage('todo', JSON.stringify(items));
   };
 
   const addTodo = () => {
     const text = newTodo.trim();
     if (!text) return;
-    persistTodos([...todos, { id: `todo-${Date.now()}`, text, done: false }]);
+    broadcastTodos([
+      ...todos,
+      { id: `todo-${currentPlayerId || 'me'}-${Date.now()}`, text, done: false, assignee: '', creator: myName, ts: Date.now() },
+    ]);
     setNewTodo('');
   };
 
   const toggleTodo = (id: string) => {
-    persistTodos(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+    broadcastTodos(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   };
 
   const removeTodo = (id: string) => {
-    persistTodos(todos.filter((t) => t.id !== id));
+    broadcastTodos(todos.filter((t) => t.id !== id));
+  };
+
+  const assignTodo = (id: string, assignee: string) => {
+    broadcastTodos(todos.map((t) => (t.id === id ? { ...t, assignee } : t)));
   };
 
   const clearDone = () => {
-    persistTodos(todos.filter((t) => !t.done));
+    broadcastTodos(todos.filter((t) => !t.done));
   };
+
+  // ===== 共享剪贴板 =====
+  const [clipText, setClipText] = useState('');
+  const [sendingClip, setSendingClip] = useState(false);
+
+  const readSystemClipboard = async () => {
+    try {
+      const t = await readText();
+      if (t) {
+        setClipText(t.slice(0, CLIP_MAX));
+        message.success('已读取本机剪贴板');
+      } else {
+        message.info('本机剪贴板为空');
+      }
+    } catch {
+      message.error('读取剪贴板失败');
+    }
+  };
+
+  const sendClipboard = async () => {
+    const text = clipText.trim();
+    if (!text) {
+      message.warning('请输入要共享的内容');
+      return;
+    }
+    if (text.length > CLIP_MAX) {
+      message.warning(`内容过长，最多 ${CLIP_MAX} 字`);
+      return;
+    }
+    setSendingClip(true);
+    try {
+      await p2pChatService.sendControlMessage('clipboard', text);
+      message.success('已共享给全队');
+      setClipText('');
+    } catch (e) {
+      message.error(`共享失败：${e}`);
+    } finally {
+      setSendingClip(false);
+    }
+  };
+
+  const remainingCount = todos.filter((t) => !t.done).length;
+  const assigneeOptions = [
+    { value: '', label: '未分配' },
+    ...players.map((p) => ({ value: p.name, label: p.name })),
+  ];
 
   const diceTab = (
     <div style={{ padding: '8px 4px' }}>
@@ -205,8 +242,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     </div>
   );
 
-  const remainingCount = todos.filter((t) => !t.done).length;
-
   const todoTab = (
     <div style={{ padding: '8px 4px' }}>
       <Space.Compact style={{ width: '100%' }}>
@@ -214,7 +249,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
           value={newTodo}
           onChange={(e) => setNewTodo(e.target.value)}
           onPressEnter={addTodo}
-          placeholder="添加一条待办事项，回车确认"
+          placeholder="添加一条待办事项，回车确认（全队同步）"
           maxLength={100}
         />
         <Button type="primary" onClick={addTodo}>添加</Button>
@@ -229,6 +264,14 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
               <Checkbox checked={t.done} onChange={() => toggleTodo(t.id)}>
                 <span className="room-todo-text">{t.text}</span>
               </Checkbox>
+              <Select
+                size="small"
+                value={t.assignee || ''}
+                onChange={(v) => assignTodo(t.id, v)}
+                style={{ width: 96 }}
+                getPopupContainer={popupContainer}
+                options={assigneeOptions}
+              />
               <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -249,13 +292,37 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     </div>
   );
 
+  const clipboardTab = (
+    <div style={{ padding: '8px 4px' }}>
+      <Input.TextArea
+        value={clipText}
+        onChange={(e) => setClipText(e.target.value)}
+        placeholder="输入要同步给全队的文本（坐标、指令、种子号等）"
+        autoSize={{ minRows: 4, maxRows: 8 }}
+        maxLength={CLIP_MAX}
+        showCount
+      />
+      <Space style={{ marginTop: 12 }}>
+        <Button onClick={() => void readSystemClipboard()}>读取本机剪贴板</Button>
+        <Button type="primary" loading={sendingClip} onClick={() => void sendClipboard()}>共享给全队</Button>
+      </Space>
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
+        全队成员会收到提示，可一键复制到自己的剪贴板。
+      </Text>
+    </div>
+  );
+
+  const whiteboardTab = <Whiteboard active={visible} />;
+
   return (
-    <Modal title="房间小工具" open={visible} onCancel={onClose} footer={null} width={460} centered className="room-tools-modal">
+    <Modal title="房间小工具" open={visible} onCancel={onClose} footer={null} width={520} centered className="room-tools-modal">
       <Tabs
         items={[
           { key: 'dice', label: '掷骰子', children: diceTab },
           { key: 'timer', label: '倒计时', children: timerTab },
-          { key: 'todo', label: '待办清单', children: todoTab },
+          { key: 'todo', label: '待办协同', children: todoTab },
+          { key: 'clipboard', label: '共享剪贴板', children: clipboardTab },
+          { key: 'whiteboard', label: '共享白板', children: whiteboardTab },
         ]}
       />
     </Modal>

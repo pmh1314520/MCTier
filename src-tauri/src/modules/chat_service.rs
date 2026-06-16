@@ -48,6 +48,12 @@ pub enum MessageType {
     Announce,
     /// 语音小队组别（控制消息）
     VoiceGroup,
+    /// 共享剪贴板（控制消息，content 为文本）
+    Clipboard,
+    /// 共享待办协同（控制消息，content 为待办列表 JSON）
+    Todo,
+    /// 共享白板（控制消息，content 为单笔画/清空指令 JSON）
+    Whiteboard,
 }
 
 /// 获取消息请求参数

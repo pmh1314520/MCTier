@@ -3338,6 +3338,9 @@ pub async fn send_p2p_chat_message(
         "image" => MessageType::Image,
         "announce" => MessageType::Announce,
         "voicegroup" => MessageType::VoiceGroup,
+        "clipboard" => MessageType::Clipboard,
+        "todo" => MessageType::Todo,
+        "whiteboard" => MessageType::Whiteboard,
         _ => MessageType::Text,
     };
     

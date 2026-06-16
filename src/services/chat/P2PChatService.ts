@@ -264,9 +264,15 @@ class P2PChatService {
       this.lastMessageTs = msg.timestamp;
     }
 
-    // 控制消息（大厅公告 / 语音小队）：不计入聊天，分发到状态后返回
+    // 控制消息（公告 / 语音小队 / 剪贴板 / 待办 / 白板）：不计入聊天，分发到状态后返回
     const mtype = (msg as { message_type: string }).message_type;
-    if (mtype === 'announce' || mtype === 'voicegroup') {
+    if (
+      mtype === 'announce' ||
+      mtype === 'voicegroup' ||
+      mtype === 'clipboard' ||
+      mtype === 'todo' ||
+      mtype === 'whiteboard'
+    ) {
       if (msg.player_id === this.currentPlayerId) return;
       void this.handleControlMessage(mtype, msg);
       return;
@@ -322,7 +328,7 @@ class P2PChatService {
   }
 
   /**
-   * 处理控制消息（大厅公告 / 语音小队），更新全局状态
+   * 处理控制消息（公告 / 语音小队 / 剪贴板 / 待办 / 白板），更新全局状态
    */
   private async handleControlMessage(type: string, msg: BackendChatMessage): Promise<void> {
     try {
@@ -333,6 +339,30 @@ class P2PChatService {
       } else if (type === 'voicegroup') {
         const g = parseInt((msg.content ?? '0').trim(), 10);
         store.setPlayerVoiceGroup(msg.player_id, Number.isFinite(g) ? g : 0);
+      } else if (type === 'clipboard') {
+        store.setIncomingClipboard({
+          from: msg.player_name ?? '',
+          text: msg.content ?? '',
+          ts: (msg.timestamp || 0) * 1000,
+        });
+      } else if (type === 'todo') {
+        try {
+          const list = JSON.parse(msg.content ?? '[]');
+          if (Array.isArray(list)) store.setTodos(list);
+        } catch {
+          // JSON 解析失败忽略该条
+        }
+      } else if (type === 'whiteboard') {
+        try {
+          const op = JSON.parse(msg.content ?? '{}');
+          if (op && op.op === 'clear') {
+            store.clearWhiteboard();
+          } else if (op && op.op === 'stroke') {
+            store.addWhiteboardStroke(op);
+          }
+        } catch {
+          // JSON 解析失败忽略该条
+        }
       }
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
@@ -340,9 +370,12 @@ class P2PChatService {
   }
 
   /**
-   * 发送控制消息（公告/语音小队）
+   * 发送控制消息（公告/语音小队/剪贴板/待办/白板）
    */
-  async sendControlMessage(type: 'announce' | 'voicegroup', content: string): Promise<void> {
+  async sendControlMessage(
+    type: 'announce' | 'voicegroup' | 'clipboard' | 'todo' | 'whiteboard',
+    content: string
+  ): Promise<void> {
     if (!this.currentPlayerId) return;
     try {
       await invoke('send_p2p_chat_message', {

@@ -21,6 +21,7 @@ import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { RoomTools } from '../RoomTools/RoomTools';
+import { ClipboardReceiver } from '../ClipboardReceiver/ClipboardReceiver';
 import { HostPanel } from '../HostPanel/HostPanel';
 import './MiniWindow.css';
 
@@ -1859,6 +1860,10 @@ export const MiniWindow: React.FC = () => {
 
       {/* 房间小工具弹窗 */}
       <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
+
+      {/* 共享剪贴板接收弹窗（全局） */}
+      <ClipboardReceiver />
+
 
       {/* 房主管理面板 */}
       <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />
