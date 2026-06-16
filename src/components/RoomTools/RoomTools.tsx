@@ -318,7 +318,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
     <Modal title={t('roomTools.title')} open={visible} onCancel={onClose} footer={null} width={600} centered className="room-tools-modal">
       <Tabs
         size="small"
-        tabBarGutter={4}
+        tabBarGutter={20}
         more={{ icon: null }}
         items={[
           { key: 'dice', label: t('roomTools.dice'), children: diceTab },

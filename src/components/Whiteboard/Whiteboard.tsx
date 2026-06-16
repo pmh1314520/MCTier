@@ -5,7 +5,7 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Button, Space } from 'antd';
+import { Button } from 'antd';
 import { useAppStore } from '../../stores';
 import type { WhiteboardStroke } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
@@ -157,7 +157,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({ active }) => {
   return (
     <div className="wb-wrap">
       <div className="wb-toolbar">
-        <Space size={6} wrap>
+        <div className="wb-colors-row">
           {COLORS.map((c) => (
             <button
               key={c}
@@ -167,7 +167,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({ active }) => {
               title={c}
             />
           ))}
-          <span className="wb-divider" />
+        </div>
+        <div className="wb-widths-row">
           {WIDTHS.map((wv) => (
             <button
               key={wv}
@@ -178,9 +179,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({ active }) => {
               <span style={{ width: wv + 2, height: wv + 2 }} />
             </button>
           ))}
-          <span className="wb-divider" />
+          <span style={{ flex: 1 }} />
           <Button size="small" danger onClick={handleClear}>清空白板</Button>
-        </Space>
+        </div>
       </div>
       <div className="wb-canvas-box">
         <canvas

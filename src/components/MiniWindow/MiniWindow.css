@@ -419,6 +419,24 @@
   min-width: 0;
 }
 
+/* 头像 + 连接模式徽章：整体作为一列，垂直居中显示在条目左侧 */
+.mini-player-avatar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-shrink: 0;
+  width: 44px;
+}
+
+.mini-player-avatar-col .mini-conn-badge {
+  margin-left: 0;
+  font-size: 9px;
+  padding: 0 5px;
+  line-height: 14px;
+}
+
 .player-avatar {
   position: relative;
   width: 28px;

@@ -109,7 +109,7 @@ class P2PChatService {
     if (this.reconcileTimer) return;
     this.reconcileTimer = window.setInterval(() => {
       void this.reconcileOnce();
-    }, 10000); // 每 10 秒对账一次
+    }, 3000); // 每 3 秒对账一次（兜底实时推送失败，缩短控制消息/白板同步延迟）
   }
 
   private stopReconcileLoop(): void {

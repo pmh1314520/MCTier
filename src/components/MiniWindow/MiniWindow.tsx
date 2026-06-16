@@ -31,8 +31,9 @@ import './MiniWindow.css';
  * 显示精简的大厅信息和语音控制
  */
 // ==================== 二维码工具 ====================
-const buildInviteText = (name: string, pwd: string) =>
-  `——————— 邀请您加入大厅 ———————\n大厅名称：${name}\n密码：${pwd}\n————— https://mctier.pmhs.top —————`;
+/** 二维码内容：用 deep link 编码，扫码端解析参数无歧义 */
+const buildInviteLink = (name: string, pwd: string) =>
+  `mctier://join?name=${encodeURIComponent(name)}&pwd=${encodeURIComponent(pwd)}`;
 
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
@@ -113,7 +114,7 @@ async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasE
   roundRectPath(ctx, qx - 24, qy - 24, qrSize + 48, qrSize + 48, 22); ctx.fill();
   ctx.restore();
   const qc = document.createElement('canvas');
-  await drawQrWithLogo(qc, buildInviteText(name, pwd), qrSize);
+  await drawQrWithLogo(qc, buildInviteLink(name, pwd), qrSize);
   ctx.drawImage(qc, qx, qy);
 
   // 大厅名
@@ -202,7 +203,7 @@ export const MiniWindow: React.FC = () => {
   // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
   useEffect(() => {
     if (showQrModal && lobby && qrCanvasRef.current) {
-      void drawQrWithLogo(qrCanvasRef.current, buildInviteText(lobby.name, lobby.password || ''), 240);
+      void drawQrWithLogo(qrCanvasRef.current, buildInviteLink(lobby.name, lobby.password || ''), 240);
     }
   }, [showQrModal, lobby]);
 
@@ -1549,8 +1550,19 @@ export const MiniWindow: React.FC = () => {
                           }}
                         >
                           <div className="mini-player-info">
-                            <div className={`player-avatar ${speakingPlayers.has(player.id) ? 'speaking' : ''}`}>
-                              <PlayerIcon className="mini-player-icon" />
+                            <div className="mini-player-avatar-col">
+                              <div className={`player-avatar ${speakingPlayers.has(player.id) ? 'speaking' : ''}`}>
+                                <PlayerIcon className="mini-player-icon" />
+                              </div>
+                              {player.virtualIp && peerConnTypes[player.virtualIp] && (
+                                <span
+                                  className="mini-conn-badge"
+                                  title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
+                                  style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#fa8c16', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(250,140,22,0.18)' }}
+                                >
+                                  {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
+                                </span>
+                              )}
                             </div>
                             <div className="player-details">
                               <span className="mini-player-name">
@@ -1606,22 +1618,13 @@ export const MiniWindow: React.FC = () => {
                                     : `IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                   }
                                 </motion.button>
-                                {player.virtualIp && peerConnTypes[player.virtualIp] && (
-                                  <span
-                                    className="mini-conn-badge"
-                                    title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
-                                    style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#fa8c16', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(250,140,22,0.18)' }}
-                                  >
-                                    {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
-                                  </span>
-                                )}
                                 {(() => {
                                   const q = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
                                   if (q === undefined) return null;
                                   const lat = q.latencyMs;
-                                  // 同时只显示一个：有丢包时显示丢包，否则显示延迟
-                                  if (q.lossRate > 0) {
-                                    const lossColor = q.lossRate < 10 ? '#faad14' : '#ff4d4f';
+                                  // 优先显示延迟（探测成功即说明可达）；仅当延迟探测超时(null)且有丢包时显示丢包
+                                  if (lat === null && q.lossRate > 0) {
+                                    const lossColor = '#ff4d4f';
                                     return (
                                       <span
                                         title={`丢包率 ${q.lossRate}%`}
@@ -1912,7 +1915,7 @@ export const MiniWindow: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '4px 0' }}>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>手机用 MCTier 扫码即可加入本大厅</div>
           <div style={{ background: '#fff', borderRadius: 10, padding: 8 }}>
-            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 168, height: 168 }} />
+            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 132, height: 132 }} />
           </div>
           <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{lobby?.name}</div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1938,7 +1941,7 @@ export const MiniWindow: React.FC = () => {
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
               </svg>
-              复制邀请链接
+              复制链接
             </button>
           </div>
         </div>

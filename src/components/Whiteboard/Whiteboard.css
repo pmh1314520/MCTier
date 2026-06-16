@@ -6,6 +6,19 @@
   margin-bottom: 10px;
 }
 
+.wb-colors-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.wb-widths-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wb-color {
   width: 22px;
   height: 22px;
@@ -44,13 +57,17 @@
 
 .wb-width.active {
   border-color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
+  background: #52c41a;
 }
 
 .wb-width span {
   display: inline-block;
   background: #333;
   border-radius: 50%;
+}
+
+.wb-width.active span {
+  background: #fff;
 }
 
 .wb-canvas-box {

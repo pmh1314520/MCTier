@@ -1,52 +1,109 @@
 .stats-body {
   padding: 4px 2px;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
 .stats-card {
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 10px;
-  padding: 12px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px 8px;
   text-align: center;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.stats-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .stats-highlight {
-  grid-column: span 2;
-  background: rgba(82, 196, 26, 0.12);
+  grid-column: span 3;
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.18), rgba(22, 104, 220, 0.12));
+  border-color: rgba(82, 196, 26, 0.25);
 }
 
 .stats-val {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
-  color: #52c41a;
+  color: #7ee23f;
+}
+
+.stats-highlight .stats-val {
+  font-size: 24px;
 }
 
 .stats-label {
   margin-top: 4px;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.stats-section {
+  margin-top: 18px;
+}
+
+.stats-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 12px;
+}
+
+/* 环形图 */
+.stats-donut {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.stats-donut-num {
+  fill: #fff;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.stats-donut-label {
+  fill: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}
+
+.stats-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.stats-donut-legend .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
 }
 
 .stats-row-info {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 14px 2px 6px;
+  gap: 16px;
+  margin-top: 12px;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .stats-buckets {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: flex-end;
-  height: 96px;
-  margin: 10px 4px 4px;
+  height: 100px;
 }
 
 .stats-bucket {
@@ -55,36 +112,32 @@
 }
 
 .stats-bucket-bar-box {
-  height: 60px;
+  height: 64px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
 }
 
 .stats-bucket-bar {
-  width: 70%;
-  min-height: 3px;
-  background: linear-gradient(180deg, #73d13d, #52c41a);
+  width: 60%;
+  min-height: 4px;
+  background: linear-gradient(180deg, #4aa3ff, #1668dc);
   border-radius: 6px 6px 0 0;
-  transition: height 0.3s ease;
+}
+
+.stats-bucket-bar.peak {
+  background: linear-gradient(180deg, #95de64, #52c41a);
 }
 
 .stats-bucket-label {
   margin-top: 6px;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .stats-bucket-count {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.4);
-}
-
-.stats-partner-title {
-  margin: 14px 2px 8px;
-  font-weight: 600;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.75);
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .stats-partner-list {
@@ -97,16 +150,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   padding: 8px 12px;
 }
 
 .stats-partner-rank {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: #52c41a;
+  background: rgba(255, 255, 255, 0.15);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -115,23 +168,28 @@
   justify-content: center;
 }
 
+.stats-partner-rank.rank-1 { background: #f5a623; }
+.stats-partner-rank.rank-2 { background: #9aa7b8; }
+.stats-partner-rank.rank-3 { background: #c87f43; }
+
 .stats-partner-name {
   flex: 1;
   font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .stats-partner-count {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .stats-empty-mini {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.4);
   padding: 8px 2px;
 }
 
 .stats-footer {
-  margin-top: 14px;
+  margin-top: 18px;
   text-align: right;
 }

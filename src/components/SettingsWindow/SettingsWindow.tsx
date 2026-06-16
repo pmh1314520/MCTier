@@ -552,7 +552,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 <span className="settings-card-title">{t('settings.language')}</span>
               </div>
               <div className="settings-card-desc">
-                切换界面语言 / Switch interface language
+                {t('settings.languageDesc')}
               </div>
               <Button.Group>
                 <Button type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguage('zh'); setLang('zh'); }}>简体中文</Button>
@@ -570,14 +570,22 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 <span className="settings-card-title">{t('settings.dataStats')}</span>
               </div>
               <div className="settings-card-desc">
-                查看你的联机时长、活跃时段、常玩伙伴排行等使用情况（仅本地保存）
+                {t('settings.dataStatsDesc')}
               </div>
               <Button onClick={() => setShowStats(true)}>{t('settings.viewStats')}</Button>
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-purple">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{t('settings.configMgr')}</span>
+              </div>
               <div className="settings-card-desc">
-                导出或导入所有配置项，方便备份和迁移
+                {t('settings.configMgrDesc')}
               </div>
               <ConfigManager />
             </motion.div>
