@@ -190,7 +190,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
             选择一个语音频道后，你将<strong>只能听到同频道玩家的声音</strong>，也只有同频道的人能听到你的声音。
           </div>
           <div className="lobby-vc-chips">
-            {[0, 1, 2, 3, 4, 5, 6].map((g) => (
+            {[0, 1, 2, 3, 4, 5].map((g) => (
               <button
                 key={g}
                 type="button"
@@ -207,9 +207,10 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         </div>
         <div className="lobby-voice-divider" />
 
+        <div className="lobby-config-box">
         <div className="lobby-config-section-head">
           <span className="lobby-config-section-title">EasyTier 网络配置</span>
-          <span className="lobby-config-section-note">仅以下网络配置需要点底部「保存」，语音设备与频道选择即时生效</span>
+          <span className="lobby-config-section-note">仅本区域配置需要点下方「保存」，语音设备与频道选择即时生效</span>
         </div>
         <Spin spinning={loading}>
           <div className="use-global-config-switch">
@@ -617,6 +618,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
           >
             {saving ? '保存中...' : '保存'}
           </button>
+        </div>
         </div>
       </div>
     </Modal>

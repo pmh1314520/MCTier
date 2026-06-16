@@ -1532,6 +1532,15 @@ export const MiniWindow: React.FC = () => {
                                 {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
                                   <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
                                 )}
+                                {player.virtualIp && peerConnTypes[player.virtualIp] && (
+                                  <span
+                                    className="mini-conn-badge"
+                                    title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
+                                    style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#b07c46', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(176,124,70,0.18)' }}
+                                  >
+                                    {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
+                                  </span>
+                                )}
                                 <span
                                   className="fav-player-star"
                                   title={favPlayers.includes(player.name) ? '取消收藏队友' : '收藏队友'}
@@ -1592,14 +1601,6 @@ export const MiniWindow: React.FC = () => {
                                         style={{ fontSize: 11, color: q.lossRate < 10 ? '#faad14' : '#ff4d4f', flexShrink: 0 }}
                                       >
                                         丢包{q.lossRate}%
-                                      </span>
-                                    )}
-                                    {player.virtualIp && peerConnTypes[player.virtualIp] && (
-                                      <span
-                                        title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
-                                        style={{ fontSize: 11, color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#b07c46', flexShrink: 0 }}
-                                      >
-                                        {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P直连' : '中继'}
                                       </span>
                                     )}
                                     </>

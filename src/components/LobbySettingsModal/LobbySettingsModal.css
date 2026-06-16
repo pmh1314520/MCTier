@@ -445,3 +445,18 @@
 .lobby-config-section-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .lobby-config-section-title { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
 .lobby-config-section-note { font-size: 11px; color: rgba(255, 210, 74, 0.85); }
+
+/* ==================== EasyTier 网络配置容器（与上方语音设置区分开） ==================== */
+.lobby-config-box {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  margin-top: 4px;
+}
+.lobby-config-box .lobby-settings-footer {
+  margin-top: 16px;
+  margin-bottom: 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}

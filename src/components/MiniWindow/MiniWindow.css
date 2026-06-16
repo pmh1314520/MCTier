@@ -1584,6 +1584,9 @@
   background: rgba(59,130,246,0.22); color: #7FB3FF; font-size: 10px;
   border-radius: 6px; padding: 1px 6px; margin-left: 6px;
 }
+.mini-conn-badge {
+  font-size: 10px; border-radius: 6px; padding: 1px 6px; margin-left: 6px;
+}
 
 /* ==================== 二维码海报下载按钮 ==================== */
 .qr-download-btn {
