@@ -63,7 +63,7 @@ async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: num
     const logo = await loadImg('/MCTierIcon.png');
     const ls = Math.round(size * 0.2);
     const cx = size / 2, cy = size / 2;
-    const pad = Math.round(ls * 0.16);
+    const pad = Math.round(ls * 0.06);
     const r = ls / 2 + pad;
     ctx.save();
     ctx.fillStyle = '#fff';
