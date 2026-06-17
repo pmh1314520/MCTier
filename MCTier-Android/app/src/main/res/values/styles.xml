@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.MCTier" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#14141f</item>
+        <item name="android:statusBarColor">#14141f</item>
+    </style>
+</resources>

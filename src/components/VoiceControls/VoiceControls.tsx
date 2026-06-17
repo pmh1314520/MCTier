@@ -20,6 +20,7 @@ export const VoiceControls: React.FC = () => {
   const toggleMic = useAppStore((state) => state.toggleMic);
   const toggleGlobalMute = useAppStore((state) => state.toggleGlobalMute);
   const mutedPlayers = useAppStore((state) => state.mutedPlayers);
+  const applyVoiceGroupRouting = useAppStore((state) => state.applyVoiceGroupRouting);
   
   const [micLoading, setMicLoading] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
@@ -73,10 +74,11 @@ export const VoiceControls: React.FC = () => {
           webrtcClient.mutePlayer(playerId);
         });
       }
+      applyVoiceGroupRouting();
     } catch (error) {
       console.error('同步全局静音状态失败:', error);
     }
-  }, [globalMuted, mutedPlayers]);
+  }, [applyVoiceGroupRouting, globalMuted, mutedPlayers]);
 
   // 处理麦克风切换
   const handleToggleMic = async () => {

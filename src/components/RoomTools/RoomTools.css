@@ -19,9 +19,15 @@
   margin-top: 12px;
   max-height: 280px;
   overflow-y: auto;
+  overflow-x: visible;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.room-tools-select-dropdown.ant-select-dropdown {
+  z-index: 3000 !important;
+  pointer-events: auto;
 }
 
 .room-todo-empty {

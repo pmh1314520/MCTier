@@ -9,9 +9,9 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 export type SoundType = 'newMessage' | 'userJoined' | 'userLeft';
 
 const DEFAULT_SRC: Record<SoundType, string> = {
-  newMessage: '/NewMsg.mp3',
-  userJoined: '/UserJoined.mp3',
-  userLeft: '/UserLeft.mp3',
+  newMessage: 'NewMsg.mp3',
+  userJoined: 'UserJoined.mp3',
+  userLeft: 'UserLeft.mp3',
 };
 
 const LS_KEY = 'mctier_sound_settings';
@@ -69,10 +69,11 @@ class AudioService {
     try {
       const custom = this.settings.custom[type];
       let src: string;
-      if (!custom) src = DEFAULT_SRC[type];
+      if (!custom) src = new URL(DEFAULT_SRC[type], window.location.href).href;
       else if (custom.startsWith('data:') || custom.startsWith('http')) src = custom; // data URL 或网络地址直接用
       else src = convertFileSrc(custom); // 本地文件路径
       const audio = new Audio(src);
+      audio.preload = 'auto';
       audio.volume = this.settings.volume;
       this.sounds.set(type, audio);
     } catch (error) {
@@ -94,8 +95,11 @@ class AudioService {
     if (!this.enabled) return;
     if (this.inDnd()) { console.log('免打扰时段，跳过音效:', soundType); return; }
     try {
-      const sound = this.sounds.get(soundType);
-      if (!sound) return;
+      const cached = this.sounds.get(soundType);
+      if (!cached) return;
+      const sound = new Audio(cached.currentSrc || cached.src);
+      sound.preload = 'auto';
+      sound.volume = this.settings.volume;
       sound.currentTime = 0;
       await sound.play();
     } catch (error) {

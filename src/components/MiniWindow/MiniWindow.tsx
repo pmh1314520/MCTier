@@ -57,7 +57,7 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
 }
 
 /** 在画布上绘制二维码 + 中心圆角 Logo（高纠错，确保可扫） */
-async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: number): Promise<void> {
+async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: number, displaySize = size): Promise<void> {
   await QRCodeLib.toCanvas(canvas, text, {
     errorCorrectionLevel: 'H', margin: 1, width: size,
     color: { dark: '#000000', light: '#ffffff' },
@@ -79,6 +79,8 @@ async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: num
     ctx.drawImage(logo, cx - ls / 2, cy - ls / 2, ls, ls);
     ctx.restore();
   } catch { /* Logo 加载失败则仅二维码 */ }
+  canvas.style.width = `${displaySize}px`;
+  canvas.style.height = `${displaySize}px`;
 }
 
 /** 合成 MCTier 主题邀请图（名片比例的竖向长方形，绿色主题） */
@@ -168,6 +170,7 @@ export const MiniWindow: React.FC = () => {
   } = useAppStore();
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
+  const isSameVoiceGroup = (playerId: string) => (playerVoiceGroups.get(playerId) ?? 0) === myVoiceGroup;
 
   // 新玩家加入时，房主补发公告、各成员补发自己的语音小队，确保新人状态一致
   const prevPlayerCountRef = React.useRef(0);
@@ -206,9 +209,13 @@ export const MiniWindow: React.FC = () => {
   // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
   useEffect(() => {
     if (showQrModal && lobby && qrCanvasRef.current) {
-      void drawQrWithLogo(qrCanvasRef.current, buildInviteLink(lobby.name, lobby.password || ''), 240);
+      void drawQrWithLogo(qrCanvasRef.current, buildInviteLink(lobby.name, lobby.password || ''), 240, 180);
     }
-  }, [showQrModal, lobby]);
+  }, [showQrModal, lobby?.name, lobby?.password]);
+
+  useEffect(() => {
+    setShowQrModal(false);
+  }, [lobby?.name, lobby?.password]);
 
   // 下载二维码：合成 MCTier 主题邀请图，弹出系统保存对话框让用户选择位置
   const downloadQrPoster = async () => {
@@ -654,6 +661,23 @@ export const MiniWindow: React.FC = () => {
     } catch (error) {
       console.error('切换窗口大小失败:', error);
       console.error('错误详情:', error);
+    }
+  };
+
+  const expandMiniWindow = async () => {
+    if (!collapsed) return;
+
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { LogicalSize } = await import('@tauri-apps/api/dpi');
+      const appWindow = getCurrentWindow();
+      await appWindow.setSize(new LogicalSize(320, 520));
+      setCollapsed(false);
+      await new Promise(resolve => window.setTimeout(resolve, 320));
+    } catch (error) {
+      console.error('展开迷你窗口失败:', error);
+      setCollapsed(false);
+      await new Promise(resolve => window.setTimeout(resolve, 320));
     }
   };
 
@@ -1350,7 +1374,8 @@ export const MiniWindow: React.FC = () => {
             </motion.button>
             <motion.button
               className="mini-control-btn close-btn"
-              onClick={() => {
+              onClick={async () => {
+                await expandMiniWindow();
                 modal.confirm({
                   title: '退出大厅',
                   content: '确定要退出当前大厅吗？退出后将断开与好友的组网。',
@@ -1508,12 +1533,6 @@ export const MiniWindow: React.FC = () => {
                           {currentPlayerId && hostMutedPlayers.has(currentPlayerId) && (
                             <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>{tl('已禁言', 'Muted')}</span>
                           )}
-                          {currentPlayerId && speakingPlayers.has(currentPlayerId) && (
-                            <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>{tl('说话中', 'Speaking')}</span>
-                          )}
-                          {myVoiceGroup !== 0 && (
-                            <span className="mini-vg-badge">{myVoiceGroup}队</span>
-                          )}
                         </span>
                         <motion.button
                           className="player-virtual-ip-btn"
@@ -1554,7 +1573,7 @@ export const MiniWindow: React.FC = () => {
                         >
                           <div className="mini-player-info">
                             <div className="mini-player-avatar-col">
-                              <div className={`player-avatar ${speakingPlayers.has(player.id) ? 'speaking' : ''}`}>
+                              <div className={`player-avatar ${speakingPlayers.has(player.id) && isSameVoiceGroup(player.id) ? 'speaking' : ''}`}>
                                 <PlayerIcon className="mini-player-icon" />
                               </div>
                               {player.virtualIp && peerConnTypes[player.virtualIp] && (
@@ -1575,12 +1594,6 @@ export const MiniWindow: React.FC = () => {
                                 )}
                                 {hostMutedPlayers.has(player.id) && (
                                   <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>{tl('已禁言', 'Muted')}</span>
-                                )}
-                                {speakingPlayers.has(player.id) && (
-                                  <span style={{ color: '#52c41a', fontSize: 11, marginLeft: 6 }}>{tl('说话中', 'Speaking')}</span>
-                                )}
-                                {(playerVoiceGroups.get(player.id) ?? 0) !== 0 && (
-                                  <span className="mini-vg-badge">{playerVoiceGroups.get(player.id)}队</span>
                                 )}
                                 <span
                                   className="fav-player-star"
@@ -1626,7 +1639,7 @@ export const MiniWindow: React.FC = () => {
                                   if (q === undefined) return null;
                                   const lat = q.latencyMs;
                                   // 优先显示延迟（探测成功即说明可达）；仅当延迟探测超时(null)且有丢包时显示丢包
-                                  if (lat === null && q.lossRate > 0) {
+                                  if (lat === null && q.lossRate > 0 && q.lossRate < 100) {
                                     const lossColor = '#ff4d4f';
                                     return (
                                       <span
@@ -1917,8 +1930,8 @@ export const MiniWindow: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '4px 0' }}>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>{tl('手机用 MCTier 扫码即可加入本大厅', 'Scan with MCTier on your phone to join')}</div>
-          <div style={{ background: '#fff', borderRadius: 10, padding: 8 }}>
-            <canvas ref={qrCanvasRef} width={240} height={240} style={{ display: 'block', width: 132, height: 132 }} />
+          <div className="mini-qr-card">
+            <canvas key={`${lobby?.name ?? ''}:${lobby?.password || ''}`} ref={qrCanvasRef} width={240} height={240} className="mini-qr-canvas" />
           </div>
           <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{lobby?.name}</div>
           <div style={{ display: 'flex', gap: 8 }}>

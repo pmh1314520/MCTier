@@ -389,7 +389,7 @@
 
 .mini-player-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 6px 8px;
   border-radius: 5px;
@@ -413,7 +413,7 @@
 
 .mini-player-info {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   flex: 1;
   min-width: 0;
@@ -427,7 +427,8 @@
   justify-content: center;
   gap: 3px;
   flex-shrink: 0;
-  width: 44px;
+  width: 28px;
+  min-width: 28px;
 }
 
 .mini-player-avatar-col .mini-conn-badge {
@@ -466,6 +467,7 @@
   gap: 3px;
   flex: 1;
   min-width: 0;
+  width: 100%;
 }
 
 .mini-player-name {
@@ -514,10 +516,17 @@
   align-items: center;
   gap: 6px;
   margin-top: 2px;
+  width: 100%;
+  min-width: 0;
+}
+
+.player-volume-control svg {
+  flex: 0 0 auto;
 }
 
 .player-volume-slider {
   flex: 1;
+  min-width: 0;
   height: 4px;
   -webkit-appearance: none;
   appearance: none;
@@ -1607,6 +1616,24 @@
 }
 
 /* ==================== 二维码海报下载按钮 ==================== */
+.mini-qr-card {
+  width: 200px;
+  height: 200px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.mini-qr-canvas {
+  display: block;
+  width: 180px !important;
+  height: 180px !important;
+}
+
 .qr-download-btn {
   display: inline-flex;
   align-items: center;

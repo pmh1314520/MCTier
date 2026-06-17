@@ -1,0 +1,23 @@
+# Android / Gradle
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+/app/build/
+build/
+# Keep
+!gradle-wrapper.jar
+
+# debug temp
+ui_now.xml
+screen_now.png
+color_sample.txt

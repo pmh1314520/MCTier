@@ -464,6 +464,7 @@ export const useAppStore = create<AppStore>()(
           false,
           'togglePlayerMute'
         );
+        get().applyVoiceGroupRouting();
       },
 
       mutePlayer: (playerId: string) => {
@@ -484,6 +485,7 @@ export const useAppStore = create<AppStore>()(
           false,
           'mutePlayer'
         );
+        get().applyVoiceGroupRouting();
       },
 
       unmutePlayer: (playerId: string) => {
@@ -504,6 +506,7 @@ export const useAppStore = create<AppStore>()(
           false,
           'unmutePlayer'
         );
+        get().applyVoiceGroupRouting();
       },
 
       isPlayerMuted: (playerId: string) => {
@@ -531,6 +534,7 @@ export const useAppStore = create<AppStore>()(
           false,
           'toggleGlobalMute'
         );
+        get().applyVoiceGroupRouting();
       },
 
       setGlobalMuted: (muted: boolean) => {
@@ -546,6 +550,7 @@ export const useAppStore = create<AppStore>()(
         }
         
         set({ globalMuted: muted }, false, 'setGlobalMuted');
+        get().applyVoiceGroupRouting();
       },
 
       setPlayerSpeaking: (playerId: string, speaking: boolean) => {
@@ -602,6 +607,7 @@ export const useAppStore = create<AppStore>()(
           false,
           'setPlayerVolume'
         );
+        get().applyVoiceGroupRouting();
       },
 
       getPlayerVolume: (playerId: string) => {
@@ -702,8 +708,9 @@ export const useAppStore = create<AppStore>()(
         st.players.forEach((p) => {
           if (p.id === st.currentPlayerId) return;
           const theirGroup = st.playerVoiceGroups.get(p.id) ?? 0;
-          const shouldHear = myGroup === 0 || theirGroup === myGroup;
-          const target = shouldHear ? (st.playerVolumes.get(p.id) ?? 1.0) || 1.0 : 0;
+          const shouldHear = theirGroup === myGroup;
+          const locallyMuted = st.globalMuted || st.mutedPlayers.has(p.id);
+          const target = shouldHear && !locallyMuted ? (st.playerVolumes.get(p.id) ?? 1.0) : 0;
           try { webrtcClient.setPlayerVolume(p.id, target); } catch { /* ignore */ }
         });
       },

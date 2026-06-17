@@ -774,10 +774,34 @@
 }
 
 /* ==================== 提示音设置 ==================== */
-.snd-manager { display: flex; flex-direction: column; gap: 18px; }
+.settings-centered-control {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.snd-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0 12px 14px;
+  box-sizing: border-box;
+}
+
 .snd-block { display: flex; flex-direction: column; gap: 8px; }
 .snd-block-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: rgba(255, 255, 255, 0.85); font-weight: 500; }
 .snd-vol-val { color: var(--mctier-primary, #52C41A); font-size: 13px; font-weight: 600; }
+.snd-manager .ant-slider-track {
+  background: #7ed321 !important;
+}
+.snd-manager .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px #7ed321 !important;
+}
+.snd-manager .ant-slider-handle:hover::after,
+.snd-manager .ant-slider-handle:focus::after {
+  box-shadow: 0 0 0 4px rgba(126, 211, 33, 0.28) !important;
+}
 .snd-block-title-text { font-size: 13px; color: rgba(255, 255, 255, 0.85); font-weight: 500; }
 .snd-block-desc { font-size: 11px; color: rgba(255, 255, 255, 0.45); margin-top: 2px; }
 
@@ -812,8 +836,8 @@
 .snd-text-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 .snd-text-btn.snd-reset { color: rgba(255, 255, 255, 0.55); }
 
-.snd-dnd-head { display: flex; align-items: center; justify-content: space-between; }
-.snd-dnd-times { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.snd-dnd-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.snd-dnd-times { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; width: 100%; }
 .snd-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
 .snd-dnd-times input[type="time"] {
   background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);

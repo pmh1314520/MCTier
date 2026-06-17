@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { MicrophoneIcon, VolumeIcon, PlayerIcon } from '../icons';
 import { useAppStore } from '../../stores';
-import { webrtcClient } from '../../services';
 import './PlayerList.css';
 
 /**
@@ -19,27 +18,23 @@ export const PlayerList: React.FC = () => {
   const mutedPlayers = useAppStore((state) => state.mutedPlayers);
   const setPlayerVolume = useAppStore((state) => state.setPlayerVolume);
   const getPlayerVolume = useAppStore((state) => state.getPlayerVolume);
-  
+  const applyVoiceGroupRouting = useAppStore((state) => state.applyVoiceGroupRouting);
+  const speakingPlayers = useAppStore((state) => state.speakingPlayers);
+  const myVoiceGroup = useAppStore((state) => state.myVoiceGroup);
+  const playerVoiceGroups = useAppStore((state) => state.playerVoiceGroups);
+
   // 用于控制音量滑块的显示
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
 
-  // 同步静音状态到WebRTC客户端
+  // 统一应用静音、音量和语音频道路由，避免 UI 组件直接 unmute 打穿频道隔离。
   useEffect(() => {
     try {
-      // 对所有玩家应用静音状态
-      players.forEach((player) => {
-        if (mutedPlayers.has(player.id)) {
-          webrtcClient.mutePlayer(player.id);
-        } else {
-          webrtcClient.unmutePlayer(player.id);
-        }
-      });
+      applyVoiceGroupRouting();
     } catch (error) {
-      console.error('同步静音状态失败:', error);
+      console.error('同步音频路由失败:', error);
     }
-  }, [mutedPlayers, players]);
+  }, [applyVoiceGroupRouting, mutedPlayers, players]);
 
-  // 处理静音切换
   const handleToggleMute = (playerId: string) => {
     try {
       togglePlayerMute(playerId);
@@ -48,7 +43,6 @@ export const PlayerList: React.FC = () => {
     }
   };
 
-  // 处理音量变化
   const handleVolumeChange = (playerId: string, volume: number) => {
     try {
       setPlayerVolume(playerId, volume / 100);
@@ -57,7 +51,6 @@ export const PlayerList: React.FC = () => {
     }
   };
 
-  // 切换音量控制显示
   const toggleVolumeControl = (playerId: string) => {
     setExpandedPlayerId(expandedPlayerId === playerId ? null : playerId);
   };
@@ -81,6 +74,8 @@ export const PlayerList: React.FC = () => {
           const isMuted = mutedPlayers.has(player.id);
           const volume = Math.round(getPlayerVolume(player.id) * 100);
           const isExpanded = expandedPlayerId === player.id;
+          const isSameVoiceGroup = (playerVoiceGroups.get(player.id) ?? 0) === myVoiceGroup;
+          const isSpeaking = speakingPlayers.has(player.id) && isSameVoiceGroup;
 
           return (
             <motion.div
@@ -97,7 +92,6 @@ export const PlayerList: React.FC = () => {
               layout
               whileHover={{ scale: 1.02 }}
             >
-              {/* 玩家图标 */}
               <motion.div
                 className="player-item-icon"
                 initial={{ scale: 0 }}
@@ -107,7 +101,6 @@ export const PlayerList: React.FC = () => {
                 <PlayerIcon online={true} size={20} />
               </motion.div>
 
-              {/* 玩家信息 */}
               <div className="player-item-info">
                 <div className="player-item-name">{player.name}</div>
                 <div className="player-item-status">
@@ -119,7 +112,6 @@ export const PlayerList: React.FC = () => {
                       transition={{ type: 'spring', stiffness: 500 }}
                     >
                       <MicrophoneIcon enabled={true} size={12} />
-                      <span>{tl('说话中', 'Speaking')}</span>
                     </motion.span>
                   ) : (
                     <span className="player-status-badge">
@@ -130,9 +122,7 @@ export const PlayerList: React.FC = () => {
                 </div>
               </div>
 
-              {/* 操作按钮 */}
               <div className="player-item-actions">
-                {/* 音量控制按钮 */}
                 <Tooltip title={tl('调节音量', 'Adjust volume')}>
                   <motion.div
                     className={`player-volume-toggle ${isExpanded ? 'active' : ''}`}
@@ -141,13 +131,12 @@ export const PlayerList: React.FC = () => {
                     onClick={() => toggleVolumeControl(player.id)}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
                     </svg>
                   </motion.div>
                 </Tooltip>
               </div>
 
-              {/* 音量滑块 - 展开时显示 */}
               <AnimatePresence>
                 {isExpanded && (
                   <motion.div
@@ -158,7 +147,6 @@ export const PlayerList: React.FC = () => {
                     transition={{ duration: 0.2 }}
                   >
                     <div className="player-volume-slider-wrapper">
-                      {/* 听筒图标 - 点击切换静音 */}
                       <Tooltip title={isMuted ? tl('取消静音', 'Unmute') : tl('静音该玩家', 'Mute this player')}>
                         <motion.div
                           className="player-volume-icon-inline"
@@ -182,9 +170,8 @@ export const PlayerList: React.FC = () => {
                 )}
               </AnimatePresence>
 
-              {/* 说话动画指示器 */}
               <AnimatePresence>
-                {player.micEnabled && !isMuted && (
+                {isSpeaking && !isMuted && (
                   <motion.div
                     className="player-speaking-indicator"
                     initial={{ scale: 0, opacity: 0 }}

@@ -32,6 +32,8 @@ interface RoomToolsProps {
 const popupContainer = (triggerNode: HTMLElement) =>
   (triggerNode.parentElement as HTMLElement) || document.body;
 
+const modalPopupContainer = () => document.body;
+
 export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
@@ -192,9 +194,10 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   };
 
   const remainingCount = todos.filter((t) => !t.done).length;
+  const assigneeNames = Array.from(new Set([myName, ...players.map((p) => p.name)].filter(Boolean)));
   const assigneeOptions = [
     { value: '', label: t('roomTools.unassigned') },
-    ...players.map((p) => ({ value: p.name, label: p.name })),
+    ...assigneeNames.map((name) => ({ value: name, label: name })),
   ];
 
   const diceTab = (
@@ -272,6 +275,9 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
                 value={t.assignee || ''}
                 onChange={(v) => assignTodo(t.id, v)}
                 style={{ width: 96 }}
+                getPopupContainer={modalPopupContainer}
+                popupClassName="room-tools-select-dropdown"
+                dropdownStyle={{ zIndex: 3000 }}
                 options={assigneeOptions}
               />
               <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">

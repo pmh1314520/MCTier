@@ -15,6 +15,24 @@ dist
 dist-ssr
 *.local
 
+# Android / Gradle
+MCTier-Android/.gradle/
+MCTier-Android/.kotlin/
+MCTier-Android/build/
+MCTier-Android/app/build/
+MCTier-Android/local.properties
+MCTier-Android/.idea/
+MCTier-Android/.cxx/
+MCTier-Android/.externalNativeBuild/
+MCTier-Android/captures/
+MCTier-Android/*.apk
+MCTier-Android/*.aab
+MCTier-Android/*.ap_
+MCTier-Android/*.dex
+MCTier-Android/ui_now.xml
+MCTier-Android/screen_now.png
+MCTier-Android/color_sample.txt
+
 # Tauri / Rust
 src-tauri/target
 src-tauri/WixTools

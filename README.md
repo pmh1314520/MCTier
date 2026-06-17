@@ -1,580 +1,237 @@
 <div align="center">
+  <img src="public/MCTierIcon.png" alt="MCTier Logo" width="120" height="120">
 
-<img src="public/MCTierIcon.png" alt="MCTier Logo" width="150" height="150">
+  # MCTier
 
-# **MCTier**
+  **虚拟局域网通用组网工具**
 
-### 虚拟局域网通用联机工具
+  <p>
+    <img src="https://img.shields.io/badge/version-2.0.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
+    <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
+    <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
+  </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=flat-square" alt="Version">
-  <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
-</p>
+  **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。**
 
-
-
-
-<p align="center">
-  <a href="https://github.com/pmh1314520/MCTier">GitHub</a> •
-  <a href="https://gitee.com/peng-minghang/mctier">Gitee</a> •
-  <a href="#-功能特性">功能特性</a> •
-  <a href="#-快速开始">快速开始</a> •
-  <a href="#-使用说明">使用说明</a>
-</p>
-
----
-
-### 让跨网络联机变得简单
-
-MCTier 是一款通用的虚拟局域网联机工具，让您可以轻松与好友跨越网络限制，享受联机游戏的乐趣。
-
-**🎮 通用联机工具** - 适用于所有支持局域网联机的游戏（Minecraft、泰拉瑞亚、饥荒等）
-
-**🌐 局域网互访** - 同一大厅内的玩家可以互相访问本地开放的网站和服务
-
+  [官网](../MCTier官网/index.html) · [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [快速开始](#快速开始) · [运行预览](#运行预览) · [赞助支持](#赞助支持)
 </div>
 
 ---
 
-## 📸 软件预览
+## 项目简介
 
-<div align="center">
+MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组到同一个虚拟局域网中。它不是 Minecraft 专属工具，也不只服务游戏场景；只要你需要跨网络访问局域网服务、临时协作、语音沟通、文件夹共享或屏幕共享，都可以用 MCTier 搭一个轻量大厅。
 
-### 主界面
+典型用途包括：
 
-<img src="public/软件预览-主界面.png" alt="主界面" width="300">
+- 局域网游戏联机，例如 Minecraft、泰拉瑞亚、饥荒等。
+- 跨网络访问本地服务，例如开发调试页面、局域网后台、临时 HTTP 服务。
+- 小团队临时协作，例如语音频道、聊天室、文件夹共享、屏幕共享。
+- 手机与电脑互联，例如手机扫码加入大厅、复制邀请链接加入组网。
 
-简洁优雅的主界面，提供创建大厅、加入大厅、关于软件等功能入口
+## 运行预览
 
----
+预览图按桌面端与手机端分组，尽量用紧凑布局展示，避免图片过多导致阅读很累。
 
-### 创建大厅
-
-<img src="public/软件预览-创建大厅.png" alt="创建大厅" width="300">
-
-输入大厅名称、密码和玩家名称，一键创建虚拟局域网大厅
-
----
-
-### 加入大厅
-
-<img src="public/软件预览-加入大厅.png" alt="加入大厅" width="300">
-
-输入大厅名称、密码和玩家名称，快速加入好友的大厅
-
----
-
-### 常用大厅信息
-
-<img src="public/软件预览-常用大厅信息.png" alt="常用大厅信息" width="300">
-
-将常用的大厅信息记录下来，之后快速选择一键填写
-
----
-
-### 大厅界面
-
-<img src="public/软件预览-大厅界面.png" alt="大厅界面" width="300">
-
-迷你悬浮窗设计，实时显示在线玩家、语音状态、虚拟IP等信息
-
----
-
-### 聊天室界面
-
-<img src="public/软件预览-聊天室.png" alt="聊天室界面" width="300">
-
-每个大厅内置独立聊天室，同大厅内的玩家可以在这里交流
-
----
-
-### 文件夹共享界面
-
-<img src="public/软件预览-文件夹共享.png" alt="文件夹共享" width="300">
-
-可以将自己电脑本地的任何文件夹共享给同大厅内的其他玩家高速下载
-
----
-
-### 屏幕共享界面
-
-<img src="public/软件预览-屏幕共享.png" alt="屏幕共享" width="300">
-
-将自己电脑的屏幕画面实时共享给大厅内的其他玩家查看
-
----
-
-### 大厅动态设置
-
-<img src="public/软件预览-大厅动态设置.png" alt="大厅动态设置" width="300">
-
-支持用户动态改变自己的各项配置
-
----
-
-### 设置界面
-
-<img src="public/软件预览-设置.png" alt="设置界面" width="300">
-
-设置开机自启动，以及启动后自动进入指定大厅
-
-</div>
-
----
-
-## ✨ 功能特性
-
-### 核心功能
-
-- **🌐 虚拟局域网** - 基于 EasyTier P2P 技术，实现跨网络的直连通信
-- **🔄 多节点高可用** - 支持配置多个 EasyTier 节点，自动故障转移和负载均衡
-- **🎙️ 实时语音** - 内置 WebRTC 语音通话，低延迟、高质量
-- **💬 P2P聊天室** - 基于 HTTP over WireGuard 的点对点聊天，支持文本和图片消息
-- **📁 文件共享** - HTTP over WireGuard 高速文件传输，支持批量下载、先压后发、密码保护
-- **📺 屏幕共享** - 基于 WebRTC 的实时屏幕共享，可查看队友画面
-- **⚡ 快捷键控制** - 全局快捷键控制麦克风（Ctrl+M）和全局听筒（Ctrl+T）
-- **🎯 迷你悬浮窗** - 游戏时不遮挡视野，随时查看玩家状态，支持透明度调节
-- **🔒 大厅隔离** - 每个大厅独立隔离，保护隐私安全
-- **🌍 虚拟域名** - 支持 Magic DNS 功能，使用域名（如：玩家名.mct.net）代替IP地址
-- **🛠️ 高级网络配置** - 支持子网代理、网段映射、虚拟域名等高级功能
-- **📋 快速分享** - 一键复制大厅信息，自动识别剪贴板内容
-- **🔔 音效提示** - 玩家加入/离开、新消息等事件音效提醒
-- **🔄 自动配置** - 无需手动设置，自动完成网络配置
-- **🎨 现代化UI** - 精美的界面设计，流畅的动画效果，支持窗口透明度调节
-- **⚙️ 灵活设置** - 开机自启动、自动进入大厅、GPU渲染控制、窗口置顶等丰富配置
-- **🔐 私有化部署** - 支持配置私有服务器，完全掌控数据安全
-
-### 技术亮点
-
-| 技术栈 | 说明 |
-|--------|------|
-| **Tauri 2.0** | 现代化桌面应用框架，轻量高效 |
-| **React 19** | 最新的 React 版本，流畅的用户体验 |
-| **EasyTier** | P2P 虚拟网络技术，实现跨网络直连 |
-| **WebRTC** | 实时语音通信和屏幕共享技术 |
-| **HTTP over WireGuard** | 基于虚拟网络的P2P聊天和文件共享 |
-| **Rust** | 高性能后端，安全可靠 |
-| **Magic DNS** | 基于 hosts 文件的虚拟域名系统 |
-| **后端服务全开源** | 源码及私有化部署请前往MCTier官网查看 |
-
----
-
-## 🚀 快速开始
-
-### 系统要求
-
-- **操作系统**: Windows 10/11 (64位)
-- **内存**: 至少 2GB RAM
-- **磁盘空间**: 至少 100MB
-- **网络**: 稳定的互联网连接
-
-### 下载安装
-
-前往 [GitHub Releases](https://github.com/pmh1314520/MCTier/releases) 或 [Gitee Releases](https://gitee.com/peng-minghang/mctier/releases) 下载最新版本。
-
-**安装程序版本**（推荐）
-- 下载 `MCTier-Setup.exe`
-- 双击运行安装程序
-- 按照向导完成安装
-
-**免安装版本**
-
-- 下载 `MCTier-Portable.7z`
-- 解压到任意目录
-- 双击 `mctier.exe` 启动
-
----
-
-## 📖 使用说明
-
-### 创建大厅（开房的玩家）
-
-1. 启动 MCTier，点击 **创建大厅**
-2. 输入自定义大厅名称
-3. 设置自定义大厅密码
-4. 随便起个玩家名称
-5. 点击 **创建** 按钮
-6. 等待虚拟网络初始化完成
-7. 将大厅的名称和密码分享给你的好友
-
-### 加入大厅（入房的玩家）
-
-1. 启动 MCTier，点击 **加入大厅**
-2. 输入好友分享的大厅名称和密码
-3. 随便起个玩家名称
-4. 点击 **加入** 按钮
-5. 等待连接到虚拟网络
-
-### 开始游戏
-
-成功加入大厅后，你会获得一个虚拟 IP 地址（如 `10.126.126.2`）
-
-**如果启用了虚拟域名功能，你还会获得一个虚拟域名（如 `玩家名.mct.net`），可以使用域名代替IP地址进行连接**
-
-**在 Minecraft 中：**
-
-1. 房主打开单人世界，按 ESC 键
-2. 点击 **对局域网开放**，记住端口号（如 25565）
-3. 其他玩家在多人游戏中点击 **直接连接**
-4. 输入房主的虚拟 IP 和端口（如 `10.126.126.1:25565`）
-5. 点击加入服务器
-
-**房主的虚拟 IP 通常是 `10.126.126.1`，虚拟域名是 `房主名.mct.net`**
-
-**注意：房主一般都需要安装 mcwifipnp 模组以关闭正版验证！**
-
-### 语音通话
-
-- **开启/关闭麦克风**: 点击麦克风图标或按快捷键（默认 Ctrl+M）
-- **静音玩家**: 点击玩家列表中的扬声器图标
-- **开启/关闭全局听筒**: 点击扬声器图标或按快捷键（默认 Ctrl+T）
-
-### P2P聊天室
-
-MCTier 提供了基于 HTTP over WireGuard 的点对点聊天功能，无任何服务器中转。
-
-#### 使用聊天室
-
-1. 在大厅界面底部点击 **聊天室** 按钮
-2. 在输入框中输入文字消息，按回车发送
-3. 点击表情按钮可以插入表情符号
-4. 点击图片按钮可以发送图片（支持粘贴截图）
-5. 聊天记录会自动保存，下次进入大厅时可以查看历史消息
-
-**特点：**
-- 完全 P2P 通信，不经过中转服务器
-- 支持文本和图片消息
-- 实时消息推送（基于 SSE）
-- 自动消息去重，避免重复显示
-- 未读消息提示和音效提醒
-
-### 屏幕共享
-
-MCTier 支持基于 WebRTC 的实时屏幕共享功能，可以查看队友的画面。
-
-#### 开始屏幕共享
-
-1. 在大厅界面底部点击 **屏幕共享** 按钮
-2. 点击 **开始共享** 按钮
-3. 选择要共享的屏幕或窗口
-4. 其他玩家会收到通知，可以点击查看你的屏幕
-
-#### 查看队友屏幕
-
-1. 当有玩家开始屏幕共享时，会收到通知
-2. 在屏幕共享界面点击该玩家的共享
-3. 即可实时查看队友的屏幕画面
-
-**注意事项：**
-- 屏幕共享会占用一定的网络带宽
-- 建议在网络状况良好时使用
-- 可以随时停止共享
-
-### 迷你窗口
-
-进入大厅后，软件会自动切换到迷你悬浮窗模式：
-- 可以拖动窗口到任意位置
-- 点击展开/收起按钮控制窗口大小
-- 游戏时不会遮挡视野
-
-### 多节点高可用（推荐配置）
-
-MCTier 支持配置多个 EasyTier 节点，实现自动故障转移和负载均衡，大幅提升连接稳定性。
-
-#### 配置自定义节点
-
-1. 打开 MCTier 设置窗口
-2. 找到"自定义 EasyTier 节点"卡片
-3. 点击 **添加节点** 按钮
-4. 输入节点信息：
-   - **节点名称**：便于识别的名称（如"阿里云节点"）
-   - **节点地址**：完整的节点地址（如 `wss://node.example.com`）
-5. 点击 **保存**
-
-**支持的节点格式**：
-- `tcp://域名或IP:端口` - TCP 协议
-- `udp://域名或IP:端口` - UDP 协议
-- `ws://域名或IP/路径` - WebSocket 协议
-- `wss://域名或IP/路径` - WebSocket Secure 协议（推荐）
-- `txt://URL` - 从 URL 获取节点列表
-
-#### 工作原理
-
-配置多个节点后，创建或加入大厅时：
-1. MCTier 会自动将所有节点传递给 EasyTier
-2. EasyTier 自动选择延迟最低、质量最好的节点
-3. 当节点离线或网络波动时，自动切换到其他健康节点
-4. 支持多路径并行，提升连接稳定性和速度
-
-**优势**：
-- ✅ 提升连接成功率
-- ✅ 减少因单点故障导致的断线
-- ✅ 自动选择最优节点，降低延迟
-- ✅ 网络波动时自动切换，保持稳定
-
-**建议**：
-- 配置 2-5 个不同地域或运营商的节点
-- 优先使用 WebSocket Secure (wss://) 协议
-- 确保节点地址稳定可用
-
-### 文件共享
-
-MCTier 提供了强大的 HTTP over WireGuard 文件共享功能，让同大厅内的玩家可以高速传输文件。
-
-#### 添加共享文件夹
-
-1. 在大厅界面底部点击 **文件共享** 按钮
-2. 点击 **添加共享文件夹** 按钮
-3. 选择要共享的文件夹
-4. 设置访问密码（可选，用于保护共享内容）
-5. 设置有效期（可选，过期后自动移除共享）
-6. 开启"先压后发"（可选，批量下载时自动打包成ZIP）
-7. 点击 **确定** 完成添加
-
-**注意事项：**
-- 共享文件夹会实时同步，添加或删除文件后其他玩家会立即看到
-- 支持同时共享多个文件夹
-- "先压后发"功能可以提高批量下载效率，下载完成后自动解压
-
-#### 浏览和下载文件
-
-1. 在文件共享界面，点击其他玩家共享的文件夹
-2. 如果设置了密码，需要输入正确的密码才能访问
-3. 浏览文件夹内容，可以单个下载或批量下载
-4. 批量下载时，如果共享者开启了"先压后发"，会自动压缩后再传输
-5. 在 **传输列表** 中查看下载进度和已完成的文件
-
-**传输特点：**
-- 基于 HTTP over WireGuard，完全 P2P 直连
-- 支持多文件并发下载
-- 批量下载支持"先压后发"策略
-
-#### 管理共享
-
-- **删除共享**：在 **我的共享** 列表中点击删除按钮
-- **查看传输**：切换到 **传输列表** 查看正在下载和已完成的文件
-- **取消下载**：在传输列表中点击取消按钮停止下载
-
----
-
-## 🛠️ 开发指南
-
-### 环境要求
-
-- **Node.js**: 18.0+
-- **Rust**: 1.70+
-- **npm**: 9.0+
-
-### 安装依赖
-
-```bash
-# 克隆仓库
-git clone https://github.com/pmh1314520/MCTier.git
-cd MCTier/mctier
-
-# 安装依赖
-npm install
-```
-
-### 开发模式
-
-```bash
-npm run tauri dev
-```
-
-### 构建项目
-
-```bash
-npm run tauri build
-```
-
-构建完成后，文件位于 `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/`
-
-### 项目结构
-
-```
-mctier/
-├── src/                          # 前端源代码
-│   ├── components/              # React 组件
-│   │   ├── MainWindow/         # 主窗口
-│   │   ├── MiniWindow/         # 迷你窗口
-│   │   ├── LobbyForm/          # 大厅表单
-│   │   ├── PlayerList/         # 玩家列表
-│   │   ├── VoiceControls/      # 语音控制
-│   │   ├── ChatRoom/           # P2P聊天室
-│   │   ├── FileShareManager/   # 文件共享管理
-│   │   ├── ScreenShareManager/ # 屏幕共享管理
-│   │   ├── NetworkDiagnostic/  # 网络诊断
-│   │   ├── MinecraftHelper/    # Minecraft 助手
-│   │   └── AboutWindow/        # 关于窗口
-│   ├── services/                # 服务层
-│   │   ├── webrtc/             # WebRTC 客户端（语音、屏幕共享）
-│   │   ├── chat/               # P2P聊天服务
-│   │   ├── fileShare/          # 文件共享服务
-│   │   └── hotkey/             # 快捷键管理
-│   ├── stores/                  # 状态管理
-│   └── types/                   # TypeScript 类型
-├── src-tauri/                   # Tauri 后端
-│   └── src/
-│       └── modules/            # 功能模块
-│           ├── easytier.rs     # EasyTier 集成
-│           ├── file_transfer.rs # 文件传输模块
-│           ├── p2p_chat.rs     # P2P聊天后端
-│           ├── minecraft_agent.rs  # Minecraft 助手
-│           └── tauri_commands.rs   # Tauri 命令
-└── public/                      # 静态资源
-```
-
----
-
-## ❓ 常见问题
-
-### 软件无法启动？
-
-- 检查是否安装了 WebView2 运行时
-- 查看日志文件：`%APPDATA%/mctier/logs/`
-
-### 无法创建虚拟网卡？
-
-- 检查防火墙设置
-- 检查是否有其他虚拟网卡软件冲突
-
-### 无法连接到大厅？
-
-- 检查网络连接是否正常
-- 确认大厅 ID 和密码正确
-- 使用网络诊断工具检查连接状态
-- 如果配置了多个节点，检查节点是否可用
-
-### 连接不稳定或经常断线？
-
-- 建议配置多个 EasyTier 节点（设置 → 自定义 EasyTier 节点）
-- 配置不同地域或运营商的节点，提升连接稳定性
-- EasyTier 会自动选择最优节点并在故障时切换
-
-### 语音通话没有声音？
-
-- 检查麦克风权限设置
-- 确认麦克风设备正常工作
-- 检查是否被静音
-
-### Minecraft 无法检测到局域网世界？
-
-- 确认虚拟网络已成功连接
-- 检查虚拟 IP 地址是否正确分配
-- 尝试手动输入虚拟 IP 地址加入游戏
-
-### 文件下载速度慢？
-
-- 检查是否为 P2P 直连，而非中转连接
-- 确认双方网络带宽是否充足
-- 局域网内速度通常可达 2-8 MB/s
-- 跨网络传输速度取决于双方上传/下载带宽
-
-### 文件下载失败或中断？
-
-- 检查共享者是否仍在大厅内
-- 确认共享文件夹是否被删除
-- 检查本地磁盘空间是否充足
-- 尝试重新下载文件
-
-### 无法访问共享文件夹？
-
-- 确认是否输入了正确的访问密码
-- 检查共享是否已过期
-- 确认共享者是否在线
-- 检查网络连接是否正常
-
-### Windows智能应用控制阻止运行？
-
-- 按键盘上的Win键
-- 搜索并打开“智能应用控制”
-- 选择“关闭”选项即可
-
----
-
-## 📜 开源协议
-
-本软件采用自定义开源协议：
-
-- 🚫 **禁止商业用途** - 仅供个人学习和非商业使用
-- ✅ **允许二次开发** - 欢迎基于本项目进行修改和扩展
-- 📝 **必须标明原作者** - 二次开发项目需注明原作者信息
-- 🔓 **二次开发必须开源** - 衍生项目必须以相同协议开源
-
-使用本软件即表示您同意遵守以上协议条款。
-
----
-
-## 👨‍💻 关于作者
-
-**青云制作_彭明航**
-
-这是我开源的第三款软件项目，希望能为 Minecraft 社区带来便利！
-
-- **GitHub**: [https://github.com/pmh1314520/MCTier](https://github.com/pmh1314520/MCTier)
-- **Gitee**: [https://gitee.com/peng-minghang/mctier](https://gitee.com/peng-minghang/mctier)
-
----
-
-## 🙏 致谢
-
-感谢以下开源项目：
-
-- [Tauri](https://tauri.app/) - 跨平台桌面应用框架
-- [EasyTier](https://github.com/EasyTier/EasyTier) - 虚拟网络解决方案
-- [React](https://react.dev/) - 用户界面库
-- [Ant Design](https://ant.design/) - UI 组件库
-- [Framer Motion](https://www.framer.com/motion/) - 动画库
-
----
-
-<div align="center">
-
-## 💖 赞助支持
-
-如果这个软件对您有帮助，欢迎请开发者喝杯咖啡 ☕
-
-您的支持是我持续开发的动力！
+### Windows 端
 
 <table>
   <tr>
-    <td align="center">
-      <img src="public/zfb.jpg" alt="支付宝收款码" width="200"><br>
-      <b>支付宝</b>
+    <td align="center" width="50%">
+      <img src="public/软件预览-主界面.png" alt="Windows 主界面" width="420"><br>
+      <b>主界面</b>
     </td>
-    <td align="center">
-      <img src="public/wx.png" alt="微信收款码" width="200"><br>
-      <b>微信</b>
+    <td align="center" width="50%">
+      <img src="public/软件预览-大厅界面.png" alt="Windows 大厅界面" width="420"><br>
+      <b>大厅界面</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="public/软件预览-聊天室.png" alt="Windows 聊天室" width="420"><br>
+      <b>聊天室</b>
+    </td>
+    <td align="center" width="50%">
+      <img src="public/软件预览-文件夹共享.png" alt="Windows 文件夹共享" width="420"><br>
+      <b>文件夹共享</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="public/软件预览-屏幕共享.png" alt="Windows 屏幕共享" width="420"><br>
+      <b>屏幕共享</b>
+    </td>
+    <td align="center" width="50%">
+      <img src="public/软件预览-设置.png" alt="Windows 设置" width="420"><br>
+      <b>设置中心</b>
     </td>
   </tr>
 </table>
-**打赏名单（按时间排序）：**
 
-| 序号 | 付款账户 |      打赏日期       | 打赏金额 |
-| :--: | :------: | :-----------------: | :------: |
-|  1   |  正博   | 2026-04-05 14:38:43 |  100.00   |
-| 2 | GameXueRen | 2026-04-08 15:21:11 | 66.00 |
-| 3 | Fallen Anle Sk | 2026-04-08 20:24:41 | 20.00 |
-| 4 | ＂Tyler | 2026-04-12 17:23:36 | 200.00 |
-| 5 | ＂Tyler | 2026-04-12 18:38:25 | 300.00 |
-| 6 | ＂Tyler | 2026-05-02 11:55:19 | 1000.00 |
-| 7 | 麕麇 | 2026-05-13 19:20:28 | 5.00 |
-| 8 | 麕麇 | 2026-06-09 22:02:49 | 5.00 |
+<details>
+<summary><b>查看更多 Windows 端预览</b></summary>
+
+<table>
+  <tr>
+    <td align="center"><img src="public/软件预览-创建大厅.png" alt="创建大厅" width="320"><br><b>创建大厅</b></td>
+    <td align="center"><img src="public/软件预览-加入大厅.png" alt="加入大厅" width="320"><br><b>加入大厅</b></td>
+    <td align="center"><img src="public/软件预览-常用大厅信息.png" alt="常用大厅信息" width="320"><br><b>常用大厅</b></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="3"><img src="public/软件预览-大厅动态设置.png" alt="大厅动态设置" width="420"><br><b>大厅动态设置</b></td>
+  </tr>
+</table>
+</details>
+
+### Android 端
+
+<table>
+  <tr>
+    <td align="center"><img src="public/手机端-主界面.jpg" alt="Android 主界面" width="180"><br><b>主界面</b></td>
+    <td align="center"><img src="public/手机端-大厅界面.jpg" alt="Android 大厅界面" width="180"><br><b>大厅界面</b></td>
+    <td align="center"><img src="public/手机端-大厅二维码.jpg" alt="Android 大厅二维码" width="180"><br><b>大厅二维码</b></td>
+    <td align="center"><img src="public/手机端-设置.jpg" alt="Android 设置" width="180"><br><b>设置</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="public/手机端-聊天室.jpg" alt="Android 聊天室" width="180"><br><b>聊天室</b></td>
+    <td align="center"><img src="public/手机端-文件夹共享.jpg" alt="Android 文件夹共享" width="180"><br><b>文件夹共享</b></td>
+    <td align="center"><img src="public/手机端-屏幕共享.jpg" alt="Android 屏幕共享" width="180"><br><b>屏幕共享</b></td>
+    <td align="center"><img src="public/手机端-大厅动态设置.jpg" alt="Android 大厅动态设置" width="180"><br><b>大厅设置</b></td>
+  </tr>
+</table>
+
+## 核心功能
+
+- **虚拟局域网组网**：基于 EasyTier 建立虚拟网络，无需公网 IP。
+- **跨端加入大厅**：手机和电脑可加入同一个大厅，二维码邀请更方便。
+- **实时语音频道**：大厅内可按频道语音，适合协作沟通。
+- **大厅聊天室**：支持文字与图片消息。
+- **文件夹共享**：可向同大厅成员共享文件夹，支持下载与传输列表。
+- **屏幕共享**：使用 WebRTC 查看对方屏幕画面。
+- **迷你悬浮窗**：在桌面端快速查看成员状态、控制语音和打开工具。
+- **大厅二维码**：扫码加入或复制邀请链接。
+- **私有化部署**：支持自建信令服务，便于掌控连接入口。
+
+## 快速开始
+
+### 系统要求
+
+| 平台 | 要求 |
+| --- | --- |
+| Windows | Windows 10/11 64 位，建议 2GB 以上内存 |
+| Android | Android 手机或平板，建议 Android 8.0+ |
+| 网络 | 能访问所配置的 EasyTier 节点与 WebRTC 信令服务 |
+
+### 下载与安装
+
+前往 [GitHub Releases](https://github.com/pmh1314520/MCTier/releases) 或 [Gitee Releases](https://gitee.com/peng-minghang/mctier/releases) 下载最新版。
+
+- Windows 安装包：下载 `MCTier-安装包-vx.y.z.exe` 后双击安装。
+- Windows 便携版：下载 `MCTier-便携版-vx.y.z.exe` 后直接运行。
+- Android：下载 `MCTier-Android.apk` 后在手机上安装。
+
+### 创建或加入大厅
+
+1. 创建方打开 MCTier，选择“创建大厅”。
+2. 输入大厅名称、密码和显示名称。
+3. 创建成功后，把大厅二维码或邀请链接发给其他成员。
+4. 其他成员输入大厅信息或扫码加入。
+5. 等待虚拟 IP 分配完成后，即可访问同大厅内设备开放的局域网服务。
+
+## 示例：Minecraft 联机
+
+MCTier 是通用组网工具，Minecraft 只是其中一个典型使用场景。
+
+房主进入单人世界后，按 `Esc` 打开“对局域网开放”，记下端口号。其他人选择“直接连接”，输入房主的虚拟 IP 和端口，例如：
+
+```text
+10.126.126.1:25565
+```
+
+如果启用了虚拟域名，也可以使用类似 `成员名.mct.net:25565` 的地址连接。
+
+## 私有化部署快速流程
+
+如果你想自建 MCTier 信令服务器，可以下载官网中的 `MCTier信令服务器.zip`，也可以查看仓库根目录中的 `快速部署信令服务器.md`、`私有化部署README.md`。
+
+基本流程：
+
+1. 准备一台 Linux 服务器或局域网内主机。
+2. 安装 Docker 与 Docker Compose。
+3. 上传并解压 `MCTier信令服务器.zip`。
+4. 进入解压目录，给部署脚本执行权限。
+5. 运行部署脚本，按提示填写域名或 IP。
+6. 在 MCTier 客户端设置中填入你的私有信令地址。
+
+常用命令：
+
+```bash
+unzip MCTier信令服务器.zip
+cd MCTier信令服务器
+chmod +x deploy.sh
+sudo ./deploy.sh
+docker compose -f docker-compose-http.yml ps
+docker compose -f docker-compose-http.yml logs -f
+```
+
+## 开发与构建
+
+```bash
+npm install
+npm run tauri dev
+npm run tauri build
+```
+
+Android 端源码位于：
+
+```text
+MCTier-Android/
+```
+
+调试或打包 Android：
+
+```bash
+cd MCTier-Android
+gradlew.bat assembleDebug
+```
+
+## 赞助支持
+
+MCTier 会持续维护桌面端和手机端体验。如果它帮你完成了组网、联机或协作，欢迎赞助支持开发工作。每一份赞助都会用于继续优化连接稳定性、双端体验和后续功能。
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="public/zfb.jpg" alt="支付宝收款码" width="240"><br>
+        <b>支付宝赞助</b>
+      </td>
+      <td align="center" width="50%">
+        <img src="public/wx.png" alt="微信收款码" width="240"><br>
+        <b>微信赞助</b>
+      </td>
+    </tr>
+  </table>
+</div>
+
+## 开源协议
+
+本项目使用自定义开源协议：
+
+- 仅供个人学习与非商业使用。
+- 允许二次开发，但必须保留原作者信息。
+- 衍生项目需要按相同协议开源。
+
+## 作者
+
+青云制作_彭明航
+
+- GitHub: <https://github.com/pmh1314520/MCTier>
+- Gitee: <https://gitee.com/peng-minghang/mctier>
 
 ---
 
-### ⭐ 如果这个项目对你有帮助，请给我一个 Star！⭐
-
-**祝各位玩家游玩愉快，享受与好友联机的快乐时光！** 🎮✨
-
----
-
-Made with ❤️ by 青云制作_彭明航
-
-Copyright © 2026 青云制作_彭明航. All rights reserved.
-
-**✨ 本软件完全免费开源 ✨**
-
+<div align="center">
+  <b>MCTier 完全免费开源，祝使用顺利。</b>
 </div>

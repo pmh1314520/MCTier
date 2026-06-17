@@ -2295,12 +2295,15 @@ export class WebRTCClient {
         const globalMuted: boolean = state.globalMuted;
         const mutedPlayers: Set<string> = state.mutedPlayers as Set<string>;
         const playerVolumes: Map<string, number> = state.playerVolumes as Map<string, number>;
+        const myGroup: number = state.myVoiceGroup ?? 0;
+        const theirGroup: number = state.playerVoiceGroups?.get(playerId) ?? 0;
+        const sameVoiceGroup = theirGroup === myGroup;
 
         // 全局静音
         audioElement.muted = !!globalMuted;
 
         // 单人静音 / 单人音量
-        if (mutedPlayers && mutedPlayers.has(playerId)) {
+        if (!sameVoiceGroup || (mutedPlayers && mutedPlayers.has(playerId))) {
           audioElement.volume = 0;
         } else {
           const vol = playerVolumes && playerVolumes.has(playerId)

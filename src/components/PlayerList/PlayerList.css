@@ -40,6 +40,7 @@
 .player-item {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -226,6 +227,7 @@
 /* 音量滑块容器 */
 .player-volume-slider-container {
   width: 100%;
+  flex: 0 0 100%;
   overflow: hidden;
   margin-top: 8px;
   padding-top: 8px;
@@ -236,7 +238,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  padding: 0 4px 0 36px;
+  min-width: 0;
 }
 
 /* 音量滑块左侧的听筒图标 */
@@ -265,6 +268,7 @@
 
 .player-volume-slider {
   flex: 1;
+  min-width: 0;
 }
 
 .volume-value {

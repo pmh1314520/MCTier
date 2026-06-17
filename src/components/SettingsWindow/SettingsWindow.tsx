@@ -544,7 +544,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
-                <div className="settings-card-icon settings-card-icon-purple">
+                <div className="settings-card-icon settings-card-icon-yellow">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
                   </svg>
@@ -554,10 +554,12 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
               <div className="settings-card-desc">
                 {t('settings.languageDesc')}
               </div>
-              <Button.Group>
-                <Button type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguage('zh'); setLang('zh'); }}>简体中文</Button>
-                <Button type={lang === 'en' ? 'primary' : 'default'} onClick={() => { setLanguage('en'); setLang('en'); }}>English</Button>
-              </Button.Group>
+              <div className="settings-centered-control">
+                <Button.Group>
+                  <Button type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguage('zh'); setLang('zh'); }}>简体中文</Button>
+                  <Button type={lang === 'en' ? 'primary' : 'default'} onClick={() => { setLanguage('en'); setLang('en'); }}>English</Button>
+                </Button.Group>
+              </div>
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
@@ -572,7 +574,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
               <div className="settings-card-desc">
                 {t('settings.dataStatsDesc')}
               </div>
-              <Button onClick={() => setShowStats(true)}>{t('settings.viewStats')}</Button>
+              <div className="settings-centered-control">
+                <Button onClick={() => setShowStats(true)}>{t('settings.viewStats')}</Button>
+              </div>
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
@@ -663,6 +667,14 @@ const SoundThemeManager: React.FC = () => {
 
   const labels: Record<SoundType, string> = { newMessage: '新消息', userJoined: '玩家加入', userLeft: '玩家离开' };
 
+  const previewSound = async (target: SoundType) => {
+    try {
+      await audioService.play(target);
+    } catch {
+      antdMessage.error(tl('试听失败，请检查默认音效文件或自定义音频文件是否可用', 'Preview failed. Please check the sound file.'));
+    }
+  };
+
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     const target = pickTarget;
@@ -704,7 +716,7 @@ const SoundThemeManager: React.FC = () => {
               <span className={`snd-card-tag ${custom[t] ? 'is-custom' : ''}`}>{custom[t] ? '自定义' : '默认音'}</span>
             </div>
             <div className="snd-card-actions">
-              <button className="snd-icon-btn" title={tl('试听', 'Preview')} onClick={() => audioService.play(t)}>
+              <button className="snd-icon-btn" title={tl('试听', 'Preview')} onClick={() => void previewSound(t)}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
               <button className="snd-text-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>{tl('更换', 'Change')}</button>
