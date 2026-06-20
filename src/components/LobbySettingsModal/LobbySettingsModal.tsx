@@ -216,9 +216,9 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         </div>
         <div className="lobby-voice-divider" />
 
-        {/* 提示音（每个音效独立禁音） */}
+        {/* 提示音（开=使用该提示音，关=不使用） */}
         <div className="lobby-voice-section">
-          <div className="lobby-voice-section-title">{tl('提示音禁音', 'Mute Sounds')}</div>
+          <div className="lobby-voice-section-title">{tl('提示音', 'Sounds')}</div>
           {([
             ['newMessage', tl('新消息', 'New Message')],
             ['userJoined', tl('玩家加入', 'Player Joined')],
@@ -227,10 +227,10 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
             <div className="use-global-config-switch" key={key}>
               <span>{label}</span>
               <Switch
-                checked={soundMuted[key]}
+                checked={!soundMuted[key]}
                 onChange={(checked) => {
-                  setSoundMuted((prev) => ({ ...prev, [key]: checked }));
-                  audioService.setSoundMuted(key as any, checked);
+                  setSoundMuted((prev) => ({ ...prev, [key]: !checked }));
+                  audioService.setSoundMuted(key as any, !checked);
                 }}
               />
             </div>

@@ -4,6 +4,8 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './EmojiPicker.css';
 
 interface EmojiPickerProps {
@@ -11,22 +13,25 @@ interface EmojiPickerProps {
   onClose: () => void;
 }
 
-// 常用Emoji分类
-const EMOJI_CATEGORIES = {
-  '笑脸': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙'],
-  '手势': ['👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤝', '🙏'],
-  '表情': ['🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑'],
-  '符号': ['❤️', '💔', '💕', '💖', '💗', '💙', '💚', '💛', '🧡', '💜', '🖤', '💯', '💢', '💥', '💫', '💦', '💨', '🕳️', '💬', '👁️'],
-  '其他': ['🎮', '🎯', '🎲', '🎰', '🎳', '🎉', '🎊', '🎈', '🎁', '🏆', '🥇', '🥈', '🥉', '⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏓'],
-};
+// 常用 Emoji 分类（id 稳定，label 随语言翻译）
+const EMOJI_CATEGORIES: { id: string; label: () => string; emojis: string[] }[] = [
+  { id: 'smileys', label: () => tl('笑脸', 'Smileys'), emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙'] },
+  { id: 'gestures', label: () => tl('手势', 'Gestures'), emojis: ['👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤝', '🙏'] },
+  { id: 'emotions', label: () => tl('表情', 'Emotions'), emojis: ['🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑'] },
+  { id: 'symbols', label: () => tl('符号', 'Symbols'), emojis: ['❤️', '💔', '💕', '💖', '💗', '💙', '💚', '💛', '🧡', '💜', '🖤', '💯', '💢', '💥', '💫', '💦', '💨', '🕳️', '💬', '👁️'] },
+  { id: 'others', label: () => tl('其他', 'Others'), emojis: ['🎮', '🎯', '🎲', '🎰', '🎳', '🎉', '🎊', '🎈', '🎁', '🏆', '🥇', '🥈', '🥉', '⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏓'] },
+];
 
 export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onClose }) => {
-  const [activeCategory, setActiveCategory] = useState<string>('笑脸');
+  useTranslation();
+  const [activeCategory, setActiveCategory] = useState<string>('smileys');
 
   const handleEmojiClick = (emoji: string) => {
     onSelect(emoji);
     onClose();
   };
+
+  const activeCat = EMOJI_CATEGORIES.find((c) => c.id === activeCategory) || EMOJI_CATEGORIES[0];
 
   return (
     <motion.div
@@ -45,13 +50,13 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onClose }) =
       >
         <div className="emoji-picker-header">
           <div className="emoji-categories">
-            {Object.keys(EMOJI_CATEGORIES).map((category) => (
+            {EMOJI_CATEGORIES.map((category) => (
               <button
-                key={category}
-                className={`emoji-category-btn ${activeCategory === category ? 'active' : ''}`}
-                onClick={() => setActiveCategory(category)}
+                key={category.id}
+                className={`emoji-category-btn ${activeCategory === category.id ? 'active' : ''}`}
+                onClick={() => setActiveCategory(category.id)}
               >
-                {category}
+                {category.label()}
               </button>
             ))}
           </div>
@@ -71,7 +76,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onClose }) =
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.2 }}
             >
-              {EMOJI_CATEGORIES[activeCategory as keyof typeof EMOJI_CATEGORIES].map((emoji, index) => (
+              {activeCat.emojis.map((emoji, index) => (
                 <motion.button
                   key={`${emoji}-${index}`}
                   className="emoji-btn"

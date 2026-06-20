@@ -807,21 +807,22 @@
 
 .snd-list { display: flex; flex-direction: column; gap: 10px; }
 .snd-card {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px; padding: 12px 14px;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .snd-card:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
-.snd-card-left { display: flex; align-items: center; gap: 10px; }
-.snd-card-name { font-size: 14px; color: rgba(255, 255, 255, 0.92); }
+.snd-card-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.snd-card-name { font-size: 14px; color: rgba(255, 255, 255, 0.92); white-space: nowrap; }
 .snd-card-tag {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
   background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.5);
 }
 .snd-card-tag.is-custom { background: rgba(82, 196, 26, 0.18); color: #7ee03c; }
-.snd-card-actions { display: flex; align-items: center; gap: 8px; }
+.snd-card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .snd-icon-btn {
   width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; border: none; cursor: pointer;

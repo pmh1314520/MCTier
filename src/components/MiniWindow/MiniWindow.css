@@ -389,6 +389,7 @@
 
 .mini-player-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   padding: 6px 8px;
@@ -611,18 +612,27 @@
   margin-left: -2px;
 }
 
+/* 非房主视角：右侧两个按钮竖直靠右排布，节省横向空间 */
 .mini-player-actions {
   display: flex;
-  gap: 3px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   flex-shrink: 0;
 }
 
-/* 房主视角：4 个操作按钮排成 2x2 正方形（上：皇冠+踢出，下：听筒+麦克风） */
+/* 房主视角：5 个操作按钮换行到条目底部，整行横向均匀分布 */
 .mini-player-actions.host-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 26px);
-  grid-template-rows: repeat(2, 26px);
-  gap: 4px;
+  display: flex;
+  flex-direction: row;
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
 }
 
 .mini-action-btn {
@@ -642,6 +652,13 @@
 
 .mini-action-btn:hover {
   background: rgba(160, 160, 160, 0.25);
+}
+
+/* 房主底部整行：按钮等宽均匀填充 */
+.mini-player-actions.host-grid .mini-action-btn {
+  flex: 1 1 0;
+  max-width: 48px;
+  height: 28px;
 }
 
 .mini-action-btn.muted {

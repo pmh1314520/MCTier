@@ -730,13 +730,13 @@ const SoundThemeManager: React.FC = () => {
               </button>
               <button className="snd-text-btn" onClick={() => { setPickTarget(t); fileInputRef.current?.click(); }}>{tl('更换', 'Change')}</button>
               {custom[t] && (
-                <button className="snd-text-btn snd-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success(tl('已恢复默认提示音', 'Default sound restored')); }}>{tl('恢复默认', 'Restore Default')}</button>
+                <button className="snd-text-btn snd-reset" title={tl('恢复为默认提示音', 'Restore default sound')} onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success(tl('已恢复默认提示音', 'Default sound restored')); }}>{tl('恢复默认', 'Default')}</button>
               )}
-              <span className="snd-mute-label" title={tl('禁音此音效', 'Mute this sound')}>{tl('禁音', 'Mute')}</span>
               <Switch
                 size="small"
-                checked={mutedSounds[t]}
-                onChange={(v) => { setMutedSounds((prev) => ({ ...prev, [t]: v })); audioService.setSoundMuted(t, v); }}
+                checked={!mutedSounds[t]}
+                title={tl('开启=使用该提示音，关闭=不使用', 'On = use this sound, Off = mute')}
+                onChange={(v) => { setMutedSounds((prev) => ({ ...prev, [t]: !v })); audioService.setSoundMuted(t, !v); }}
               />
             </div>
           </div>

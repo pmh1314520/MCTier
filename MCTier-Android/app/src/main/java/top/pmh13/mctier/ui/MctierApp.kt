@@ -1597,16 +1597,16 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
             Text(L("会展示在公开广场，帮助其他用户快速了解这个大厅。", "Shown in the public plaza so others can understand this lobby."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
         }
         Spacer(Modifier.height(10.dp))
-        SwitchRow(L("新消息禁音", "Mute new message"), state.settings.soundMutedMsg) {
-            repository.updateSettings(state.settings.copy(soundMutedMsg = it))
+        SwitchRow(L("新消息提示音", "New message sound"), !state.settings.soundMutedMsg) {
+            repository.updateSettings(state.settings.copy(soundMutedMsg = !it))
         }
         Spacer(Modifier.height(8.dp))
-        SwitchRow(L("玩家加入禁音", "Mute player joined"), state.settings.soundMutedJoin) {
-            repository.updateSettings(state.settings.copy(soundMutedJoin = it))
+        SwitchRow(L("玩家加入提示音", "Player joined sound"), !state.settings.soundMutedJoin) {
+            repository.updateSettings(state.settings.copy(soundMutedJoin = !it))
         }
         Spacer(Modifier.height(8.dp))
-        SwitchRow(L("玩家离开禁音", "Mute player left"), state.settings.soundMutedLeave) {
-            repository.updateSettings(state.settings.copy(soundMutedLeave = it))
+        SwitchRow(L("玩家离开提示音", "Player left sound"), !state.settings.soundMutedLeave) {
+            repository.updateSettings(state.settings.copy(soundMutedLeave = !it))
         }
         Spacer(Modifier.height(14.dp))
         PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
@@ -1968,10 +1968,10 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
         AnimatedVisibility(visible = showEmoji) {
             val emojiCats = remember(appLang) {
                 listOf(
-                    L("表情", "Smileys") to listOf("😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤩", "🥳", "😅", "😇", "🙂", "😉", "😏", "😴", "😭", "😱", "😡", "🥺"),
-                    L("手势", "Gestures") to listOf("👍", "👎", "👌", "✌️", "🤝", "🙏", "💪", "👏", "🤗", "🙌", "👋", "🤙", "🤞", "👊", "✋", "🫶", "🤛", "🤜", "☝️", "🤘"),
-                    L("符号", "Symbols") to listOf("❤️", "💔", "✨", "🔥", "💯", "⭐", "🌟", "💢", "💥", "💦", "💤", "✅", "❌", "❓", "❗", "➕", "💕", "💙", "💚", "💛"),
-                    L("活动", "Activities") to listOf("🎮", "🎉", "🎁", "🍻", "☕", "🚀", "🏆", "🎯", "🎲", "🎵", "💩", "🤡", "👀", "🐶", "🐱", "🌈", "⚽", "🏀", "🎂", "🍔"),
+                    L("表情", "Smileys") to listOf("😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤩", "🥳", "😅", "😇", "🙂", "😉", "😏", "😴", "😭", "😱"),
+                    L("手势", "Gestures") to listOf("👍", "👎", "👌", "✌️", "🤝", "🙏", "💪", "👏", "🤗", "🙌", "👋", "🤙", "🤞", "👊", "✋", "🫶", "🤛", "🤜"),
+                    L("符号", "Symbols") to listOf("❤️", "💔", "✨", "🔥", "💯", "⭐", "🌟", "💢", "💥", "💦", "💤", "✅", "❌", "❓", "❗", "➕", "💕", "💙"),
+                    L("活动", "Activities") to listOf("🎮", "🎉", "🎁", "🍻", "☕", "🚀", "🏆", "🎯", "🎲", "🎵", "💩", "🤡", "👀", "🐶", "🐱", "🌈", "⚽", "🏀"),
                 )
             }
             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -2646,7 +2646,7 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(nodeName, color = TextPrimary, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        Text(if (isCustom) nodeName else nodeDisplayName(nodeName), color = TextPrimary, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                         if (isCustom) {
                             Spacer(Modifier.width(6.dp))
                             Box(Modifier.clip(RoundedCornerShape(6.dp)).background(GrassGreen.copy(alpha = 0.2f)).padding(horizontal = 5.dp, vertical = 1.dp)) {
@@ -2809,11 +2809,9 @@ private fun SoundPickerRow(label: String, current: String, muted: Boolean, onMut
                 Text(L("恢复默认", "Reset"), color = TextPrimary.copy(alpha = 0.6f), fontSize = 13.sp)
             }
         }
-        Text(L("禁音", "Mute"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
-        Spacer(Modifier.width(4.dp))
         Switch(
-            checked = muted,
-            onCheckedChange = onMuteChange,
+            checked = !muted,
+            onCheckedChange = { onMuteChange(!it) },
             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = GrassGreen),
         )
     }
@@ -3364,6 +3362,15 @@ private fun randomLobbyName(): String =
     if (appLang == "en") "${LOBBY_ADJ_EN.random()}${LOBBY_NOUN_EN.random()}${(0..999).random()}"
     else "${LOBBY_ADJ.random()}的${LOBBY_NOUN.random()}${(0..999).random()}"
 
+// 内置节点名英文显示映射（数据层保持中文标识，仅渲染时翻译）
+private fun nodeDisplayName(name: String): String = if (appLang == "en") when (name) {
+    "MCTier 官方服务器" -> "MCTier Official Server"
+    "海波节点" -> "Haibo Node"
+    "唯爱节点" -> "Weiai Node"
+    "明月清风节点" -> "Mingyue Qingfeng Node"
+    else -> name
+} else name
+
 // 校验规则与桌面端完全一致
 private fun isValidLobbyName(n: String): Boolean {
     val t = n.trim()
@@ -3399,7 +3406,7 @@ private fun randomPassword(): String {
 private fun NodeSelector(state: MctierUiState, repository: MctierRepository, enabled: Boolean) {
     val all = BuiltinNodes.map { it.name to it.address } + state.customNodes.map { it.name to it.address }
     val current = state.settings.preferredServer
-    val currentName = all.firstOrNull { it.second == current }?.first ?: L("自定义节点", "Custom node")
+    val currentName = all.firstOrNull { it.second == current }?.first?.let { nodeDisplayName(it) } ?: L("自定义节点", "Custom node")
     var expanded by remember { mutableStateOf(false) }
     Box {
         Row(
@@ -3419,7 +3426,7 @@ private fun NodeSelector(state: MctierUiState, repository: MctierRepository, ena
                 DropdownMenuItem(
                     text = {
                         Column {
-                            Text(name, color = if (addr == current) GrassGreen else TextPrimary)
+                            Text(nodeDisplayName(name), color = if (addr == current) GrassGreen else TextPrimary)
                             Text(addr, fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
                         }
                     },
