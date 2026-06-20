@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import top.pmh13.mctier.data.AppClientVersion
+import top.pmh13.mctier.ui.L
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -77,7 +78,7 @@ class UpdateChecker(private val context: Context) {
                     }
                 }
                 install(apk)
-            }.onFailure { onError(it.message ?: "更新失败") }
+            }.onFailure { onError(it.message ?: L("更新失败", "Update failed")) }
         }.start()
     }
 

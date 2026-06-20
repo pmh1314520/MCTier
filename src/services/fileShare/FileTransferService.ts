@@ -6,6 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { DownloadTask } from '../../types/fileShare';
+import { tl } from '../../i18n';
 
 class FileTransferService {
   private downloadTasks: Map<string, DownloadTask> = new Map();
@@ -27,7 +28,7 @@ class FileTransferService {
     const saveFolder = await invoke<string | null>('select_folder');
 
     if (!saveFolder) {
-      throw new Error('用户取消了保存');
+      throw new Error(tl('用户取消了保存', 'Save cancelled by user'));
     }
 
     // 构建完整的保存路径
@@ -92,7 +93,7 @@ class FileTransferService {
 
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error('无法读取响应体');
+        throw new Error(tl('无法读取响应体', 'Unable to read response body'));
       }
 
       const chunks: Uint8Array[] = [];

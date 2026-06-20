@@ -8,6 +8,7 @@ import okhttp3.WebSocketListener
 import top.pmh13.mctier.data.MctierJson
 import top.pmh13.mctier.data.PublicLobbyWire
 import top.pmh13.mctier.data.SignalingEnvelope
+import top.pmh13.mctier.ui.L
 import java.util.concurrent.TimeUnit
 
 /**
@@ -43,7 +44,7 @@ class PublicLobbyClient {
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     if (!done) {
                         done = true
-                        onError(t.message ?: "连接失败")
+                        onError(t.message ?: L("连接失败", "Connection failed"))
                     }
                 }
             },

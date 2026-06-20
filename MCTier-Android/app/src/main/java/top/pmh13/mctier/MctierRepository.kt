@@ -359,7 +359,7 @@ class MctierRepository(private val context: Context) {
                 recordRecentLobby(lobby.name, lobby.password)
                 statsStartSession()
             }.onFailure { e ->
-                _state.update { it.copy(state = AppConnectionState.Error, error = e.message ?: "加入大厅失败") }
+                _state.update { it.copy(state = AppConnectionState.Error, error = e.message ?: L("加入大厅失败", "Failed to join lobby")) }
             }
         }
     }
@@ -537,7 +537,7 @@ class MctierRepository(private val context: Context) {
         // 桌面端发送时 player_name 可能为空（其前端按 player_id 在玩家列表里查名显示），
         // 这里同样在 playerName 为空时用 playerId 解析真实昵称，避免显示成"玩家"
         val resolvedName = wire.playerName.ifBlank {
-            _state.value.players.firstOrNull { it.id == wire.playerId }?.name ?: "玩家"
+            _state.value.players.firstOrNull { it.id == wire.playerId }?.name ?: L("玩家", "Player")
         }
         val message = ChatMessage(
             id = wire.id,
@@ -706,7 +706,7 @@ class MctierRepository(private val context: Context) {
         ioScope.launch {
             runCatching { remoteFileClient.listFiles(entry.ownerIp, entry.shareId, path, password) }
                 .onSuccess { files -> scope.launch { onResult(files) } }
-                .onFailure { e -> scope.launch { onError(e.message ?: "浏览失败") } }
+                .onFailure { e -> scope.launch { onError(e.message ?: L("浏览失败", "Browse failed")) } }
         }
     }
 
@@ -934,7 +934,7 @@ class MctierRepository(private val context: Context) {
             }
             "player-joined" -> {
                 val id = message.playerId ?: return
-                val name = message.playerName ?: "未知玩家"
+                val name = message.playerName ?: L("未知玩家", "Unknown player")
                 _state.update { it.copy(players = mergePlayers(it.players, listOf(Player(id, name, message.virtualIp, message.virtualDomain, message.useDomain ?: false)))) }
                 if (id != _state.value.playerId) {
                     // 该玩家可能是断线重连后“重新加入”，先移除可能存在的旧连接再重建，避免悬空连接导致语音失效
@@ -989,14 +989,14 @@ class MctierRepository(private val context: Context) {
                 }
             }
             "kicked" -> {
-                _state.update { it.copy(error = message.reason ?: message.content ?: "你已被房主移出大厅") }
+                _state.update { it.copy(error = message.reason ?: message.content ?: L("你已被房主移出大厅", "You have been removed from the lobby by the host")) }
                 leaveLobby()
             }
             "lobby-options-changed" -> _state.update { it.copy(maxPlayers = message.maxPlayers, isPublicLobby = message.isPublic ?: it.isPublicLobby) }
             "screen-share-start" -> {
                 val from = message.from ?: return
                 if (from == _state.value.playerId) return
-                val share = ScreenShareInfo(message.shareId ?: return, from, message.playerName ?: "未知玩家", message.hasPassword ?: false)
+                val share = ScreenShareInfo(message.shareId ?: return, from, message.playerName ?: L("未知玩家", "Unknown player"), message.hasPassword ?: false)
                 _state.update { it.copy(screenShares = it.screenShares.filterNot { s -> s.id == share.id } + share) }
             }
             "screen-share-stop" -> {
@@ -1010,7 +1010,7 @@ class MctierRepository(private val context: Context) {
             "screen-share-error" -> {
                 if (message.shareId != null && _state.value.viewingShareId == message.shareId) {
                     screenController?.stopViewing(notify = false)
-                    _state.update { it.copy(viewingShareId = null, error = message.error ?: "无法观看该屏幕") }
+                    _state.update { it.copy(viewingShareId = null, error = message.error ?: L("无法观看该屏幕", "Cannot view this screen")) }
                 }
             }
             "file-share-list-request" -> {
@@ -1040,7 +1040,7 @@ class MctierRepository(private val context: Context) {
                 val from = message.from ?: return
                 if (from == _state.value.playerId) return
                 val ownerIp = _state.value.players.firstOrNull { it.id == from }?.virtualIp ?: ""
-                val ownerName = _state.value.players.firstOrNull { it.id == from }?.name ?: message.playerName ?: "玩家"
+                val ownerName = _state.value.players.firstOrNull { it.id == from }?.name ?: message.playerName ?: L("玩家", "Player")
                 val entries = message.shares.orEmpty().map { w ->
                     RemoteShareEntry(
                         shareId = w.shareId,

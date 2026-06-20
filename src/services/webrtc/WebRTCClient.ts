@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
+import { tl } from '../../i18n';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -203,7 +204,7 @@ export class WebRTCClient {
       console.error('❌ WebRTC 初始化失败:', error);
       // 清理已创建的资源
       await this.cleanup();
-      throw new Error(`无法初始化语音系统: ${error}`);
+      throw new Error(tl(`无法初始化语音系统: ${error}`, `Failed to initialize the voice system: ${error}`));
     }
   }
 
@@ -2178,7 +2179,7 @@ export class WebRTCClient {
             console.log('🔄 重新请求麦克风权限...');
             continue;
           } else {
-            throw new Error('麦克风权限被拒绝次数过多，请在浏览器设置中手动授予权限');
+            throw new Error(tl('麦克风权限被拒绝次数过多，请在浏览器设置中手动授予权限', 'Microphone permission denied too many times. Please grant it manually in your browser settings.'));
           }
         } else {
           // 其他错误直接抛出
@@ -2187,7 +2188,7 @@ export class WebRTCClient {
       }
     }
     
-    throw new Error('无法获取麦克风权限');
+    throw new Error(tl('无法获取麦克风权限', 'Unable to obtain microphone permission'));
   }
 
   /**

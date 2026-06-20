@@ -11,6 +11,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import top.pmh13.mctier.ui.L
 
 /** 二维码生成工具 */
 object QrUtil {
@@ -116,14 +117,14 @@ object QrUtil {
             textSize = 26f
             isFakeBoldText = true
         }
-        canvas.drawText("组网邀请", w / 2f, 174f, title)
+        canvas.drawText(L("组网邀请", "Network Invite"), w / 2f, 174f, title)
 
         val sub = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(128, 255, 255, 255)
             textAlign = Paint.Align.CENTER
             textSize = 17f
         }
-        canvas.drawText("用手机 MCTier 扫一扫，立即加入大厅", w / 2f, 210f, sub)
+        canvas.drawText(L("用手机 MCTier 扫一扫，立即加入大厅", "Scan with MCTier on your phone to join"), w / 2f, 210f, sub)
 
         val qrSize = 360
         val qx = (w - qrSize) / 2f
@@ -141,7 +142,7 @@ object QrUtil {
         }
         canvas.drawText(lobbyName, w / 2f, qy + qrSize + 96, name)
 
-        val pwdText = "密码  ${password.ifBlank { "（无）" }}"
+        val pwdText = L("密码  ${password.ifBlank { "（无）" }}", "Password  ${password.ifBlank { "(none)" }}")
         val pwd = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#7EE23F")
             textAlign = Paint.Align.CENTER

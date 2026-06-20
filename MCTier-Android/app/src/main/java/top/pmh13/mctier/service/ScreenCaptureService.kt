@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import top.pmh13.mctier.ui.L
 
 /**
  * 屏幕采集前台服务。
@@ -22,8 +23,8 @@ class ScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel()
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("MCTier 屏幕共享")
-            .setContentText("正在共享屏幕到大厅")
+            .setContentTitle(L("MCTier 屏幕共享", "MCTier Screen Sharing"))
+            .setContentText(L("正在共享屏幕到大厅", "Sharing your screen to the lobby"))
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .setOngoing(true)
             .build()
@@ -40,7 +41,7 @@ class ScreenCaptureService : Service() {
             val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
                 mgr.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "屏幕共享", NotificationManager.IMPORTANCE_LOW),
+                    NotificationChannel(CHANNEL_ID, L("屏幕共享", "Screen Sharing"), NotificationManager.IMPORTANCE_LOW),
                 )
             }
         }

@@ -10,6 +10,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import top.pmh13.mctier.ui.L
 
 /** 扫描发现的 Minecraft 世界 */
 data class DiscoveredWorld(
@@ -72,12 +73,12 @@ object MinecraftScanner {
     }
 
     private fun tcpOnly(ip: String, owner: String, port: Int, latency: Int) =
-        DiscoveredWorld(ip, port, owner, "", "未知", 0, 0, latency)
+        DiscoveredWorld(ip, port, owner, "", L("未知", "Unknown"), 0, 0, latency)
 
     private fun parseStatus(ip: String, owner: String, port: Int, latency: Int, json: String): DiscoveredWorld {
         return runCatching {
             val obj = JSONObject(json)
-            val version = obj.optJSONObject("version")?.optString("name") ?: "未知"
+            val version = obj.optJSONObject("version")?.optString("name") ?: L("未知", "Unknown")
             val players = obj.optJSONObject("players")
             val online = players?.optInt("online") ?: 0
             val max = players?.optInt("max") ?: 0

@@ -990,7 +990,7 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.ContentCopy, L("复制大厅信息", "Copy Lobby Info")) {
                 if (lobby != null) {
-                    val info = "——————— 邀请您加入大厅 ———————\n完整复制后打开 MCTier-加入大厅 界面（自动识别）\n大厅名称：${lobby.name}\n密码：${lobby.password}\n————— https://mctier.pmhs.top —————"
+                    val info = L("——————— 邀请您加入大厅 ———————\n完整复制后打开 MCTier-加入大厅 界面（自动识别）\n大厅名称：${lobby.name}\n密码：${lobby.password}\n————— https://mctier.pmhs.top —————", "——————— Invitation to Join Lobby ———————\nCopy everything, then open MCTier - Join Lobby (auto-detected)\nLobby Name: ${lobby.name}\nPassword: ${lobby.password}\n————— https://mctier.pmhs.top —————")
                     clipboard.setText(AnnotatedString(info))
                     android.widget.Toast.makeText(ctx, L("大厅信息已复制，发给好友粘贴即可自动识别", "Lobby info copied; paste to a friend to auto-detect"), android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -1734,7 +1734,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                             }
                         }
                         val useDomain = player.useDomain && !player.virtualDomain.isNullOrBlank()
-                        val ipShow = if (useDomain) "域名: ${player.virtualDomain}" else "IP: ${player.virtualIp ?: "等待中…"}"
+                        val ipShow = if (useDomain) L("域名: ${player.virtualDomain}", "Domain: ${player.virtualDomain}") else "IP: ${player.virtualIp ?: L("等待中…", "Waiting...")}"
                         val ipCopy = (if (useDomain) player.virtualDomain else player.virtualIp).orEmpty()
                         Column {
                             Text(
@@ -1777,7 +1777,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                         val fav = state.favoritePlayers.contains(player.name)
                         CircleIconButton(if (fav) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (fav) L("取消收藏队友", "Unfavorite") else L("收藏队友", "Favorite"), tint = if (fav) Color(0xFFFFD24A) else TextPrimary.copy(alpha = 0.85f)) {
                             repository.toggleFavoritePlayer(player.name)
-                            android.widget.Toast.makeText(ctx, if (fav) "已取消收藏 ${player.name}" else "已收藏队友 ${player.name}", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(ctx, if (fav) L("已取消收藏 ${player.name}", "Unfavorited ${player.name}") else L("已收藏队友 ${player.name}", "Favorited ${player.name}"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                         Spacer(Modifier.width(6.dp))
                         val muted = (state.playerVolumes[player.id] ?: 1f) <= 0f
@@ -1806,7 +1806,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         HostActionChip(if (muted) L("解除禁言", "Unmute") else L("禁言", "Mute"), Icons.Rounded.MicOff, false, Modifier.weight(1f)) {
                             repository.setPlayerMuted(player.id, !muted)
-                            android.widget.Toast.makeText(ctx, if (muted) "已解除禁言 ${player.name}" else "已禁言 ${player.name}", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(ctx, if (muted) L("已解除禁言 ${player.name}", "Unmuted ${player.name}") else L("已禁言 ${player.name}", "Muted ${player.name}"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                         HostActionChip(L("设为房主", "Make Host"), Icons.Rounded.MilitaryTech, false, Modifier.weight(1f)) {
                             transferTarget = player.id to player.name
@@ -2891,11 +2891,11 @@ private fun UpdateSection() {
             main.post {
                 checking = false
                 if (hasUpdate) {
-                    status = "发现新版本 $latest，开始下载…"
+                    status = L("发现新版本 $latest，开始下载…", "New version $latest found, downloading...")
                     progress = 0
                     updater.downloadAndInstall(
                         onProgress = { p -> main.post { progress = p } },
-                        onError = { e -> main.post { progress = -1; status = "更新失败：$e" } },
+                        onError = { e -> main.post { progress = -1; status = L("更新失败：$e", "Update failed: $e") } },
                     )
                 } else {
                     status = L("已是最新版本", "Up to date")
