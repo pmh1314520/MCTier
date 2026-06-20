@@ -831,7 +831,7 @@ private fun RecentDialog(state: MctierUiState, repository: MctierRepository, onF
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(p.name, color = TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("共 ${p.count} 次", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
+                                    Text(L("共 ${p.count} 次", "${p.count} times"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
                                 }
                             }
                             }
@@ -1182,7 +1182,7 @@ private fun MinecraftWorldsDialog(repository: MctierRepository, onClose: () -> U
                                     Modifier.clip(RoundedCornerShape(8.dp)).background(GrassGreen)
                                         .clickable {
                                             clipboard.setText(AnnotatedString(addr))
-                                            android.widget.Toast.makeText(ctx, "已复制地址 $addr，在 Minecraft「多人游戏→直接连接」粘贴即可", android.widget.Toast.LENGTH_LONG).show()
+                                            android.widget.Toast.makeText(ctx, L("已复制地址 $addr，在 Minecraft「多人游戏→直接连接」粘贴即可", "Address $addr copied — paste it in Minecraft \"Multiplayer → Direct Connect\""), android.widget.Toast.LENGTH_LONG).show()
                                         }.padding(horizontal = 12.dp, vertical = 6.dp),
                                 ) { Text(L("复制地址", "Copy Address"), color = TextPrimary, fontSize = 12.sp) }
                             }
@@ -1655,7 +1655,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
             confirmButton = {
                 TextButton(onClick = {
                     repository.transferHost(target.first)
-                    android.widget.Toast.makeText(ctx, "已将房主转让给 ${target.second}", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(ctx, L("已将房主转让给 ${target.second}", "Transferred host to ${target.second}"), android.widget.Toast.LENGTH_SHORT).show()
                     transferTarget = null
                 }) { Text(L("转让", "Transfer"), color = GrassGreen, fontWeight = FontWeight.Bold) }
             },
@@ -1674,7 +1674,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
             confirmButton = {
                 TextButton(onClick = {
                     repository.kickPlayer(target.first)
-                    android.widget.Toast.makeText(ctx, "已将 ${target.second} 踢出大厅", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(ctx, L("已将 ${target.second} 踢出大厅", "Kicked ${target.second} from the lobby"), android.widget.Toast.LENGTH_SHORT).show()
                     kickTarget = null
                 }) { Text(L("踢出", "Kick"), color = DangerRed, fontWeight = FontWeight.Bold) }
             },
@@ -1761,7 +1761,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                                 } else if (loss != null && loss in 1..99) {
                                     Spacer(Modifier.width(8.dp))
                                     Box(Modifier.clip(RoundedCornerShape(6.dp)).background(DangerRed.copy(alpha = 0.18f)).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                                        Text("丢包${loss}%", fontSize = 10.sp, color = DangerRed)
+                                        Text(L("丢包${loss}%", "Loss ${loss}%"), fontSize = 10.sp, color = DangerRed)
                                     }
                                 } else if (lat != null) {
                                     Spacer(Modifier.width(8.dp))
@@ -1949,7 +1949,7 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
                     Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(GrassGreen))
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("回复 ${r.playerName}", fontSize = 11.sp, color = GrassGreen)
+                        Text(L("回复 ${r.playerName}", "Reply to ${r.playerName}"), fontSize = 11.sp, color = GrassGreen)
                         Text(if (r.type == "image") L("[图片]", "[Image]") else r.content, fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Icon(Icons.Rounded.Close, L("取消引用", "Cancel quote"), tint = TextPrimary.copy(alpha = 0.6f), modifier = Modifier.size(18.dp).clickable { replyTo = null })
@@ -2205,7 +2205,7 @@ private fun FilesTab(state: MctierUiState, repository: MctierRepository) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Download, null, tint = GrassGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("已下载文件（保存路径）", fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.weight(1f))
+                        Text(L("已下载文件（保存路径）", "Downloaded files (save path)"), fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.weight(1f))
                         TextButton(onClick = { repository.clearDownloadedFiles() }) { Text(L("清空", "Clear"), color = DangerRed, fontSize = 12.sp) }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -2247,7 +2247,7 @@ private fun FilesTab(state: MctierUiState, repository: MctierRepository) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(entry.shareName, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("来自 ${entry.ownerName}${if (entry.hasPassword) " · 需密码" else ""}", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
+                        Text(L("来自 ${entry.ownerName}${if (entry.hasPassword) " · 需密码" else ""}", "From ${entry.ownerName}${if (entry.hasPassword) " · password" else ""}"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
                     }
                     Icon(Icons.AutoMirrored.Rounded.Send, L("浏览", "Browse"), tint = TextPrimary.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                 }
@@ -2313,7 +2313,7 @@ private fun RemoteBrowser(entry: RemoteShareEntry, repository: MctierRepository,
         val selectedFiles = files.filter { !it.isDir && it.path in selectedPaths }
         if (selectedFiles.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("已选 ${selectedFiles.size} 个文件", color = TextPrimary.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text(L("已选 ${selectedFiles.size} 个文件", "${selectedFiles.size} selected"), color = TextPrimary.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { selectedPaths.clear() }) { Text(L("清空", "Clear"), color = TextPrimary.copy(alpha = 0.65f)) }
                 TextButton(onClick = {
                     repository.downloadRemoteFiles(entry, selectedFiles, password.ifBlank { null },
@@ -2497,7 +2497,7 @@ private fun ScreenViewer(state: MctierUiState, repository: MctierRepository, sha
         Row(verticalAlignment = Alignment.CenterVertically) {
             CircleIconButton(Icons.AutoMirrored.Rounded.ArrowBack, L("停止观看", "Stop watching")) { repository.stopViewingScreen() }
             Spacer(Modifier.width(10.dp))
-            Text("正在观看 ${share?.playerName ?: ""} 的屏幕", color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(L("正在观看 ${share?.playerName ?: ""} 的屏幕", "Watching ${share?.playerName ?: ""}'s screen"), color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             CircleIconButton(Icons.Rounded.Fullscreen, L("横屏全屏", "Landscape fullscreen")) { fullscreen = true }
         }
         Spacer(Modifier.height(12.dp))
@@ -3166,8 +3166,8 @@ private fun AboutScreen(onBack: () -> Unit) {
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text("MCTier", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 20.sp)
-                            Text("版本 v$AppClientVersion · Android", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
-                            Text("虚拟局域网通用联机工具", fontSize = 12.sp, color = GrassGreen)
+                            Text(L("版本 v$AppClientVersion · Android", "Version v$AppClientVersion · Android"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
+                            Text(L("虚拟局域网通用联机工具", "Universal virtual LAN networking tool"), fontSize = 12.sp, color = GrassGreen)
                         }
                     }
                 }
