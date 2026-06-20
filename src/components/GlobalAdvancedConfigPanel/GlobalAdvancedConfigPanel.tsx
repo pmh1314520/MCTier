@@ -152,7 +152,7 @@ export const GlobalAdvancedConfigPanel: React.FC = () => {
                           alignItems: 'center',
                           gap: '4px'
                         }}
-                        title="删除规则"
+                        title={tl('删除规则', 'Delete rule')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <line x1="18" y1="6" x2="6" y2="18"></line>

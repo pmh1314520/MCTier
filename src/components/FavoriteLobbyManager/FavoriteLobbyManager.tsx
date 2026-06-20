@@ -356,8 +356,8 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                         handleDeleteFavorite(item.id);
                       }}
                       onCancel={(e) => e?.stopPropagation()}
-                      okText="确定"
-                      cancelText="取消"
+                      okText={tl('确定', 'OK')}
+                      cancelText={tl('取消', 'Cancel')}
                     >
                       <motion.button
                         className="favorite-action-btn delete-btn"

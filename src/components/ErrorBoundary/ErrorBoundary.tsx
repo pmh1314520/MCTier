@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { Button, Result, Typography, Space } from 'antd';
+import { tl } from '../../i18n';
 import './ErrorBoundary.css';
 
 const { Paragraph, Text } = Typography;
@@ -143,23 +144,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className="error-boundary-container">
           <Result
             status="error"
-            title={isCritical ? '应用程序遇到严重错误' : '应用程序遇到错误'}
+            title={isCritical ? tl('应用程序遇到严重错误', 'The application hit a critical error') : tl('应用程序遇到错误', 'The application hit an error')}
             subTitle={
               isCritical
-                ? '应用程序多次遇到错误，建议清理缓存或重新安装。'
-                : '抱歉，应用程序遇到了一个意外错误。您可以尝试重新加载或联系技术支持。'
+                ? tl('应用程序多次遇到错误，建议清理缓存或重新安装。', 'The app has errored multiple times; consider clearing the cache or reinstalling.')
+                : tl('抱歉，应用程序遇到了一个意外错误。您可以尝试重新加载或联系技术支持。', 'Sorry, the app encountered an unexpected error. You can try reloading or contact support.')
             }
             extra={
               <Space direction="vertical" size="middle">
                 <Space>
                   <Button type="primary" onClick={this.handleReset}>
-                    重试
+                    {tl('重试', 'Retry')}
                   </Button>
-                  <Button onClick={this.handleReload}>重新加载应用</Button>
+                  <Button onClick={this.handleReload}>{tl('重新加载应用', 'Reload App')}</Button>
                 </Space>
                 {isCritical && (
                   <Button danger onClick={this.handleClearStorage}>
-                    清理缓存并重启
+                    {tl('清理缓存并重启', 'Clear Cache & Restart')}
                   </Button>
                 )}
               </Space>
@@ -167,22 +168,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           >
             <div className="error-details">
               <Paragraph>
-                <Text strong>错误信息:</Text>
+                <Text strong>{tl('错误信息:', 'Error message:')}</Text>
               </Paragraph>
               <Paragraph>
-                <Text code>{error?.message || '未知错误'}</Text>
+                <Text code>{error?.message || tl('未知错误', 'Unknown error')}</Text>
               </Paragraph>
 
               {errorCount > 1 && (
                 <Paragraph>
-                  <Text type="warning">错误已发生 {errorCount} 次</Text>
+                  <Text type="warning">{tl('错误已发生', 'Error occurred')} {errorCount} {tl('次', 'time(s)')}</Text>
                 </Paragraph>
               )}
 
               {import.meta.env.DEV && error?.stack && (
                 <>
                   <Paragraph>
-                    <Text strong>错误堆栈:</Text>
+                    <Text strong>{tl('错误堆栈:', 'Error stack:')}</Text>
                   </Paragraph>
                   <Paragraph>
                     <pre className="error-stack">{error.stack}</pre>

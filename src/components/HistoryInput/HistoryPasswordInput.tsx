@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Input } from 'antd';
 import type { InputRef } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './HistoryInput.css';
 import './HistoryPasswordInput.css';
 
@@ -28,6 +30,7 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
   size = 'large',
   disabled = false,
 }) => {
+  useTranslation();
   const [showHistory, setShowHistory] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -171,7 +174,7 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
             transition={{ duration: 0.2 }}
           >
             <div className="history-header">
-              <span className="history-title">历史记录</span>
+              <span className="history-title">{tl('历史记录', 'History')}</span>
               <button
                 className="history-clear-btn"
                 onClick={handleClearHistory}

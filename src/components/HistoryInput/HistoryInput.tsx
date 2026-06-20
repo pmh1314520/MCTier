@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Input } from 'antd';
 import type { InputProps, InputRef } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './HistoryInput.css';
 
 interface HistoryInputProps extends Omit<InputProps, 'onChange'> {
@@ -22,6 +24,7 @@ export const HistoryInput: React.FC<HistoryInputProps> = ({
   maxHistory = 10,
   ...inputProps
 }) => {
+  useTranslation();
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [filteredHistory, setFilteredHistory] = useState<string[]>([]);
@@ -137,7 +140,7 @@ export const HistoryInput: React.FC<HistoryInputProps> = ({
             <div className="history-dropdown-bg"></div>
             
             <div className="history-header">
-              <span className="history-title">历史记录</span>
+              <span className="history-title">{tl('历史记录', 'History')}</span>
               <button
                 className="history-clear-btn"
                 onClick={handleClearHistory}

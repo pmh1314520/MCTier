@@ -403,7 +403,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                             name={[field.name, 'bind_addr']}
                             style={{ marginBottom: 0 }}
                           >
-                            <Input placeholder="例如：0.0.0.0:5678" size="small" style={{ fontSize: '12px' }} />
+                            <Input placeholder={tl('例如：0.0.0.0:5678', 'e.g. 0.0.0.0:5678')} size="small" style={{ fontSize: '12px' }} />
                           </Form.Item>
                         </div>
                         
@@ -429,7 +429,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                             name={[field.name, 'dst_addr']}
                             style={{ marginBottom: 0 }}
                           >
-                            <Input placeholder="例如：10.126.126.1:5678" size="small" style={{ fontSize: '12px' }} />
+                            <Input placeholder={tl('例如：10.126.126.1:5678', 'e.g. 10.126.126.1:5678')} size="small" style={{ fontSize: '12px' }} />
                           </Form.Item>
                         </div>
                       </div>

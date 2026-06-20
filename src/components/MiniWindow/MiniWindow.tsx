@@ -1052,29 +1052,29 @@ export const MiniWindow: React.FC = () => {
             </motion.div>
 
             {/* 标题 */}
-            <h2 className="version-error-title">版本过低，无法连接</h2>
+            <h2 className="version-error-title">{tl('版本过低，无法连接', 'Version too low, cannot connect')}</h2>
 
             {/* 版本信息 */}
             <div className="version-error-info">
               <div className="version-info-row">
-                <span className="version-label">当前版本</span>
+                <span className="version-label">{tl('当前版本', 'Current version')}</span>
                 <span className="version-value current">{versionError.currentVersion}</span>
               </div>
               <div className="version-info-row">
-                <span className="version-label">最低要求</span>
+                <span className="version-label">{tl('最低要求', 'Minimum required')}</span>
                 <span className="version-value required">{versionError.minimumVersion}</span>
               </div>
             </div>
 
             {/* 提示信息 */}
             <div className="version-error-message">
-              <p>客户端版本过低，服务器已拒绝连接</p>
-              <p>请下载最新版本以继续使用 MCTier</p>
+              <p>{tl('客户端版本过低，服务器已拒绝连接', 'Client version too low; the server refused the connection')}</p>
+              <p>{tl('请下载最新版本以继续使用 MCTier', 'Please download the latest version to keep using MCTier')}</p>
             </div>
 
             {/* 官网链接 */}
             <div className="version-error-url">
-              <div className="url-label">官网下载地址</div>
+              <div className="url-label">{tl('官网下载地址', 'Official download URL')}</div>
               <div className="url-box">
                 <span className="url-text">{versionError.downloadUrl}</span>
                 <motion.button
@@ -1171,37 +1171,37 @@ export const MiniWindow: React.FC = () => {
       >
         <div style={{ lineHeight: '1.8' }}>
           <p style={{ marginBottom: '16px', fontWeight: 'bold', color: '#52c41a' }}>
-            联机方式说明：
+            {tl('联机方式说明：', 'How to connect:')}
           </p>
           
           <div style={{ marginBottom: '12px' }}>
-            <strong>1. 双方都是正版：</strong>
+            <strong>{tl('1. 双方都是正版：', '1. Both have a licensed copy:')}</strong>
             <br />
-            房主对局域网开放后，其他玩家在多人游戏中使用 <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>房主虚拟IP:端口号</code> 加入
+            {tl('房主对局域网开放后，其他玩家在多人游戏中使用 ', 'After the host opens to LAN, others join in Multiplayer using ')}<code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>{tl('房主虚拟IP:端口号', 'Host Virtual IP:Port')}</code>{tl(' 加入', '')}
           </div>
 
           <div style={{ marginBottom: '12px' }}>
-            <strong>2. 房主离线模式，加入者正版：</strong>
+            <strong>{tl('2. 房主离线模式，加入者正版：', '2. Host offline mode, joiner licensed:')}</strong>
             <br />
-            加入者在多人游戏中使用 <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>房主虚拟IP:端口号</code> 加入
+            {tl('加入者在多人游戏中使用 ', 'The joiner uses ')}<code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>{tl('房主虚拟IP:端口号', 'Host Virtual IP:Port')}</code>{tl(' 加入', ' in Multiplayer to join')}
           </div>
 
           <div style={{ marginBottom: '12px' }}>
-            <strong>3. 房主正版，加入者离线模式：</strong>
+            <strong>{tl('3. 房主正版，加入者离线模式：', '3. Host licensed, joiner offline mode:')}</strong>
             <br />
-            房主需要安装 <a onClick={handleOpenModPage} style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}>mcwifipnp</a> 模组关闭正版验证
+            {tl('房主需要安装 ', 'The host needs to install ')}<a onClick={handleOpenModPage} style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}>mcwifipnp</a>{tl(' 模组关闭正版验证', ' mod to disable license verification')}
           </div>
 
           <div style={{ marginBottom: '16px' }}>
-            <strong>4. 双方都是离线模式：</strong>
+            <strong>{tl('4. 双方都是离线模式：', '4. Both in offline mode:')}</strong>
             <br />
-            房主需要安装 <a onClick={handleOpenModPage} style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}>mcwifipnp</a> 模组关闭正版验证
+            {tl('房主需要安装 ', 'The host needs to install ')}<a onClick={handleOpenModPage} style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}>mcwifipnp</a>{tl(' 模组关闭正版验证', ' mod to disable license verification')}
           </div>
 
           <div style={{ padding: '12px', background: 'rgba(255, 193, 7, 0.1)', borderRadius: '8px', borderLeft: '3px solid #ffc107' }}>
-            <strong style={{ color: '#ffc107' }}>💡 提示：</strong>
+            <strong style={{ color: '#ffc107' }}>💡 {tl('提示：', 'Tip:')}</strong>
             <br />
-            虚拟IP显示在大厅信息中，端口号由房主在游戏内对局域网开放时显示
+            {tl('虚拟IP显示在大厅信息中，端口号由房主在游戏内对局域网开放时显示', 'The virtual IP is shown in lobby info; the port is shown when the host opens to LAN in-game')}
           </div>
         </div>
       </Modal>
@@ -1218,11 +1218,11 @@ export const MiniWindow: React.FC = () => {
             transition={{ duration: 0 }}
           >
             <div className="chat-room-header">
-              <h3 className="chat-room-title">聊天室</h3>
+              <h3 className="chat-room-title">{tl('聊天室', 'Chat Room')}</h3>
               <button
                 className="back-button"
                 onClick={handleCloseChatRoom}
-                title="关闭聊天室 (ESC)"
+                title={tl('关闭聊天室 (ESC)', 'Close chat (ESC)')}
               >
                 <CloseIcon size={16} />
               </button>
@@ -1240,9 +1240,9 @@ export const MiniWindow: React.FC = () => {
           >
             <div className="file-share-header">
               <div className="file-share-title-wrapper">
-                <h3 className="file-share-title">文件夹共享</h3>
+                <h3 className="file-share-title">{tl('文件夹共享', 'Folder Sharing')}</h3>
                 <Tooltip 
-                  title="将您电脑中的任何文件夹共享到当前大厅中，提供给同大厅内的其他玩家访问并下载。"
+                  title={tl('将您电脑中的任何文件夹共享到当前大厅中，提供给同大厅内的其他玩家访问并下载。', 'Share any folder on your PC to the current lobby for other members to access and download.')}
                   placement="bottom"
                 >
                   <div className="file-share-info-icon">
@@ -1253,7 +1253,7 @@ export const MiniWindow: React.FC = () => {
               <button
                 className="back-button"
                 onClick={() => setCurrentView('lobby')}
-                title="返回大厅 (ESC)"
+                title={tl('返回大厅 (ESC)', 'Back to lobby (ESC)')}
               >
                 <CloseIcon size={16} />
               </button>
@@ -1274,9 +1274,9 @@ export const MiniWindow: React.FC = () => {
           >
             <div className="screen-share-header">
               <div className="screen-share-title-wrapper">
-                <h3 className="screen-share-title">屏幕共享</h3>
+                <h3 className="screen-share-title">{tl('屏幕共享', 'Screen Sharing')}</h3>
                 <Tooltip 
-                  title="将您的屏幕实时共享给大厅内的其他玩家查看，支持密码保护。"
+                  title={tl('将您的屏幕实时共享给大厅内的其他玩家查看，支持密码保护。', 'Share your screen with lobby members in real time, with optional password protection.')}
                   placement="bottom"
                 >
                   <div className="screen-share-info-icon">
@@ -1289,7 +1289,7 @@ export const MiniWindow: React.FC = () => {
                   className="back-button"
                   onClick={() => setCurrentView('lobby')}
                 >
-                  <Tooltip title="返回大厅 (ESC)" placement="bottom">
+                  <Tooltip title={tl('返回大厅 (ESC)', 'Back to lobby (ESC)')} placement="bottom">
                     <CloseIcon size={16} />
                   </Tooltip>
                 </button>
@@ -1383,7 +1383,7 @@ export const MiniWindow: React.FC = () => {
                   onOk: () => { void handleLeaveLobby(); },
                 });
               }}
-              title="返回主界面"
+              title={tl('返回主界面', 'Back to home')}
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
             >
@@ -1421,7 +1421,7 @@ export const MiniWindow: React.FC = () => {
                       <motion.button
                         className="lobby-card-action-btn"
                         onClick={() => setShowMcWorlds(true)}
-                        title="局域网世界（扫描可加入的 Minecraft 世界）"
+                        title={tl('局域网世界（扫描可加入的 Minecraft 世界）', 'LAN worlds (scan for joinable Minecraft worlds)')}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -1483,7 +1483,7 @@ export const MiniWindow: React.FC = () => {
               {/* 大厅公告（只读跑马灯滚动展示；房主在“房主管理”中设置） */}
               {announcement && (
                 <div className="mini-announcement">
-                  <span className="mini-announce-icon" title="大厅公告">
+                  <span className="mini-announce-icon" title={tl('大厅公告', 'Lobby announcement')}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                       <path d="M20 5.5v13a1 1 0 0 1-1.55.83L12 14.9V9.1l6.45-4.43A1 1 0 0 1 20 5.5z"></path>
                       <path d="M10 9H6.5A2.5 2.5 0 0 0 4 11.5v1A2.5 2.5 0 0 0 6.5 15H7v3.2a.8.8 0 0 0 .8.8h1.4a.8.8 0 0 0 .8-.8V15h0V9z"></path>
@@ -1695,7 +1695,7 @@ export const MiniWindow: React.FC = () => {
                                     onOk: () => { webrtcClient.transferHost(player.id); },
                                   });
                                 }}
-                                title="转让房主"
+                                title={tl('转让房主', 'Transfer host')}
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
                               >
@@ -1716,7 +1716,7 @@ export const MiniWindow: React.FC = () => {
                                     onOk: () => { webrtcClient.kickPlayer(player.id); },
                                   });
                                 }}
-                                title="踢出大厅"
+                                title={tl('踢出大厅', 'Kick from lobby')}
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
                               >
@@ -1807,7 +1807,7 @@ export const MiniWindow: React.FC = () => {
                   <motion.button
                     className="mini-lobby-settings-btn"
                     onClick={() => setShowHostPanel(true)}
-                    title="房主管理（人数上限 / 公开广场）"
+                    title={tl('房主管理（人数上限 / 公开广场）', 'Host management (max players / public plaza)')}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -1844,7 +1844,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className={`mini-voice-btn chat-btn ${unreadCount > 0 ? 'has-unread' : ''}`}
                   onClick={handleOpenChatRoom}
-                  title="聊天室"
+                  title={tl('聊天室', 'Chat Room')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1858,7 +1858,7 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
                     setCurrentView('fileShare');
                   }}
-                  title="文件夹共享"
+                  title={tl('文件夹共享', 'Folder Sharing')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1872,7 +1872,7 @@ export const MiniWindow: React.FC = () => {
                     console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
                     setCurrentView('screenShare');
                   }}
-                  title="屏幕共享"
+                  title={tl('屏幕共享', 'Screen Sharing')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1943,7 +1943,7 @@ export const MiniWindow: React.FC = () => {
             </button>
             <button
               className="qr-download-btn"
-              title="复制可一键加入的邀请链接，发给好友在浏览器打开即可加入"
+              title={tl('复制可一键加入的邀请链接，发给好友在浏览器打开即可加入', 'Copy a one-click invite link; send it to a friend to open in a browser and join')}
               onClick={async () => {
                 if (!lobby) return;
                 const dl = `mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}`;

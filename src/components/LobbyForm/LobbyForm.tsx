@@ -1205,7 +1205,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               label={tl('使用虚拟域名', 'Use virtual domain')}
               name="useDomain"
               valuePropName="checked"
-              tooltip="开启后，您的虚拟IP将显示为域名格式，便于记忆与访问"
+              tooltip={tl('开启后，您的虚拟IP将显示为域名格式，便于记忆与访问', 'When enabled, your virtual IP is shown as a domain name for easier access')}
             >
               <Switch disabled={loading} />
             </Form.Item>

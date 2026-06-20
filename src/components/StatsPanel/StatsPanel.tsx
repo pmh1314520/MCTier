@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Empty, Popconfirm, Button, message } from 'antd';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import { statsService, formatDuration, BUCKET_LABELS, type ComputedStats } from '../../services/stats/statsService';
 import './StatsPanel.css';
 
@@ -39,7 +40,7 @@ const Donut: React.FC<{ host: number; member: number }> = ({ host, member }) => 
           </>
         )}
         <text x="50" y="48" textAnchor="middle" className="stats-donut-num">{total}</text>
-        <text x="50" y="64" textAnchor="middle" className="stats-donut-label">总场次</text>
+        <text x="50" y="64" textAnchor="middle" className="stats-donut-label">{tl('总场次', 'Total')}</text>
       </svg>
       <div className="stats-donut-legend">
         <div><span className="dot" style={{ background: '#52c41a' }} /> 房主 {host}</div>

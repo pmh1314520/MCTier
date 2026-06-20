@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Input, Tooltip } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './AdvancedNetworkConfig.css';
 
 export interface NetworkConfig {
@@ -17,6 +19,7 @@ export const AdvancedNetworkConfig: React.FC<AdvancedNetworkConfigProps> = ({
   value = {},
   onChange,
 }) => {
+  useTranslation();
   const [virtualDomain, setVirtualDomain] = useState(value.virtualDomain || '');
 
   const handleVirtualDomainChange = (value: string) => {
@@ -33,14 +36,14 @@ export const AdvancedNetworkConfig: React.FC<AdvancedNetworkConfigProps> = ({
         transition={{ delay: 0.1 }}
       >
         <div className="section-header">
-          <h4>虚拟域名</h4>
-          <Tooltip title="为虚拟网络配置自定义域名">
+          <h4>{tl('虚拟域名', 'Virtual Domain')}</h4>
+          <Tooltip title={tl('为虚拟网络配置自定义域名', 'Configure a custom domain for the virtual network')}>
             <QuestionCircleOutlined />
           </Tooltip>
         </div>
         
         <Input
-          placeholder="例如: mctier.local"
+          placeholder={tl('例如: mctier.local', 'e.g. mctier.local')}
           value={virtualDomain}
           onChange={(e) => handleVirtualDomainChange(e.target.value)}
           maxLength={50}
@@ -48,7 +51,7 @@ export const AdvancedNetworkConfig: React.FC<AdvancedNetworkConfigProps> = ({
         
         {virtualDomain && (
           <div className="domain-preview">
-            <span className="preview-label">预览:</span>
+            <span className="preview-label">{tl('预览:', 'Preview:')}</span>
             <span className="preview-value">{virtualDomain}</span>
           </div>
         )}

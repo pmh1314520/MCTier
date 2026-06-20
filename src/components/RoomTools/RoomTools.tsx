@@ -32,7 +32,8 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
   const config = useAppStore((s) => s.config);
-  const addChatMessage = useAppStore((s) => s.addChatMessage);
+  const addChatMessage = useAppStore((s) => s.addChatMessage);
+
   const todos = useAppStore((s) => s.todos);
   const setTodos = useAppStore((s) => s.setTodos);
 
@@ -157,7 +158,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
         />
       </Space>
       <div style={{ margin: '14px 0', minHeight: 32 }}>
-        {lastRoll ? <Text strong style={{ fontSize: 16 }}>🎲 {lastRoll}</Text> : <Text type="secondary">点击下方按钮掷骰</Text>}
+        {lastRoll ? <Text strong style={{ fontSize: 16 }}>🎲 {lastRoll}</Text> : <Text type="secondary">{tl('点击下方按钮掷骰', 'Tap the button below to roll')}</Text>}
       </div>
       <Space>
         <Button onClick={() => void handleRoll(false)}>{t('roomTools.localRoll')}</Button>
@@ -214,7 +215,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
               <Checkbox checked={t.done} onChange={() => toggleTodo(t.id)}>
                 <span className="room-todo-text">{t.text}</span>
               </Checkbox>
-              <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">
+              <button className="room-todo-del" onClick={() => removeTodo(t.id)} title={tl('删除', 'Delete')}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -242,7 +243,9 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
         items={[
           { key: 'dice', label: t('roomTools.dice'), children: diceTab },
           { key: 'timer', label: t('roomTools.timer'), children: timerTab },
-          { key: 'todo', label: t('roomTools.todo'), children: todoTab },
+          { key: 'todo', label: t('roomTools.todo'), children: todoTab },
+
+
         ]}
       />
     </Modal>

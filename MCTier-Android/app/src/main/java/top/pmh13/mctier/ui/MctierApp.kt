@@ -1827,6 +1827,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
 private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     var input by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     var showEmoji by remember { mutableStateOf(false) }
+    var emojiCat by remember { mutableStateOf(0) }
     var replyTo by remember { mutableStateOf<ChatMessage?>(null) }
     val listState = rememberLazyListState()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -1957,15 +1958,32 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
         }
         // 表情面板
         AnimatedVisibility(visible = showEmoji) {
+            val emojiCats = remember(appLang) {
+                listOf(
+                    L("表情", "Smileys") to listOf("😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤩", "🥳", "😅", "😇", "🙂", "😉", "😏", "😴", "😭", "😱", "😡", "🥺", "😮", "😳", "🥶", "🤮", "🤔"),
+                    L("手势", "Gestures") to listOf("👍", "👎", "👌", "✌️", "🤝", "🙏", "💪", "👏", "🤗", "🙌", "👋", "🤙", "🤞", "👊", "✋", "🫶"),
+                    L("符号", "Symbols") to listOf("❤️", "💔", "✨", "🔥", "💯", "⭐", "🌟", "💢", "💥", "💦", "💤", "✅", "❌", "❓", "❗", "➕"),
+                    L("活动", "Activities") to listOf("🎮", "🎉", "🎁", "🍻", "☕", "🚀", "🏆", "🎯", "🎲", "🎵", "💩", "🤡", "👀", "🐶", "🐱", "🌈"),
+                )
+            }
             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                // 分类标签页
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    emojiCats.forEachIndexed { idx, (name, _) ->
+                        val active = idx == emojiCat
+                        Box(
+                            Modifier.clip(RoundedCornerShape(14.dp))
+                                .background(if (active) GrassGreen else PanelHigh)
+                                .clickable { emojiCat = idx }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                        ) { Text(name, color = TextPrimary, fontSize = 13.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal) }
+                    }
+                }
                 FlowRowChips(
-                    listOf(
-                        "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤩", "🥳",
-                        "😅", "😇", "🙂", "😉", "😏", "😴", "😭", "😱", "😡", "🥺",
-                        "🤔", "🤗", "🤝", "🙏", "👍", "👎", "👌", "✌️", "💪", "👏",
-                        "🎮", "🔥", "❤️", "💔", "✨", "🎉", "🎁", "💯", "⭐", "🌟",
-                        "😮", "😳", "🥶", "🤮", "👀", "🍻", "☕", "🚀", "💩", "🤡",
-                    ),
+                    emojiCats[emojiCat.coerceIn(0, emojiCats.size - 1)].second,
                     big = true,
                 ) { emoji -> input = androidx.compose.ui.text.input.TextFieldValue(input.text + emoji, androidx.compose.ui.text.TextRange(input.text.length + emoji.length)) }
             }

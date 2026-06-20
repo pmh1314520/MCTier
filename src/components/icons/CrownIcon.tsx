@@ -1,4 +1,5 @@
 import React from 'react';
+import { tl } from '../../i18n';
 
 interface CrownIconProps {
   size?: number;
@@ -26,9 +27,9 @@ export const CrownIcon: React.FC<CrownIconProps> = ({
       fill={color}
       className={className}
       style={style}
-      aria-label="房主"
+      aria-label={tl('房主', 'Host')}
     >
-      <title>房主</title>
+      <title>{tl('房主', 'Host')}</title>
       {/* 冠体：左峰-谷-中峰-谷-右峰，底部平 */}
       <path
         d="M5 16.5L2.7 6.2l5.6 3.9L12 3.8l3.7 6.3 5.6-3.9L19 16.5z"
