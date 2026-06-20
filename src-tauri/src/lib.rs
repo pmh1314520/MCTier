@@ -205,6 +205,45 @@ fn restore_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// 拦截窗口的「最小化」动作（任务栏点击 / Win+D），改为隐藏窗口。
+///
+/// 原因：无边框 + 透明（WS_POPUP）窗口在 Windows 上真正进入“最小化”状态后，
+/// WebView2/DWM 的合成会出问题，导致窗口卡死、无法再唤出（程序未响应）。
+/// 改为 SW_HIDE 隐藏，可完全规避该死锁；之后通过系统托盘或 Ctrl+Alt+M 可靠唤回。
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn window_subclass_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SC_MINIMIZE, SW_HIDE, WM_SYSCOMMAND};
+
+    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
+        // 用隐藏代替最小化，规避透明无边框窗口最小化卡死
+        let _ = ShowWindow(hwnd, SW_HIDE);
+        return LRESULT(0);
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+/// 为主窗口安装最小化拦截子类。
+#[cfg(target_os = "windows")]
+fn install_minimize_to_hide(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::SetWindowSubclass;
+    if let Ok(hwnd) = window.hwnd() {
+        let h = HWND(hwnd.0 as *mut _);
+        unsafe {
+            let _ = SetWindowSubclass(h, Some(window_subclass_proc), 1, 0);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 在应用启动时检查并应用 GPU 设置
@@ -300,6 +339,13 @@ pub fn run() {
             info!("Tauri 应用设置完成");
             println!("🚀 [Setup] Tauri 应用设置开始");
             let app_handle = app.handle().clone();
+
+            // 安装「最小化改为隐藏」子类，规避透明无边框窗口最小化卡死
+            #[cfg(target_os = "windows")]
+            if let Some(main_win) = app.get_webview_window("main") {
+                install_minimize_to_hide(&main_win);
+            }
+
             {
                 use tauri::menu::{MenuBuilder, MenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -559,11 +605,6 @@ pub fn run() {
         .on_window_event(|window, event| {
             // 【#1】窗口越界自动回中：当窗口被拖到所有显示器可视范围之外时，自动居中找回
             if let tauri::WindowEvent::Moved(_pos) = event {
-                ensure_window_visible(window);
-            }
-            // 窗口重新获得焦点时（例如通过任务栏点击/Win+D 后恢复）校正位置，
-            // 避免无边框窗口被系统还原到屏幕外不可见区域
-            if let tauri::WindowEvent::Focused(true) = event {
                 ensure_window_visible(window);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
