@@ -5,6 +5,7 @@
  */
 
 import { recentService } from '../recent/recentService';
+import { tl } from '../../i18n';
 
 const STATS_KEY = 'mctier_local_stats';
 
@@ -159,8 +160,15 @@ export function formatDuration(ms: number): string {
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h > 0) return `${h} 小时 ${m} 分钟`;
-  return `${m} 分钟`;
+  if (h > 0) return `${h} ${tl('小时', 'h')} ${m} ${tl('分钟', 'min')}`;
+  return `${m} ${tl('分钟', 'min')}`;
 }
 
 export const BUCKET_LABELS = ['凌晨', '上午', '下午', '晚上'];
+/** 活跃时段标签（随语言返回）：0=凌晨 1=上午 2=下午 3=晚上 */
+export const getBucketLabels = (): string[] => [
+  tl('凌晨', 'Night'),
+  tl('上午', 'Morning'),
+  tl('下午', 'Afternoon'),
+  tl('晚上', 'Evening'),
+];

@@ -58,7 +58,7 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
       ) : lobbies.length === 0 ? (
-        <Empty description="暂无公开大厅，邀请房主在「房主管理」中发布吧" />
+        <Empty description={tl('暂无公开大厅，邀请房主在「房主管理」中发布吧', 'No public lobbies — ask a host to publish in "Host Management"')} />
       ) : (
         <div style={{ maxHeight: 380, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {lobbies.map((l, i) => {

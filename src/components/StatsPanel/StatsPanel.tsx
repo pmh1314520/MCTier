@@ -8,7 +8,7 @@ import { Modal, Empty, Popconfirm, Button, message } from 'antd';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
-import { statsService, formatDuration, BUCKET_LABELS, type ComputedStats } from '../../services/stats/statsService';
+import { statsService, formatDuration, getBucketLabels, type ComputedStats } from '../../services/stats/statsService';
 import './StatsPanel.css';
 
 interface StatsPanelProps {
@@ -43,8 +43,8 @@ const Donut: React.FC<{ host: number; member: number }> = ({ host, member }) => 
         <text x="50" y="64" textAnchor="middle" className="stats-donut-label">{tl('总场次', 'Total')}</text>
       </svg>
       <div className="stats-donut-legend">
-        <div><span className="dot" style={{ background: '#52c41a' }} /> 房主 {host}</div>
-        <div><span className="dot" style={{ background: '#1668dc' }} /> 成员 {member}</div>
+        <div><span className="dot" style={{ background: '#52c41a' }} /> {tl('房主', 'Host')} {host}</div>
+        <div><span className="dot" style={{ background: '#1668dc' }} /> {tl('成员', 'Member')} {member}</div>
       </div>
     </div>
   );
@@ -110,7 +110,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
                       initial={{ height: 0 }} animate={{ height: `${(v / maxB) * 100}%` }}
                       transition={{ duration: 0.5, delay: i * 0.06 }} />
                   </div>
-                  <div className="stats-bucket-label">{BUCKET_LABELS[i]}</div>
+                  <div className="stats-bucket-label">{getBucketLabels()[i]}</div>
                   <div className="stats-bucket-count">{v}</div>
                 </div>
               ))}

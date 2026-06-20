@@ -52,7 +52,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
   const lobbiesTab = (
     <div style={{ maxHeight: 360, overflowY: 'auto' }}>
       {lobbies.length === 0 ? (
-        <Empty description="暂无最近进入的大厅" />
+        <Empty description={tl('暂无最近进入的大厅', 'No recent lobbies')} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {lobbies.map((l) => (
@@ -96,7 +96,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
   const playersTab = (
     <div style={{ maxHeight: 360, overflowY: 'auto' }}>
       {players.length === 0 ? (
-        <Empty description="暂无最近联机的玩家" />
+        <Empty description={tl('暂无最近联机的玩家', 'No recent players')} />
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {players.map((p) => (
