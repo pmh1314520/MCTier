@@ -838,6 +838,34 @@
 .snd-text-btn.snd-reset { color: rgba(255, 255, 255, 0.55); }
 .snd-mute-label { font-size: 12px; color: rgba(255, 255, 255, 0.55); margin-left: 4px; white-space: nowrap; }
 
+/* 弹幕行内预览 */
+.danmaku-preview-box {
+  position: relative;
+  height: 70px;
+  margin-top: 6px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(20,30,48,0.9), rgba(10,15,25,0.95));
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.danmaku-preview-bullet {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(100%, -50%);
+  white-space: nowrap;
+  font-weight: 800;
+  color: #52c41a;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+  animation-name: danmaku-preview-move;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes danmaku-preview-move {
+  from { transform: translate(100%, -50%); }
+  to { transform: translate(-110%, -50%); }
+}
+
 .snd-dnd-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .snd-dnd-times { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; width: 100%; }
 .snd-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }

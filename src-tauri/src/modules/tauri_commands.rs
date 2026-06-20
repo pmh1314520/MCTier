@@ -3596,7 +3596,66 @@ pub async fn open_screen_viewer_window(
     Ok(())
 }
 
-// ==================== 日志管理命令 ====================
+// ==================== 弹幕覆盖窗口 ====================
+
+/// 打开弹幕覆盖窗口：置顶、透明、无边框、鼠标穿透、覆盖整个主屏幕。
+/// 用于在玩游戏时让聊天消息以弹幕形式飘过屏幕顶部，且不遮挡操作。
+#[tauri::command]
+pub async fn open_danmaku_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri::WebviewWindowBuilder;
+
+    let window_label = "danmaku";
+    if let Some(existing) = app.get_webview_window(window_label) {
+        // 已存在则确保可见并置顶穿透
+        let _ = existing.show();
+        let _ = existing.set_always_on_top(true);
+        let _ = existing.set_ignore_cursor_events(true);
+        return Ok(());
+    }
+
+    let window = WebviewWindowBuilder::new(
+        &app,
+        window_label,
+        tauri::WebviewUrl::App("index.html?danmaku=true".into()),
+    )
+    .title("MCTier Danmaku")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .resizable(false)
+    .focused(false)
+    .visible(false)
+    .build()
+    .map_err(|e| format!("创建弹幕窗口失败: {}", e))?;
+
+    // 覆盖主屏幕（含任务栏区域，尽量铺满）
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let size = monitor.size();
+        let pos = monitor.position();
+        let _ = window.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
+        let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
+    }
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
+
+    log::info!("✅ 弹幕窗口已打开");
+    Ok(())
+}
+
+/// 关闭弹幕覆盖窗口
+#[tauri::command]
+pub async fn close_danmaku_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("danmaku") {
+        let _ = window.close();
+        log::info!("弹幕窗口已关闭");
+    }
+    Ok(())
+}
 
 /// 打开日志文件所在的文件夹
 /// 

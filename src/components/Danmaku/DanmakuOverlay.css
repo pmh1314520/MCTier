@@ -1,0 +1,38 @@
+/* 弹幕覆盖窗口：完全透明，鼠标穿透（穿透由 Rust set_ignore_cursor_events 实现） */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.danmaku-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.danmaku-bullet {
+  position: absolute;
+  left: 0;
+  white-space: nowrap;
+  font-weight: 800;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 4px rgba(0, 0, 0, 0.7);
+  will-change: transform;
+  transform: translateX(100vw);
+  animation-name: danmaku-move;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+@keyframes danmaku-move {
+  from { transform: translateX(100vw); }
+  to { transform: translateX(-110%); }
+}

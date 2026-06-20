@@ -124,6 +124,12 @@ data class UserSettings(
     val themePrimary: String = "",
     // —— 界面语言（"zh"|"en"，空=跟随系统）——
     val language: String = "",
+    // —— 消息弹幕 ——
+    val danmakuEnabled: Boolean = false,
+    val danmakuFontSize: Int = 20,   // sp
+    val danmakuSpeed: Int = 130,     // dp/s
+    val danmakuOpacity: Float = 0.9f,
+    val danmakuTracks: Int = 4,
 )
 
 @Serializable

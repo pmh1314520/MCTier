@@ -11,6 +11,7 @@ import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { GlobalTooltip } from './components/GlobalTooltip/GlobalTooltip';
 import { GlobalButtonTheme } from './components/GlobalTooltip/GlobalButtonTheme';
 import { ScreenViewer } from './components/ScreenViewer/ScreenViewer';
+import { DanmakuOverlay } from './components/Danmaku/DanmakuOverlay';
 import { VersionUpdateModal } from './components/VersionUpdateModal';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
@@ -43,6 +44,12 @@ function App() {
 
   // 检测是否是屏幕查看窗口
   const isScreenViewerWindow = window.location.search.includes('screen-viewer=true');
+
+  // 弹幕覆盖窗口：只渲染弹幕层（透明、置顶、穿透）
+  const isDanmakuWindow = window.location.search.includes('danmaku=true');
+  if (isDanmakuWindow) {
+    return <DanmakuOverlay />;
+  }
 
   // 如果是屏幕查看窗口，直接渲染ScreenViewer组件
   if (isScreenViewerWindow) {

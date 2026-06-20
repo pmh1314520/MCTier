@@ -27,6 +27,7 @@ import { RoomTools } from '../RoomTools/RoomTools';
 import { HostPanel } from '../HostPanel/HostPanel';
 import { RemoteControl } from '../RemoteControl/RemoteControl';
 import { remoteControlService } from '../../services/remoteControl/RemoteControlService';
+import { danmakuService } from '../../services/danmaku/danmakuService';
 import './MiniWindow.css';
 
 /**
@@ -320,6 +321,12 @@ export const MiniWindow: React.FC = () => {
     }
   }, []); // 只在组件挂载时执行一次
 
+  // 进入大厅：按配置开启弹幕覆盖窗；离开大厅：关闭弹幕窗
+  useEffect(() => {
+    void danmakuService.syncWindowForLobby(true);
+    return () => { void danmakuService.closeWindow(); };
+  }, []);
+
   // 初始化P2P聊天服务 - 在大厅界面就启动，不需要打开聊天室
   // 【修复】移除players依赖，避免玩家列表更新时重复初始化
   useEffect(() => {
@@ -359,6 +366,14 @@ export const MiniWindow: React.FC = () => {
       };
       
       addChatMessage(chatMessage);
+
+      // 弹幕：把他人发来的消息以弹幕形式飘过屏幕（自己发的不飘）
+      if (message.playerId !== currentPlayerId) {
+        const danmakuText = message.type === 'image'
+          ? `${senderName}: ${tl('[图片]', '[Image]')}`
+          : `${senderName}: ${message.content || ''}`;
+        void danmakuService.push(danmakuText);
+      }
       
       // 消息提示音逻辑（支持 @ 提及）：
       // - 自己发的消息：不响

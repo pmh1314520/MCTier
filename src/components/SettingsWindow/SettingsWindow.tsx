@@ -9,6 +9,7 @@ import { StatsPanel } from '../StatsPanel/StatsPanel';
 import { useTranslation } from 'react-i18next';
 import { setLanguage, getLanguage, tl } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
+import { danmakuService, type DanmakuConfig } from '../../services/danmaku/danmakuService';
 import './SettingsWindow.css';
 
 export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -537,6 +538,21 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-purple">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 5h18v2H3V5zm0 6h12v2H3v-2zm0 6h18v2H3v-2z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('消息弹幕', 'Message Danmaku')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('开启后聊天消息会以弹幕形式从屏幕顶部飘过，游戏时也不错过；可调字号、速度、透明度、轨道数并预览', 'When enabled, chat messages float across the top of the screen so you never miss them while gaming; adjust size, speed, opacity, tracks and preview')}
+              </div>
+              <DanmakuSettings />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-yellow">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
@@ -656,6 +672,71 @@ const displayNodeName = (name: string) =>
 
 // ==================== 提示音设置 ====================
 const minutesToHHMM = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+const DanmakuSettings: React.FC = () => {
+  useTranslation();
+  const { message: antdMessage } = App.useApp();
+  const [cfg, setCfg] = useState<DanmakuConfig>(() => danmakuService.getConfig());
+
+  const update = (patch: Partial<DanmakuConfig>) => {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    void danmakuService.setConfig(patch);
+  };
+
+  // 行内预览：用当前配置循环播放一条示例弹幕
+  const sampleDuration = Math.max(3, (520 + cfg.fontSize * 8) / cfg.speed);
+
+  return (
+    <div className="snd-manager">
+      <div className="snd-block" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div className="snd-block-title-text">{tl('启用消息弹幕', 'Enable Danmaku')}</div>
+          <div className="snd-block-desc">{tl('聊天消息将以弹幕飘过屏幕顶部，并置顶于其他窗口之上', 'Chat messages float across the top, above other windows')}</div>
+        </div>
+        <Switch checked={cfg.enabled} onChange={(v) => update({ enabled: v })} />
+      </div>
+
+      <div className="snd-block">
+        <div className="snd-block-title"><span>{tl('字号', 'Font Size')}</span><span className="snd-vol-val">{cfg.fontSize}px</span></div>
+        <Slider min={14} max={48} step={1} value={cfg.fontSize} onChange={(v) => update({ fontSize: v as number })} />
+      </div>
+      <div className="snd-block">
+        <div className="snd-block-title"><span>{tl('滚动速度', 'Speed')}</span><span className="snd-vol-val">{cfg.speed}px/s</span></div>
+        <Slider min={60} max={320} step={10} value={cfg.speed} onChange={(v) => update({ speed: v as number })} />
+      </div>
+      <div className="snd-block">
+        <div className="snd-block-title"><span>{tl('不透明度', 'Opacity')}</span><span className="snd-vol-val">{Math.round(cfg.opacity * 100)}%</span></div>
+        <Slider min={0.2} max={1} step={0.05} value={cfg.opacity} onChange={(v) => update({ opacity: v as number })} />
+      </div>
+      <div className="snd-block">
+        <div className="snd-block-title"><span>{tl('弹幕轨道数', 'Tracks')}</span><span className="snd-vol-val">{cfg.tracks}</span></div>
+        <Slider min={1} max={10} step={1} value={cfg.tracks} onChange={(v) => update({ tracks: v as number })} />
+      </div>
+
+      {/* 行内预览 */}
+      <div className="snd-block">
+        <div className="snd-block-title-text">{tl('预览', 'Preview')}</div>
+        <div className="danmaku-preview-box" style={{ opacity: cfg.opacity }}>
+          <span
+            key={`${cfg.fontSize}-${cfg.speed}-${sampleDuration}`}
+            className="danmaku-preview-bullet"
+            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s` }}
+          >
+            {tl('示例弹幕：开黑走起！🎮', 'Sample danmaku: Let\'s game! 🎮')}
+          </span>
+        </div>
+        <button
+          className="snd-text-btn"
+          style={{ marginTop: 8 }}
+          onClick={() => { void danmakuService.preview(tl('这是一条弹幕预览 🎮', 'This is a danmaku preview 🎮')); antdMessage.success(tl('已在屏幕上预览', 'Previewing on screen')); }}
+        >
+          {tl('在屏幕上预览', 'Preview on screen')}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const SoundThemeManager: React.FC = () => {
   useTranslation();

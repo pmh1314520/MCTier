@@ -167,6 +167,14 @@ class MctierRepository(private val context: Context) {
         scope.launch { signalingClient.events.collect { handleSignal(it) } }
         // 应用已保存的音效/免打扰设置
         soundManager.applySettings(_state.value.settings)
+        // 应用弹幕配置
+        runCatching {
+            val s = _state.value.settings
+            top.pmh13.mctier.ui.DanmakuOverlay.applyConfig(
+                context, s.danmakuEnabled, s.danmakuFontSize.toFloat(),
+                s.danmakuSpeed.toFloat(), s.danmakuOpacity, s.danmakuTracks,
+            )
+        }
         // 启动时检测 Gitee 上是否有新版本（可选更新提示）
         checkUpdateOnStart()
         // 周期性测量与各玩家的延迟（在大厅内时）
@@ -278,10 +286,24 @@ class MctierRepository(private val context: Context) {
             putString("themeMode", settings.themeMode)
             putString("themePrimary", settings.themePrimary)
             putString("language", settings.language)
+            putBoolean("danmakuEnabled", settings.danmakuEnabled)
+            putInt("danmakuFontSize", settings.danmakuFontSize)
+            putInt("danmakuSpeed", settings.danmakuSpeed)
+            putFloat("danmakuOpacity", settings.danmakuOpacity)
+            putInt("danmakuTracks", settings.danmakuTracks)
         }
         _state.update { it.copy(settings = normalizedSettings) }
         // 同步音量/自定义音到 SoundManager
         soundManager.applySettings(normalizedSettings)
+        // 同步弹幕配置
+        top.pmh13.mctier.ui.DanmakuOverlay.applyConfig(
+            context,
+            normalizedSettings.danmakuEnabled,
+            normalizedSettings.danmakuFontSize.toFloat(),
+            normalizedSettings.danmakuSpeed.toFloat(),
+            normalizedSettings.danmakuOpacity,
+            normalizedSettings.danmakuTracks,
+        )
     }
 
     fun previewSound(kind: String) {
@@ -555,6 +577,11 @@ class MctierRepository(private val context: Context) {
         _state.update {
             if (it.chatMessages.any { m -> m.id == message.id }) it
             else it.copy(chatMessages = (it.chatMessages + message).takeLast(500))
+        }
+        // 弹幕：他人消息以弹幕飘过屏幕（含游戏中）
+        runCatching {
+            val dm = if (wire.messageType == "image") "$resolvedName: ${L("[图片]", "[Image]")}" else "$resolvedName: ${wire.content}"
+            top.pmh13.mctier.ui.DanmakuOverlay.push(dm)
         }
         // 仅当不在聊天室界面时才播放提示音(在聊天室内能直接看到，无需提示)
         if (!inChatRoom) soundManager.message()
@@ -1453,5 +1480,10 @@ class MctierRepository(private val context: Context) {
         themeMode = prefs.getString("themeMode", null) ?: "dark",
         themePrimary = prefs.getString("themePrimary", null).orEmpty(),
         language = prefs.getString("language", null).orEmpty(),
+        danmakuEnabled = prefs.getBoolean("danmakuEnabled", false),
+        danmakuFontSize = prefs.getInt("danmakuFontSize", 20),
+        danmakuSpeed = prefs.getInt("danmakuSpeed", 130),
+        danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),
+        danmakuTracks = prefs.getInt("danmakuTracks", 4),
     )
 }

@@ -2728,6 +2728,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(16.dp))
         NotificationSettingsSection(settings, onChange, repository::previewSound)
         Spacer(Modifier.height(16.dp))
+        DanmakuSettingsSection(settings, onChange)
+        Spacer(Modifier.height(16.dp))
         ThemeSettingsSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
         UpdateSection()
@@ -2778,6 +2780,81 @@ private fun NotificationSettingsSection(settings: UserSettings, onChange: (UserS
         }
         Text(L("免打扰时段内不播放任何提示音", "No sounds during the Do Not Disturb period"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
     }
+}
+
+@Composable
+private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettings) -> Unit) {
+    val ctx = LocalContext.current
+    var hasPerm by remember { mutableStateOf(DanmakuOverlay.hasPermission(ctx)) }
+    Text(L("消息弹幕", "Message Danmaku"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
+    Spacer(Modifier.height(4.dp))
+    Text(
+        L("开启后聊天消息会以弹幕从屏幕顶部飘过，玩游戏时也能看到（需悬浮窗权限）", "When enabled, chat messages float across the top of the screen even while gaming (needs overlay permission)"),
+        fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f), lineHeight = 15.sp,
+    )
+    Spacer(Modifier.height(8.dp))
+    if (!hasPerm) {
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GrassGreen.copy(alpha = 0.16f))
+                .clickable {
+                    runCatching { ctx.startActivity(DanmakuOverlay.requestPermissionIntent(ctx)) }
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(L("授予悬浮窗权限", "Grant overlay permission"), color = GrassGreen, fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(8.dp))
+    }
+    SwitchRow(L("启用消息弹幕", "Enable Danmaku"), settings.danmakuEnabled) {
+        hasPerm = DanmakuOverlay.hasPermission(ctx)
+        if (it && !hasPerm) {
+            runCatching { ctx.startActivity(DanmakuOverlay.requestPermissionIntent(ctx)) }
+        }
+        onChange(settings.copy(danmakuEnabled = it))
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(L("字号", "Font Size") + ": ${settings.danmakuFontSize}sp", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.danmakuFontSize.toFloat(),
+        onValueChange = { onChange(settings.copy(danmakuFontSize = it.toInt())) },
+        valueRange = 14f..40f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
+    Text(L("滚动速度", "Speed") + ": ${settings.danmakuSpeed}", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.danmakuSpeed.toFloat(),
+        onValueChange = { onChange(settings.copy(danmakuSpeed = it.toInt())) },
+        valueRange = 60f..300f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
+    Text(L("不透明度", "Opacity") + ": ${(settings.danmakuOpacity * 100).toInt()}%", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.danmakuOpacity,
+        onValueChange = { onChange(settings.copy(danmakuOpacity = it)) },
+        valueRange = 0.2f..1f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
+    Text(L("弹幕轨道数", "Tracks") + ": ${settings.danmakuTracks}", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.danmakuTracks.toFloat(),
+        onValueChange = { onChange(settings.copy(danmakuTracks = it.toInt())) },
+        valueRange = 1f..8f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
+    Spacer(Modifier.height(8.dp))
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(PanelHigh.copy(alpha = 0.5f))
+            .clickable {
+                hasPerm = DanmakuOverlay.hasPermission(ctx)
+                if (!hasPerm) { runCatching { ctx.startActivity(DanmakuOverlay.requestPermissionIntent(ctx)) }; return@clickable }
+                DanmakuOverlay.applyConfig(ctx, true, settings.danmakuFontSize.toFloat(), settings.danmakuSpeed.toFloat(), settings.danmakuOpacity, settings.danmakuTracks)
+                DanmakuOverlay.push(L("这是一条弹幕预览 🎮", "This is a danmaku preview 🎮"), GrassGreen.toArgb())
+                if (!settings.danmakuEnabled) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ DanmakuOverlay.hide() }, 6000)
+                }
+            }
+            .padding(vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(L("预览弹幕", "Preview danmaku"), color = TextPrimary, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable
