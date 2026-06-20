@@ -651,12 +651,12 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         L(
-                            "双方同节点，不稳可切换。",
-                            "Same node required; switch if unstable.",
+                            "双方需选同一节点",
+                            "Both must pick the same node",
                         ),
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
-                        color = TextPrimary.copy(alpha = 0.48f),
+                        color = TextPrimary.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                     )
                     Spacer(Modifier.height(18.dp))
@@ -1594,6 +1594,10 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
             Spacer(Modifier.height(6.dp))
             Text(L("会展示在公开广场，帮助其他用户快速了解这个大厅。", "Shown in the public plaza so others can understand this lobby."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
         }
+        Spacer(Modifier.height(10.dp))
+        SwitchRow(L("提示音禁音", "Mute sounds"), state.settings.soundMuted) {
+            repository.updateSettings(state.settings.copy(soundMuted = it))
+        }
         Spacer(Modifier.height(14.dp))
         PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
             val lobbyPwd = state.lobby?.password
@@ -1953,7 +1957,13 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
         AnimatedVisibility(visible = showEmoji) {
             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 FlowRowChips(
-                    listOf("😀", "😂", "😎", "😭", "👍", "👌", "🎮", "🔥", "❤️", "🎉", "😱", "🤝", "💪", "🙏", "😅", "🤔"),
+                    listOf(
+                        "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤩", "🥳",
+                        "😅", "😇", "🙂", "😉", "😏", "😴", "😭", "😱", "😡", "🥺",
+                        "🤔", "🤗", "🤝", "🙏", "👍", "👎", "👌", "✌️", "💪", "👏",
+                        "🎮", "🔥", "❤️", "💔", "✨", "🎉", "🎁", "💯", "⭐", "🌟",
+                        "😮", "😳", "🥶", "🤮", "👀", "🍻", "☕", "🚀", "💩", "🤡",
+                    ),
                     big = true,
                 ) { emoji -> input = androidx.compose.ui.text.input.TextFieldValue(input.text + emoji, androidx.compose.ui.text.TextRange(input.text.length + emoji.length)) }
             }
@@ -1995,11 +2005,28 @@ private fun buildMentionText(content: String, baseColor: Color): AnnotatedString
 private fun formatChatClock(timestamp: Long): String =
     if (timestamp > 0) java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp)) else "--:--"
 
+/** 聊天消息首字符圆形头像（与玩家列表统一风格） */
+@Composable
+private fun ChatAvatar(message: ChatMessage) {
+    val ch = (message.playerName.ifBlank { if (message.mine) "我" else "?" })
+        .let { Character.toString(it[0]) }.uppercase()
+    Box(
+        Modifier.size(34.dp).clip(CircleShape)
+            .background(if (message.mine) GrassGreen.copy(alpha = 0.85f) else PanelHigh),
+        contentAlignment = Alignment.Center,
+    ) { Text(ch, fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp) }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modifier: Modifier = Modifier, onQuote: (ChatMessage) -> Unit = {}) {
-    Row(horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start, modifier = modifier.fillMaxWidth()) {
-        Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start, modifier = Modifier.fillMaxWidth(0.82f)) {
+    Row(
+        horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        if (!message.mine) { ChatAvatar(message); Spacer(Modifier.width(8.dp)) }
+        Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
@@ -2103,10 +2130,11 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
                     }
                 }
             }
-            // ??????????????
+            // 发送时间（气泡底部）
             Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f),
                 modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp))
         }
+        if (message.mine) { Spacer(Modifier.width(8.dp)); ChatAvatar(message) }
     }
 }
 

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { VoiceDevicePanel } from '../VoiceSettings/VoiceSettings';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { audioService } from '../../services/audio/AudioService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import './LobbySettingsModal.css';
@@ -29,6 +30,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [useGlobalConfig, setUseGlobalConfig] = useState(true);
+  const [soundMuted, setSoundMuted] = useState<boolean>(() => audioService.getSettings().muted);
   const myVoiceGroup = useAppStore((s) => s.myVoiceGroup);
   const setMyVoiceGroup = useAppStore((s) => s.setMyVoiceGroup);
   
@@ -206,6 +208,22 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                 {g === 0 ? tl('公共频道', 'Public') : `${tl('', 'Team ')}${g}${tl(' 队', '')}`}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="lobby-voice-divider" />
+
+        {/* 提示音 */}
+        <div className="lobby-voice-section">
+          <div className="lobby-voice-section-title">{tl('提示音', 'Sounds')}</div>
+          <div className="use-global-config-switch">
+            <span>{tl('提示音禁音', 'Mute sounds')}</span>
+            <Switch
+              checked={soundMuted}
+              onChange={(checked) => {
+                setSoundMuted(checked);
+                audioService.setMuted(checked);
+              }}
+            />
           </div>
         </div>
         <div className="lobby-voice-divider" />
