@@ -162,7 +162,7 @@ class ScreenShareController(
         val expected = sharePassword
         if (expected != null && providedPassword != expected) {
             Log.w(TAG, "观看者密码错误，拒绝: $from")
-            sendSignal(SignalingEnvelope(type = "screen-share-error", from = localPlayerId, to = from, shareId = shareId, error = "屏幕共享密码错误"))
+            sendSignal(SignalingEnvelope(type = "screen-share-error", from = localPlayerId, to = from, shareId = shareId, error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password")))
             return
         }
         val track = localVideoTrack ?: return

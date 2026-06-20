@@ -77,13 +77,13 @@ class EasyTierVpnService : VpnService() {
             val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
                 mgr.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "MCTier 组网", NotificationManager.IMPORTANCE_LOW),
+                    NotificationChannel(CHANNEL_ID, top.pmh13.mctier.ui.L("MCTier 组网", "MCTier Networking"), NotificationManager.IMPORTANCE_LOW),
                 )
             }
         }
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("MCTier 正在组网")
-            .setContentText("保持与好友的虚拟局域网连接")
+            .setContentTitle(top.pmh13.mctier.ui.L("MCTier 正在组网", "MCTier is networking"))
+            .setContentText(top.pmh13.mctier.ui.L("保持与好友的虚拟局域网连接", "Keeping the virtual LAN connection with friends"))
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .build()

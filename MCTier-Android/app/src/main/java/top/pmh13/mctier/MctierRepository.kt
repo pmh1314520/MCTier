@@ -47,6 +47,7 @@ import top.pmh13.mctier.data.FavoriteLobby
 import top.pmh13.mctier.data.CustomNode
 import top.pmh13.mctier.data.TodoItem
 import top.pmh13.mctier.data.PublicLobbyWire
+import top.pmh13.mctier.ui.L
 import top.pmh13.mctier.data.RecentLobby
 import top.pmh13.mctier.data.RecentPlayer
 import top.pmh13.mctier.network.PublicLobbyClient
@@ -908,7 +909,7 @@ class MctierRepository(private val context: Context) {
                     minimum = message.minimumVersion ?: "",
                     downloadUrl = message.downloadUrl ?: defaultApkUrl(message.minimumVersion ?: ""),
                 )
-                _state.update { it.copy(versionError = alert, state = AppConnectionState.Error, error = "客户端版本过低，请更新后再使用") }
+                _state.update { it.copy(versionError = alert, state = AppConnectionState.Error, error = L("客户端版本过低，请更新后再使用", "Client version too low, please update")) }
                 scope.launch { runCatching { leaveLobby() } }
             }
             "register-success" -> {

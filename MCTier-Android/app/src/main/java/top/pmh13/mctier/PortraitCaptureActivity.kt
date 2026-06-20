@@ -18,6 +18,7 @@ import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.client.android.Intents
+import top.pmh13.mctier.ui.L
 import com.google.zxing.common.HybridBinarizer
 import com.journeyapps.barcodescanner.CaptureActivity
 
@@ -35,7 +36,7 @@ class PortraitCaptureActivity : CaptureActivity() {
                 val uri = data?.data
                 val contents = uri?.let { decodeQrFromImageUri(it) }
                 if (contents.isNullOrBlank()) {
-                    Toast.makeText(this, "图片中未识别到有效二维码", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, L("图片中未识别到有效二维码", "No valid QR code found in the image"), Toast.LENGTH_SHORT).show()
                 } else {
                     setResult(Activity.RESULT_OK, Intent().putExtra(Intents.Scan.RESULT, contents))
                     finish()
@@ -48,7 +49,7 @@ class PortraitCaptureActivity : CaptureActivity() {
 
     private fun addGalleryPickerButton() {
         val button = TextView(this).apply {
-            text = "从相册选择二维码"
+            text = L("从相册选择二维码", "Pick QR from gallery")
             textSize = 15f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -76,7 +77,7 @@ class PortraitCaptureActivity : CaptureActivity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivityForResult(Intent.createChooser(intent, "选择二维码图片"), RequestPickQrImage)
+        startActivityForResult(Intent.createChooser(intent, L("选择二维码图片", "Choose a QR image")), RequestPickQrImage)
     }
 
     private fun decodeQrFromImageUri(uri: Uri): String? = runCatching {

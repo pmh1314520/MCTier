@@ -1494,7 +1494,7 @@ private fun LobbyDynamicConfigView(state: MctierUiState, repository: MctierRepos
                                 .background(if (sel) GrassGreen else PanelHigh)
                                 .clickable {
                                     repository.setMyVoiceGroup(g)
-                                    android.widget.Toast.makeText(ctx, if (g == 0) L("已切换到公共频道", "Switched to public channel") else "已加入${label}", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(ctx, if (g == 0) L("已切换到公共频道", "Switched to public channel") else L("已加入${label}", "Joined $label"), android.widget.Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         ) { Text(label, fontSize = 13.sp, color = if (sel) TextPrimary else TextPrimary.copy(alpha = 0.75f), fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal) }
@@ -2317,7 +2317,7 @@ private fun RemoteBrowser(entry: RemoteShareEntry, repository: MctierRepository,
                 TextButton(onClick = { selectedPaths.clear() }) { Text(L("清空", "Clear"), color = TextPrimary.copy(alpha = 0.65f)) }
                 TextButton(onClick = {
                     repository.downloadRemoteFiles(entry, selectedFiles, password.ifBlank { null },
-                        onResult = { p -> android.widget.Toast.makeText(context, "已下载到 $p", android.widget.Toast.LENGTH_LONG).show() },
+                        onResult = { p -> android.widget.Toast.makeText(context, L("已下载到 $p", "Downloaded to $p"), android.widget.Toast.LENGTH_LONG).show() },
                         onError = { e -> android.widget.Toast.makeText(context, e, android.widget.Toast.LENGTH_SHORT).show() })
                 }) { Text(L("下载选中", "Download selected"), color = GrassGreen, fontWeight = FontWeight.SemiBold) }
             }
@@ -2365,8 +2365,8 @@ private fun RemoteBrowser(entry: RemoteShareEntry, repository: MctierRepository,
                                 } else {
                                     IconButton(onClick = {
                                         repository.downloadRemoteFile(entry, file, password.ifBlank { null },
-                                            onResult = { p -> android.widget.Toast.makeText(context, "已下载到 $p", android.widget.Toast.LENGTH_LONG).show() },
-                                            onError = { e -> android.widget.Toast.makeText(context, "下载失败：$e", android.widget.Toast.LENGTH_SHORT).show() })
+                                            onResult = { p -> android.widget.Toast.makeText(context, L("已下载到 $p", "Downloaded to $p"), android.widget.Toast.LENGTH_LONG).show() },
+                                            onError = { e -> android.widget.Toast.makeText(context, L("下载失败：$e", "Download failed: $e"), android.widget.Toast.LENGTH_SHORT).show() })
                                     }) { Icon(Icons.Rounded.Download, L("下载", "Download"), tint = GrassGreen) }
                                 }
                             }
