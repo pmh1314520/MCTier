@@ -15,6 +15,8 @@
   **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。**
 
   [官网](../MCTier官网/index.html) · [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [快速开始](#快速开始) · [运行预览](#运行预览) · [赞助支持](#赞助支持)
+
+  [English](./README_EN.md) | 简体中文
 </div>
 
 ---
