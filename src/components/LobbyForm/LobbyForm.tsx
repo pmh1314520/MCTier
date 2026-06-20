@@ -14,7 +14,7 @@ import { statsService } from '../../services/stats/statsService';
 import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
 import type { PublicLobby } from '../../services/lobby/publicLobbies';
 import { useTranslation } from 'react-i18next';
-import { tl } from '../../i18n';
+import { tl, getLanguage } from '../../i18n';
 import './LobbyForm.css';
 
 const { Title } = Typography;
@@ -98,13 +98,33 @@ const LOBBY_NAME_NOUNS = [
   '小队', '组织', '势力', '阵营', '派系', '集团', '协会', '社团',
 ];
 
+// 英文随机大厅名词库（英文模式使用）
+const LOBBY_NAME_ADJECTIVES_EN = [
+  'Happy', 'Joyful', 'Mystic', 'Dreamy', 'Legendary', 'Epic', 'Super', 'Extreme',
+  'Invincible', 'Royal', 'Supreme', 'Glorious', 'Brilliant', 'Shining', 'Radiant', 'Cool',
+  'Crazy', 'Wild', 'Passionate', 'Fiery', 'Brave', 'Fearless', 'Tough', 'Mighty',
+  'Lucky', 'Auspicious', 'Stellar', 'Snowy', 'Spring', 'Summer', 'Autumn', 'Winter',
+];
+
+const LOBBY_NAME_NOUNS_EN = [
+  'Adventure', 'Expedition', 'Journey', 'Quest', 'Voyage', 'Odyssey', 'Legend', 'Myth',
+  'World', 'Kingdom', 'Empire', 'Realm', 'Paradise', 'Haven', 'Homeland', 'Base',
+  'Alliance', 'Guild', 'Squad', 'Legion', 'Tribe', 'Clan', 'Family', 'Team',
+  'Crew', 'Order', 'Faction', 'Camp', 'Party', 'Group', 'Society', 'Club',
+];
+
 /**
  * 生成随机大厅名称
  */
 const generateRandomLobbyName = (): string => {
+  const number = Math.floor(Math.random() * 1000);
+  if (getLanguage() === 'en') {
+    const adjective = LOBBY_NAME_ADJECTIVES_EN[Math.floor(Math.random() * LOBBY_NAME_ADJECTIVES_EN.length)];
+    const noun = LOBBY_NAME_NOUNS_EN[Math.floor(Math.random() * LOBBY_NAME_NOUNS_EN.length)];
+    return `${adjective}${noun}${number}`;
+  }
   const adjective = LOBBY_NAME_ADJECTIVES[Math.floor(Math.random() * LOBBY_NAME_ADJECTIVES.length)];
   const noun = LOBBY_NAME_NOUNS[Math.floor(Math.random() * LOBBY_NAME_NOUNS.length)];
-  const number = Math.floor(Math.random() * 1000);
   return `${adjective}的${noun}${number}`;
 };
 

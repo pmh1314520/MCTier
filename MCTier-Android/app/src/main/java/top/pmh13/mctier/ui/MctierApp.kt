@@ -3327,7 +3327,21 @@ private val LOBBY_NOUN = listOf(
     "联盟", "公会", "战队", "军团", "部落", "氏族", "家族", "团队",
     "小队", "组织", "势力", "阵营", "派系", "集团", "协会", "社团",
 )
-private fun randomLobbyName(): String = "${LOBBY_ADJ.random()}的${LOBBY_NOUN.random()}${(0..999).random()}"
+private val LOBBY_ADJ_EN = listOf(
+    "Happy", "Joyful", "Mystic", "Dreamy", "Legendary", "Epic", "Super", "Extreme",
+    "Invincible", "Royal", "Supreme", "Glorious", "Brilliant", "Shining", "Radiant", "Cool",
+    "Crazy", "Wild", "Passionate", "Fiery", "Brave", "Fearless", "Tough", "Mighty",
+    "Lucky", "Auspicious", "Stellar", "Snowy", "Spring", "Summer", "Autumn", "Winter",
+)
+private val LOBBY_NOUN_EN = listOf(
+    "Adventure", "Expedition", "Journey", "Quest", "Voyage", "Odyssey", "Legend", "Myth",
+    "World", "Kingdom", "Empire", "Realm", "Paradise", "Haven", "Homeland", "Base",
+    "Alliance", "Guild", "Squad", "Legion", "Tribe", "Clan", "Family", "Team",
+    "Crew", "Order", "Faction", "Camp", "Party", "Group", "Society", "Club",
+)
+private fun randomLobbyName(): String =
+    if (appLang == "en") "${LOBBY_ADJ_EN.random()}${LOBBY_NOUN_EN.random()}${(0..999).random()}"
+    else "${LOBBY_ADJ.random()}的${LOBBY_NOUN.random()}${(0..999).random()}"
 
 // 校验规则与桌面端完全一致
 private fun isValidLobbyName(n: String): Boolean {
