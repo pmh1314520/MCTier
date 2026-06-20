@@ -2950,6 +2950,25 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
                     .clickable { onChange(settings.copy(danmakuColor = hex)) },
             )
         }
+        // 彩色（每条随机）
+        val rainbowSelected = settings.danmakuColor.equals("rainbow", ignoreCase = true)
+        Box(
+            Modifier.size(28.dp).clip(RoundedCornerShape(50))
+                .background(
+                    Brush.sweepGradient(
+                        listOf(
+                            Color(0xFFFF4D4F), Color(0xFFFAAD14), Color(0xFF52C41A),
+                            Color(0xFF1890FF), Color(0xFFEB2F96), Color(0xFFFF4D4F),
+                        ),
+                    ),
+                )
+                .border(
+                    width = if (rainbowSelected) 3.dp else 1.dp,
+                    color = if (rainbowSelected) TextPrimary else TextPrimary.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(50),
+                )
+                .clickable { onChange(settings.copy(danmakuColor = "rainbow")) },
+        )
     }
     Spacer(Modifier.height(8.dp))
     Box(
@@ -2957,8 +2976,10 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
             .clickable {
                 hasPerm = DanmakuOverlay.hasPermission(ctx)
                 if (!hasPerm) { runCatching { ctx.startActivity(DanmakuOverlay.requestPermissionIntent(ctx)) }; return@clickable }
-                DanmakuOverlay.applyConfig(ctx, true, settings.danmakuFontSize.toFloat(), settings.danmakuSpeed.toFloat(), settings.danmakuOpacity, settings.danmakuTracks, android.graphics.Color.parseColor(settings.danmakuColor))
-                DanmakuOverlay.push(L("这是一条弹幕预览 🎮", "This is a danmaku preview 🎮"), android.graphics.Color.parseColor(settings.danmakuColor))
+                val isRainbow = settings.danmakuColor.equals("rainbow", true)
+                val colorInt = runCatching { android.graphics.Color.parseColor(settings.danmakuColor) }.getOrDefault(android.graphics.Color.WHITE)
+                DanmakuOverlay.applyConfig(ctx, true, settings.danmakuFontSize.toFloat(), settings.danmakuSpeed.toFloat(), settings.danmakuOpacity, settings.danmakuTracks, colorInt, isRainbow)
+                DanmakuOverlay.push(L("这是一条弹幕预览 🎮", "This is a danmaku preview 🎮"), colorInt)
                 if (!settings.danmakuEnabled) {
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ DanmakuOverlay.hide() }, 6000)
                 }

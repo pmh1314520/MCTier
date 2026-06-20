@@ -747,9 +747,19 @@ const DanmakuSettings: React.FC = () => {
               }}
             />
           ))}
+          <span
+            onClick={() => update({ color: 'rainbow' })}
+            title={tl('彩色（每条随机）', 'Rainbow (random per message)')}
+            style={{
+              width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
+              background: 'conic-gradient(#ff4d4f,#faad14,#52c41a,#1890ff,#eb2f96,#ff4d4f)',
+              border: cfg.color === 'rainbow' ? '2px solid #fff' : '2px solid rgba(255,255,255,0.25)',
+              boxShadow: cfg.color === 'rainbow' ? '0 0 6px rgba(255,255,255,0.8)' : 'none',
+            }}
+          />
           <input
             type="color"
-            value={cfg.color}
+            value={cfg.color === 'rainbow' ? '#ffffff' : cfg.color}
             onChange={(e) => update({ color: e.target.value })}
             title={tl('自定义颜色', 'Custom color')}
             style={{ width: 32, height: 26, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
@@ -763,8 +773,8 @@ const DanmakuSettings: React.FC = () => {
         <div className="danmaku-preview-box" style={{ opacity: cfg.opacity }}>
           <span
             key={`${cfg.fontSize}-${cfg.speed}-${sampleDuration}`}
-            className="danmaku-preview-bullet"
-            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s`, color: cfg.color }}
+            className={`danmaku-preview-bullet ${cfg.color === 'rainbow' ? 'rainbow' : ''}`}
+            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s`, color: cfg.color === 'rainbow' ? undefined : cfg.color }}
           >
             {tl('示例弹幕：开黑走起！🎮', 'Sample danmaku: Let\'s game! 🎮')}
           </span>

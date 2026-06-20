@@ -866,6 +866,18 @@
   to { transform: translate(-110%, -50%); }
 }
 
+/* 彩色模式预览：文字颜色随色相循环 */
+.danmaku-preview-bullet.rainbow {
+  animation-name: danmaku-preview-move, danmaku-rainbow-hue;
+  animation-timing-function: linear, linear;
+  animation-iteration-count: infinite, infinite;
+  color: hsl(0, 85%, 62%);
+}
+@keyframes danmaku-rainbow-hue {
+  from { color: hsl(0, 85%, 62%); }
+  to { color: hsl(360, 85%, 62%); }
+}
+
 .snd-dnd-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .snd-dnd-times { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; width: 100%; }
 .snd-dnd-sep { color: rgba(255, 255, 255, 0.6); font-size: 13px; }

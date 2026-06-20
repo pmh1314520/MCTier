@@ -27,6 +27,7 @@ object DanmakuOverlay {
     var alphaValue = 0.9f
     var tracks = 4
     var colorValue = Color.WHITE
+    var rainbow = false
 
     private var wm: WindowManager? = null
     private var container: FrameLayout? = null
@@ -37,14 +38,21 @@ object DanmakuOverlay {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(ctx)
 
     /** 应用配置；若启用且有权限则确保覆盖层已显示，否则移除 */
-    fun applyConfig(ctx: Context, enabled: Boolean, fontSizeSp: Float, speedDp: Float, alpha: Float, tracks: Int, colorInt: Int = Color.WHITE) {
+    fun applyConfig(ctx: Context, enabled: Boolean, fontSizeSp: Float, speedDp: Float, alpha: Float, tracks: Int, colorInt: Int = Color.WHITE, rainbow: Boolean = false) {
         this.enabled = enabled
         this.fontSizeSp = fontSizeSp
         this.speedDp = speedDp
         this.alphaValue = alpha
         this.tracks = tracks.coerceIn(1, 12)
         this.colorValue = colorInt
+        this.rainbow = rainbow
         if (enabled && hasPermission(ctx)) show(ctx) else if (!enabled) hide()
+    }
+
+    /** 生成明亮鲜艳的随机颜色（彩色模式：每条弹幕颜色不同） */
+    private fun randomBrightColor(): Int {
+        val hsv = floatArrayOf((Math.random() * 360).toFloat(), 0.85f, 0.98f)
+        return Color.HSVToColor(hsv)
     }
 
     fun show(ctx: Context) {
@@ -86,12 +94,13 @@ object DanmakuOverlay {
         if (!enabled || text.isBlank()) return
         val c = container ?: return
         val ctx = appCtx ?: return
+        val finalColor = if (rainbow) randomBrightColor() else color
         c.post {
             val density = ctx.resources.displayMetrics.density
             val sw = ctx.resources.displayMetrics.widthPixels
             val tv = TextView(ctx).apply {
                 this.text = text
-                setTextColor(color)
+                setTextColor(finalColor)
                 textSize = fontSizeSp
                 alpha = alphaValue
                 maxLines = 1

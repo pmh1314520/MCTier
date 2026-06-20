@@ -173,7 +173,7 @@ class MctierRepository(private val context: Context) {
             top.pmh13.mctier.ui.DanmakuOverlay.applyConfig(
                 context, s.danmakuEnabled, s.danmakuFontSize.toFloat(),
                 s.danmakuSpeed.toFloat(), s.danmakuOpacity, s.danmakuTracks,
-                parseDanmakuColor(s.danmakuColor),
+                parseDanmakuColor(s.danmakuColor), s.danmakuColor.equals("rainbow", true),
             )
         }
         // 应用变声器音色
@@ -311,6 +311,7 @@ class MctierRepository(private val context: Context) {
             normalizedSettings.danmakuOpacity,
             normalizedSettings.danmakuTracks,
             parseDanmakuColor(normalizedSettings.danmakuColor),
+            normalizedSettings.danmakuColor.equals("rainbow", true),
         )
     }
 

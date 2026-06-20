@@ -28,6 +28,17 @@ export const DEFAULT_DANMAKU_CONFIG: DanmakuConfig = {
 
 const LS_KEY = 'mctier_danmaku_config';
 
+/** 生成一个明亮鲜艳的随机颜色（用于"彩色"模式，每条弹幕颜色不同） */
+function randomBrightColor(): string {
+  const h = Math.floor(Math.random() * 360);
+  return `hsl(${h}, 85%, 62%)`;
+}
+
+/** 解析配置颜色：'rainbow' 返回随机色，否则原样返回 */
+function resolveColor(color: string): string {
+  return color === 'rainbow' ? randomBrightColor() : color;
+}
+
 export interface DanmakuPayload {
   text: string;
   color: string;
@@ -87,7 +98,7 @@ class DanmakuService {
     if (!this.config.enabled || !text.trim()) return;
     const payload: DanmakuPayload = {
       text,
-      color: color || this.config.color,
+      color: resolveColor(color || this.config.color),
       fontSize: this.config.fontSize,
       speed: this.config.speed,
       opacity: this.config.opacity,
@@ -105,7 +116,7 @@ class DanmakuService {
     await this.openWindow();
     const payload: DanmakuPayload = {
       text,
-      color: this.config.color,
+      color: resolveColor(this.config.color),
       fontSize: this.config.fontSize,
       speed: this.config.speed,
       opacity: this.config.opacity,

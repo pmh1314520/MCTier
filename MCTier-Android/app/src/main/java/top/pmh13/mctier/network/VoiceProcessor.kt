@@ -115,7 +115,9 @@ object VoiceProcessor {
                 val d0 = phase
                 val d1 = (phase + windowLen / 2f) % windowLen
                 var out = triWin(d0) * readInterp(d0) + triWin(d1) * readInterp(d1)
-                phase += (curRatio - 1f)
+                // 变调方向：读取速率 = 1 - delay'，故 delay 增量应为 (1 - ratio)
+                // 升调(ratio>1) => delay 递减 => 读取更新的样本 => 播放更快 => 音调升高
+                phase += (1f - curRatio)
                 if (phase >= windowLen) phase -= windowLen
                 if (phase < 0) phase += windowLen
                 writeIdx = (writeIdx + 1) % buf.size
