@@ -26,6 +26,7 @@ object DanmakuOverlay {
     var speedDp = 130f
     var alphaValue = 0.9f
     var tracks = 4
+    var colorValue = Color.WHITE
 
     private var wm: WindowManager? = null
     private var container: FrameLayout? = null
@@ -36,12 +37,13 @@ object DanmakuOverlay {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(ctx)
 
     /** 应用配置；若启用且有权限则确保覆盖层已显示，否则移除 */
-    fun applyConfig(ctx: Context, enabled: Boolean, fontSizeSp: Float, speedDp: Float, alpha: Float, tracks: Int) {
+    fun applyConfig(ctx: Context, enabled: Boolean, fontSizeSp: Float, speedDp: Float, alpha: Float, tracks: Int, colorInt: Int = Color.WHITE) {
         this.enabled = enabled
         this.fontSizeSp = fontSizeSp
         this.speedDp = speedDp
         this.alphaValue = alpha
         this.tracks = tracks.coerceIn(1, 12)
+        this.colorValue = colorInt
         if (enabled && hasPermission(ctx)) show(ctx) else if (!enabled) hide()
     }
 
@@ -80,7 +82,7 @@ object DanmakuOverlay {
     }
 
     /** 推送一条弹幕（在主线程执行） */
-    fun push(text: String, color: Int = Color.WHITE) {
+    fun push(text: String, color: Int = colorValue) {
         if (!enabled || text.isBlank()) return
         val c = container ?: return
         val ctx = appCtx ?: return

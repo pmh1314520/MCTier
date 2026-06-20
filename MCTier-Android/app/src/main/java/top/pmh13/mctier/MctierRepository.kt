@@ -173,6 +173,7 @@ class MctierRepository(private val context: Context) {
             top.pmh13.mctier.ui.DanmakuOverlay.applyConfig(
                 context, s.danmakuEnabled, s.danmakuFontSize.toFloat(),
                 s.danmakuSpeed.toFloat(), s.danmakuOpacity, s.danmakuTracks,
+                parseDanmakuColor(s.danmakuColor),
             )
         }
         // 应用变声器音色
@@ -293,6 +294,7 @@ class MctierRepository(private val context: Context) {
             putInt("danmakuSpeed", settings.danmakuSpeed)
             putFloat("danmakuOpacity", settings.danmakuOpacity)
             putInt("danmakuTracks", settings.danmakuTracks)
+            putString("danmakuColor", settings.danmakuColor)
             putString("voicePreset", settings.voicePreset)
         }
         _state.update { it.copy(settings = normalizedSettings) }
@@ -308,6 +310,7 @@ class MctierRepository(private val context: Context) {
             normalizedSettings.danmakuSpeed.toFloat(),
             normalizedSettings.danmakuOpacity,
             normalizedSettings.danmakuTracks,
+            parseDanmakuColor(normalizedSettings.danmakuColor),
         )
     }
 
@@ -1490,6 +1493,11 @@ class MctierRepository(private val context: Context) {
         danmakuSpeed = prefs.getInt("danmakuSpeed", 130),
         danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),
         danmakuTracks = prefs.getInt("danmakuTracks", 4),
+        danmakuColor = prefs.getString("danmakuColor", null) ?: "#FFFFFF",
         voicePreset = prefs.getString("voicePreset", null) ?: "none",
     )
 }
+
+/** 解析弹幕颜色字符串（如 #FFFFFF），失败回退为白色 */
+private fun parseDanmakuColor(s: String): Int =
+    runCatching { android.graphics.Color.parseColor(s) }.getOrDefault(android.graphics.Color.WHITE)

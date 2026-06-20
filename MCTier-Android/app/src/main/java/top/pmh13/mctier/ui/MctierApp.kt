@@ -2822,6 +2822,57 @@ private fun VoiceChangerSection(settings: UserSettings, onChange: (UserSettings)
         val id = presets.firstOrNull { it.second == label }?.first ?: "none"
         onChange(settings.copy(voicePreset = id))
     }
+    Spacer(Modifier.height(10.dp))
+    VoiceAuditionButton(settings)
+}
+
+@Composable
+private fun VoiceAuditionButton(settings: UserSettings) {
+    val ctx = LocalContext.current
+    var auditioning by remember { mutableStateOf(top.pmh13.mctier.network.VoiceAuditioner.isRunning) }
+    val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            top.pmh13.mctier.network.VoiceAuditioner.start(settings.voicePreset)
+            auditioning = true
+        } else {
+            android.widget.Toast.makeText(ctx, L("需要麦克风权限才能试听", "Microphone permission is required to audition"), android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    // 离开界面时停止试听，释放麦克风
+    DisposableEffect(Unit) {
+        onDispose { top.pmh13.mctier.network.VoiceAuditioner.stop() }
+    }
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(if (auditioning) DangerRed.copy(alpha = 0.18f) else GrassGreen.copy(alpha = 0.16f))
+            .clickable {
+                if (auditioning) {
+                    top.pmh13.mctier.network.VoiceAuditioner.stop()
+                    auditioning = false
+                } else {
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        ctx, android.Manifest.permission.RECORD_AUDIO,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        top.pmh13.mctier.network.VoiceAuditioner.start(settings.voicePreset)
+                        auditioning = true
+                        android.widget.Toast.makeText(ctx, L("试听已开启：请说话，约 1 秒后听到变声效果", "Audition on: speak now, hear the effect after ~1s"), android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        permLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            }
+            .padding(vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (auditioning) L("停止试听", "Stop audition") else L("试听变声", "Audition voice"),
+            color = if (auditioning) DangerRed else GrassGreen,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
 }
 
 @Composable
@@ -2831,7 +2882,7 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
     Text(L("消息弹幕", "Message Danmaku"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
     Spacer(Modifier.height(4.dp))
     Text(
-        L("开启后聊天消息会以弹幕从屏幕顶部飘过，玩游戏时也能看到（需悬浮窗权限）", "When enabled, chat messages float across the top of the screen even while gaming (needs overlay permission)"),
+        L("开启后聊天消息会以弹幕形式从屏幕顶部飘过，玩游戏时也能看到（需悬浮窗权限）", "When enabled, chat messages float across the top of the screen even while gaming (needs overlay permission)"),
         fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f), lineHeight = 15.sp,
     )
     Spacer(Modifier.height(8.dp))
@@ -2883,13 +2934,31 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
         colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
     )
     Spacer(Modifier.height(8.dp))
+    Text(L("弹幕颜色", "Danmaku Color"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf("#FFFFFF", "#52C41A", "#1890FF", "#FAAD14", "#FF4D4F", "#EB2F96").forEach { hex ->
+            val selected = settings.danmakuColor.equals(hex, ignoreCase = true)
+            Box(
+                Modifier.size(28.dp).clip(RoundedCornerShape(50))
+                    .background(Color(android.graphics.Color.parseColor(hex)))
+                    .border(
+                        width = if (selected) 3.dp else 1.dp,
+                        color = if (selected) TextPrimary else TextPrimary.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(50),
+                    )
+                    .clickable { onChange(settings.copy(danmakuColor = hex)) },
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(PanelHigh.copy(alpha = 0.5f))
             .clickable {
                 hasPerm = DanmakuOverlay.hasPermission(ctx)
                 if (!hasPerm) { runCatching { ctx.startActivity(DanmakuOverlay.requestPermissionIntent(ctx)) }; return@clickable }
-                DanmakuOverlay.applyConfig(ctx, true, settings.danmakuFontSize.toFloat(), settings.danmakuSpeed.toFloat(), settings.danmakuOpacity, settings.danmakuTracks)
-                DanmakuOverlay.push(L("这是一条弹幕预览 🎮", "This is a danmaku preview 🎮"), GrassGreen.toArgb())
+                DanmakuOverlay.applyConfig(ctx, true, settings.danmakuFontSize.toFloat(), settings.danmakuSpeed.toFloat(), settings.danmakuOpacity, settings.danmakuTracks, android.graphics.Color.parseColor(settings.danmakuColor))
+                DanmakuOverlay.push(L("这是一条弹幕预览 🎮", "This is a danmaku preview 🎮"), android.graphics.Color.parseColor(settings.danmakuColor))
                 if (!settings.danmakuEnabled) {
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ DanmakuOverlay.hide() }, 6000)
                 }

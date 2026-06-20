@@ -24,6 +24,12 @@ class VoiceChangerService {
   private preset: VoicePreset = 'none';
   private active = false;
 
+  // 试听（audition）相关：独立的麦克风/引擎/音频上下文，避免影响正在进行的通话
+  private auditionEngine: VoiceChanger | null = null;
+  private auditionMic: MediaStream | null = null;
+  private auditionCtx: AudioContext | null = null;
+  private auditioning = false;
+
   constructor() {
     try {
       const saved = localStorage.getItem(LS_KEY) as VoicePreset | null;
@@ -41,6 +47,56 @@ class VoiceChangerService {
     try { localStorage.setItem(LS_KEY, preset); } catch { /* ignore */ }
     if (this.active) {
       this.engine.setPreset(preset);
+    }
+    // 试听中也实时切换，便于对比不同音色
+    if (this.auditioning && this.auditionEngine) {
+      this.auditionEngine.setPreset(preset);
+    }
+  }
+
+  isAuditioning(): boolean {
+    return this.auditioning;
+  }
+
+  /**
+   * 开始试听：打开麦克风，用当前音色变声后，延迟约 1 秒回放到扬声器，
+   * 用户可以直接说话听到变声效果。
+   */
+  async startAudition(): Promise<void> {
+    await this.stopAudition();
+    const raw = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    this.auditionMic = raw;
+    this.auditionEngine = new VoiceChanger();
+    const processed = this.auditionEngine.attach(raw, this.preset);
+
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AC();
+    this.auditionCtx = ctx;
+    const src = ctx.createMediaStreamSource(processed);
+    const delay = ctx.createDelay(5.0);
+    delay.delayTime.value = 1.0; // 1 秒延迟回放
+    src.connect(delay);
+    delay.connect(ctx.destination);
+    try { await ctx.resume(); } catch { /* ignore */ }
+    this.auditioning = true;
+  }
+
+  /** 停止试听并释放麦克风/音频资源 */
+  async stopAudition(): Promise<void> {
+    this.auditioning = false;
+    if (this.auditionMic) {
+      this.auditionMic.getTracks().forEach((t) => t.stop());
+      this.auditionMic = null;
+    }
+    if (this.auditionEngine) {
+      this.auditionEngine.dispose();
+      this.auditionEngine = null;
+    }
+    if (this.auditionCtx) {
+      try { await this.auditionCtx.close(); } catch { /* ignore */ }
+      this.auditionCtx = null;
     }
   }
 

@@ -14,6 +14,7 @@ export interface DanmakuConfig {
   speed: number;      // 滚动速度 px/s
   opacity: number;    // 不透明度 0~1
   tracks: number;     // 弹幕轨道数（行数）
+  color: string;      // 弹幕文字颜色
 }
 
 export const DEFAULT_DANMAKU_CONFIG: DanmakuConfig = {
@@ -22,6 +23,7 @@ export const DEFAULT_DANMAKU_CONFIG: DanmakuConfig = {
   speed: 140,
   opacity: 0.9,
   tracks: 4,
+  color: '#ffffff',
 };
 
 const LS_KEY = 'mctier_danmaku_config';
@@ -80,12 +82,12 @@ class DanmakuService {
     else if (!inLobby) await this.closeWindow();
   }
 
-  /** 发送一条弹幕（带当前配置）。color 可选，默认白色 */
-  async push(text: string, color = '#ffffff'): Promise<void> {
+  /** 发送一条弹幕（带当前配置）。color 可选，默认使用配置中的颜色 */
+  async push(text: string, color?: string): Promise<void> {
     if (!this.config.enabled || !text.trim()) return;
     const payload: DanmakuPayload = {
       text,
-      color,
+      color: color || this.config.color,
       fontSize: this.config.fontSize,
       speed: this.config.speed,
       opacity: this.config.opacity,
@@ -103,7 +105,7 @@ class DanmakuService {
     await this.openWindow();
     const payload: DanmakuPayload = {
       text,
-      color: '#52c41a',
+      color: this.config.color,
       fontSize: this.config.fontSize,
       speed: this.config.speed,
       opacity: this.config.opacity,

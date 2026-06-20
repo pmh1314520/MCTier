@@ -28,3 +28,38 @@
   color: #7ee03c;
   font-weight: 600;
 }
+
+.vc-picker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vc-audition-btn {
+  align-self: flex-start;
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(82, 196, 26, 0.5);
+  background: rgba(82, 196, 26, 0.14);
+  color: #7ee03c;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vc-audition-btn:hover {
+  background: rgba(82, 196, 26, 0.24);
+}
+
+.vc-audition-btn.active {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ff7875;
+  animation: vc-audition-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes vc-audition-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}

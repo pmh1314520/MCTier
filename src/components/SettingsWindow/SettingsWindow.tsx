@@ -729,6 +729,33 @@ const DanmakuSettings: React.FC = () => {
         <div className="snd-block-title"><span>{tl('弹幕轨道数', 'Tracks')}</span><span className="snd-vol-val">{cfg.tracks}</span></div>
         <Slider min={1} max={10} step={1} value={cfg.tracks} onChange={(v) => update({ tracks: v as number })} />
       </div>
+      <div className="snd-block" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div className="snd-block-title-text">{tl('弹幕颜色', 'Danmaku Color')}</div>
+          <div className="snd-block-desc">{tl('自定义弹幕文字颜色', 'Customize the danmaku text color')}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {['#ffffff', '#52c41a', '#1890ff', '#faad14', '#ff4d4f', '#eb2f96'].map((c) => (
+            <span
+              key={c}
+              onClick={() => update({ color: c })}
+              title={c}
+              style={{
+                width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
+                border: cfg.color.toLowerCase() === c ? '2px solid #fff' : '2px solid rgba(255,255,255,0.25)',
+                boxShadow: cfg.color.toLowerCase() === c ? '0 0 6px rgba(255,255,255,0.6)' : 'none',
+              }}
+            />
+          ))}
+          <input
+            type="color"
+            value={cfg.color}
+            onChange={(e) => update({ color: e.target.value })}
+            title={tl('自定义颜色', 'Custom color')}
+            style={{ width: 32, height: 26, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+          />
+        </div>
+      </div>
 
       {/* 行内预览 */}
       <div className="snd-block">
@@ -737,7 +764,7 @@ const DanmakuSettings: React.FC = () => {
           <span
             key={`${cfg.fontSize}-${cfg.speed}-${sampleDuration}`}
             className="danmaku-preview-bullet"
-            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s` }}
+            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s`, color: cfg.color }}
           >
             {tl('示例弹幕：开黑走起！🎮', 'Sample danmaku: Let\'s game! 🎮')}
           </span>
