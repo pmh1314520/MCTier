@@ -11,6 +11,7 @@ import { OnboardingWizard, isOnboardingDone } from '../OnboardingWizard/Onboardi
 import { SettingsIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
 import './MainWindow.css';
 
 const { Title, Paragraph } = Typography;
@@ -261,7 +262,7 @@ export const MainWindow: React.FC = () => {
           transition={{ delay: 0.3, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
         >
           <Paragraph className="main-window-subtitle">
-            虚拟局域网通用联机工具
+            {tl('虚拟局域网通用联机工具', 'Universal virtual LAN networking tool')}
           </Paragraph>
         </motion.div>
 
@@ -350,7 +351,7 @@ export const MainWindow: React.FC = () => {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.7, duration: 0.4 }}
         >
-          按 ESC 可快速返回上一页
+          {tl('按 ESC 可快速返回上一页', 'Press ESC to go back')}
         </motion.div>
       </motion.div>
 

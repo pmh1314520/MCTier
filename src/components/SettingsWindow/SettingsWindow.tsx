@@ -703,7 +703,7 @@ const SoundThemeManager: React.FC = () => {
 
       {/* 各事件提示音 */}
       {/* 提示音禁音总开关 */}
-      <div className="snd-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="snd-block" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div className="snd-block-title-text">{tl('提示音禁音', 'Mute sounds')}</div>
           <div className="snd-block-desc">{tl('关闭后所有提示音将不再播放', 'No sounds will play when muted')}</div>

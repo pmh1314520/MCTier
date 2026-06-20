@@ -64,10 +64,10 @@ interface CustomEasyTierNode {
 // 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
-    { value: OFFICIAL_EASYTIER_SERVER, label: 'MCTier 官方服务器' },
-    { value: 'tcp://225284.xyz:11010', label: '海波节点 (备用)' },
-    { value: 'tcp://easytier.weiai.org.cn:11010', label: '唯爱节点 (备用)' },
-    { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} (备用)` },
+    { value: OFFICIAL_EASYTIER_SERVER, label: tl('MCTier 官方服务器', 'MCTier Official Server') },
+    { value: 'tcp://225284.xyz:11010', label: tl('海波节点 (备用)', 'Haibo Node (backup)') },
+    { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱节点 (备用)', 'Weiai Node (backup)') },
+    { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} ${tl('(备用)', '(backup)')}` },
   ];
   
   // 添加自定义节点
@@ -78,7 +78,7 @@ const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
     });
   });
   
-  nodes.push({ value: 'custom', label: '临时自定义服务器地址' });
+  nodes.push({ value: 'custom', label: tl('临时自定义服务器地址', 'Temporary custom server') });
   
   return nodes;
 };
@@ -139,7 +139,7 @@ const generateRandomPassword = (): string => {
  * 用于创建或加入大厅
  */
 export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
-  useTranslation();
+  const { i18n } = useTranslation();
   const { message } = AntdApp.useApp();
   const { setAppState, setLobby, config } = useAppStore();
   const [form] = Form.useForm<LobbyFormValues>();
@@ -220,6 +220,12 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }
   }, []);
   
+  // 语言切换时重算服务器节点下拉的标签
+  useEffect(() => {
+    setServerNodes(getServerNodes(customNodes));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i18n.language, customNodes]);
+
   // 一键随机生成大厅名称和密码
   const handleRandomGenerate = () => {
     const lobbyName = generateRandomLobbyName();
@@ -505,7 +511,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         form.setFieldsValue({ serverNode: best.value });
         setShowCustomServer(false);
         const bestLabel = candidates.find((n) => n.value === best.value)?.label ?? best.value;
-        message.success(`已自动选择延迟最低的节点：${bestLabel}（${best.latency}ms）`);
+        message.success(`${tl('已自动选择延迟最低的节点：', 'Auto-selected the lowest-latency node: ')}${bestLabel}（${best.latency}ms）`);
       } else {
         message.warning(tl('所有节点均不可达，请检查网络或稍后重试', 'All nodes unreachable, check your network or retry later'));
       }
@@ -705,7 +711,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       }
 
       message.success(
-        mode === 'create' ? '大厅创建成功！' : '成功加入大厅！'
+        mode === 'create' ? tl('大厅创建成功！', 'Lobby created!') : tl('成功加入大厅！', 'Joined the lobby!')
       );
 
       // 关闭表单
@@ -716,7 +722,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       setAppState('error');
 
       // 提取详细的错误信息
-      let errorMessage = '操作失败，请重试';
+      let errorMessage = tl('操作失败，请重试', 'Operation failed, please retry');
       
       if (typeof error === 'string') {
         errorMessage = error;
@@ -749,32 +755,32 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (isPermissionError) {
         // 显示权限错误提示
         Modal.error({
-          title: '权限不足',
+          title: tl('权限不足', 'Insufficient permissions'),
           content: (
             <div>
               <p style={{ marginBottom: '12px' }}>
-                MCTier 需要管理员权限来创建虚拟网卡。
+                {tl('MCTier 需要管理员权限来创建虚拟网卡。', 'MCTier needs administrator rights to create the virtual adapter.')}
               </p>
             </div>
           ),
-          okText: '我知道了',
+          okText: tl('我知道了', 'Got it'),
           centered: true,
         });
       } else if (isVersionError) {
         // 显示版本更新提示
         Modal.warning({
-          title: '需要更新',
+          title: tl('需要更新', 'Update required'),
           content: (
             <div style={{ lineHeight: '1.8' }}>
               <p style={{ marginBottom: '12px', color: 'rgba(255,255,255,0.9)' }}>
                 {errorMessage}
               </p>
               <p style={{ marginBottom: '8px', color: 'rgba(255,255,255,0.7)' }}>
-                请访问 MCTier 官网下载最新版本
+                {tl('请访问 MCTier 官网下载最新版本', 'Please visit the MCTier website to download the latest version')}
               </p>
             </div>
           ),
-          okText: '前往官网',
+          okText: tl('前往官网', 'Go to Website'),
           centered: true,
           onOk: async () => {
             try {
@@ -797,17 +803,17 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         if (canSwitchNode && candidateNodes.length > 0) {
           const guidance = (
             <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: '1.7', marginTop: '8px' }}>
-              当前节点连接失败，可点击下方按钮换一个节点重试，或：<br />
-              1. 以管理员身份运行 MCTier<br />
-              2. 将 MCTier 加入杀毒软件 / 防火墙白名单<br />
-              3. 改用家庭 WiFi，避免校园网、手机流量或热点
+              {tl('当前节点连接失败，可点击下方按钮换一个节点重试，或：', 'This node failed to connect. Click a button below to try another node, or:')}<br />
+              {tl('1. 以管理员身份运行 MCTier', '1. Run MCTier as administrator')}<br />
+              {tl('2. 将 MCTier 加入杀毒软件 / 防火墙白名单', '2. Add MCTier to your antivirus / firewall whitelist')}<br />
+              {tl('3. 改用家庭 WiFi，避免校园网、手机流量或热点', '3. Use home WiFi; avoid campus networks, mobile data or hotspots')}
             </div>
           );
 
           Modal.error({
-            title: mode === 'create' ? '创建大厅失败' : '加入大厅失败',
+            title: mode === 'create' ? tl('创建大厅失败', 'Failed to create lobby') : tl('加入大厅失败', 'Failed to join lobby'),
             centered: true,
-            okText: '关闭',
+            okText: tl('关闭', 'Close'),
             content: (
               <div>
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)' }}>
@@ -832,7 +838,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                         handleSubmit(latestValues, node.value);
                       }}
                     >
-                      切换到「{node.label}」并重试
+                      {tl('切换到', 'Switch to')}「{node.label}」{tl('并重试', 'and retry')}
                     </Button>
                   ))}
                 </div>
@@ -845,17 +851,17 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             content: (
               <div>
                 <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
-                  {mode === 'create' ? '创建大厅失败' : '加入大厅失败'}
+                  {mode === 'create' ? tl('创建大厅失败', 'Failed to create lobby') : tl('加入大厅失败', 'Failed to join lobby')}
                 </div>
                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
                   {errorMessage}
                 </div>
                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: '1.7' }}>
-                  可尝试：<br />
-                  1. 以管理员身份运行 MCTier（创建虚拟网卡需要管理员权限）<br />
-                  2. 将 MCTier 加入杀毒软件 / 防火墙白名单后重试<br />
-                  3. 检查私有服务器 / 自定义节点地址是否正确、可达<br />
-                  4. 改用家庭 WiFi，避免校园网、手机热点等受限网络
+                  {tl('可尝试：', 'You can try:')}<br />
+                  {tl('1. 以管理员身份运行 MCTier（创建虚拟网卡需要管理员权限）', '1. Run MCTier as administrator (creating the virtual adapter needs admin rights)')}<br />
+                  {tl('2. 将 MCTier 加入杀毒软件 / 防火墙白名单后重试', '2. Add MCTier to your antivirus / firewall whitelist and retry')}<br />
+                  {tl('3. 检查私有服务器 / 自定义节点地址是否正确、可达', '3. Check that the private server / custom node address is correct and reachable')}<br />
+                  {tl('4. 改用家庭 WiFi，避免校园网、手机热点等受限网络', '4. Use home WiFi; avoid restricted networks like campus networks or hotspots')}
                 </div>
               </div>
             ),
@@ -911,7 +917,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <Title level={2} className="lobby-form-title" style={{ margin: 0 }}>
-              {mode === 'create' ? '创建大厅' : '加入大厅'}
+              {mode === 'create' ? tl('创建大厅', 'Create Lobby') : tl('加入大厅', 'Join Lobby')}
             </Title>
             <div className="lobby-action-bar">
               {/* 常用信息列表按钮 */}
@@ -1010,19 +1016,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               label={tl('大厅名称', 'Lobby Name')}
               name="lobbyName"
               rules={[
-                { required: true, message: '请输入大厅名称' },
-                { whitespace: true, message: '大厅名称不能为空白字符' },
-                { min: 4, max: 32, message: '大厅名称长度为 4-32 个字符' },
+                { required: true, message: tl('请输入大厅名称', 'Please enter a lobby name') },
+                { whitespace: true, message: tl('大厅名称不能为空白字符', 'Lobby name cannot be only whitespace') },
+                { min: 4, max: 32, message: tl('大厅名称长度为 4-32 个字符', 'Lobby name must be 4-32 characters') },
                 {
                   pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]+$/,
-                  message: '大厅名称只能包含中文、字母、数字、下划线、连字符和空格',
+                  message: tl('大厅名称只能包含中文、字母、数字、下划线、连字符和空格', 'Only Chinese, letters, digits, underscores, hyphens and spaces allowed'),
                 },
                 {
                   validator: (_, value) => {
                     if (!value) return Promise.resolve();
                     const hasAlphanumeric = /[a-zA-Z0-9\u4e00-\u9fa5]/.test(value);
                     if (!hasAlphanumeric) {
-                      return Promise.reject(new Error('大厅名称必须包含至少一个字母或数字'));
+                      return Promise.reject(new Error(tl('大厅名称必须包含至少一个字母或数字', 'Lobby name must contain at least one letter or digit')));
                     }
                     return Promise.resolve();
                   },
@@ -1031,7 +1037,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             >
               <Input
                 placeholder={
-                  mode === 'create' ? '输入大厅名称（至少4个字符）' : '输入要加入的大厅名称'
+                  mode === 'create' ? tl('输入大厅名称（至少4个字符）', 'Enter a lobby name (min 4 chars)') : tl('输入要加入的大厅名称', 'Enter the lobby name to join')
                 }
                 size="large"
                 disabled={loading}
@@ -1044,19 +1050,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               label={tl('密码', 'Password')}
               name="password"
               rules={[
-                { required: true, message: '请输入密码' },
-                { whitespace: true, message: '密码不能为空白字符' },
-                { min: 8, max: 32, message: '密码长度为 8-32 个字符' },
+                { required: true, message: tl('请输入密码', 'Please enter a password') },
+                { whitespace: true, message: tl('密码不能为空白字符', 'Password cannot be only whitespace') },
+                { min: 8, max: 32, message: tl('密码长度为 8-32 个字符', 'Password must be 8-32 characters') },
                 {
                   validator: (_, value) => {
                     if (!value) return Promise.resolve();
                     const hasLetter = /[a-zA-Z]/.test(value);
                     const hasDigit = /[0-9]/.test(value);
                     if (!hasLetter) {
-                      return Promise.reject(new Error('密码必须包含至少一个字母'));
+                      return Promise.reject(new Error(tl('密码必须包含至少一个字母', 'Password must contain at least one letter')));
                     }
                     if (!hasDigit) {
-                      return Promise.reject(new Error('密码必须包含至少一个数字'));
+                      return Promise.reject(new Error(tl('密码必须包含至少一个数字', 'Password must contain at least one digit')));
                     }
                     return Promise.resolve();
                   },
@@ -1076,9 +1082,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               label={tl('玩家名称', 'Player Name')}
               name="playerName"
               rules={[
-                { required: true, message: '请输入玩家名称' },
-                { whitespace: true, message: '玩家名称不能为空白字符' },
-                { min: 1, max: 8, message: '玩家名称长度为 1-8 个字' },
+                { required: true, message: tl('请输入玩家名称', 'Please enter a player name') },
+                { whitespace: true, message: tl('玩家名称不能为空白字符', 'Player name cannot be only whitespace') },
+                { min: 1, max: 8, message: tl('玩家名称长度为 1-8 个字', 'Player name must be 1-8 characters') },
               ]}
             >
               <Input
@@ -1112,9 +1118,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                       const lat = nodeLatencies[node.value];
                       let suffix = '';
                       if (node.value !== 'custom') {
-                        if (lat === 'testing') suffix = ' · 测速中…';
+                        if (lat === 'testing') suffix = tl(' · 测速中…', ' · testing…');
                         else if (typeof lat === 'number') suffix = ` · ${lat}ms`;
-                        else if (lat === null) suffix = ' · 不可达';
+                        else if (lat === null) suffix = tl(' · 不可达', ' · unreachable');
                       }
                       return (
                         <Option key={node.value} value={node.value}>
@@ -1133,7 +1139,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     loading={testingNodes}
                     disabled={loading}
                   >
-                    一键使用最优节点
+                    {tl('一键使用最优节点', 'Use the best node')}
                   </Button>
                 </div>
               </>
@@ -1145,10 +1151,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   label={tl('临时 EasyTier 节点服务器', 'Temporary EasyTier node server')}
                   name="customEasytierServer"
                   rules={[
-                    { required: true, message: '请输入 EasyTier 节点服务器地址' },
+                    { required: true, message: tl('请输入 EasyTier 节点服务器地址', 'Please enter the EasyTier node server address') },
                     { 
                       pattern: /^(tcp|udp|ws|wss|txt):\/\/.+$/,
-                      message: '格式：tcp://、udp://、ws://、wss:// 或 txt:// 开头'
+                      message: tl('格式：tcp://、udp://、ws://、wss:// 或 txt:// 开头', 'Format: starts with tcp://, udp://, ws://, wss:// or txt://')
                     }
                   ]}
                 >
@@ -1164,10 +1170,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   label={tl('临时 WebRTC 信令服务器', 'Temporary WebRTC signaling server')}
                   name="customSignalingServer"
                   rules={[
-                    { required: true, message: '请输入信令服务器地址' },
+                    { required: true, message: tl('请输入信令服务器地址', 'Please enter the signaling server address') },
                     { 
                       pattern: /^wss?:\/\/.+$/,
-                      message: '格式：ws://域名/path 或 wss://域名/path'
+                      message: tl('格式：ws://域名/path 或 wss://域名/path', 'Format: ws://host/path or wss://host/path')
                     }
                   ]}
                 >
@@ -1191,12 +1197,12 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 marginBottom: '16px',
               }}>
                 <div style={{ fontSize: '14px', color: 'rgba(126, 211, 33, 0.9)', marginBottom: '8px' }}>
-                  ✓ 已启用私有服务器
+                  ✓ {tl('已启用私有服务器', 'Private server enabled')}
                 </div>
                 <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)', wordBreak: 'break-all', lineHeight: 1.9 }}>
                   EasyTier: {privateServerConfig.privateEasytierServer}
                   <br />
-                  信令服务器: {privateServerConfig.privateSignalingServer}
+                  {tl('信令服务器: ', 'Signaling: ')}{privateServerConfig.privateSignalingServer}
                 </div>
               </div>
             )}
@@ -1224,7 +1230,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     loading={forceStopping}
                     block
                   >
-                    {loading ? '强制停止' : '取消'}
+                    {loading ? tl('强制停止', 'Force Stop') : tl('取消', 'Cancel')}
                   </Button>
                 </motion.div>
                 <motion.div
@@ -1239,7 +1245,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                     loading={loading}
                     block
                   >
-                    {mode === 'create' ? '创建' : '加入'}
+                    {mode === 'create' ? tl('创建', 'Create') : tl('加入', 'Join')}
                   </Button>
                 </motion.div>
               </Space>
