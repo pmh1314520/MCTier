@@ -21,7 +21,7 @@ import type { UserConfig } from './types';
 import './App.css';
 
 function App() {
-  useTranslation();
+  const { i18n } = useTranslation();
   const appState = useAppStore((state) => state.appState);
   const lobby = useAppStore((state) => state.lobby);
   const setMicEnabled = useAppStore((state) => state.setMicEnabled);
@@ -79,6 +79,21 @@ function App() {
       </ErrorBoundary>
     );
   }
+
+  // 同步系统托盘菜单文本到当前界面语言（启动时 + 语言切换时）
+  useEffect(() => {
+    const syncTray = async () => {
+      try {
+        await invoke('set_tray_menu_texts', {
+          showText: tl('显示 MCTier', 'Show MCTier'),
+          exitText: tl('退出 MCTier', 'Exit MCTier'),
+        });
+      } catch (error) {
+        console.error('同步托盘菜单语言失败:', error);
+      }
+    };
+    void syncTray();
+  }, [i18n.language]);
 
   // 在组件挂载后显示窗口（优化启动体验）
   useEffect(() => {

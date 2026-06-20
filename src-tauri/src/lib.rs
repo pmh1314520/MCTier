@@ -244,6 +244,31 @@ fn install_minimize_to_hide(window: &tauri::WebviewWindow) {
     }
 }
 
+/// 由前端按当前界面语言更新系统托盘菜单文本（显示/退出）。
+/// 保持菜单项 id 不变（show_main / exit_app），故已注册的 on_menu_event 仍生效。
+#[tauri::command]
+fn set_tray_menu_texts(
+    app: tauri::AppHandle,
+    show_text: String,
+    exit_text: String,
+) -> Result<(), String> {
+    use tauri::menu::{MenuBuilder, MenuItem};
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let show_item = MenuItem::with_id(&app, "show_main", show_text, true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let exit_item = MenuItem::with_id(&app, "exit_app", exit_text, true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let menu = MenuBuilder::new(&app)
+            .item(&show_item)
+            .separator()
+            .item(&exit_item)
+            .build()
+            .map_err(|e| e.to_string())?;
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 在应用启动时检查并应用 GPU 设置
@@ -334,6 +359,7 @@ pub fn run() {
             save_lobby_easytier_advanced_config, get_lobby_easytier_advanced_config,
             clear_lobby_easytier_advanced_config,
             scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
+            set_tray_menu_texts,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");
@@ -349,8 +375,8 @@ pub fn run() {
             {
                 use tauri::menu::{MenuBuilder, MenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-                let show_item = MenuItem::with_id(app, "show_main", "Show MCTier", true, None::<&str>)?;
-                let exit_item = MenuItem::with_id(app, "exit_app", "Exit MCTier", true, None::<&str>)?;
+                let show_item = MenuItem::with_id(app, "show_main", "显示 MCTier", true, None::<&str>)?;
+                let exit_item = MenuItem::with_id(app, "exit_app", "退出 MCTier", true, None::<&str>)?;
                 let tray_menu = MenuBuilder::new(app)
                     .item(&show_item)
                     .separator()
