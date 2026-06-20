@@ -241,7 +241,7 @@ export const ScreenShareManager: React.FC = () => {
       setPendingStream(stream);
       setViewingShareId(share.id);
       
-      message.success(`正在查看 ${share.playerName} 的屏幕`);
+      message.success(tl(`正在查看 ${share.playerName} 的屏幕`, `Viewing ${share.playerName}'s screen`));
       console.log('✅ [ScreenShareManager] 已设置viewingShareId和pendingStream，等待useEffect播放视频');
     } catch (error) {
       console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
@@ -315,7 +315,7 @@ export const ScreenShareManager: React.FC = () => {
       setPendingStream(stream);
       setViewingShareId(shareToView.id);
       
-      message.success(`正在查看 ${shareToView.playerName} 的屏幕`);
+      message.success(tl(`正在查看 ${shareToView.playerName} 的屏幕`, `Viewing ${shareToView.playerName}'s screen`));
       console.log('✅ [ScreenShareManager] 已设置viewingShareId和pendingStream，等待useEffect播放视频');
     } catch (error: any) {
       console.error('❌ [ScreenShareManager] 查看屏幕失败:', error);
@@ -451,11 +451,11 @@ export const ScreenShareManager: React.FC = () => {
                         {isMyShare && ' (我)'}
                       </span>
                       <span className="share-start-time">
-                        创建时间: {new Date(share.startTime).toLocaleTimeString()}
+                        {tl('创建时间', 'Created')}: {new Date(share.startTime).toLocaleTimeString()}
                       </span>
                       {isBeingViewed && (
                         <span className="viewer-info">
-                          正在被 {share.viewerName} 查看
+                          {tl(`正在被 ${share.viewerName} 查看`, `Being viewed by ${share.viewerName}`)}
                         </span>
                       )}
                     </div>

@@ -323,11 +323,11 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                       <line x1="12" y1="5" x2="12" y2="19"></line>
                       <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
-                    添加
+                    {tl('添加', 'Add')}
                   </button>
                 </div>
                 <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>
-                  将本地端口转发到虚拟网络中的远程端口
+                  {tl('将本地端口转发到虚拟网络中的远程端口', 'Forward a local port to a remote port on the virtual network')}
                 </div>
               </div>
               
@@ -368,13 +368,13 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
                           </svg>
-                          删除
+                          {tl('删除', 'Delete')}
                         </button>
                         
                         {/* 协议选择 */}
                         <div style={{ marginBottom: '6px' }}>
                           <label style={{ display: 'block', marginBottom: '3px', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
-                            协议类型
+                            {tl('协议类型', 'Protocol')}
                           </label>
                           <Form.Item
                             {...field}
@@ -396,7 +396,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                         {/* 本地地址 */}
                         <div style={{ marginBottom: '6px' }}>
                           <label style={{ display: 'block', marginBottom: '3px', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
-                            本地地址
+                            {tl('本地地址', 'Local address')}
                           </label>
                           <Form.Item
                             {...field}
@@ -422,7 +422,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                         {/* 目标地址 */}
                         <div>
                           <label style={{ display: 'block', marginBottom: '3px', fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
-                            目标地址
+                            {tl('目标地址', 'Target address')}
                           </label>
                           <Form.Item
                             {...field}

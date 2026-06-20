@@ -180,7 +180,7 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
                 onClick={handleClearHistory}
                 type="button"
               >
-                清空
+                {tl('清空', 'Clear')}
               </button>
             </div>
             <div className="history-list">

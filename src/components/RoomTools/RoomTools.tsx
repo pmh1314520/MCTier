@@ -179,7 +179,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
             <Button type="primary" onClick={startCountdown}>{t('roomTools.startTimer')}</Button>
           </div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-            倒计时在后台或切换界面时仍会继续计时，到点自动提醒。
+            {tl('倒计时在后台或切换界面时仍会继续计时，到点自动提醒。', 'The countdown keeps running in the background or when switching views, and reminds you automatically when it ends.')}
           </Text>
         </>
       ) : (

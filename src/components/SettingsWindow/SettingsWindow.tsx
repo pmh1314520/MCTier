@@ -87,7 +87,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       clearTimeout(timeoutId); // 清除超时定时器
       console.error('加载设置失败:', e);
       message.error({
-        content: '加载设置失败，将使用默认配置',
+        content: tl('加载设置失败，将使用默认配置', 'Failed to load settings, using defaults'),
         duration: 3,
       });
       
@@ -644,10 +644,21 @@ const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
 // 内置节点地址集合（用于过滤和删除保护判断）
 const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
 
+// 内置节点名称的英文显示映射（数据层保持中文作为稳定标识，仅渲染时翻译）
+const BUILTIN_NODE_NAME_EN: Record<string, string> = {
+  'MCTier 官方服务器': 'MCTier Official Server',
+  '海波节点': 'Haibo Node',
+  '唯爱节点': 'Weiai Node',
+  '明月清风节点': 'Mingyue Qingfeng Node',
+};
+const displayNodeName = (name: string) =>
+  BUILTIN_NODE_NAME_EN[name] ? tl(name, BUILTIN_NODE_NAME_EN[name]) : name;
+
 // ==================== 提示音设置 ====================
 const minutesToHHMM = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const SoundThemeManager: React.FC = () => {
+  useTranslation();
   const { message: antdMessage } = App.useApp();
   const init = audioService.getSettings();
   const [volume, setVolume] = useState(init.volume);
@@ -659,7 +670,7 @@ const SoundThemeManager: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pickTarget, setPickTarget] = useState<SoundType | null>(null);
 
-  const labels: Record<SoundType, string> = { newMessage: '新消息', userJoined: '玩家加入', userLeft: '玩家离开' };
+  const labels: Record<SoundType, string> = { newMessage: tl('新消息', 'New Message'), userJoined: tl('玩家加入', 'Player Joined'), userLeft: tl('玩家离开', 'Player Left') };
 
   const previewSound = async (target: SoundType) => {
     try {
@@ -717,7 +728,7 @@ const SoundThemeManager: React.FC = () => {
           <div className="snd-card" key={t}>
             <div className="snd-card-left">
               <span className="snd-card-name">{labels[t]}</span>
-              <span className={`snd-card-tag ${custom[t] ? 'is-custom' : ''}`}>{custom[t] ? '自定义' : '默认音'}</span>
+              <span className={`snd-card-tag ${custom[t] ? 'is-custom' : ''}`}>{custom[t] ? tl('自定义', 'Custom') : tl('默认音', 'Default')}</span>
             </div>
             <div className="snd-card-actions">
               <button className="snd-icon-btn" title={tl('试听', 'Preview')} onClick={() => void previewSound(t)}>
@@ -760,6 +771,7 @@ const SoundThemeManager: React.FC = () => {
 };
 
 const CustomNodeManager: React.FC = () => {
+  useTranslation();
   const { modal } = App.useApp();
   const [nodes, setNodes] = useState<EasyTierNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -907,11 +919,11 @@ const CustomNodeManager: React.FC = () => {
 
     const target = nodes[index];
     modal.confirm({
-      title: '删除自定义节点',
-      content: `确定要删除节点「${target?.name ?? ''}」吗？此操作不可恢复。`,
-      okText: '删除',
+      title: tl('删除自定义节点', 'Delete custom node'),
+      content: tl(`确定要删除节点「${target?.name ?? ''}」吗？此操作不可恢复。`, `Delete node "${target?.name ?? ''}"? This cannot be undone.`),
+      okText: tl('删除', 'Delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: tl('取消', 'Cancel'),
       centered: true,
       onOk: async () => {
         const newNodes = nodes.filter((_, i) => i !== index);
@@ -977,7 +989,7 @@ const CustomNodeManager: React.FC = () => {
               <>
                 <div className="node-info">
                   <div className="node-name">
-                    {node.name}
+                    {displayNodeName(node.name)}
                     {index < DEFAULT_BUILTIN_NODES.length && (
                       <span className="node-builtin-badge">{tl('内置', 'Built-in')}</span>
                     )}

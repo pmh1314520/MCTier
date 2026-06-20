@@ -67,14 +67,14 @@ const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
     { value: OFFICIAL_EASYTIER_SERVER, label: tl('MCTier 官方服务器', 'MCTier Official Server') },
     { value: 'tcp://225284.xyz:11010', label: tl('海波节点 (备用)', 'Haibo Node (backup)') },
     { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱节点 (备用)', 'Weiai Node (backup)') },
-    { value: DEFAULT_BUILTIN_NODE.address, label: `${DEFAULT_BUILTIN_NODE.name} ${tl('(备用)', '(backup)')}` },
+    { value: DEFAULT_BUILTIN_NODE.address, label: `${tl('明月清风节点', 'Mingyue Qingfeng Node')} ${tl('(备用)', '(backup)')}` },
   ];
   
   // 添加自定义节点
   customNodes.forEach((node) => {
     nodes.push({
       value: node.address,
-      label: `${node.name} (自定义)`,
+      label: `${node.name} ${tl('(自定义)', '(custom)')}`,
     });
   });
   

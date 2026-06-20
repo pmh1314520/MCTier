@@ -105,9 +105,9 @@ async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasE
   ctx.fillStyle = '#52C41A'; ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
   ctx.fillText('MCTier', W / 2, 132);
   ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
-  ctx.fillText('组网邀请', W / 2, 174);
+  ctx.fillText(tl('组网邀请', 'Network Invite'), W / 2, 174);
   ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '17px "Microsoft YaHei", sans-serif';
-  ctx.fillText('用手机 MCTier 扫一扫，立即加入大厅', W / 2, 210);
+  ctx.fillText(tl('用手机 MCTier 扫一扫，立即加入大厅', 'Scan with MCTier on your phone to join the lobby'), W / 2, 210);
 
   // 二维码白卡（带柔和阴影）
   const qrSize = 360, qx = (W - qrSize) / 2, qy = 250;
@@ -125,7 +125,7 @@ async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasE
   ctx.fillText(name, W / 2, qy + qrSize + 96);
 
   // 密码药丸
-  const pwdText = `密码  ${pwd || '（无）'}`;
+  const pwdText = tl(`密码  ${pwd || '（无）'}`, `Password  ${pwd || '(none)'}`);
   ctx.font = '22px "Microsoft YaHei", sans-serif';
   const pw = ctx.measureText(pwdText).width + 56;
   const px = (W - pw) / 2, py = qy + qrSize + 120;
@@ -335,14 +335,14 @@ export const MiniWindow: React.FC = () => {
       console.log('📨 [MiniWindow] 收到P2P消息:', message);
       
       // 查找发送者名称
-      let senderName = '未知玩家';
+      let senderName = tl('未知玩家', 'Unknown player');
       if (message.playerId === currentPlayerId) {
-        senderName = config.playerName || '我';
+        senderName = config.playerName || tl('我', 'Me');
       } else {
         // 从当前的players列表中查找
         const currentPlayers = useAppStore.getState().players;
         const sender = currentPlayers.find(p => p.id === message.playerId);
-        senderName = sender?.name || '未知玩家';
+        senderName = sender?.name || tl('未知玩家', 'Unknown player');
       }
 
       // 添加到消息列表
@@ -613,7 +613,7 @@ export const MiniWindow: React.FC = () => {
   // 监听被房主踢出事件：提示并自动退出大厅
   useEffect(() => {
     const onKicked = (e: Event) => {
-      const reason = (e as CustomEvent)?.detail?.reason || '你已被房主移出大厅';
+      const reason = (e as CustomEvent)?.detail?.reason || tl('你已被房主移出大厅', 'You have been removed from the lobby by the host');
       message.warning(reason);
       void handleLeaveLobby();
     };
@@ -799,7 +799,7 @@ export const MiniWindow: React.FC = () => {
       // 关闭加载提示
       setIsRejoining(false);
       
-      message.error(`重新加入大厅失败: ${error}`);
+      message.error(tl(`重新加入大厅失败: ${error}`, `Failed to rejoin the lobby: ${error}`));
       
       // 如果失败，返回主界面
       const { setAppState, clearLobby } = useAppStore.getState();
@@ -984,8 +984,8 @@ export const MiniWindow: React.FC = () => {
       }
       
       await writeText(textToCopy);
-      const label = (lobby.useDomain && lobby.virtualDomain) ? '虚拟域名' : '虚拟IP';
-      message.success(`${label}已复制`);
+      const label = (lobby.useDomain && lobby.virtualDomain) ? tl('虚拟域名', 'Virtual domain') : tl('虚拟IP', 'Virtual IP');
+      message.success(tl(`${label}已复制`, `${label} copied`));
       console.log(`已复制${label}:`, textToCopy);
     } catch (error) {
       console.error('复制失败:', error);
@@ -1004,17 +1004,24 @@ export const MiniWindow: React.FC = () => {
       // 大厅名称：XXX
       // 密码：XXX
       // —————— (https://mctier.pmhs.top) ——————
-      const lobbyInfo = `——————— 邀请您加入大厅 ———————
+      const lobbyInfo = tl(
+        `——————— 邀请您加入大厅 ———————
 完整复制后打开 MCTier-加入大厅 界面（自动识别）
 大厅名称：${lobby.name}
 密码：${lobby.password || ''}
-————— https://mctier.pmhs.top —————`;
+————— https://mctier.pmhs.top —————`,
+        `——————— Invitation to Join Lobby ———————
+Copy everything, then open MCTier - Join Lobby (auto-detected)
+Lobby Name: ${lobby.name}
+Password: ${lobby.password || ''}
+————— https://mctier.pmhs.top —————`
+      );
       
       await writeText(lobbyInfo);
       
       // 显示提示信息（轻量级 toast 反馈）
       message.success({
-        content: '大厅信息已复制，发送给好友粘贴打开「加入大厅」即可自动识别',
+        content: tl('大厅信息已复制，发送给好友粘贴打开「加入大厅」即可自动识别', 'Lobby info copied. Send it to a friend; pasting it in "Join Lobby" will auto-detect it'),
         duration: 3,
       });
       
@@ -1105,7 +1112,7 @@ export const MiniWindow: React.FC = () => {
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                <span>{versionUpdating ? `更新中 ${versionUpdateProgress}%` : '立即更新到最新版'}</span>
+                <span>{versionUpdating ? tl(`更新中 ${versionUpdateProgress}%`, `Updating ${versionUpdateProgress}%`) : tl('立即更新到最新版', 'Update to the latest version')}</span>
               </motion.button>
             </div>
           </motion.div>
@@ -1128,10 +1135,10 @@ export const MiniWindow: React.FC = () => {
       >
         <Spin size="large" />
         <div style={{ marginTop: '16px', fontSize: '16px', color: 'rgba(255,255,255,0.9)' }}>
-          正在退出大厅...
+          {tl('正在退出大厅...', 'Leaving lobby...')}
         </div>
         <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-          正在清理网络连接和虚拟网卡
+          {tl('正在清理网络连接和虚拟网卡', 'Cleaning up network connections and virtual adapter')}
         </div>
       </Modal>
 
@@ -1151,19 +1158,19 @@ export const MiniWindow: React.FC = () => {
       >
         <Spin size="large" />
         <div style={{ marginTop: '20px', fontSize: '18px', color: 'rgba(255,255,255,0.95)', fontWeight: 600 }}>
-          正在重载设置...
+          {tl('正在重载设置...', 'Reloading settings...')}
         </div>
         <div style={{ marginTop: '12px', fontSize: '14px', color: 'rgba(255,255,255,0.75)' }}>
-          正在重新配置并加入...
+          {tl('正在重新配置并加入...', 'Reconfiguring and rejoining...')}
         </div>
         <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
-          请稍等，这可能需要几秒钟...
+          {tl('请稍等，这可能需要几秒钟...', 'Please wait, this may take a few seconds...')}
         </div>
       </Modal>
 
       {/* 联机帮助弹窗 */}
       <Modal
-        title="MC联机帮助"
+        title={tl('MC联机帮助', 'Minecraft Connection Help')}
         open={showConnectionHelp}
         onCancel={() => setShowConnectionHelp(false)}
         footer={null}
@@ -1326,7 +1333,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className={`mini-control-btn voice-btn ${micEnabled ? 'active' : 'muted'}`}
                   onClick={handleToggleMic}
-                  title={micEnabled ? '关闭麦克风 (Ctrl+M)' : '开启麦克风 (Ctrl+M)'}
+                  title={micEnabled ? tl('关闭麦克风 (Ctrl+M)', 'Mute microphone (Ctrl+M)') : tl('开启麦克风 (Ctrl+M)', 'Enable microphone (Ctrl+M)')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1335,7 +1342,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className={`mini-control-btn voice-btn ${globalMuted ? 'muted' : 'active'}`}
                   onClick={handleToggleGlobalMute}
-                  title={globalMuted ? '开启全局听筒 (Ctrl+T)' : '关闭全局听筒 (Ctrl+T)'}
+                  title={globalMuted ? tl('开启全局听筒 (Ctrl+T)', 'Enable speaker (Ctrl+T)') : tl('关闭全局听筒 (Ctrl+T)', 'Mute speaker (Ctrl+T)')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1346,7 +1353,7 @@ export const MiniWindow: React.FC = () => {
                   <motion.button
                     className="mini-control-btn new-message-btn"
                     onClick={handleNewMessageClick}
-                    title={`${unreadCount} 条新消息`}
+                    title={tl(`${unreadCount} 条新消息`, `${unreadCount} new message(s)`)}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                     initial={{ scale: 0 }}
@@ -1363,7 +1370,7 @@ export const MiniWindow: React.FC = () => {
             <motion.button
               className="mini-control-btn"
               onClick={handleToggleCollapse}
-              title={collapsed ? '展开' : '收起'}
+              title={collapsed ? tl('展开', 'Expand') : tl('收起', 'Collapse')}
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
             >
@@ -1374,11 +1381,11 @@ export const MiniWindow: React.FC = () => {
               onClick={async () => {
                 await expandMiniWindow();
                 modal.confirm({
-                  title: '退出大厅',
-                  content: '确定要退出当前大厅吗？退出后将断开与好友的组网。',
-                  okText: '退出',
+                  title: tl('退出大厅', 'Leave Lobby'),
+                  content: tl('确定要退出当前大厅吗？退出后将断开与好友的组网。', 'Are you sure you want to leave this lobby? You will be disconnected from your friends.'),
+                  okText: tl('退出', 'Leave'),
                   okType: 'danger',
-                  cancelText: '取消',
+                  cancelText: tl('取消', 'Cancel'),
                   centered: true,
                   onOk: () => { void handleLeaveLobby(); },
                 });
@@ -1462,7 +1469,7 @@ export const MiniWindow: React.FC = () => {
                     <motion.button
                       className="virtual-ip-btn"
                       onClick={handleCopyVirtualIp}
-                      title={lobby.useDomain && lobby.virtualDomain ? '点击复制虚拟域名' : '点击复制虚拟IP'}
+                      title={lobby.useDomain && lobby.virtualDomain ? tl('点击复制虚拟域名', 'Click to copy virtual domain') : tl('点击复制虚拟IP', 'Click to copy virtual IP')}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
@@ -1520,12 +1527,12 @@ export const MiniWindow: React.FC = () => {
                     <div className="mini-player-info">
                       <div className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}>
                         <span className="mini-player-initial">
-                          {Array.from((useAppStore.getState().config.playerName || '我').trim())[0] || '我'}
+                          {Array.from((useAppStore.getState().config.playerName || tl('我', 'Me')).trim())[0] || tl('我', 'Me')}
                         </span>
                       </div>
                       <div className="player-details">
                         <span className="mini-player-name">
-                          {useAppStore.getState().config.playerName || '我'} (我)
+                          {useAppStore.getState().config.playerName || tl('我', 'Me')} ({tl('我', 'Me')})
                           {isHost && (
                             <CrownIcon size={13} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
                           )}
@@ -1536,12 +1543,12 @@ export const MiniWindow: React.FC = () => {
                         <motion.button
                           className="player-virtual-ip-btn"
                           onClick={handleCopyVirtualIp}
-                          title={lobby?.useDomain && lobby?.virtualDomain ? '点击复制虚拟域名' : '点击复制虚拟IP'}
+                          title={lobby?.useDomain && lobby?.virtualDomain ? tl('点击复制虚拟域名', 'Click to copy virtual domain') : tl('点击复制虚拟IP', 'Click to copy virtual IP')}
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                         >
                           {lobby?.useDomain && lobby?.virtualDomain 
-                            ? `域名: ${lobby.virtualDomain}` 
+                            ? tl(`域名: ${lobby.virtualDomain}`, `Domain: ${lobby.virtualDomain}`)
                             : `IP: ${lobby?.virtualIp || '10.126.126.1'}`
                           }
                         </motion.button>
@@ -1578,10 +1585,10 @@ export const MiniWindow: React.FC = () => {
                               {player.virtualIp && peerConnTypes[player.virtualIp] && (
                                 <span
                                   className="mini-conn-badge"
-                                  title={peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P 直连' : '经中继转发'}
+                                  title={peerConnTypes[player.virtualIp] === 'p2p' ? tl('P2P 直连', 'P2P direct') : tl('经中继转发', 'Relayed')}
                                   style={{ color: peerConnTypes[player.virtualIp] === 'p2p' ? '#52c41a' : '#fa8c16', background: peerConnTypes[player.virtualIp] === 'p2p' ? 'rgba(82,196,26,0.16)' : 'rgba(250,140,22,0.18)' }}
                                 >
-                                  {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : '中继'}
+                                  {peerConnTypes[player.virtualIp] === 'p2p' ? 'P2P' : tl('中继', 'Relay')}
                                 </span>
                               )}
                             </div>
@@ -1596,11 +1603,11 @@ export const MiniWindow: React.FC = () => {
                                 )}
                                 <span
                                   className="fav-player-star"
-                                  title={favPlayers.includes(player.name) ? '取消收藏队友' : '收藏队友'}
+                                  title={favPlayers.includes(player.name) ? tl('取消收藏队友', 'Unfavorite teammate') : tl('收藏队友', 'Favorite teammate')}
                                   onClick={() => {
                                     const fav = recentService.toggleFavoritePlayer(player.name);
                                     setFavPlayers(recentService.getFavoritePlayers());
-                                    message.success(fav ? `已收藏队友 ${player.name}` : `已取消收藏 ${player.name}`);
+                                    message.success(fav ? tl(`已收藏队友 ${player.name}`, `Favorited teammate ${player.name}`) : tl(`已取消收藏 ${player.name}`, `Unfavorited ${player.name}`));
                                   }}
                                   style={{ marginLeft: 6, cursor: 'pointer', color: favPlayers.includes(player.name) ? '#FFD24A' : 'rgba(255,255,255,0.35)' }}
                                 >
@@ -1617,19 +1624,19 @@ export const MiniWindow: React.FC = () => {
                                         ? player.virtualDomain 
                                         : (player.virtualIp || lobby?.virtualIp || '10.126.126.1');
                                       await writeText(textToCopy);
-                                      const label = (player.useDomain && player.virtualDomain) ? '虚拟域名' : '虚拟IP';
-                                      message.success(`${label}已复制`);
+                                      const label = (player.useDomain && player.virtualDomain) ? tl('虚拟域名', 'Virtual domain') : tl('虚拟IP', 'Virtual IP');
+                                      message.success(tl(`${label}已复制`, `${label} copied`));
                                     } catch (error) {
                                       console.error('复制失败:', error);
                                       message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
                                     }
                                   }}
-                                  title={(player.useDomain && player.virtualDomain) ? '点击复制虚拟域名' : '点击复制虚拟IP'}
+                                  title={(player.useDomain && player.virtualDomain) ? tl('点击复制虚拟域名', 'Click to copy virtual domain') : tl('点击复制虚拟IP', 'Click to copy virtual IP')}
                                   whileHover={{ scale: 1.02 }}
                                   whileTap={{ scale: 0.98 }}
                                 >
                                   {(player.useDomain && player.virtualDomain)
-                                    ? `域名: ${player.virtualDomain}` 
+                                    ? tl(`域名: ${player.virtualDomain}`, `Domain: ${player.virtualDomain}`)
                                     : `IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`
                                   }
                                 </motion.button>
@@ -1642,19 +1649,19 @@ export const MiniWindow: React.FC = () => {
                                     const lossColor = '#ff4d4f';
                                     return (
                                       <span
-                                        title={`丢包率 ${q.lossRate}%`}
+                                        title={tl(`丢包率 ${q.lossRate}%`, `Packet loss ${q.lossRate}%`)}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: lossColor, flexShrink: 0 }}
                                       >
                                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: lossColor, display: 'inline-block' }} />
-                                        丢包{q.lossRate}%
+                                        {tl('丢包', 'Loss')}{q.lossRate}%
                                       </span>
                                     );
                                   }
                                   const color = lat === null ? '#ff4d4f' : lat < 80 ? '#52c41a' : lat < 200 ? '#faad14' : '#ff7a45';
-                                  const text = lat === null ? '离线' : `${lat}ms`;
+                                  const text = lat === null ? tl('离线', 'Offline') : `${lat}ms`;
                                   return (
                                     <span
-                                      title={lat === null ? '无法连通该玩家' : `延迟 ${lat}ms`}
+                                      title={lat === null ? tl('无法连通该玩家', 'Cannot reach this player') : tl(`延迟 ${lat}ms`, `Latency ${lat}ms`)}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, flexShrink: 0 }}
                                     >
                                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
@@ -1674,7 +1681,7 @@ export const MiniWindow: React.FC = () => {
                                   value={playerVolume}
                                   onChange={(e) => handlePlayerVolumeChange(player.id, parseFloat(e.target.value))}
                                   className="player-volume-slider"
-                                  title={`音量: ${Math.round(playerVolume * 100)}%`}
+                                  title={tl(`音量: ${Math.round(playerVolume * 100)}%`, `Volume: ${Math.round(playerVolume * 100)}%`)}
                                   disabled={isPlayerMuted}
                                 />
                                 <span className="player-volume-value">{Math.round(playerVolume * 100)}%</span>
@@ -1687,10 +1694,10 @@ export const MiniWindow: React.FC = () => {
                                 className="mini-action-btn"
                                 onClick={() => {
                                   modal.confirm({
-                                    title: '转让房主',
-                                    content: `确定把房主转让给 ${player.name} 吗？`,
-                                    okText: '转让',
-                                    cancelText: '取消',
+                                    title: tl('转让房主', 'Transfer Host'),
+                                    content: tl(`确定把房主转让给 ${player.name} 吗？`, `Transfer host privileges to ${player.name}?`),
+                                    okText: tl('转让', 'Transfer'),
+                                    cancelText: tl('取消', 'Cancel'),
                                     centered: true,
                                     onOk: () => { webrtcClient.transferHost(player.id); },
                                   });
@@ -1707,11 +1714,11 @@ export const MiniWindow: React.FC = () => {
                                 className="mini-action-btn kick-btn"
                                 onClick={() => {
                                   modal.confirm({
-                                    title: '踢出玩家',
-                                    content: `确定把 ${player.name} 移出大厅吗？`,
-                                    okText: '踢出',
+                                    title: tl('踢出玩家', 'Kick Player'),
+                                    content: tl(`确定把 ${player.name} 移出大厅吗？`, `Remove ${player.name} from the lobby?`),
+                                    okText: tl('踢出', 'Kick'),
                                     okButtonProps: { danger: true },
-                                    cancelText: '取消',
+                                    cancelText: tl('取消', 'Cancel'),
                                     centered: true,
                                     onOk: () => { webrtcClient.kickPlayer(player.id); },
                                   });
@@ -1728,7 +1735,7 @@ export const MiniWindow: React.FC = () => {
                             <motion.button
                               className={`mini-action-btn ${isPlayerMuted ? 'muted' : ''}`}
                               onClick={() => handleMutePlayer(player.id)}
-                              title={isPlayerMuted ? '取消静音' : '静音此玩家'}
+                              title={isPlayerMuted ? tl('取消静音', 'Unmute') : tl('静音此玩家', 'Mute this player')}
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
                             >
@@ -1741,7 +1748,7 @@ export const MiniWindow: React.FC = () => {
                                   const muted = !hostMutedPlayers.has(player.id);
                                   webrtcClient.setPlayerMuted(player.id, muted);
                                 }}
-                                title={hostMutedPlayers.has(player.id) ? '解除禁言' : '禁言该玩家（房主）'}
+                                title={hostMutedPlayers.has(player.id) ? tl('解除禁言', 'Unmute (host)') : tl('禁言该玩家（房主）', 'Mute player (host)')}
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
                               >
@@ -1769,7 +1776,7 @@ export const MiniWindow: React.FC = () => {
               >
                 <div className="mini-opacity-control-wrapper">
                   <label className="mini-opacity-label">
-                    透明度
+                    {tl('透明度', 'Opacity')}
                   </label>
                   <input
                     type="range"
@@ -1826,7 +1833,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className={`mini-voice-btn ${micEnabled ? 'active' : 'muted'}`}
                   onClick={handleToggleMic}
-                  title={micEnabled ? '关闭麦克风 (Ctrl+M)' : '开启麦克风 (Ctrl+M)'}
+                  title={micEnabled ? tl('关闭麦克风 (Ctrl+M)', 'Mute microphone (Ctrl+M)') : tl('开启麦克风 (Ctrl+M)', 'Enable microphone (Ctrl+M)')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -1835,7 +1842,7 @@ export const MiniWindow: React.FC = () => {
                 <motion.button
                   className={`mini-voice-btn ${globalMuted ? 'muted' : ''}`}
                   onClick={handleToggleGlobalMute}
-                  title={globalMuted ? '开启全局听筒 (Ctrl+T)' : '关闭全局听筒 (Ctrl+T)'}
+                  title={globalMuted ? tl('开启全局听筒 (Ctrl+T)', 'Enable speaker (Ctrl+T)') : tl('关闭全局听筒 (Ctrl+T)', 'Mute speaker (Ctrl+T)')}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >

@@ -593,7 +593,7 @@ export const FileShareManagerNew: React.FC = () => {
         const tempZipPath = `${saveDir}/${zipFileName}`;
         const newTask: DownloadTask = {
           id: taskId,
-          fileName: `批量下载 (${selectedFileList.length} 个文件)`,
+          fileName: tl(`批量下载 (${selectedFileList.length} 个文件)`, `Batch download (${selectedFileList.length} files)`),
           fileSize: 0, // 未知大小
           downloaded: 0,
           status: 'downloading',
@@ -813,7 +813,7 @@ export const FileShareManagerNew: React.FC = () => {
     // 标记任务为失败/取消状态
     setDownloads(prev => prev.map(t =>
       t.id === taskId && t.status === 'downloading'
-        ? { ...t, status: 'failed' as const, error: '已取消', speed: 0 }
+        ? { ...t, status: 'failed' as const, error: tl('已取消', 'Cancelled'), speed: 0 }
         : t
     ));
     
@@ -966,7 +966,7 @@ export const FileShareManagerNew: React.FC = () => {
                               <div className="status-icon compress-icon" title={tl('先压后发', 'Compress before send')}>📦</div>
                             )}
                             {remoteShare.share.expire_time && (
-                              <div className="status-icon expiry-icon" title={`有效期至 ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`}>⏰</div>
+                              <div className="status-icon expiry-icon" title={tl(`有效期至 ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`, `Expires at ${new Date(remoteShare.share.expire_time * 1000).toLocaleString()}`)}>⏰</div>
                             )}
                           </div>
                         </motion.div>
@@ -1062,7 +1062,7 @@ export const FileShareManagerNew: React.FC = () => {
                           size="large"
                           icon={<DownloadIcon size={18} />}
                           onClick={handleBatchDownload}
-                          title={`下载选中 (${selectedFiles.size})`}
+                          title={tl(`下载选中 (${selectedFiles.size})`, `Download selected (${selectedFiles.size})`)}
                           style={{
                             width: 48,
                             height: 48,
@@ -1102,7 +1102,7 @@ export const FileShareManagerNew: React.FC = () => {
                     className={`subtab ${transferSubTab === 'downloading' ? 'active' : ''}`}
                     onClick={() => setTransferSubTab('downloading')}
                   >
-                    正在下载
+                    {tl('正在下载', 'Downloading')}
                     {downloads.filter(d => d.status === 'downloading').length > 0 && (
                       <span className="subtab-badge">
                         {downloads.filter(d => d.status === 'downloading').length}
@@ -1113,7 +1113,7 @@ export const FileShareManagerNew: React.FC = () => {
                     className={`subtab ${transferSubTab === 'completed' ? 'active' : ''}`}
                     onClick={() => setTransferSubTab('completed')}
                   >
-                    已完成
+                    {tl('已完成', 'Completed')}
                     {downloads.filter(d => d.status === 'completed').length > 0 && (
                       <span className="subtab-badge">
                         {downloads.filter(d => d.status === 'completed').length}

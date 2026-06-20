@@ -146,7 +146,7 @@ export const HistoryInput: React.FC<HistoryInputProps> = ({
                 onClick={handleClearHistory}
                 type="button"
               >
-                清空
+                {tl('清空', 'Clear')}
               </button>
             </div>
             <div className="history-list">

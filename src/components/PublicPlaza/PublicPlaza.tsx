@@ -32,7 +32,7 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
       const list = await fetchPublicLobbies(signalingServer);
       setLobbies(list);
     } catch (e) {
-      message.error(`获取公开大厅失败：${e}`);
+      message.error(tl(`获取公开大厅失败：${e}`, `Failed to fetch public lobbies: ${e}`));
       setLobbies([]);
     } finally {
       setLoading(false);
@@ -84,7 +84,7 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
                     </Tag>
                   </div>
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
-                    房主：{l.hostName}
+                    {tl('房主', 'Host')}：{l.hostName}
                     {l.description ? ` · ${l.description}` : ''}
                   </div>
                 </div>

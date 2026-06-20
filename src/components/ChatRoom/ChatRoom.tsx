@@ -146,11 +146,13 @@ export const ChatRoom: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 新消息到达时，若已在底部则平滑跟随
+  // 新消息到达时：自己发的无条件置底；他人发的仅在已处于底部时跟随
   useEffect(() => {
     if (chatMessages.length <= 0) return;
     if (!initializedScrollRef.current) return;
-    if (isAtBottom) scrollToBottom(true);
+    const last = chatMessages[chatMessages.length - 1];
+    const isOwnLatest = !!last && last.playerId === currentPlayerId;
+    if (isOwnLatest || isAtBottom) scrollToBottom(true);
   }, [chatMessages.length, isAtBottom]);
 
   const buildReplyContent = (body: string): string => {
@@ -189,7 +191,7 @@ export const ChatRoom: React.FC = () => {
       const optimisticMessage: ChatMessage = {
         id: `msg-${currentPlayerId}-${Date.now()}`,
         playerId: currentPlayerId,
-        playerName: config.playerName || '我',
+        playerName: config.playerName || tl('我', 'Me'),
         content: messageContent,
         timestamp: Date.now(),
         type: 'text',
@@ -219,7 +221,7 @@ export const ChatRoom: React.FC = () => {
     const names = players
       .filter((p) => p.id !== currentPlayerId && p.name)
       .map((p) => p.name);
-    const base = ['所有人', ...names];
+    const base = [tl('所有人', 'all'), ...names];
     const q = mentionQuery.trim().toLowerCase();
     if (!q) return base;
     return base.filter((n) => n.toLowerCase().includes(q));
@@ -378,7 +380,7 @@ export const ChatRoom: React.FC = () => {
           const optimisticMessage: ChatMessage = {
             id: `msg-${currentPlayerId}-${Date.now()}`,
             playerId: currentPlayerId!,
-            playerName: config.playerName || '我',
+            playerName: config.playerName || tl('我', 'Me'),
             content: messageContent,
             timestamp: Date.now(),
             type: 'image',
@@ -444,7 +446,7 @@ export const ChatRoom: React.FC = () => {
           const optimisticMessage: ChatMessage = {
             id: `msg-${currentPlayerId}-${Date.now()}`,
             playerId: currentPlayerId!,
-            playerName: config.playerName || '我',
+            playerName: config.playerName || tl('我', 'Me'),
             content: messageContent,
             timestamp: Date.now(),
             type: 'image',
@@ -511,7 +513,7 @@ export const ChatRoom: React.FC = () => {
       const optimisticMessage: ChatMessage = {
         id: `msg-${currentPlayerId}-${Date.now()}`,
         playerId: currentPlayerId!,
-        playerName: config.playerName || '我',
+        playerName: config.playerName || tl('我', 'Me'),
         content: messageContent,
         timestamp: Date.now(),
         type: 'image',
@@ -742,7 +744,7 @@ export const ChatRoom: React.FC = () => {
                     }}
                   >
                     <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
-                    以下为新消息
+                    {tl('以下为新消息', 'New messages below')}
                     <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
                   </div>
                 )}
@@ -798,7 +800,7 @@ export const ChatRoom: React.FC = () => {
                       </button>
                       {downloadedImages.has(message.id) && (
                         <div className="download-success-tip">
-                          已保存至 {downloadedImages.get(message.id)?.replace(/\\[^\\]+$/, '')}
+                          {tl('已保存至', 'Saved to')} {downloadedImages.get(message.id)?.replace(/\\[^\\]+$/, '')}
                         </div>
                       )}
                     </div>

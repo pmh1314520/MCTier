@@ -72,7 +72,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>{l.name}</div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-                  {l.playerName ? `玩家：${l.playerName} · ` : ''}{formatTime(l.lastJoined)}
+                  {l.playerName ? tl(`玩家：${l.playerName} · `, `Player: ${l.playerName} · `) : ''}{formatTime(l.lastJoined)}
                 </div>
               </div>
               <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

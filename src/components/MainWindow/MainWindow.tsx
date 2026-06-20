@@ -123,24 +123,24 @@ export const MainWindow: React.FC = () => {
       console.log('MainWindow检测到版本错误，显示弹窗');
       
       Modal.warning({
-        title: '版本过低',
+        title: tl('版本过低', 'Version Too Low'),
         content: (
           <div style={{ lineHeight: '1.8' }}>
             <p style={{ marginBottom: '12px' }}>
-              您的 MCTier 版本过低，无法连接到大厅。
+              {tl('您的 MCTier 版本过低，无法连接到大厅。', 'Your MCTier version is too low to connect to the lobby.')}
             </p>
             <p style={{ marginBottom: '8px', color: 'rgba(255,255,255,0.8)' }}>
-              当前版本: {versionError.currentVersion}
+              {tl('当前版本', 'Current version')}: {versionError.currentVersion}
             </p>
             <p style={{ marginBottom: '12px', color: 'rgba(255,255,255,0.8)' }}>
-              最低要求: {versionError.minimumVersion}
+              {tl('最低要求', 'Minimum required')}: {versionError.minimumVersion}
             </p>
             <p style={{ color: 'rgba(255,255,255,0.6)' }}>
-              请前往官网下载最新版本
+              {tl('请前往官网下载最新版本', 'Please download the latest version from the official website')}
             </p>
           </div>
         ),
-        okText: '前往官网',
+        okText: tl('前往官网', 'Go to Website'),
         centered: true,
         onOk: async () => {
           console.log('用户点击了"前往官网"按钮');
