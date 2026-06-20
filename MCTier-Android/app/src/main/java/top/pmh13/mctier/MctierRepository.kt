@@ -175,6 +175,8 @@ class MctierRepository(private val context: Context) {
                 s.danmakuSpeed.toFloat(), s.danmakuOpacity, s.danmakuTracks,
             )
         }
+        // 应用变声器音色
+        top.pmh13.mctier.network.VoiceProcessor.preset = _state.value.settings.voicePreset
         // 启动时检测 Gitee 上是否有新版本（可选更新提示）
         checkUpdateOnStart()
         // 周期性测量与各玩家的延迟（在大厅内时）
@@ -291,10 +293,13 @@ class MctierRepository(private val context: Context) {
             putInt("danmakuSpeed", settings.danmakuSpeed)
             putFloat("danmakuOpacity", settings.danmakuOpacity)
             putInt("danmakuTracks", settings.danmakuTracks)
+            putString("voicePreset", settings.voicePreset)
         }
         _state.update { it.copy(settings = normalizedSettings) }
         // 同步音量/自定义音到 SoundManager
         soundManager.applySettings(normalizedSettings)
+        // 同步变声器音色
+        top.pmh13.mctier.network.VoiceProcessor.preset = normalizedSettings.voicePreset
         // 同步弹幕配置
         top.pmh13.mctier.ui.DanmakuOverlay.applyConfig(
             context,
@@ -1485,5 +1490,6 @@ class MctierRepository(private val context: Context) {
         danmakuSpeed = prefs.getInt("danmakuSpeed", 130),
         danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),
         danmakuTracks = prefs.getInt("danmakuTracks", 4),
+        voicePreset = prefs.getString("voicePreset", null) ?: "none",
     )
 }

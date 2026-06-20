@@ -130,6 +130,8 @@ data class UserSettings(
     val danmakuSpeed: Int = 130,     // dp/s
     val danmakuOpacity: Float = 0.9f,
     val danmakuTracks: Int = 4,
+    // —— 变声器音色（none/uncle/male/female/loli/chipmunk/robot/telephone）——
+    val voicePreset: String = "none",
 )
 
 @Serializable

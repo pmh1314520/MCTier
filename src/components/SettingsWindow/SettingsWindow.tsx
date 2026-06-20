@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { setLanguage, getLanguage, tl } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import { danmakuService, type DanmakuConfig } from '../../services/danmaku/danmakuService';
+import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import './SettingsWindow.css';
 
 export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -549,6 +550,21 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 {tl('开启后聊天消息会以弹幕形式从屏幕顶部飘过，游戏时也不错过；可调字号、速度、透明度、轨道数并预览', 'When enabled, chat messages float across the top of the screen so you never miss them while gaming; adjust size, speed, opacity, tracks and preview')}
               </div>
               <DanmakuSettings />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-purple">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('变声器', 'Voice Changer')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('选择进入大厅后默认使用的音色，开麦即生效；进大厅后也可在大厅动态设置中一键切换', 'Choose the default voice used after joining a lobby; you can also switch it live in lobby settings')}
+              </div>
+              <VoiceChangerPicker />
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>

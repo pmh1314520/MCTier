@@ -5,6 +5,7 @@ import { VoiceDevicePanel } from '../VoiceSettings/VoiceSettings';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { audioService } from '../../services/audio/AudioService';
+import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import './LobbySettingsModal.css';
@@ -237,6 +238,12 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
           ))}
         </div>
         <div className="lobby-voice-divider" />
+
+        {/* 变声器（大厅内一键切换，实时生效） */}
+        <div className="lobby-voice-section">
+          <div className="lobby-voice-section-title">{tl('变声器', 'Voice Changer')}</div>
+          <VoiceChangerPicker />
+        </div>
 
         <div className="lobby-config-box">
         <div className="lobby-config-section-head">

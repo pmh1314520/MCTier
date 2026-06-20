@@ -150,6 +150,11 @@ class AndroidRtcController(private val context: Context) {
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
                 .setUseLowLatency(true)
+                // 变声器：在录音 PCM 进入 WebRTC 前原地处理
+                .setAudioBufferCallback { buffer, audioFormat, channelCount, sampleRate, bytesRead, captureTimestampNs ->
+                    runCatching { VoiceProcessor.process(audioFormat, channelCount, sampleRate, buffer, bytesRead) }
+                    captureTimestampNs
+                }
                 .createAudioDeviceModule()
             factory = PeerConnectionFactory.builder()
                 .setOptions(options)

@@ -1503,6 +1503,15 @@ private fun LobbyDynamicConfigView(state: MctierUiState, repository: MctierRepos
             }
         }
         if (iAmHost) item { LobbySettingsCard(state, repository) }
+        // 变声器：大厅内实时切换音色，开麦即生效
+        item {
+            SectionCard {
+                VoiceChangerSection(
+                    settings = state.settings,
+                    onChange = { repository.updateSettings(it) },
+                )
+            }
+        }
         item {
             SectionCard {
                 Text(L("EasyTier 动态配置", "EasyTier Live Config"), fontWeight = FontWeight.Bold, color = TextPrimary)
@@ -2730,6 +2739,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(16.dp))
         DanmakuSettingsSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
+        VoiceChangerSection(settings, onChange)
+        Spacer(Modifier.height(16.dp))
         ThemeSettingsSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
         UpdateSection()
@@ -2779,6 +2790,37 @@ private fun NotificationSettingsSection(settings: UserSettings, onChange: (UserS
             TimeChip(settings.dndEndMinutes) { picked -> onChange(settings.copy(dndEndMinutes = picked)) }
         }
         Text(L("免打扰时段内不播放任何提示音", "No sounds during the Do Not Disturb period"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
+    }
+}
+
+@Composable
+private fun VoiceChangerSection(settings: UserSettings, onChange: (UserSettings) -> Unit, showTitle: Boolean = true) {
+    val presets = listOf(
+        "none" to L("原声", "Original"),
+        "uncle" to L("大叔", "Uncle"),
+        "male" to L("男声", "Male"),
+        "female" to L("女声", "Female"),
+        "loli" to L("萝莉", "Loli"),
+        "chipmunk" to L("花栗鼠", "Chipmunk"),
+        "robot" to L("机器人", "Robot"),
+        "telephone" to L("电话音", "Telephone"),
+    )
+    if (showTitle) {
+        Text(L("变声器", "Voice Changer"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            L("选择音色，开麦即生效；可在大厅动态设置中实时切换", "Pick a voice; applies live when mic is on, switchable in lobby settings"),
+            fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f),
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+    FlowRowChips(
+        presets.map { it.second },
+        big = false,
+        selectedLabel = presets.firstOrNull { it.first == settings.voicePreset }?.second,
+    ) { label ->
+        val id = presets.firstOrNull { it.second == label }?.first ?: "none"
+        onChange(settings.copy(voicePreset = id))
     }
 }
 
@@ -3532,14 +3574,24 @@ private fun CircleIconButton(icon: ImageVector, desc: String, modifier: Modifier
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FlowRowChips(items: List<String>, big: Boolean = false, onClick: (String) -> Unit) {
+private fun FlowRowChips(items: List<String>, big: Boolean = false, selectedLabel: String? = null, onClick: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEach { item ->
+            val selected = selectedLabel != null && item == selectedLabel
             Box(
-                Modifier.clip(RoundedCornerShape(10.dp)).background(PanelHigh).clickable { onClick(item) }
+                Modifier.clip(RoundedCornerShape(10.dp))
+                    .background(if (selected) GrassGreen else PanelHigh)
+                    .clickable { onClick(item) }
                     .padding(horizontal = if (big) 10.dp else 12.dp, vertical = if (big) 6.dp else 8.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(item, fontSize = if (big) 20.sp else 13.sp, color = TextPrimary) }
+            ) {
+                Text(
+                    item,
+                    fontSize = if (big) 20.sp else 13.sp,
+                    color = TextPrimary,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
         }
     }
 }

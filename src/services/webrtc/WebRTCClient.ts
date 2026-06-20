@@ -9,6 +9,7 @@ import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
 import { tl } from '../../i18n';
+import { voiceChangerService } from '../voice/voiceChangerService';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -43,6 +44,7 @@ export interface PeerConnection {
  */
 export class WebRTCClient {
   private localStream: MediaStream | null = null;
+  private rawMicStream: MediaStream | null = null;
   private peerConnections: Map<string, PeerConnection> = new Map();
   private localPlayerId: string = '';
   private localPlayerName: string = '';
@@ -2260,9 +2262,15 @@ export class WebRTCClient {
         console.log('正在获取麦克风权限...');
 
         // 使用带重试机制的权限请求
-        const newStream = await this.requestMicrophonePermission();
+        const rawStream = await this.requestMicrophonePermission();
 
         console.log('✅ 麦克风权限已获取');
+        // 应用变声器：对原始麦克风做实时变声，输出处理后的流用于发送
+        if (this.rawMicStream) {
+          this.rawMicStream.getTracks().forEach((t) => t.stop());
+        }
+        this.rawMicStream = rawStream;
+        const newStream = voiceChangerService.process(rawStream);
         const newAudioTrack = newStream.getAudioTracks()[0];
 
         for (const [peerId, pc] of this.peerConnections) {
@@ -2327,6 +2335,12 @@ export class WebRTCClient {
           }
 
           this.localStream = null;
+          // 停止原始麦克风流并释放变声器
+          if (this.rawMicStream) {
+            this.rawMicStream.getTracks().forEach((t) => t.stop());
+            this.rawMicStream = null;
+          }
+          voiceChangerService.dispose();
           try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
           console.log('✅ 麦克风已关闭，资源已释放');
         }
@@ -2781,6 +2795,12 @@ export class WebRTCClient {
         this.localStream = null;
         console.log(`✅ 本地音频流已停止 (${trackCount} 个轨道)`);
       }
+      // 停止原始麦克风流并释放变声器
+      if (this.rawMicStream) {
+        this.rawMicStream.getTracks().forEach((t) => t.stop());
+        this.rawMicStream = null;
+      }
+      try { voiceChangerService.dispose(); } catch { /* ignore */ }
       try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
 
       // 关闭 WebSocket 连接（最后关闭，确保所有清理消息都能发送）
