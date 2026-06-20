@@ -255,14 +255,35 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     if (lobby.serverNode) setShowCustomServer(lobby.serverNode === 'custom');
   };
 
-  // 从公开广场加入：填入大厅名与密码（公开大厅自带密码）
+  // 从公开广场加入：填入大厅名与密码（公开大厅自带密码），并自动同步房主使用的节点
   const handleSelectPublic = (lobby: PublicLobby) => {
-    form.setFieldsValue({
+    const fields: Partial<LobbyFormValues> = {
       lobbyName: lobby.lobbyName,
       password: lobby.password,
       playerName: config.playerName || '',
-    });
-    message.info(tl('已填入公开大厅信息，点击加入即可', 'Public lobby info filled, click Join'));
+    };
+    const hostNode = (lobby.serverNode || '').trim();
+    let nodeSynced = false;
+    if (hostNode && !privateServerConfig.usePrivateServer) {
+      const known = serverNodes.some((n) => n.value === hostNode);
+      if (known) {
+        fields.serverNode = hostNode;
+        setShowCustomServer(false);
+      } else {
+        // 房主使用了非内置节点：以临时自定义节点同步（信令仍用官方，广场本身就在官方信令上）
+        fields.serverNode = 'custom';
+        fields.customEasytierServer = hostNode;
+        fields.customSignalingServer = 'wss://mctier.pmhs.top/signaling';
+        setShowCustomServer(true);
+      }
+      nodeSynced = true;
+    }
+    form.setFieldsValue(fields);
+    message.info(
+      nodeSynced
+        ? tl('已填入公开大厅信息并同步房主节点，点击加入即可', 'Public lobby info filled and host node synced, click Join')
+        : tl('已填入公开大厅信息，点击加入即可', 'Public lobby info filled, click Join')
+    );
   };
 
   // 解析上次成功使用的首选节点（#10 记住上次成功进入大厅的节点）
@@ -562,6 +583,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
+
+      // 记录本次实际使用的节点地址，供公开广场发布时同步给加入者
+      try { localStorage.setItem('mctier_current_node', serverNode); } catch { /* ignore */ }
 
       // 获取当前玩家ID，如果不存在则生成一个新的
       let { currentPlayerId } = useAppStore.getState();

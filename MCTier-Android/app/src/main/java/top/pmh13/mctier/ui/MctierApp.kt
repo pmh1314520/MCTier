@@ -461,6 +461,8 @@ private fun OnboardStep(num: String, text: String) {
 private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
     var lobbyName by remember { mutableStateOf(state.settings.autoLobbyName) }
     var password by remember { mutableStateOf(state.settings.autoLobbyPassword) }
+    // 从公开广场选择大厅时同步到的房主节点（手动改大厅名会清空，避免误用）
+    var plazaNode by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showPlaza by remember { mutableStateOf(false) }
     var showFavorites by remember { mutableStateOf(false) }
@@ -561,9 +563,9 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
         }
     }
 
-    if (showPlaza) PublicPlazaDialog(state, repository, onFill = { n, p -> lobbyName = n; password = p }, onDismiss = { showPlaza = false })
-    if (showFavorites) FavoritesDialog(state, repository, lobbyName, password, onFill = { n, p -> lobbyName = n; password = p }, onDismiss = { showFavorites = false })
-    if (showRecent) RecentDialog(state, repository, onFill = { n, p -> lobbyName = n; password = p }, onDismiss = { showRecent = false })
+    if (showPlaza) PublicPlazaDialog(state, repository, onFill = { n, p, node -> lobbyName = n; password = p; plazaNode = node.ifBlank { null } }, onDismiss = { showPlaza = false })
+    if (showFavorites) FavoritesDialog(state, repository, lobbyName, password, onFill = { n, p -> lobbyName = n; password = p; plazaNode = null }, onDismiss = { showFavorites = false })
+    if (showRecent) RecentDialog(state, repository, onFill = { n, p -> lobbyName = n; password = p; plazaNode = null }, onDismiss = { showRecent = false })
 
     if (showSettings) {
         BackHandler { showSettings = false }
@@ -638,7 +640,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    MctierField(lobbyName, { lobbyName = it }, L("大厅名称（4-32位）", "Lobby Name (4-32 chars)"), enabled = !connecting)
+                    MctierField(lobbyName, { lobbyName = it; plazaNode = null }, L("大厅名称（4-32位）", "Lobby Name (4-32 chars)"), enabled = !connecting)
                     Spacer(Modifier.height(12.dp))
                     MctierField(password, { password = it }, L("大厅密码（8-32位，含字母和数字）", "Password (8-32, letters & digits)"), enabled = !connecting, isPassword = true)
                     Spacer(Modifier.height(12.dp))
@@ -663,7 +665,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     PrimaryButton(
                         text = if (connecting) L("正在组网…", "Connecting…") else if (mode == "create") L("创建大厅", "Create Lobby") else L("加入大厅", "Join Lobby"),
                         enabled = isValidLobbyName(lobbyName) && isValidLobbyPassword(password) && !connecting && state.versionError == null,
-                    ) { repository.createOrJoinLobby(lobbyName, password) }
+                    ) { repository.createOrJoinLobby(lobbyName, password, plazaNode) }
                 }
             }
             item {
@@ -701,7 +703,7 @@ private fun StatusCard(state: MctierUiState) {
 }
 
 @Composable
-private fun PublicPlazaDialog(state: MctierUiState, repository: MctierRepository, onFill: (String, String) -> Unit, onDismiss: () -> Unit) {
+private fun PublicPlazaDialog(state: MctierUiState, repository: MctierRepository, onFill: (String, String, String) -> Unit, onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { repository.fetchPublicLobbies() }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -721,7 +723,7 @@ private fun PublicPlazaDialog(state: MctierUiState, repository: MctierRepository
                         items(state.publicLobbies, key = { it.lobbyName + it.hostName }) { lobby ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                    .clickable { onFill(lobby.lobbyName, lobby.password); onDismiss() }.padding(12.dp),
+                                    .clickable { onFill(lobby.lobbyName, lobby.password, lobby.serverNode); onDismiss() }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(Modifier.weight(1f)) {

@@ -67,8 +67,10 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
       description: desc,
       // 公开时附带明文密码，供广场内一键加入
       password: checked ? (lobby?.password || '') : undefined,
+      // 公开时附带房主当前使用的节点地址，供广场加入者自动同步（保证节点一致可互通）
+      serverNode: checked ? (localStorage.getItem('mctier_current_node') || undefined) : undefined,
     });
-    message.success(checked ? '已发布到公开广场' : '已从公开广场下架');
+    message.success(checked ? tl('已发布到公开广场', 'Published to public plaza') : tl('已从公开广场下架', 'Removed from public plaza'));
   };
 
   const publishAnnounce = () => {

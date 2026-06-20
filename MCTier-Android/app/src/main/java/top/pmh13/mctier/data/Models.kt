@@ -146,6 +146,7 @@ data class SignalingEnvelope(
     val hostId: String? = null,
     val maxPlayers: Int? = null,
     val isPublic: Boolean? = null,
+    @SerialName("serverNode") val serverNode: String? = null,
     val mutedPlayers: List<String>? = null,
     val players: List<PlayerWire>? = null,
     val shares: List<FileShareWire>? = null,
@@ -251,6 +252,7 @@ data class PublicLobbyWire(
     @SerialName("hostName") val hostName: String = "",
     val description: String = "",
     val password: String = "",
+    @SerialName("serverNode") val serverNode: String = "",
 )
 
 /** 收藏大厅（本地存储） */

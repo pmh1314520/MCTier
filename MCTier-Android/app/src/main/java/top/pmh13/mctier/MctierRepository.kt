@@ -52,7 +52,9 @@ import top.pmh13.mctier.data.RecentPlayer
 import top.pmh13.mctier.network.PublicLobbyClient
 import top.pmh13.mctier.network.UpdateChecker
 import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.builtins.serializer
+
+
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
@@ -286,14 +288,15 @@ class MctierRepository(private val context: Context) {
         }
     }
 
-    fun createOrJoinLobby(lobbyName: String, password: String) {
+    fun createOrJoinLobby(lobbyName: String, password: String, nodeOverride: String? = null) {
         val current = _state.value
         val settings = current.settings
+        val effectiveNode = nodeOverride?.takeIf { it.isNotBlank() } ?: settings.preferredServer
         scope.launch {
             _state.update { it.copy(state = AppConnectionState.Connecting, error = null) }
             runCatching {
                 val session = networkController.startEasyTier(
-                    lobbyName.trim(), password, settings.playerName, settings.preferredServer,
+                    lobbyName.trim(), password, settings.playerName, effectiveNode,
                     mtu = settings.mtu.takeIf { it in 500..1500 } ?: 1420,
                     latencyFirst = settings.latencyFirst,
                     proxyCidrs = settings.proxyCidrs.split('\n', ',').map { it.trim() }.filter { it.isNotBlank() },
@@ -1132,6 +1135,8 @@ class MctierRepository(private val context: Context) {
                 isPublic = isPublic,
                 description = description.ifBlank { null },
                 password = publicPassword?.takeIf { it.isNotBlank() },
+                // 公开时附带房主使用的节点地址，供广场加入者自动同步
+                serverNode = if (isPublic) _state.value.settings.preferredServer.takeIf { it.isNotBlank() } else null,
             ),
         )
         _state.update { it.copy(maxPlayers = maxPlayers, isPublicLobby = isPublic) }
@@ -1224,7 +1229,8 @@ class MctierRepository(private val context: Context) {
     /** 提交并广播待办列表（后写覆盖），全队同步 */
     private fun commitTodos(list: List<TodoItem>) {
         saveTodos(list)
-        _state.update { it.copy(todos = list) }
+        _state.update { it.copy(todos = list) }
+
     }
 
     fun addTodo(text: String) {

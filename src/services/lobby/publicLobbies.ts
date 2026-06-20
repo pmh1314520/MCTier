@@ -12,6 +12,8 @@ export interface PublicLobby {
   description: string;
   /** 加入用的明文密码（公开大厅由房主主动公开） */
   password: string;
+  /** 房主使用的 EasyTier 节点地址，加入时自动同步（空=未知，回退加入者默认节点） */
+  serverNode?: string;
 }
 
 const DEFAULT_SIGNALING = 'wss://mctier.pmhs.top/signaling';
@@ -70,6 +72,7 @@ export function fetchPublicLobbies(signalingServer?: string, timeoutMs = 8000): 
             resolve(lobbies.map((lobby: any) => ({
               ...lobby,
               description: String(lobby.description ?? lobby.desc ?? ''),
+              serverNode: lobby.serverNode ? String(lobby.serverNode) : undefined,
             })));
           }
         }

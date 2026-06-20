@@ -2600,7 +2600,7 @@ export class WebRTCClient {
     return this.sendWebSocketMessage({ type: 'transfer-host', from: this.localPlayerId, target: targetId });
   }
   /** 设置大厅选项（仅房主有效），maxPlayers 传 0 表示取消上限 */
-  setLobbyOptions(opts: { maxPlayers?: number; isPublic?: boolean; description?: string; password?: string }): boolean {
+  setLobbyOptions(opts: { maxPlayers?: number; isPublic?: boolean; description?: string; password?: string; serverNode?: string }): boolean {
     return this.sendWebSocketMessage({ type: 'set-lobby-options', from: this.localPlayerId, ...opts });
   }
 
