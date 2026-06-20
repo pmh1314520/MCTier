@@ -500,14 +500,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 <span className="settings-card-title">{tl('自定义 EasyTier 节点', 'Custom EasyTier Nodes')}</span>
               </div>
               <div className="settings-card-desc">
-                <div style={{ marginBottom: '8px' }}>
-                  {tl('配置自定义 EasyTier 节点，可在创建/加入大厅时选择使用', 'Configure custom EasyTier nodes to choose when creating/joining a lobby')}
-                </div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.6' }}>
-                  {tl('• 在创建/加入大厅界面的服务器下拉列表中选择节点', '• Select a node from the server dropdown when creating/joining a lobby')}<br />
-                  {tl('• 每次组网只使用一个选定的节点', '• Only one selected node is used per session')}<br />
-                  {tl('• 可添加多个备用节点供选择使用', '• You can add multiple backup nodes to choose from')}
-                </div>
+                {tl('添加备用节点，创建/加入大厅时可在下拉中选择', 'Add backup nodes to pick from when creating/joining a lobby')}
               </div>
               <CustomNodeManager />
             </motion.div>
@@ -660,6 +653,7 @@ const SoundThemeManager: React.FC = () => {
   const [volume, setVolume] = useState(init.volume);
   const [custom, setCustom] = useState(init.custom);
   const [dndEnabled, setDndEnabled] = useState(init.dndEnabled);
+  const [muted, setMuted] = useState(init.muted);
   const [dndStart, setDndStart] = useState(init.dndStart);
   const [dndEnd, setDndEnd] = useState(init.dndEnd);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -705,6 +699,16 @@ const SoundThemeManager: React.FC = () => {
           onChange={(v) => { setVolume(v as number); audioService.setVolume(v as number); }}
           tooltip={{ formatter: (v) => `${Math.round((v ?? 0) * 100)}%` }}
         />
+      </div>
+
+      {/* 各事件提示音 */}
+      {/* 提示音禁音总开关 */}
+      <div className="snd-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div className="snd-block-title-text">{tl('提示音禁音', 'Mute sounds')}</div>
+          <div className="snd-block-desc">{tl('关闭后所有提示音将不再播放', 'No sounds will play when muted')}</div>
+        </div>
+        <Switch checked={muted} onChange={(v) => { setMuted(v); audioService.setMuted(v); }} />
       </div>
 
       {/* 各事件提示音 */}

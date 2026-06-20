@@ -17,14 +17,13 @@ import { tl } from '../../i18n';
 import { versionCheckService } from '../../services/version/VersionCheckService';
 import { listen } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
-import { PlayerIcon, MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
+import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { RoomTools } from '../RoomTools/RoomTools';
-import { ClipboardReceiver } from '../ClipboardReceiver/ClipboardReceiver';
 import { HostPanel } from '../HostPanel/HostPanel';
 import './MiniWindow.css';
 
@@ -413,8 +412,6 @@ export const MiniWindow: React.FC = () => {
 
     // 开始轮询消息
     p2pChatService.startPolling();
-    // 同步聊天历史（新加入的玩家可补齐进房前的聊天记录；已收到的消息会按ID去重）
-    void p2pChatService.syncHistory(playerIPs);
     // 记录一起联机过的玩家（最近玩家列表）
     try {
       recentService.recordPlayers(players.map(p => p.name).filter(Boolean));
@@ -1522,7 +1519,9 @@ export const MiniWindow: React.FC = () => {
                   >
                     <div className="mini-player-info">
                       <div className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}>
-                        <PlayerIcon className="mini-player-icon" />
+                        <span className="mini-player-initial">
+                          {Array.from((useAppStore.getState().config.playerName || '我').trim())[0] || '我'}
+                        </span>
                       </div>
                       <div className="player-details">
                         <span className="mini-player-name">
@@ -1574,7 +1573,7 @@ export const MiniWindow: React.FC = () => {
                           <div className="mini-player-info">
                             <div className="mini-player-avatar-col">
                               <div className={`player-avatar ${speakingPlayers.has(player.id) && isSameVoiceGroup(player.id) ? 'speaking' : ''}`}>
-                                <PlayerIcon className="mini-player-icon" />
+                                <span className="mini-player-initial">{Array.from((player.name || '?').trim())[0] || '?'}</span>
                               </div>
                               {player.virtualIp && peerConnTypes[player.virtualIp] && (
                                 <span
@@ -1913,7 +1912,6 @@ export const MiniWindow: React.FC = () => {
       <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
 
       {/* 共享剪贴板接收弹窗（全局） */}
-      <ClipboardReceiver />
 
 
       {/* 房主管理面板 */}

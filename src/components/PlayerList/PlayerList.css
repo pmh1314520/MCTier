@@ -62,6 +62,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(17, 153, 142, 0.18);
+  border: 1px solid rgba(17, 153, 142, 0.36);
+}
+
+.player-initial {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* 玩家信息 */

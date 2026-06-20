@@ -66,7 +66,11 @@ export function fetchPublicLobbies(signalingServer?: string, timeoutMs = 8000): 
             settled = true;
             window.clearTimeout(timer);
             cleanup();
-            resolve(Array.isArray(msg.lobbies) ? msg.lobbies : []);
+            const lobbies = Array.isArray(msg.lobbies) ? msg.lobbies : [];
+            resolve(lobbies.map((lobby: any) => ({
+              ...lobby,
+              description: String(lobby.description ?? lobby.desc ?? ''),
+            })));
           }
         }
       } catch {

@@ -1073,6 +1073,11 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   label={tl('服务器节点', 'Server Node')}
                   name="serverNode"
                   rules={[{ required: true, message: tl('请选择服务器节点', 'Please select a server node') }]}
+                  extra={
+                    <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                      {tl('双方需选同一节点', 'Both must pick the same node')}
+                    </span>
+                  }
                 >
                   <Select 
                     size="large" 

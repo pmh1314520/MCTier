@@ -7,7 +7,7 @@ const val DefaultEasyTierNode = "udp://us01.225284.xyz:11010"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
-const val AppClientVersion = "2.0.0"
+const val AppClientVersion = "2.1.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 
@@ -111,6 +111,7 @@ data class UserSettings(
     val customSoundJoin: String = "",     // 玩家加入提示音 URI
     val customSoundLeave: String = "",    // 玩家离开提示音 URI
     val soundVolume: Float = 1.0f,        // 提示音音量 0.0~1.0
+    val soundMuted: Boolean = false,      // 提示音禁音开关
     // —— 消息免打扰时段（开启后，时段内不播放任何提示音）——
     val dndEnabled: Boolean = false,
     val dndStartMinutes: Int = 22 * 60,   // 起始（自 00:00 起的分钟数），默认 22:00
@@ -271,21 +272,8 @@ data class TodoItem(
     val ts: Long = 0L,         // 时间戳(毫秒)
 )
 
-/** 收到的共享剪贴板（UI 弹窗展示用） */
-data class ClipboardShare(val from: String, val text: String, val ts: Long)
-
 /** 邀请 deep link 解析结果（mctier://join?name=&pwd=），用于预填加入表单 */
 data class DeepLinkJoin(val name: String, val pwd: String)
-
-/** 白板笔画（与桌面端字段一致，坐标 0~1 归一化） */
-@Serializable
-data class WhiteboardStroke(
-    val op: String = "stroke",
-    val id: String,
-    val color: String,
-    val width: Int,
-    val points: List<List<Float>>,
-)
 
 /** 最近进入的大厅（本地存储） */
 @Serializable

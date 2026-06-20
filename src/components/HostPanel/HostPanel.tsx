@@ -35,14 +35,16 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
   const [pub, setPub] = useState<boolean>(isPublicLobby);
   const [desc, setDesc] = useState<string>('');
   const [announceDraft, setAnnounceDraft] = useState<string>('');
+  const descStorageKey = lobby?.name ? `mctier_lobby_description_${lobby.name}` : '';
 
   useEffect(() => {
     if (visible) {
       setMaxValue(maxPlayers ?? 0);
       setPub(isPublicLobby);
+      setDesc(descStorageKey ? (localStorage.getItem(descStorageKey) || '') : '');
       setAnnounceDraft(announcement);
     }
-  }, [visible, maxPlayers, isPublicLobby, announcement]);
+  }, [visible, maxPlayers, isPublicLobby, announcement, descStorageKey]);
 
   // 当前在线人数（含自己）= 其他玩家 + 1
   const currentCount = players.length + 1;
@@ -59,6 +61,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
 
   const applyPublic = (checked: boolean) => {
     setPub(checked);
+    if (descStorageKey) localStorage.setItem(descStorageKey, desc);
     webrtcClient.setLobbyOptions({
       isPublic: checked,
       description: desc,
@@ -101,8 +104,14 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
           </Paragraph>
           <TextArea
             value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            onBlur={() => { if (pub) webrtcClient.setLobbyOptions({ isPublic: true, description: desc, password: lobby?.password || '' }); }}
+            onChange={(e) => {
+              setDesc(e.target.value);
+              if (descStorageKey) localStorage.setItem(descStorageKey, e.target.value);
+            }}
+            onBlur={() => {
+              if (descStorageKey) localStorage.setItem(descStorageKey, desc);
+              if (pub) webrtcClient.setLobbyOptions({ isPublic: true, description: desc, password: lobby?.password || '' });
+            }}
             placeholder={tl('可选：填写大厅描述（如玩法、版本），展示在广场上', 'Optional: lobby description (mode, version) shown in the plaza')}
             autoSize={{ minRows: 2, maxRows: 4 }}
             maxLength={100}

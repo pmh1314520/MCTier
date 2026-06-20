@@ -1,7 +1,9 @@
 package top.pmh13.mctier.network
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +45,7 @@ class AndroidRtcController(private val context: Context) {
     private var sendSignal: ((SignalingEnvelope) -> Unit)? = null
     private val peerConnections = linkedMapOf<String, PeerConnection>()
     private val remoteAudioTracks = linkedMapOf<String, AudioTrack>()
+    private val pendingIceCandidates = linkedMapOf<String, MutableList<IceCandidate>>()
     private val playerVolumes = linkedMapOf<String, Double>() // 0.0 ~ 1.0
     private var globalMuted = false
 
@@ -137,8 +140,16 @@ class AndroidRtcController(private val context: Context) {
             // 显式配置音频设备模块：使用语音通话采集模式 + 硬件回声消除/降噪，
             // 保证麦克风采集(发送方向)可靠工作（修“手机开麦电脑听不到”）
             val adm = JavaAudioDeviceModule.builder(context)
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
+                .setUseLowLatency(true)
                 .createAudioDeviceModule()
             factory = PeerConnectionFactory.builder()
                 .setOptions(options)
@@ -148,7 +159,6 @@ class AndroidRtcController(private val context: Context) {
         }
         // 进大厅时不强制进入通话模式（通话模式会压低媒体音效音量、走听筒）；
         // 仅在真正开麦时才切到通话模式，保证平时提示音/语音外放够响亮
-        startStatsLoop()
         startStatsLoop()
         startAudioModeGuard()
         // 始终创建本地音频轨（默认禁用），保证连接含音频 m-line，可双向收发
@@ -220,11 +230,17 @@ class AndroidRtcController(private val context: Context) {
 
     fun ensurePeer(remotePlayerId: String): PeerConnection? {
         peerConnections[remotePlayerId]?.let { return it }
+        val iceServers = listOf(
+            PeerConnection.IceServer.builder("stun:stun.qq.com:3478").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.miwifi.com:3478").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+        )
         val connection = factory?.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply {
+            PeerConnection.RTCConfiguration(iceServers).apply {
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
                 rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             },
             object : PeerConnection.Observer {
                 override fun onIceCandidate(candidate: IceCandidate) {
@@ -285,6 +301,7 @@ class AndroidRtcController(private val context: Context) {
     fun removePeer(playerId: String) {
         peerConnections.remove(playerId)?.close()
         remoteAudioTracks.remove(playerId)
+        pendingIceCandidates.remove(playerId)
         playerVolumes.remove(playerId)
     }
 
@@ -298,6 +315,7 @@ class AndroidRtcController(private val context: Context) {
         peerConnections.values.forEach { runCatching { it.close() } }
         peerConnections.clear()
         remoteAudioTracks.clear()
+        pendingIceCandidates.clear()
         audioLevels.clear()
         _speakingPlayers.value = emptySet()
     }
@@ -312,6 +330,7 @@ class AndroidRtcController(private val context: Context) {
         peerConnections.values.forEach { it.close() }
         peerConnections.clear()
         remoteAudioTracks.clear()
+        pendingIceCandidates.clear()
         playerVolumes.clear()
         localAudioTrack?.dispose()
         audioSource?.dispose()
@@ -326,7 +345,11 @@ class AndroidRtcController(private val context: Context) {
         val from = message.from ?: return
         val offer = message.offer ?: return
         val pc = ensurePeer(from) ?: return
-        pc.setRemoteDescription(SimpleSdpObserver(), SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
+        pc.setRemoteDescription(object : SimpleSdpObserver() {
+            override fun onSetSuccess() {
+                flushPendingIce(from, pc)
+            }
+        }, SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
         pc.createAnswer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(desc: SessionDescription) {
                 pc.setLocalDescription(SimpleSdpObserver(), desc)
@@ -345,13 +368,33 @@ class AndroidRtcController(private val context: Context) {
     private fun handleAnswer(message: SignalingEnvelope) {
         val from = message.from ?: return
         val answer = message.answer ?: return
-        peerConnections[from]?.setRemoteDescription(SimpleSdpObserver(), SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
+        peerConnections[from]?.let { pc ->
+            pc.setRemoteDescription(object : SimpleSdpObserver() {
+                override fun onSetSuccess() {
+                    flushPendingIce(from, pc)
+                }
+            }, SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
+        }
     }
 
     private fun handleIce(message: SignalingEnvelope) {
         val from = message.from ?: return
         val candidate = message.candidate ?: return
-        peerConnections[from]?.addIceCandidate(IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate))
+        val ice = IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate)
+        val pc = peerConnections[from]
+        if (pc == null) {
+            pendingIceCandidates.getOrPut(from) { mutableListOf() }.add(ice)
+        } else {
+            runCatching { pc.addIceCandidate(ice) }
+                .onFailure { pendingIceCandidates.getOrPut(from) { mutableListOf() }.add(ice) }
+        }
+    }
+
+    private fun flushPendingIce(playerId: String, pc: PeerConnection) {
+        val pending = pendingIceCandidates.remove(playerId).orEmpty()
+        pending.forEach { candidate ->
+            runCatching { pc.addIceCandidate(candidate) }
+        }
     }
 
     private companion object {

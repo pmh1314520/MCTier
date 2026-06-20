@@ -973,56 +973,19 @@ pub async fn set_window_opacity(
     opacity: f64,
     window: tauri::Window,
 ) -> Result<(), String> {
-    log::info!("设置窗口透明度: {}", opacity);
-    
-    // 限制透明度范围在 0.3 到 1.0 之间
     let clamped_opacity = opacity.max(0.3).min(1.0);
-    
-    // 在Windows上设置真实的窗口透明度
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW,
-            GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA
-        };
-        
-        if let Ok(hwnd) = window.hwnd() {
-            let hwnd = HWND(hwnd.0 as *mut _);
-            let alpha = (clamped_opacity * 255.0) as u8;
-            
-            unsafe {
-                // 确保窗口有 WS_EX_LAYERED 样式
-                let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
-                    SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
-                    log::info!("已添加 WS_EX_LAYERED 样式");
-                }
-                
-                if let Err(e) = SetLayeredWindowAttributes(
-                    hwnd,
-                    windows::Win32::Foundation::COLORREF(0),
-                    alpha,
-                    LWA_ALPHA,
-                ) {
-                    log::error!("设置Windows窗口透明度失败: {:?}", e);
-                    return Err(format!("设置窗口透明度失败: {:?}", e));
-                }
-            }
-            
-            log::info!("Windows窗口透明度已设置为: {} (alpha: {})", clamped_opacity, alpha);
-        }
-    }
-    
-    // 同时发送事件到前端，让前端通过 CSS 控制UI透明度
+
+    // 注意：不再使用 WS_EX_LAYERED + SetLayeredWindowAttributes(LWA_ALPHA)。
+    // 该方式会用“整窗统一 alpha”覆盖 Tauri 的逐像素真透明（transparent:true），
+    // 导致窗口无法真正透明（圆角/留白处看不到桌面）。
+    // 透明度改由前端 CSS（.mini-window 背景 rgba 的 alpha）实现，可保留真透明。
+    // 这里仅广播事件，保持兼容。
     window
         .emit("opacity-changed", clamped_opacity)
         .map_err(|e| format!("发送透明度事件失败: {}", e))?;
-    
-    log::info!("窗口透明度已设置为: {}", clamped_opacity);
-    
     Ok(())
 }
+
 
 // ==================== WebRTC 语音通信命令 ====================
 

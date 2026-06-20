@@ -34,32 +34,17 @@ export const zh = {
     title: '房间小工具',
     dice: '掷骰子',
     timer: '倒计时',
-    todo: '待办协同',
-    clipboard: '共享剪贴板',
-    whiteboard: '共享白板',
-    shareToTeam: '共享给全队',
-    readClipboard: '读取本机剪贴板',
-    clearBoard: '清空白板',
-    assignTo: '分配给',
-    unassigned: '未分配',
-    addTodoPlaceholder: '添加一条待办事项，回车确认（全队同步）',
+    todo: '\u4e2a\u4eba\u5f85\u529e',
+    addTodoPlaceholder: '\u6dfb\u52a0\u4e00\u6761\u4e2a\u4eba\u5f85\u529e\uff0c\u56de\u8f66\u786e\u8ba4',
     add: '添加',
     emptyTodo: '还没有待办事项，添加一条试试～',
     remaining: '剩余 {{count}} 项待完成',
-    clearDone: '清除已完成',
-    clipPlaceholder: '输入要同步给全队的文本（坐标、指令、种子号等）',
-    clipHint: '全队成员会收到提示，可一键复制到自己的剪贴板。',
+    clearDone: '清除已完成',
     localRoll: '本地掷骰',
     rollBroadcast: '掷骰并广播',
     startTimer: '开始倒计时',
     stop: '停止',
-  },
-  clipboard: {
-    received: '收到共享剪贴板',
-    from: '来自 {{name}}',
-    copyToClipboard: '复制到剪贴板',
-    copied: '已复制到剪贴板',
-  },
+  },
   stats: {
     title: '数据统计',
     totalOnline: '累计联机时长',

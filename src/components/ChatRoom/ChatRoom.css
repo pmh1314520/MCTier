@@ -71,7 +71,7 @@
   max-width: 80%;
   animation: slideIn 0.3s ease-out;
   position: relative;
-  margin-bottom: 32px;
+  margin-bottom: 8px;
 }
 
 @keyframes slideIn {
@@ -126,6 +126,13 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+.message-avatar span {
+  font-size: 14px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1;
+}
+
 .message-author-outside {
   position: absolute;
   top: -18px;
@@ -157,6 +164,21 @@
 }
 
 /* 图片消息：去掉气泡背景/内边距/尾巴，直接圆角展示图片本身 */
+.message-bubble-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+
+.chat-message.own .message-bubble-stack {
+  align-items: flex-end;
+}
+
+.chat-message.other .message-bubble-stack {
+  align-items: flex-start;
+}
+
 .message-content.message-content-image,
 .chat-message.own .message-content.message-content-image,
 .chat-message.other .message-content.message-content-image {
@@ -209,18 +231,17 @@
   border-color: transparent rgba(60, 60, 70, 0.6) transparent transparent;
 }
 
-.message-time-outside {
-  position: absolute;
-  bottom: -18px;
-  left: 0;
+.message-time-below {
+  display: block;
+  margin-top: 2px;
   font-size: 10px;
+  line-height: 10px;
   color: rgba(255, 255, 255, 0.4);
   white-space: nowrap;
 }
 
-.chat-message.own .message-time-outside {
-  left: auto;
-  right: 0;
+.chat-message.own .message-time-below {
+  text-align: right;
 }
 
 .new-message-indicator {
@@ -274,6 +295,8 @@
   gap: 8px;
   align-items: flex-end;
   flex: 1;
+  width: 100%;
+  min-width: 0;
 }
 
 /* 表情包按钮和图片按钮统一样式 */
@@ -365,6 +388,7 @@
   align-items: center;
   gap: 20px;
   cursor: default;
+  overflow: hidden;
 }
 
 .image-preview-content img {
@@ -373,11 +397,23 @@
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s ease;
+  transform-origin: center center;
 }
 
 .image-preview-actions {
   display: flex;
   gap: 12px;
+}
+
+.image-preview-actions button {
+  min-width: 40px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(30, 30, 40, 0.86);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
 }
 
 /* Emoji选择器容器 */
@@ -551,16 +587,26 @@
   border-left-color: rgba(6, 33, 10, 0.5);
 }
 .message-reply-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   background: transparent;
   border: none;
   color: rgba(255, 255, 255, 0.35);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 4px;
   opacity: 0;
   transition: opacity 0.15s ease, color 0.15s ease;
-  align-self: center;
+  z-index: 4;
 }
+
+.chat-message.own .message-reply-btn { left: -28px; }
+.chat-message.other .message-reply-btn { right: -28px; }
 .chat-message:hover .message-reply-btn { opacity: 1; }
+.message-content-image:hover + .message-reply-btn,
+.message-reply-btn:focus-visible {
+  opacity: 1;
+}
 .message-reply-btn:hover { color: #52C41A; }
 
 .reply-preview {
@@ -571,6 +617,13 @@
   margin-bottom: 8px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.reply-preview-above-input {
+  width: calc(100% - 32px);
+  margin: 0 16px 8px;
 }
 .reply-preview-bar { width: 3px; height: 30px; border-radius: 2px; background: #52C41A; }
 .reply-preview-body { flex: 1; min-width: 0; }
@@ -580,7 +633,24 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .reply-preview-close {
-  background: transparent; border: none; color: rgba(255, 255, 255, 0.5);
-  font-size: 18px; cursor: pointer; padding: 0 6px; line-height: 1;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.reply-preview-close:hover { color: #fff; }
+.reply-preview-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}

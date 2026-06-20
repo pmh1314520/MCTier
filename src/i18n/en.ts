@@ -34,32 +34,17 @@ export const en = {
     title: 'Room Tools',
     dice: 'Dice',
     timer: 'Timer',
-    todo: 'Shared To-Do',
-    clipboard: 'Shared Clipboard',
-    whiteboard: 'Whiteboard',
-    shareToTeam: 'Share to Team',
-    readClipboard: 'Read System Clipboard',
-    clearBoard: 'Clear Board',
-    assignTo: 'Assign to',
-    unassigned: 'Unassigned',
-    addTodoPlaceholder: 'Add a task, press Enter (synced to team)',
+    todo: 'Personal To-Do',
+    addTodoPlaceholder: 'Add a personal task, press Enter',
     add: 'Add',
     emptyTodo: 'No tasks yet. Add one to get started!',
     remaining: '{{count}} task(s) remaining',
-    clearDone: 'Clear Done',
-    clipPlaceholder: 'Text to share with the team (coords, commands, seeds...)',
-    clipHint: 'Teammates get a prompt and can copy it with one tap.',
+    clearDone: 'Clear Done',
     localRoll: 'Roll Locally',
     rollBroadcast: 'Roll & Broadcast',
     startTimer: 'Start Timer',
     stop: 'Stop',
-  },
-  clipboard: {
-    received: 'Shared Clipboard Received',
-    from: 'From {{name}}',
-    copyToClipboard: 'Copy to Clipboard',
-    copied: 'Copied to clipboard',
-  },
+  },
   stats: {
     title: 'Statistics',
     totalOnline: 'Total Online Time',

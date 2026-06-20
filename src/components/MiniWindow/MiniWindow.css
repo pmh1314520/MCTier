@@ -461,6 +461,19 @@
   color: #a0a0a0;
 }
 
+.mini-player-initial {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .player-details {
   display: flex;
   flex-direction: column;

@@ -29,6 +29,8 @@ class SoundManager(private val context: Context) {
 
     fun applySettings(s: UserSettings) { settings = s }
 
+    fun isSoundMuted(): Boolean = settings.soundMuted
+
     private val audioManager: AudioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -111,13 +113,13 @@ class SoundManager(private val context: Context) {
     }
 
     /** 收到新聊天消息 */
-    fun message() = playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg)
+    fun message() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg) }
 
     /** 有玩家加入大厅 */
-    fun playerJoin() = playCustomOrDefault(settings.customSoundJoin, R.raw.user_joined)
+    fun playerJoin() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundJoin, R.raw.user_joined) }
 
     /** 有玩家离开大厅 */
-    fun playerLeave() = playCustomOrDefault(settings.customSoundLeave, R.raw.user_left)
+    fun playerLeave() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundLeave, R.raw.user_left) }
 
     fun previewMessage() = playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg, ignoreDnd = true)
 

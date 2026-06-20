@@ -167,6 +167,23 @@ fn ensure_window_visible(window: &tauri::Window) {
     }
 }
 
+fn restore_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        #[cfg(target_os = "windows")]
+        if let Ok(hwnd) = window.hwnd() {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_RESTORE};
+            unsafe {
+                let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_RESTORE);
+            }
+        }
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 在应用启动时检查并应用 GPU 设置
@@ -210,12 +227,7 @@ pub fn run() {
             if let Some(url) = argv.iter().find(|a| a.starts_with("mctier://")) {
                 let _ = app.emit("deep-link-join", url.clone());
             }
-            // 聚焦主窗口
-            use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.set_focus();
-                let _ = w.show();
-            }
+            restore_main_window(app);
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
@@ -267,6 +279,36 @@ pub fn run() {
             info!("Tauri 应用设置完成");
             println!("🚀 [Setup] Tauri 应用设置开始");
             let app_handle = app.handle().clone();
+            {
+                use tauri::menu::{MenuBuilder, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                let show_item = MenuItem::with_id(app, "show_main", "Show MCTier", true, None::<&str>)?;
+                let exit_item = MenuItem::with_id(app, "exit_app", "Exit MCTier", true, None::<&str>)?;
+                let tray_menu = MenuBuilder::new(app)
+                    .item(&show_item)
+                    .separator()
+                    .item(&exit_item)
+                    .build()?;
+                TrayIconBuilder::with_id("main-tray")
+                    .tooltip("MCTier")
+                    .icon(app.default_window_icon().cloned().unwrap())
+                    .menu(&tray_menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "show_main" => restore_main_window(app),
+                        "exit_app" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
+                            | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event
+                        {
+                            restore_main_window(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
+
 
             // 邀请 deep link：注册运行时 scheme 并监听冷启动/运行时打开的链接
             {
@@ -411,15 +453,15 @@ pub fn run() {
                 {
                     use windows::Win32::Foundation::HWND;
                     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
-                    use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LWA_ALPHA, GWL_EXSTYLE, WS_EX_LAYERED, GetWindowLongW, SetWindowLongW};
+                    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, GetWindowLongW, SetWindowLongW};
                     if let Ok(hwnd) = window.hwnd() {
                         let hwnd = HWND(hwnd.0 as *mut _);
                         unsafe {
                             let dm: i32 = 1;
                             let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dm as *const _ as *const _, std::mem::size_of::<i32>() as u32);
                             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                            SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as i32);
-                            let _ = SetLayeredWindowAttributes(hwnd, windows::Win32::Foundation::COLORREF(0), 255, LWA_ALPHA);
+                            let fixed_ex = (ex | WS_EX_APPWINDOW.0 as i32) & !(WS_EX_TOOLWINDOW.0 as i32);
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, fixed_ex);
                         }
                     }
                 }

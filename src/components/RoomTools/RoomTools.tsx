@@ -9,20 +9,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, Button, InputNumber, Select, Input, Space, Typography, Checkbox, message } from 'antd';
-import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { useAppStore } from '../../stores';
 import type { TodoItem } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { countdownService } from '../../services/roomtools/countdownService';
-import { Whiteboard } from '../Whiteboard/Whiteboard';
 import type { ChatMessage } from '../../types';
 import './RoomTools.css';
 
 const { Text } = Typography;
-
-const CLIP_MAX = 4000;
 
 interface RoomToolsProps {
   visible: boolean;
@@ -32,14 +28,11 @@ interface RoomToolsProps {
 const popupContainer = (triggerNode: HTMLElement) =>
   (triggerNode.parentElement as HTMLElement) || document.body;
 
-const modalPopupContainer = () => document.body;
-
 export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
   const currentPlayerId = useAppStore((s) => s.currentPlayerId);
   const config = useAppStore((s) => s.config);
-  const addChatMessage = useAppStore((s) => s.addChatMessage);
-  const players = useAppStore((s) => s.players);
+  const addChatMessage = useAppStore((s) => s.addChatMessage);
   const todos = useAppStore((s) => s.todos);
   const setTodos = useAppStore((s) => s.setTodos);
 
@@ -122,15 +115,14 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   // ===== 待办清单（多人协同）=====
   const [newTodo, setNewTodo] = useState('');
 
-  const broadcastTodos = (items: TodoItem[]) => {
+  const commitTodos = (items: TodoItem[]) => {
     setTodos(items);
-    void p2pChatService.sendControlMessage('todo', JSON.stringify(items));
   };
 
   const addTodo = () => {
     const text = newTodo.trim();
     if (!text) return;
-    broadcastTodos([
+    commitTodos([
       ...todos,
       { id: `todo-${currentPlayerId || 'me'}-${Date.now()}`, text, done: false, assignee: '', creator: myName, ts: Date.now() },
     ]);
@@ -138,67 +130,19 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
   };
 
   const toggleTodo = (id: string) => {
-    broadcastTodos(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+    commitTodos(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   };
 
   const removeTodo = (id: string) => {
-    broadcastTodos(todos.filter((t) => t.id !== id));
-  };
-
-  const assignTodo = (id: string, assignee: string) => {
-    broadcastTodos(todos.map((t) => (t.id === id ? { ...t, assignee } : t)));
+    commitTodos(todos.filter((t) => t.id !== id));
   };
 
   const clearDone = () => {
-    broadcastTodos(todos.filter((t) => !t.done));
+    commitTodos(todos.filter((t) => !t.done));
   };
 
   // ===== 共享剪贴板 =====
-  const [clipText, setClipText] = useState('');
-  const [sendingClip, setSendingClip] = useState(false);
-
-  const readSystemClipboard = async () => {
-    try {
-      const t = await readText();
-      if (t) {
-        setClipText(t.slice(0, CLIP_MAX));
-        message.success(tl('已读取本机剪贴板', 'Read from local clipboard'));
-      } else {
-        message.info(tl('本机剪贴板为空', 'Local clipboard is empty'));
-      }
-    } catch {
-      message.error(tl('读取剪贴板失败', 'Failed to read clipboard'));
-    }
-  };
-
-  const sendClipboard = async () => {
-    const text = clipText.trim();
-    if (!text) {
-      message.warning(tl('请输入要共享的内容', 'Please enter content to share'));
-      return;
-    }
-    if (text.length > CLIP_MAX) {
-      message.warning(`内容过长，最多 ${CLIP_MAX} 字`);
-      return;
-    }
-    setSendingClip(true);
-    try {
-      await p2pChatService.sendControlMessage('clipboard', text);
-      message.success(tl('已共享给全队', 'Shared with the team'));
-      setClipText('');
-    } catch (e) {
-      message.error(`共享失败：${e}`);
-    } finally {
-      setSendingClip(false);
-    }
-  };
-
   const remainingCount = todos.filter((t) => !t.done).length;
-  const assigneeNames = Array.from(new Set([myName, ...players.map((p) => p.name)].filter(Boolean)));
-  const assigneeOptions = [
-    { value: '', label: t('roomTools.unassigned') },
-    ...assigneeNames.map((name) => ({ value: name, label: name })),
-  ];
 
   const diceTab = (
     <div style={{ padding: '8px 4px' }}>
@@ -270,16 +214,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
               <Checkbox checked={t.done} onChange={() => toggleTodo(t.id)}>
                 <span className="room-todo-text">{t.text}</span>
               </Checkbox>
-              <Select
-                size="small"
-                value={t.assignee || ''}
-                onChange={(v) => assignTodo(t.id, v)}
-                style={{ width: 96 }}
-                getPopupContainer={modalPopupContainer}
-                popupClassName="room-tools-select-dropdown"
-                dropdownStyle={{ zIndex: 3000 }}
-                options={assigneeOptions}
-              />
               <button className="room-todo-del" onClick={() => removeTodo(t.id)} title="删除">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -299,28 +233,6 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
       )}
     </div>
   );
-
-  const clipboardTab = (
-    <div style={{ padding: '8px 4px' }}>
-      <Input.TextArea
-        value={clipText}
-        onChange={(e) => setClipText(e.target.value)}
-        placeholder={t('roomTools.clipPlaceholder')}
-        autoSize={{ minRows: 4, maxRows: 8 }}
-        maxLength={CLIP_MAX}
-      />
-      <Space style={{ marginTop: 12 }}>
-        <Button onClick={() => void readSystemClipboard()}>{t('roomTools.readClipboard')}</Button>
-        <Button type="primary" loading={sendingClip} onClick={() => void sendClipboard()}>{t('roomTools.shareToTeam')}</Button>
-      </Space>
-      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-        {t('roomTools.clipHint')}
-      </Text>
-    </div>
-  );
-
-  const whiteboardTab = <Whiteboard active={visible} />;
-
   return (
     <Modal title={t('roomTools.title')} open={visible} onCancel={onClose} footer={null} width={600} centered className="room-tools-modal">
       <Tabs
@@ -330,9 +242,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose }) => {
         items={[
           { key: 'dice', label: t('roomTools.dice'), children: diceTab },
           { key: 'timer', label: t('roomTools.timer'), children: timerTab },
-          { key: 'todo', label: t('roomTools.todo'), children: todoTab },
-          { key: 'clipboard', label: t('roomTools.clipboard'), children: clipboardTab },
-          { key: 'whiteboard', label: t('roomTools.whiteboard'), children: whiteboardTab },
+          { key: 'todo', label: t('roomTools.todo'), children: todoTab },
         ]}
       />
     </Modal>

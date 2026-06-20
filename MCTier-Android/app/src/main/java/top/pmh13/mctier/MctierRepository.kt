@@ -52,9 +52,7 @@ import top.pmh13.mctier.data.RecentPlayer
 import top.pmh13.mctier.network.PublicLobbyClient
 import top.pmh13.mctier.network.UpdateChecker
 import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.builtins.serializer
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
@@ -101,14 +99,16 @@ data class MctierUiState(
     val announcement: String = "", // 大厅公告（房主设置，新人进入即见）
     val myVoiceGroup: Int = 0, // 我的语音小队（0=大厅公共，1~4=小队）
     val playerVoiceGroups: Map<String, Int> = emptyMap(), // 各玩家的语音小队
-    val incomingClipboard: top.pmh13.mctier.data.ClipboardShare? = null, // 收到的共享剪贴板
-    val whiteboardStrokes: List<top.pmh13.mctier.data.WhiteboardStroke> = emptyList(), // 白板笔画
     val pendingJoin: top.pmh13.mctier.data.DeepLinkJoin? = null, // deep link 预填加入信息
 )
 
 class MctierRepository(private val context: Context) {
     companion object {
         private const val TAG = "MctierRepository"
+        private const val MaxPlayerNameLength = 8
+
+        private fun normalizePlayerName(name: String): String =
+            name.replace(Regex("\\s+"), "").take(MaxPlayerNameLength)
 
         @Volatile
         private var INSTANCE: MctierRepository? = null
@@ -235,8 +235,9 @@ class MctierRepository(private val context: Context) {
     }
 
     fun updateSettings(settings: UserSettings) {
+        val normalizedSettings = settings.copy(playerName = normalizePlayerName(settings.playerName))
         prefs.edit {
-            putString("playerName", settings.playerName)
+            putString("playerName", normalizedSettings.playerName)
             putString("preferredServer", settings.preferredServer)
             putString("signalingServer", settings.signalingServer)
             putBoolean("useDomain", settings.useDomain)
@@ -263,6 +264,7 @@ class MctierRepository(private val context: Context) {
             putString("customSoundMsg", settings.customSoundMsg)
             putString("customSoundJoin", settings.customSoundJoin)
             putString("customSoundLeave", settings.customSoundLeave)
+            putBoolean("soundMuted", settings.soundMuted)
             putFloat("soundVolume", settings.soundVolume)
             putBoolean("dndEnabled", settings.dndEnabled)
             putInt("dndStartMinutes", settings.dndStartMinutes)
@@ -271,9 +273,9 @@ class MctierRepository(private val context: Context) {
             putString("themePrimary", settings.themePrimary)
             putString("language", settings.language)
         }
-        _state.update { it.copy(settings = settings) }
+        _state.update { it.copy(settings = normalizedSettings) }
         // 同步音量/自定义音到 SoundManager
-        soundManager.applySettings(settings)
+        soundManager.applySettings(normalizedSettings)
     }
 
     fun previewSound(kind: String) {
@@ -522,37 +524,6 @@ class MctierRepository(private val context: Context) {
             val g = wire.content.trim().toIntOrNull() ?: 0
             _state.update { it.copy(playerVoiceGroups = it.playerVoiceGroups + (wire.playerId to g)) }
             applyVoiceGroupRouting()
-            return
-        }
-        // 共享剪贴板控制消息：弹窗展示，不计入聊天、不播放提示音
-        if (wire.messageType == "clipboard") {
-            val fromName = wire.playerName.ifBlank {
-                _state.value.players.firstOrNull { it.id == wire.playerId }?.name ?: "玩家"
-            }
-            _state.update { it.copy(incomingClipboard = top.pmh13.mctier.data.ClipboardShare(fromName, wire.content, wire.timestamp * 1000)) }
-            return
-        }
-        // 待办协同控制消息：用收到的列表覆盖本地（后写覆盖），不计入聊天、不播放提示音
-        if (wire.messageType == "todo") {
-            runCatching {
-                val list = MctierJson.decodeFromString(ListSerializer(TodoItem.serializer()), wire.content)
-                saveTodos(list)
-                _state.update { it.copy(todos = list) }
-            }
-            return
-        }
-        // 白板控制消息：解析单笔画/清空指令，不计入聊天、不播放提示音
-        if (wire.messageType == "whiteboard") {
-            runCatching {
-                val obj = MctierJson.parseToJsonElement(wire.content).jsonObject
-                val op = obj["op"]?.jsonPrimitive?.content ?: "stroke"
-                if (op == "clear") {
-                    _state.update { it.copy(whiteboardStrokes = emptyList()) }
-                } else {
-                    val stroke = MctierJson.decodeFromString(top.pmh13.mctier.data.WhiteboardStroke.serializer(), wire.content)
-                    _state.update { it.copy(whiteboardStrokes = it.whiteboardStrokes + stroke) }
-                }
-            }
             return
         }
         val base64 = wire.imageData?.let { data ->
@@ -1253,8 +1224,7 @@ class MctierRepository(private val context: Context) {
     /** 提交并广播待办列表（后写覆盖），全队同步 */
     private fun commitTodos(list: List<TodoItem>) {
         saveTodos(list)
-        _state.update { it.copy(todos = list) }
-        chatClient?.sendTodos(_state.value.settings.playerName, MctierJson.encodeToString(ListSerializer(TodoItem.serializer()), list))
+        _state.update { it.copy(todos = list) }
     }
 
     fun addTodo(text: String) {
@@ -1276,27 +1246,11 @@ class MctierRepository(private val context: Context) {
         commitTodos(_state.value.todos.filterNot { it.id == id })
     }
 
-    fun assignTodo(id: String, assignee: String) {
-        commitTodos(_state.value.todos.map { if (it.id == id) it.copy(assignee = assignee) else it })
-    }
-
     fun clearDoneTodos() {
         commitTodos(_state.value.todos.filterNot { it.done })
     }
 
     // ==================== 房间工具：共享剪贴板 ====================
-    /** 把文本共享给全队 */
-    fun shareClipboard(text: String) {
-        val t = text.trim()
-        if (t.isEmpty() || t.length > 4000) return
-        chatClient?.sendClipboard(_state.value.settings.playerName, t)
-    }
-
-    /** 关闭收到的共享剪贴板弹窗 */
-    fun dismissIncomingClipboard() {
-        _state.update { it.copy(incomingClipboard = null) }
-    }
-
     // ==================== 邀请 Deep Link ====================
     /** 解析 deep link 并预填加入信息（仅填表，不自动连接） */
     fun applyDeepLink(name: String, pwd: String) {
@@ -1310,18 +1264,6 @@ class MctierRepository(private val context: Context) {
     }
 
     // ==================== 房间工具：共享白板 ====================
-    /** 本地添加一笔并广播 */
-    fun addWhiteboardStroke(stroke: top.pmh13.mctier.data.WhiteboardStroke) {
-        _state.update { it.copy(whiteboardStrokes = it.whiteboardStrokes + stroke) }
-        chatClient?.sendWhiteboard(_state.value.settings.playerName, MctierJson.encodeToString(top.pmh13.mctier.data.WhiteboardStroke.serializer(), stroke))
-    }
-
-    /** 清空白板并广播 */
-    fun clearWhiteboard() {
-        _state.update { it.copy(whiteboardStrokes = emptyList()) }
-        chatClient?.sendWhiteboard(_state.value.settings.playerName, "{\"op\":\"clear\"}")
-    }
-
     // ==================== 数据统计（纯本地） ====================
     private fun bucketOf(ts: Long): Int {
         val h = java.util.Calendar.getInstance().apply { timeInMillis = ts }.get(java.util.Calendar.HOUR_OF_DAY)
@@ -1449,7 +1391,7 @@ class MctierRepository(private val context: Context) {
             model.startsWith(manufacturer, ignoreCase = true) -> model
             else -> "$manufacturer $model"
         }.trim()
-        return name.ifBlank { UserSettings().playerName }.take(18)
+        return normalizePlayerName(name.ifBlank { UserSettings().playerName })
     }
 
     private fun storedPlayerNameOrDeviceName(): String {
@@ -1458,7 +1400,7 @@ class MctierRepository(private val context: Context) {
         return if (saved.isNullOrBlank() || saved == oldDefault || saved == "Android 玩家") {
             defaultDevicePlayerName()
         } else {
-            saved
+            normalizePlayerName(saved)
         }
     }
 
@@ -1490,6 +1432,7 @@ class MctierRepository(private val context: Context) {
         customSoundMsg = prefs.getString("customSoundMsg", null).orEmpty(),
         customSoundJoin = prefs.getString("customSoundJoin", null).orEmpty(),
         customSoundLeave = prefs.getString("customSoundLeave", null).orEmpty(),
+        soundMuted = prefs.getBoolean("soundMuted", false),
         soundVolume = prefs.getFloat("soundVolume", 1.0f),
         dndEnabled = prefs.getBoolean("dndEnabled", false),
         dndStartMinutes = prefs.getInt("dndStartMinutes", 22 * 60),

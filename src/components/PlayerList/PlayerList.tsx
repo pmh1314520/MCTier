@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, Empty, Slider } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
-import { MicrophoneIcon, VolumeIcon, PlayerIcon } from '../icons';
+import { MicrophoneIcon, VolumeIcon } from '../icons';
 import { useAppStore } from '../../stores';
 import './PlayerList.css';
 
@@ -55,6 +55,8 @@ export const PlayerList: React.FC = () => {
     setExpandedPlayerId(expandedPlayerId === playerId ? null : playerId);
   };
 
+  const getInitial = (name: string) => (Array.from((name || '?').trim())[0] || '?').toUpperCase();
+
   if (players.length === 0) {
     return (
       <div className="player-list-empty">
@@ -98,7 +100,7 @@ export const PlayerList: React.FC = () => {
                 animate={{ scale: 1 }}
                 transition={{ delay: index * 0.05 + 0.1, type: 'spring', stiffness: 500 }}
               >
-                <PlayerIcon online={true} size={20} />
+                <span className="player-initial">{getInitial(player.name)}</span>
               </motion.div>
 
               <div className="player-item-info">

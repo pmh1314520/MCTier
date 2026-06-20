@@ -25,7 +25,6 @@ const CHAT_SERVER_PORT = 14540;
 class P2PChatService {
   private selfEventSource: EventSource | null = null; // 仅订阅“自己”的消息流
   private selfReconnectTimer: number | null = null;
-  private reconcileTimer: number | null = null; // 周期性对账拉取定时器（补偿推送失败的消息）
   private isListening: boolean = false;
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
@@ -33,7 +32,6 @@ class P2PChatService {
   private myVirtualIp: string = ''; // 本机虚拟IP，用于连接本机聊天服务器
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
-  private lastMessageTs: number = 0; // 已处理消息的最大时间戳(秒)，用于断线重连后按 since 补拉
 
   /**
    * 初始化服务
@@ -71,84 +69,16 @@ class P2PChatService {
     this.onMessageCallback = callback;
   }
 
-  /**
-   * 开始监听消息（使用SSE）
-   *
-   * 【修复】只订阅“自己”的本机聊天流。其他玩家通过 HTTP POST 把消息发送到本机的
-   * /api/chat/send，本机服务器再把消息广播到本机 SSE 订阅者（也就是自己），
-   * 从而保证一定能收到别人发来的消息（旧逻辑订阅其他人的流，在 2 人大厅时收不到消息）。
-   */
   startPolling(): void {
-    // 幂等：已经在监听且连接正常时，不重复建立连接（避免玩家列表变化时频繁断开重连）
     if (
       this.isListening &&
       this.selfEventSource &&
       this.selfEventSource.readyState !== EventSource.CLOSED
     ) {
-      console.log('ℹ️ [P2PChatService] 已在监听自身消息流，跳过重复建立');
       return;
     }
-
-    console.log('✅ [P2PChatService] 开始监听消息（订阅本机消息流，SSE事件驱动）');
     this.isListening = true;
     this.connectToSelfStream();
-    // 同时启动周期性对账拉取，作为推送失败/SSE 抖动时的兜底，确保消息最终一致
-    this.startReconcileLoop();
-  }
-
-  /**
-   * 启动周期性对账拉取（关键可靠性保障）
-   *
-   * 发送方是「一次性 HTTP 推送」，若某次推送因瞬时网络抖动/对端服务器未就绪而失败，
-   * 接收方将永久收不到那条消息（SSE 重连补拉只查本机，补不回从未到达的消息）。
-   * 由于每个发送方都会把自己发的消息存在本机，这里周期性地从所有 peer 拉取最近窗口的
-   * 消息（按已见最大时间戳回退一个窗口），交给 handleMessage（按 ID 去重），
-   * 即可把任何推送失败的消息补回来。窗口化拉取避免每轮重复全量传输图片。
-   */
-  private startReconcileLoop(): void {
-    if (this.reconcileTimer) return;
-    this.reconcileTimer = window.setInterval(() => {
-      void this.reconcileOnce();
-    }, 3000); // 每 3 秒对账一次（兜底实时推送失败，缩短控制消息/白板同步延迟）
-  }
-
-  private stopReconcileLoop(): void {
-    if (this.reconcileTimer) {
-      clearInterval(this.reconcileTimer);
-      this.reconcileTimer = null;
-    }
-  }
-
-  /**
-   * 执行一次对账：并发从所有 peer 拉取最近窗口的消息并按 ID 去重补入
-   */
-  private async reconcileOnce(): Promise<void> {
-    const ips = this.peerIps.filter((ip) => ip && ip !== this.myVirtualIp);
-    if (ips.length === 0) return;
-
-    // 以「已见最大时间戳」回退 20 秒为窗口，覆盖瞬时失败；ID 去重保证不重复回调。
-    const sinceSec = this.lastMessageTs > 20 ? this.lastMessageTs - 20 : 0;
-
-    const collected: BackendChatMessage[] = [];
-    await Promise.all(
-      ips.map(async (ip) => {
-        try {
-          const url = `http://${ip}:${CHAT_SERVER_PORT}/api/chat/messages${sinceSec > 0 ? `?since=${sinceSec}` : ''}`;
-          const resp = await fetch(url);
-          if (!resp.ok) return;
-          const msgs: BackendChatMessage[] = await resp.json();
-          if (Array.isArray(msgs)) collected.push(...msgs);
-        } catch {
-          // 单个 peer 拉取失败忽略，下一轮继续
-        }
-      })
-    );
-
-    if (collected.length === 0) return;
-    collected.sort((a, b) => a.timestamp - b.timestamp);
-    for (const m of collected) {
-      this.handleMessage(m);
-    }
   }
 
   /**
@@ -179,8 +109,6 @@ class P2PChatService {
 
       eventSource.onopen = () => {
         console.log('✅ [P2PChatService] 本机消息流已连接');
-        // 断线重连后，按 since 补拉断连期间错过的消息（去重保证不重复回调）
-        this.catchUpMissedMessages();
       };
 
       eventSource.onmessage = (event) => {
@@ -232,46 +160,15 @@ class P2PChatService {
   }
 
   /**
-   * 断线/Lagged 后，从本机服务器按 since 补拉错过的消息，交给 handleMessage（ID去重）
-   */
-  private async catchUpMissedMessages(): Promise<void> {
-    if (!this.myVirtualIp) return;
-    try {
-      const since = this.lastMessageTs;
-      const url = `http://${this.myVirtualIp}:${CHAT_SERVER_PORT}/api/chat/messages${since > 0 ? `?since=${since}` : ''}`;
-      const resp = await fetch(url);
-      if (!resp.ok) return;
-      const msgs: BackendChatMessage[] = await resp.json();
-      if (Array.isArray(msgs) && msgs.length > 0) {
-        console.log(`🔁 [P2PChatService] 重连补拉到 ${msgs.length} 条消息`);
-        // 按时间戳升序处理，保证顺序
-        msgs.sort((a, b) => a.timestamp - b.timestamp);
-        for (const m of msgs) {
-          this.handleMessage(m);
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ [P2PChatService] 补拉消息失败（忽略）:', error);
-    }
-  }
-
-  /**
    * 处理接收到的消息
    */
   private handleMessage(msg: BackendChatMessage): void {
-    // 记录已见到的最大时间戳(秒)，用于重连后按 since 补拉
-    if (msg.timestamp && msg.timestamp > this.lastMessageTs) {
-      this.lastMessageTs = msg.timestamp;
-    }
 
     // 控制消息（公告 / 语音小队 / 剪贴板 / 待办 / 白板）：不计入聊天，分发到状态后返回
     const mtype = (msg as { message_type: string }).message_type;
     if (
       mtype === 'announce' ||
-      mtype === 'voicegroup' ||
-      mtype === 'clipboard' ||
-      mtype === 'todo' ||
-      mtype === 'whiteboard'
+      mtype === 'voicegroup'
     ) {
       if (msg.player_id === this.currentPlayerId) return;
       // 按消息 ID 去重：避免对账/SSE 重复投递导致控制消息反复触发（如剪贴板反复弹窗、白板重复笔画）
@@ -347,31 +244,6 @@ class P2PChatService {
       } else if (type === 'voicegroup') {
         const g = parseInt((msg.content ?? '0').trim(), 10);
         store.setPlayerVoiceGroup(msg.player_id, Number.isFinite(g) ? g : 0);
-      } else if (type === 'clipboard') {
-        store.setIncomingClipboard({
-          from: msg.player_name ?? '',
-          text: msg.content ?? '',
-          ts: (msg.timestamp || 0) * 1000,
-        });
-      } else if (type === 'todo') {
-        try {
-          const list = JSON.parse(msg.content ?? '[]');
-          if (Array.isArray(list)) store.setTodos(list);
-        } catch {
-          // JSON 解析失败忽略该条
-        }
-      } else if (type === 'whiteboard') {
-        try {
-          const op = JSON.parse(msg.content ?? '{}');
-          if (op && op.op === 'clear') {
-            store.clearWhiteboard();
-          } else if (op && (op.op === 'stroke' || Array.isArray(op.points))) {
-            // 兼容对端省略 op 字段的情况：只要带 points 即视为一笔
-            store.addWhiteboardStroke(op);
-          }
-        } catch {
-          // JSON 解析失败忽略该条
-        }
       }
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
@@ -382,7 +254,7 @@ class P2PChatService {
    * 发送控制消息（公告/语音小队/剪贴板/待办/白板）
    */
   async sendControlMessage(
-    type: 'announce' | 'voicegroup' | 'clipboard' | 'todo' | 'whiteboard',
+    type: 'announce' | 'voicegroup',
     content: string
   ): Promise<void> {
     if (!this.currentPlayerId) return;
@@ -430,9 +302,6 @@ class P2PChatService {
       clearTimeout(this.selfReconnectTimer);
       this.selfReconnectTimer = null;
     }
-
-    this.stopReconcileLoop();
-
     if (this.selfEventSource) {
       try {
         this.selfEventSource.close();
@@ -442,39 +311,6 @@ class P2PChatService {
       this.selfEventSource = null;
       console.log('🛑 [P2PChatService] 已关闭本机消息流连接');
     }
-  }
-
-  /**
-   * 同步聊天历史：从各 peer 的本机服务器拉取消息历史，聚合进本地。
-   * 由于消息 ID 现已全局一致 + handleMessage 按 ID 去重并跳过自己的消息，
-   * 从多个 peer 聚合不会产生重复。常用于新加入大厅的玩家补齐进房前的聊天记录。
-   */
-  async syncHistory(peerIps?: string[]): Promise<void> {
-    const ips = (peerIps ?? this.peerIps).filter((ip) => ip && ip !== this.myVirtualIp);
-    if (ips.length === 0) return;
-    console.log('🗂️ [P2PChatService] 开始同步聊天历史，来源:', ips);
-
-    const all: BackendChatMessage[] = [];
-    await Promise.all(
-      ips.map(async (ip) => {
-        try {
-          const resp = await fetch(`http://${ip}:${CHAT_SERVER_PORT}/api/chat/messages`);
-          if (!resp.ok) return;
-          const msgs: BackendChatMessage[] = await resp.json();
-          if (Array.isArray(msgs)) all.push(...msgs);
-        } catch {
-          // 单个 peer 拉取失败忽略
-        }
-      })
-    );
-
-    if (all.length === 0) return;
-    // 按时间戳升序，保证历史顺序；handleMessage 内部按 ID 去重
-    all.sort((a, b) => a.timestamp - b.timestamp);
-    for (const m of all) {
-      this.handleMessage(m);
-    }
-    console.log(`🗂️ [P2PChatService] 历史同步完成，处理 ${all.length} 条（去重后回调新消息）`);
   }
 
   /**
@@ -506,7 +342,7 @@ class P2PChatService {
    * 发送图片消息（Base64格式）
    * 【优化】使用更高效的数据转换方式
    */
-  async sendImageMessage(imageDataUrl: string): Promise<void> {
+  async sendImageMessage(imageDataUrl: string, content = '[图片]'): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
@@ -533,7 +369,7 @@ class P2PChatService {
       await invoke('send_p2p_chat_message', {
         playerId: this.currentPlayerId,
         playerName: '', // 后端会自动填充
-        content: '[图片]',
+        content,
         messageType: 'image',
         imageData: Array.from(bytes),
         peerIps: this.peerIps,

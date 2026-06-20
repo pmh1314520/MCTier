@@ -76,7 +76,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
@@ -624,16 +623,16 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                                 android.widget.Toast.makeText(ctx, L("已随机生成大厅名称和密码", "Random lobby name and password generated"), android.widget.Toast.LENGTH_SHORT).show()
                             }
                         } else {
-                            HomeActionButton(L("识别", "Detect"), Icons.Rounded.ContentPaste, Modifier.weight(1f)) {
+                            HomeActionButton(L("\u8bc6\u522b", "Detect"), Icons.Rounded.QrCodeScanner, Modifier.weight(1f)) {
                                 val text = runCatching { clipboard.getText()?.text }.getOrNull().orEmpty()
-                                val nameM = Regex("大厅名称[:：]([^\\r\\n]+)").find(text)
-                                val pwdM = Regex("密码[:：]([^\\r\\n]*)").find(text)
+                                val nameM = Regex("\u5927\u5385\u540d\u79f0[:\uff1a]([^\\r\\n]+)").find(text)
+                                val pwdM = Regex("\u5bc6\u7801[:\uff1a]([^\\r\\n]*)").find(text)
                                 if (nameM != null) {
                                     lobbyName = nameM.groupValues[1].trim()
                                     pwdM?.groupValues?.getOrNull(1)?.trim()?.let { if (it.isNotEmpty()) password = it }
-                                    android.widget.Toast.makeText(ctx, L("已识别剪贴板大厅信息", "Lobby info detected from clipboard"), android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(ctx, L("\u5df2\u8bc6\u522b\u526a\u8d34\u677f\u5927\u5385\u4fe1\u606f", "Lobby info detected from clipboard"), android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
-                                    android.widget.Toast.makeText(ctx, L("剪贴板没有识别到大厅信息", "No lobby info found in clipboard"), android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(ctx, L("\u526a\u8d34\u677f\u6ca1\u6709\u8bc6\u522b\u5230\u5927\u5385\u4fe1\u606f", "No lobby info found in clipboard"), android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -643,9 +642,23 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     Spacer(Modifier.height(12.dp))
                     MctierField(password, { password = it }, L("大厅密码（8-32位，含字母和数字）", "Password (8-32, letters & digits)"), enabled = !connecting, isPassword = true)
                     Spacer(Modifier.height(12.dp))
-                    MctierField(state.settings.playerName, { if (it.length <= 8) repository.updateSettings(state.settings.copy(playerName = it)) }, L("玩家名称（最多8字）", "Player Name (max 8)"), enabled = !connecting)
+                    MctierField(state.settings.playerName, {
+                        val name = it.replace(Regex("\\s+"), "")
+                        if (name.length <= 8) repository.updateSettings(state.settings.copy(playerName = name))
+                    }, L("玩家名称（最多8字）", "Player Name (max 8)"), enabled = !connecting)
                     Spacer(Modifier.height(12.dp))
                     NodeSelector(state, repository, enabled = !connecting)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        L(
+                            "双方同节点，不稳可切换。",
+                            "Same node required; switch if unstable.",
+                        ),
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = TextPrimary.copy(alpha = 0.48f),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    )
                     Spacer(Modifier.height(18.dp))
                     PrimaryButton(
                         text = if (connecting) L("正在组网…", "Connecting…") else if (mode == "create") L("创建大厅", "Create Lobby") else L("加入大厅", "Join Lobby"),
@@ -838,7 +851,6 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     var currentView by remember { mutableStateOf("lobby") }
     var showTools by remember { mutableStateOf(false) }
     if (showTools) RoomToolsDialog(state, repository) { showTools = false }
-    state.incomingClipboard?.let { IncomingClipboardDialog(it, repository) }
     // 返回键：在子视图时返回大厅（对齐桌面端 ESC 返回上一页）
     BackHandler(enabled = currentView != "lobby") { currentView = "lobby" }
     // 未读消息标记：不在聊天界面时收到新消息则标红
@@ -1315,13 +1327,10 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
     var newTodo by remember { mutableStateOf("") }
     var minutes by remember { mutableStateOf("5") }
     var seconds by remember { mutableStateOf("0") }
-    var tab by remember { mutableIntStateOf(0) } // 0骰子 1倒计时 2待办 3剪贴板 4白板
+    var tab by remember { mutableIntStateOf(0) }
     var dice by remember { mutableIntStateOf(1) }
     var diceSides by remember { mutableIntStateOf(6) }
     var rolling by remember { mutableStateOf(false) }
-    var clipText by remember { mutableStateOf("") }
-    val ctxTools = LocalContext.current
-    val clipboardMgr = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1337,8 +1346,6 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                     ToggleChip(L("骰子", "Dice"), tab == 0, Icons.Rounded.Casino) { tab = 0 }
                     ToggleChip(L("倒计时", "Timer"), tab == 1, Icons.Rounded.History) { tab = 1 }
                     ToggleChip(L("待办", "To-Do"), tab == 2, Icons.Rounded.Checklist) { tab = 2 }
-                    ToggleChip(L("剪贴板", "Clipboard"), tab == 3, Icons.Rounded.ContentPaste) { tab = 3 }
-                    ToggleChip(L("白板", "Board"), tab == 4, Icons.Rounded.Edit) { tab = 4 }
                 }
                 Spacer(Modifier.height(16.dp))
                 when (tab) {
@@ -1413,13 +1420,13 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                     }
                     else -> when (tab) {
                     2 -> {
-                        // 待办协同（全队同步）
+                        // 个人待办
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(L("待办协同", "Shared To-Do"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
+                            Text(L("个人待办", "Personal To-Do"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
                             TextButton(onClick = { repository.clearDoneTodos() }) { Text(L("清除已完成", "Clear Done"), color = GrassGreen, fontSize = 12.sp) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(newTodo, { newTodo = it }, modifier = Modifier.weight(1f), placeholder = { Text(L("新增待办（全队同步）", "Add a task (synced)")) }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = fieldColors())
+                            OutlinedTextField(newTodo, { newTodo = it }, modifier = Modifier.weight(1f), placeholder = { Text(L("新增个人待办", "Add a personal task")) }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = fieldColors())
                             Box(
                                 Modifier.size(46.dp).clip(CircleShape).background(if (newTodo.isBlank()) PanelHigh else GrassGreen)
                                     .clickable(enabled = newTodo.isNotBlank()) { repository.addTodo(newTodo); newTodo = "" },
@@ -1431,7 +1438,6 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                             if (state.todos.isEmpty()) Text(L("暂无待办", "No tasks yet"), color = TextPrimary.copy(alpha = 0.45f))
                             else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(state.todos, key = { it.id }) { todo ->
-                                    var assignMenu by remember { mutableStateOf(false) }
                                     Row(
                                         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(PanelHigh).padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1445,16 +1451,6 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                                         Spacer(Modifier.width(10.dp))
                                         Column(Modifier.weight(1f)) {
                                             Text(todo.text, color = if (todo.done) TextPrimary.copy(alpha = 0.4f) else TextPrimary, textDecoration = if (todo.done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
-                                            if (todo.assignee.isNotBlank()) Text(L("分配给 ", "Assigned to ") + todo.assignee, fontSize = 11.sp, color = GrassGreen)
-                                        }
-                                        Box {
-                                            IconButton(onClick = { assignMenu = true }) { Icon(Icons.Rounded.PersonAdd, L("分配", "Assign"), tint = TextPrimary.copy(alpha = 0.7f), modifier = Modifier.size(18.dp)) }
-                                            DropdownMenu(expanded = assignMenu, onDismissRequest = { assignMenu = false }) {
-                                                DropdownMenuItem(text = { Text(L("未分配", "Unassigned")) }, onClick = { repository.assignTodo(todo.id, ""); assignMenu = false })
-                                                state.players.forEach { p ->
-                                                    DropdownMenuItem(text = { Text(p.name) }, onClick = { repository.assignTodo(todo.id, p.name); assignMenu = false })
-                                                }
-                                            }
                                         }
                                         IconButton(onClick = { repository.removeTodo(todo.id) }) { Icon(Icons.Rounded.Close, L("删除", "Delete"), tint = DangerRed, modifier = Modifier.size(16.dp)) }
                                     }
@@ -1462,170 +1458,11 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                             }
                         }
                     }
-                    3 -> {
-                        // 共享剪贴板：把文本一键同步给全队
-                        Text(L("共享剪贴板", "Shared Clipboard"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            clipText, { if (it.length <= 4000) clipText = it },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                            placeholder = { Text(L("输入要同步给全队的文本（坐标、指令、种子号等）", "Text to share with the team (coords, commands, seeds...)")) },
-                            shape = RoundedCornerShape(12.dp), colors = fieldColors(),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(
-                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                    .clickable {
-                                        val t = clipboardMgr.getText()?.text.orEmpty()
-                                        if (t.isNotBlank()) { clipText = t.take(4000); android.widget.Toast.makeText(ctxTools, L("已读取剪贴板", "Clipboard read"), android.widget.Toast.LENGTH_SHORT).show() }
-                                        else android.widget.Toast.makeText(ctxTools, L("剪贴板为空", "Clipboard is empty"), android.widget.Toast.LENGTH_SHORT).show()
-                                    }.padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center,
-                            ) { Text(L("读取剪贴板", "Read Clipboard"), color = TextPrimary) }
-                            Box(
-                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (clipText.isBlank()) PanelHigh else GrassGreen)
-                                    .clickable(enabled = clipText.isNotBlank()) {
-                                        repository.shareClipboard(clipText); clipText = ""
-                                        android.widget.Toast.makeText(ctxTools, L("已共享给全队", "Shared to team"), android.widget.Toast.LENGTH_SHORT).show()
-                                    }.padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center,
-                            ) { Text(L("共享给全队", "Share to Team"), color = TextPrimary, fontWeight = FontWeight.Bold) }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(L("全队成员会收到提示，可一键复制到自己的剪贴板。", "Teammates get a prompt and can copy it with one tap."), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
-                    }
-                    else -> {
-                        // 共享白板
-                        WhiteboardPanel(state, repository)
-                    }
                     }
                 }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(L("关闭", "Close"), color = GrassGreen) } },
-    )
-}
-
-@Composable
-private fun WhiteboardPanel(state: MctierUiState, repository: MctierRepository) {
-    val colors = listOf(
-        Color(0xFF52C41A), Color(0xFF1677FF), Color(0xFFFA541C),
-        Color(0xFFFAAD14), Color(0xFF722ED1), Color(0xFF000000),
-    )
-    val widths = listOf(2, 4, 8)
-    var selColor by remember { mutableStateOf(colors[0]) }
-    var selWidth by remember { mutableIntStateOf(4) }
-    // 当前正在绘制的笔画点（归一化）
-    val livePoints = remember { mutableStateListOf<Offset>() }
-
-    Column {
-        // 工具栏：颜色 + 粗细 + 清空
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            colors.forEach { c ->
-                Box(
-                    Modifier.size(24.dp).clip(CircleShape).background(c)
-                        .border(if (selColor == c) 3.dp else 1.dp, if (selColor == c) GrassGreen else TextPrimary.copy(alpha = 0.3f), CircleShape)
-                        .clickable { selColor = c },
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            widths.forEach { w ->
-                Box(
-                    Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(if (selWidth == w) GrassGreen.copy(alpha = 0.18f) else PanelHigh)
-                        .border(1.dp, if (selWidth == w) GrassGreen else Color.Transparent, RoundedCornerShape(8.dp))
-                        .clickable { selWidth = w },
-                    contentAlignment = Alignment.Center,
-                ) { Box(Modifier.size((w + 3).dp).clip(CircleShape).background(TextPrimary)) }
-            }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { repository.clearWhiteboard() }) { Text(L("清空白板", "Clear Board"), color = DangerRed, fontSize = 12.sp) }
-        }
-        Spacer(Modifier.height(10.dp))
-        // 画布
-        Box(
-            Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFFFFFFF))
-                .border(1.dp, TextPrimary.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { off ->
-                            livePoints.clear()
-                            if (size.width > 0) livePoints.add(Offset(off.x / size.width, off.y / size.height))
-                        },
-                        onDrag = { change, _ ->
-                            if (size.width > 0) {
-                                livePoints.add(Offset(change.position.x / size.width, change.position.y / size.height))
-                            }
-                        },
-                        onDragEnd = {
-                            if (livePoints.isNotEmpty()) {
-                                val pts = livePoints.map { listOf(it.x.coerceIn(0f, 1f), it.y.coerceIn(0f, 1f)) }
-                                val hex = "#%06X".format(0xFFFFFF and selColor.toArgb())
-                                repository.addWhiteboardStroke(
-                                    top.pmh13.mctier.data.WhiteboardStroke(
-                                        id = "stroke-${System.currentTimeMillis()}-${(0..9999).random()}",
-                                        color = hex, width = selWidth, points = pts,
-                                    )
-                                )
-                                livePoints.clear()
-                            }
-                        },
-                    )
-                },
-        ) {
-            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                // 已同步笔画
-                state.whiteboardStrokes.forEach { s ->
-                    val col = runCatching { Color(android.graphics.Color.parseColor(s.color)) }.getOrDefault(Color.Black)
-                    if (s.points.size == 1) {
-                        val p = s.points[0]
-                        drawCircle(col, s.width / 2f, Offset(p[0] * size.width, p[1] * size.height))
-                    } else if (s.points.size >= 2) {
-                        for (i in 0 until s.points.size - 1) {
-                            val a = s.points[i]; val b = s.points[i + 1]
-                            drawLine(col, Offset(a[0] * size.width, a[1] * size.height), Offset(b[0] * size.width, b[1] * size.height), s.width.toFloat(), cap = StrokeCap.Round)
-                        }
-                    }
-                }
-                // 当前正在画的笔画预览
-                if (livePoints.size >= 2) {
-                    for (i in 0 until livePoints.size - 1) {
-                        val a = livePoints[i]; val b = livePoints[i + 1]
-                        drawLine(selColor, Offset(a.x * size.width, a.y * size.height), Offset(b.x * size.width, b.y * size.height), selWidth.toFloat(), cap = StrokeCap.Round)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun IncomingClipboardDialog(share: top.pmh13.mctier.data.ClipboardShare, repository: MctierRepository) {
-    val clipboard = LocalClipboardManager.current
-    val ctx = LocalContext.current
-    AlertDialog(
-        onDismissRequest = { repository.dismissIncomingClipboard() },
-        containerColor = Panel,
-        title = { Text(L("收到共享剪贴板", "Shared Clipboard Received"), color = TextPrimary, fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text(L("来自 ", "From ") + share.from, fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(8.dp)).background(PanelHigh).padding(12.dp),
-                ) { Text(share.text, color = TextPrimary, fontSize = 14.sp) }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(share.text))
-                android.widget.Toast.makeText(ctx, L("已复制到剪贴板", "Copied to clipboard"), android.widget.Toast.LENGTH_SHORT).show()
-                repository.dismissIncomingClipboard()
-            }) { Text(L("复制到剪贴板", "Copy to Clipboard"), color = GrassGreen, fontWeight = FontWeight.Bold) }
-        },
-        dismissButton = { TextButton(onClick = { repository.dismissIncomingClipboard() }) { Text(L("关闭", "Close"), color = TextPrimary.copy(alpha = 0.7f)) } },
     )
 }
 
@@ -1753,11 +1590,19 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
         SwitchRow(L("发布到公开广场", "Publish to plaza"), isPublic) { isPublic = it }
         if (isPublic) {
             Spacer(Modifier.height(6.dp))
-            MctierField(description, { description = it }, L("广场描述（选填）", "Plaza description (optional)"))
+            MctierField(description, { description = it }, L("大厅描述", "Lobby description"))
             Spacer(Modifier.height(6.dp))
-            Text(L("加入密码即本大厅密码，无需单独设置", "Join password is the lobby password; no separate setup"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
+            Text(L("会展示在公开广场，帮助其他用户快速了解这个大厅。", "Shown in the public plaza so others can understand this lobby."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
         }
         Spacer(Modifier.height(14.dp))
+        PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
+            val lobbyPwd = state.lobby?.password
+            repository.setLobbyOptions(maxText.toIntOrNull()?.takeIf { it > 0 }, isPublic, description, lobbyPwd)
+            android.widget.Toast.makeText(ctx, L("大厅设置已保存", "Lobby settings saved"), android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    SectionCard {
         Text(L("大厅公告", "Lobby Announcement"), fontWeight = FontWeight.SemiBold, color = TextPrimary, fontSize = 14.sp)
         Spacer(Modifier.height(4.dp))
         Text(L("公告会在所有成员的大厅顶部以滚动条形式展示，新加入者也会自动看到（玩法规则/服务器地址等）", "The announcement scrolls at the top for all members, including newcomers"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f), lineHeight = 16.sp)
@@ -1785,13 +1630,6 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
                 ) { Text(L("清空", "Clear"), color = DangerRed) }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
-            // 公开广场加入密码 = 大厅自身密码（无需房主重复输入）
-            val lobbyPwd = state.lobby?.password
-            repository.setLobbyOptions(maxText.toIntOrNull()?.takeIf { it > 0 }, isPublic, description, lobbyPwd)
-            android.widget.Toast.makeText(ctx, L("大厅设置已保存", "Lobby settings saved"), android.widget.Toast.LENGTH_SHORT).show()
-        }
     }
 }
 
@@ -1799,6 +1637,47 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
 private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
     val clipboard = LocalClipboardManager.current
     val ctx = LocalContext.current
+    var transferTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var kickTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    transferTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { transferTarget = null },
+            containerColor = Panel,
+            title = { Text(L("转让房主", "Transfer Host"), color = TextPrimary) },
+            text = { Text(L("确定把房主权限转让给 ${target.second} 吗？", "Transfer host permission to ${target.second}?"), color = TextPrimary.copy(alpha = 0.82f)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    repository.transferHost(target.first)
+                    android.widget.Toast.makeText(ctx, "已将房主转让给 ${target.second}", android.widget.Toast.LENGTH_SHORT).show()
+                    transferTarget = null
+                }) { Text(L("转让", "Transfer"), color = GrassGreen, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { transferTarget = null }) { Text(L("取消", "Cancel"), color = TextPrimary.copy(alpha = 0.7f)) }
+            },
+        )
+    }
+
+    kickTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { kickTarget = null },
+            containerColor = Panel,
+            title = { Text(L("踢出玩家", "Kick Player"), color = TextPrimary) },
+            text = { Text(L("确定将 ${target.second} 踢出大厅吗？", "Kick ${target.second} out of the lobby?"), color = TextPrimary.copy(alpha = 0.82f)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    repository.kickPlayer(target.first)
+                    android.widget.Toast.makeText(ctx, "已将 ${target.second} 踢出大厅", android.widget.Toast.LENGTH_SHORT).show()
+                    kickTarget = null
+                }) { Text(L("踢出", "Kick"), color = DangerRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { kickTarget = null }) { Text(L("取消", "Cancel"), color = TextPrimary.copy(alpha = 0.7f)) }
+            },
+        )
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
@@ -1924,12 +1803,10 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                             android.widget.Toast.makeText(ctx, if (muted) "已解除禁言 ${player.name}" else "已禁言 ${player.name}", android.widget.Toast.LENGTH_SHORT).show()
                         }
                         HostActionChip(L("设为房主", "Make Host"), Icons.Rounded.MilitaryTech, false, Modifier.weight(1f)) {
-                            repository.transferHost(player.id)
-                            android.widget.Toast.makeText(ctx, "已将房主转让给 ${player.name}", android.widget.Toast.LENGTH_SHORT).show()
+                            transferTarget = player.id to player.name
                         }
                         HostActionChip(L("踢出", "Kick"), Icons.Rounded.Close, true, Modifier.weight(1f)) {
-                            repository.kickPlayer(player.id)
-                            android.widget.Toast.makeText(ctx, "已将 ${player.name} 踢出大厅", android.widget.Toast.LENGTH_SHORT).show()
+                            kickTarget = player.id to player.name
                         }
                     }
                 }
@@ -2109,24 +1986,32 @@ private fun buildMentionText(content: String, baseColor: Color): AnnotatedString
     var last = 0
     regex.findAll(content).forEach { m ->
         if (m.range.first > last) withStyle(SpanStyle(color = baseColor)) { append(content.substring(last, m.range.first)) }
-        withStyle(SpanStyle(color = Color(0xFFFFE066), fontWeight = FontWeight.SemiBold)) { append(m.value) }
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(m.value) }
         last = m.range.last + 1
     }
     if (last < content.length) withStyle(SpanStyle(color = baseColor)) { append(content.substring(last)) }
 }
+
+private fun formatChatClock(timestamp: Long): String =
+    if (timestamp > 0) java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp)) else "--:--"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modifier: Modifier = Modifier, onQuote: (ChatMessage) -> Unit = {}) {
     Row(horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start, modifier = modifier.fillMaxWidth()) {
         Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start, modifier = Modifier.fillMaxWidth(0.82f)) {
-            Text(
-                if (message.mine) L("我", "Me") else message.playerName.ifBlank { L("玩家", "Player") },
-                fontSize = 12.sp,
-                color = if (message.mine) TextPrimary.copy(alpha = 0.5f) else GrassGreen,
-                fontWeight = FontWeight.SemiBold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
                 modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 3.dp),
-            )
+            ) {
+                Text(
+                    if (message.mine) L("我", "Me") else message.playerName.ifBlank { L("玩家", "Player") },
+                    fontSize = 12.sp,
+                    color = if (message.mine) TextPrimary.copy(alpha = 0.5f) else GrassGreen,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             val shape = RoundedCornerShape(
                 topStart = 14.dp, topEnd = 14.dp,
                 bottomStart = if (message.mine) 14.dp else 4.dp,
@@ -2145,7 +2030,8 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = L("图片", "Image"),
-                        modifier = Modifier.clip(shape).heightIn(max = 240.dp).clickable { showZoom = true },
+                        modifier = Modifier.clip(shape).heightIn(max = 240.dp)
+                            .combinedClickable(onClick = { showZoom = true }, onLongClick = { onQuote(message) }),
                     )
                     if (showZoom) {
                         Dialog(
@@ -2217,6 +2103,9 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
                     }
                 }
             }
+            // ??????????????
+            Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f),
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp))
         }
     }
 }
@@ -2675,7 +2564,10 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
     SectionCard {
         Text(L("设置", "Settings"), fontWeight = FontWeight.Bold, color = TextPrimary)
         Spacer(Modifier.height(14.dp))
-        MctierField(settings.playerName, { if (it.length <= 8) onChange(settings.copy(playerName = it)) }, L("玩家名称（最多8字）", "Player Name (max 8)"))
+        MctierField(settings.playerName, {
+            val name = it.replace(Regex("\\s+"), "")
+            if (name.length <= 8) onChange(settings.copy(playerName = name))
+        }, L("玩家名称（最多8字）", "Player Name (max 8)"))
         Spacer(Modifier.height(12.dp))
         Text(L("EasyTier 节点", "EasyTier Node"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
         Spacer(Modifier.height(8.dp))

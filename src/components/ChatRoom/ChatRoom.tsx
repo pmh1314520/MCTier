@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input, Button, message as antdMessage } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { CloseOutlined, SendOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
@@ -28,6 +28,7 @@ export const ChatRoom: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
   const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
   const [downloadedImages, setDownloadedImages] = useState<Map<string, string>>(new Map());
 
@@ -44,6 +45,7 @@ export const ChatRoom: React.FC = () => {
   const lastScrollTop = useRef(0);
   const textAreaRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const initializedScrollRef = useRef(false);
 
   // 计算未读消息数量（只计算其他人发送的消息）
   const unreadMessages = chatMessages.filter((msg, index) => 
@@ -125,15 +127,50 @@ export const ChatRoom: React.FC = () => {
     }
   };
 
-  // 当有新消息时的处理
-  useEffect(() => {
-    if (chatMessages.length > 0) {
-      if (isAtBottom) {
-        // 如果在底部，自动滚动到新消息并标记为已读
-        scrollToBottom();
+  const getMessageInitial = (message: ChatMessage) => {
+    const name = (message.playerName || (message.playerId === currentPlayerId ? config.playerName : '') || '?').trim();
+    return (Array.from(name)[0] || '?').toUpperCase();
+  };
+
+  // 首次进入聊天室：在浏览器绘制前直接把滚动条置底（避免出现“从顶部滚到底部”的可见过程）
+  useLayoutEffect(() => {
+    if (chatMessages.length <= 0) return;
+    if (!initializedScrollRef.current) {
+      initializedScrollRef.current = true;
+      const el = messagesContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight; // 瞬间置底，无动画
       }
+      setLastReadMessageIndex(chatMessages.length);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 新消息到达时，若已在底部则平滑跟随
+  useEffect(() => {
+    if (chatMessages.length <= 0) return;
+    if (!initializedScrollRef.current) return;
+    if (isAtBottom) scrollToBottom(true);
   }, [chatMessages.length, isAtBottom]);
+
+  const buildReplyContent = (body: string): string => {
+    if (!replyTo) return body;
+    const summary = replyTo.type === 'image'
+      ? tl('[图片]', '[Image]')
+      : (replyTo.content.split('\n')[0] || '').slice(0, 40);
+    return `> @${replyTo.playerName} ${summary}\n${body}`;
+  };
+
+  const focusInputSoon = useCallback(() => {
+    window.setTimeout(() => {
+      textAreaRef.current?.focus?.();
+    }, 0);
+  }, []);
+
+  const handleQuoteMessage = useCallback((message: ChatMessage) => {
+    setReplyTo(message);
+    focusInputSoon();
+  }, [focusInputSoon]);
 
   // 发送文本消息
   const handleSendMessage = async () => {
@@ -141,9 +178,7 @@ export const ChatRoom: React.FC = () => {
     
     const text = inputValue.trim();
     // 引用回复：在正文前加入 "> @名字 摘要" 引用行（与安卓端格式一致，跨端互通）
-    const messageContent = replyTo
-      ? `> @${replyTo.playerName} ${(replyTo.type === 'image' ? '[图片]' : (replyTo.content.split('\n')[0] || '')).slice(0, 40)}\n${text}`
-      : text;
+    const messageContent = buildReplyContent(text);
     
     // 清空输入框
     setInputValue('');
@@ -335,6 +370,7 @@ export const ChatRoom: React.FC = () => {
         try {
           // 优化图片
           const optimizedDataUrl = await optimizeImage(file);
+          const messageContent = buildReplyContent(tl('[图片]', '[Image]'));
           
           console.log('📤 发送优化后的图片消息');
 
@@ -343,7 +379,7 @@ export const ChatRoom: React.FC = () => {
             id: `msg-${currentPlayerId}-${Date.now()}`,
             playerId: currentPlayerId!,
             playerName: config.playerName || '我',
-            content: '[图片]',
+            content: messageContent,
             timestamp: Date.now(),
             type: 'image',
             imageData: optimizedDataUrl,
@@ -354,7 +390,8 @@ export const ChatRoom: React.FC = () => {
           console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
           
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+          setReplyTo(null);
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
           // 滚动到底部
@@ -399,6 +436,7 @@ export const ChatRoom: React.FC = () => {
 
           // 优化图片
           const optimizedDataUrl = await optimizeImage(file);
+          const messageContent = buildReplyContent(tl('[图片]', '[Image]'));
           
           console.log('📤 发送粘贴的优化图片');
 
@@ -407,7 +445,7 @@ export const ChatRoom: React.FC = () => {
             id: `msg-${currentPlayerId}-${Date.now()}`,
             playerId: currentPlayerId!,
             playerName: config.playerName || '我',
-            content: '[图片]',
+            content: messageContent,
             timestamp: Date.now(),
             type: 'image',
             imageData: optimizedDataUrl,
@@ -418,7 +456,8 @@ export const ChatRoom: React.FC = () => {
           console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
 
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+          setReplyTo(null);
 
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
@@ -464,6 +503,7 @@ export const ChatRoom: React.FC = () => {
 
       // 优化图片
       const optimizedDataUrl = await optimizeImage(file);
+      const messageContent = buildReplyContent(tl('[图片]', '[Image]'));
       
       console.log('📤 发送拖拽的优化图片');
 
@@ -472,7 +512,7 @@ export const ChatRoom: React.FC = () => {
         id: `msg-${currentPlayerId}-${Date.now()}`,
         playerId: currentPlayerId!,
         playerName: config.playerName || '我',
-        content: '[图片]',
+        content: messageContent,
         timestamp: Date.now(),
         type: 'image',
         imageData: optimizedDataUrl,
@@ -483,7 +523,8 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
 
       // 发送图片消息到P2P网络
-      await p2pChatService.sendImageMessage(optimizedDataUrl);
+      await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+      setReplyTo(null);
 
       antdMessage.success(tl('图片发送成功', 'Image sent'));
       
@@ -643,17 +684,10 @@ export const ChatRoom: React.FC = () => {
           const isMe = !!ownName && mentionedName === ownName;
           const isKnown = players.some((p) => p.name === mentionedName);
           if (isMe || isKnown || isEveryone) {
-            const accent = '#ffe066';
             return (
               <span
                 key={`m-${i}-${j}`}
-                style={{
-                  color: accent,
-                  fontWeight: 700,
-                  WebkitTextStroke: '1.1px rgba(0, 0, 0, 0.95)',
-                  paintOrder: 'stroke fill',
-                  margin: '0 1px',
-                }}
+                style={{ color: 'inherit', fontWeight: 600, margin: '0 1px' }}
               >
                 {part}
               </span>
@@ -721,10 +755,7 @@ export const ChatRoom: React.FC = () => {
                 >
                 {/* 头像 */}
                 <div className="message-avatar">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
+                  <span>{getMessageInitial(message)}</span>
                 </div>
                 
                 <span className="message-author-outside">
@@ -732,6 +763,7 @@ export const ChatRoom: React.FC = () => {
                   {isOwnMessage && ' (我)'}
                 </span>
                 
+                <div className="message-bubble-stack">
                 <div className={`message-content${message.type === 'image' && message.imageData ? ' message-content-image' : ''}`}>
                   {message.type === 'image' && message.imageData ? (
                     <div className="chat-image-wrapper">
@@ -739,7 +771,7 @@ export const ChatRoom: React.FC = () => {
                         src={message.imageData} 
                         alt={tl('聊天图片', 'Chat image')} 
                         className="chat-image"
-                        onClick={() => setPreviewImage(message.imageData!)}
+                        onClick={() => { setPreviewZoom(1); setPreviewImage(message.imageData!); }}
                         onLoad={() => { if (isAtBottom) { try { scrollToBottom(); } catch { /* ignore */ } } }}
                       />
                       <button
@@ -791,7 +823,7 @@ export const ChatRoom: React.FC = () => {
                 <button
                   className="message-reply-btn"
                   title={tl('引用回复', 'Reply')}
-                  onClick={() => setReplyTo(message)}
+                  onClick={() => handleQuoteMessage(message)}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="9 17 4 12 9 7"></polyline>
@@ -799,9 +831,10 @@ export const ChatRoom: React.FC = () => {
                   </svg>
                 </button>
                 
-                <span className="message-time-outside">
+                <span className="message-time-below">
                   {formatTime(message.timestamp)}
                 </span>
+                </div>
               </motion.div>
               </React.Fragment>
             );
@@ -830,7 +863,7 @@ export const ChatRoom: React.FC = () => {
         )}
       </AnimatePresence>
       
-      {/* 图片预览模态框 */}
+      {/* ??????? */}
       <AnimatePresence>
         {previewImage && (
           <motion.div
@@ -839,15 +872,23 @@ export const ChatRoom: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setPreviewImage(null)}
+            onWheel={(e) => {
+              e.preventDefault();
+              setPreviewZoom((z) => Math.min(4, Math.max(0.5, z + (e.deltaY < 0 ? 0.15 : -0.15))));
+            }}
           >
             <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
-              <img 
-                src={previewImage} 
-                alt={tl('预览', 'Preview')} 
-                onClick={() => setPreviewImage(null)}
-                style={{ cursor: 'pointer' }}
+              <img
+                src={previewImage}
+                alt={tl('??', 'Preview')}
+                onDoubleClick={() => setPreviewZoom(1)}
+                style={{ transform: `scale(${previewZoom})` }}
               />
-
+              <div className="image-preview-actions">
+                <button type="button" onClick={() => setPreviewZoom((z) => Math.max(0.5, z - 0.25))}>-</button>
+                <button type="button" onClick={() => setPreviewZoom(1)}>{Math.round(previewZoom * 100)}%</button>
+                <button type="button" onClick={() => setPreviewZoom((z) => Math.min(4, z + 0.25))}>+</button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -864,6 +905,19 @@ export const ChatRoom: React.FC = () => {
       )}
       
       {/* 底栏输入区域 */}
+      {replyTo && (
+        <div className="reply-preview reply-preview-above-input">
+          <div className="reply-preview-bar" />
+          <div className="reply-preview-body">
+            <div className="reply-preview-name">{tl('\u56de\u590d ', 'Reply to ')}{replyTo.playerName}</div>
+            <div className="reply-preview-text">{replyTo.type === 'image' ? tl('[\u56fe\u7247]', '[Image]') : replyTo.content}</div>
+          </div>
+          <button className="reply-preview-close" onClick={() => setReplyTo(null)} title={tl('取消引用', 'Cancel reply')} aria-label={tl('取消引用', 'Cancel reply')}>
+            <CloseOutlined />
+          </button>
+        </div>
+      )}
+
       <motion.div 
         className="chat-input-area"
         initial={{ y: 100, opacity: 0 }}
@@ -903,18 +957,6 @@ export const ChatRoom: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* 引用回复预览 */}
-        {replyTo && (
-          <div className="reply-preview">
-            <div className="reply-preview-bar" />
-            <div className="reply-preview-body">
-              <div className="reply-preview-name">{tl('回复 ', 'Reply to ')}{replyTo.playerName}</div>
-              <div className="reply-preview-text">{replyTo.type === 'image' ? tl('[图片]', '[Image]') : replyTo.content}</div>
-            </div>
-            <button className="reply-preview-close" onClick={() => setReplyTo(null)} title={tl('取消引用', 'Cancel reply')}>×</button>
-          </div>
-        )}
 
         <div className="chat-input-wrapper">
           <Button

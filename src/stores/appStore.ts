@@ -25,15 +25,6 @@ export interface TodoItem {
   ts: number; // 时间戳（毫秒）
 }
 
-/** 白板笔画（双端字段名一致，坐标为 0~1 归一化） */
-export interface WhiteboardStroke {
-  op?: string; // "stroke"
-  id: string;
-  color: string;
-  width: number;
-  points: [number, number][];
-}
-
 /**
  * 应用程序 Store 接口定义
  */
@@ -189,21 +180,11 @@ interface AppStore {
   /** 重算小队听音路由 */
   applyVoiceGroupRouting: () => void;
 
-  // ==================== 协同功能：剪贴板 / 待办 / 白板 ====================
-  /** 收到的共享剪贴板（用于弹窗展示） */
-  incomingClipboard: { from: string; text: string; ts: number } | null;
-  /** 设置收到的共享剪贴板 */
-  setIncomingClipboard: (data: { from: string; text: string; ts: number } | null) => void;
+  // ==================== 协同功能：剪贴板 / 待办 / 白板 ====================
   /** 共享待办列表 */
   todos: TodoItem[];
   /** 覆盖设置待办列表（来自远端同步或本地操作） */
-  setTodos: (todos: TodoItem[]) => void;
-  /** 白板笔画列表 */
-  whiteboardStrokes: WhiteboardStroke[];
-  /** 追加一笔白板笔画 */
-  addWhiteboardStroke: (stroke: WhiteboardStroke) => void;
-  /** 清空白板 */
-  clearWhiteboard: () => void;
+  setTodos: (todos: TodoItem[]) => void;
 
   // ==================== 配置管理 ====================
   /** 用户配置 */
@@ -298,10 +279,8 @@ const initialState = {
   myVoiceGroup: 0,
   playerVoiceGroups: new Map<string, number>(),
 
-  // 协同功能：剪贴板 / 待办 / 白板
-  incomingClipboard: null as { from: string; text: string; ts: number } | null,
-  todos: [] as TodoItem[],
-  whiteboardStrokes: [] as WhiteboardStroke[],
+  // 协同功能：剪贴板 / 待办 / 白板
+  todos: [] as TodoItem[],
 
   // 配置
   config: defaultConfig,
@@ -358,7 +337,7 @@ export const useAppStore = create<AppStore>()(
           hostMutedPlayers: new Set<string>(),
         }, false, 'clearLobby/resetVoiceState');
         set({ announcement: '', myVoiceGroup: 0, playerVoiceGroups: new Map<string, number>() }, false, 'clearLobby/resetAnnounce');
-        set({ incomingClipboard: null, todos: [], whiteboardStrokes: [] }, false, 'clearLobby/resetCollab');
+        set({ todos: [] }, false, 'clearLobby/resetTodos');
         console.log('✅ 语音状态已重置为默认值');
       },
 
@@ -715,22 +694,11 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
-      // ==================== 协同功能：剪贴板 / 待办 / 白板 ====================
-      setIncomingClipboard: (data) => {
-        set({ incomingClipboard: data }, false, 'setIncomingClipboard');
-      },
+      // ==================== 协同功能：剪贴板 / 待办 / 白板 ====================
 
       setTodos: (todos: TodoItem[]) => {
         set({ todos }, false, 'setTodos');
-      },
-
-      addWhiteboardStroke: (stroke: WhiteboardStroke) => {
-        set((state) => ({ whiteboardStrokes: [...state.whiteboardStrokes, stroke] }), false, 'addWhiteboardStroke');
-      },
-
-      clearWhiteboard: () => {
-        set({ whiteboardStrokes: [] }, false, 'clearWhiteboard');
-      },
+      },
 
       // ==================== 配置操作 ====================
       updateConfig: (config: Partial<UserConfig>) => {

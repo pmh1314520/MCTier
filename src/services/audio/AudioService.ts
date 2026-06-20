@@ -18,6 +18,7 @@ const LS_KEY = 'mctier_sound_settings';
 
 interface SoundSettings {
   volume: number; // 0~1
+  muted: boolean;
   custom: Partial<Record<SoundType, string>>; // 自定义音频文件路径（空=默认）
   dndEnabled: boolean;
   dndStart: number; // 自 00:00 起的分钟数
@@ -26,6 +27,7 @@ interface SoundSettings {
 
 const defaultSettings: SoundSettings = {
   volume: 0.5,
+  muted: false,
   custom: {},
   dndEnabled: false,
   dndStart: 22 * 60,
@@ -139,6 +141,15 @@ class AudioService {
 
   setEnabled(enabled: boolean) { this.enabled = enabled; }
   isEnabled(): boolean { return this.enabled; }
+  /** 获取禁音状态 */
+  isMuted(): boolean { return this.settings.muted; }
+  /** 读取设置（含muted） */
+  getFullSettings(): SoundSettings { return { ...this.settings, custom: { ...this.settings.custom } }; }
+
+  setMuted(muted: boolean) {
+    this.settings.muted = muted;
+    this.persist();
+  }
 }
 
 // 导出单例
