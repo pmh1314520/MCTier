@@ -167,20 +167,41 @@ fn ensure_window_visible(window: &tauri::Window) {
     }
 }
 
+/// 健壮地将主窗口唤回到前台。
+///
+/// 解决无边框 + 透明窗口（WS_POPUP 风格）在 Win+D「显示桌面」或任务栏最小化后
+/// 无法再唤出的问题：
+/// 1. 同时处理「被隐藏」与「被最小化」两种状态（先 show 再 unminimize/SW_RESTORE）；
+/// 2. 用 AttachThreadInput + SetForegroundWindow + BringWindowToTop 绕过 Windows
+///    前台锁定，确保真正置于最前并获得焦点；
+/// 3. 恢复后校正位置，避免窗口被还原到屏幕外不可见区域。
 fn restore_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
+        // 先确保不再是隐藏 / 最小化状态
         let _ = window.unminimize();
+        let _ = window.show();
+
         #[cfg(target_os = "windows")]
         if let Ok(hwnd) = window.hwnd() {
             use windows::Win32::Foundation::HWND;
-            use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_RESTORE};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                BringWindowToTop, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+            };
+            let h = HWND(hwnd.0 as *mut _);
             unsafe {
-                let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_RESTORE);
+                let _ = ShowWindow(h, SW_SHOW);
+                if IsIconic(h).as_bool() {
+                    let _ = ShowWindow(h, SW_RESTORE);
+                }
+                // 抢占前台并置顶，确保从隐藏/最小化恢复后真正显示在最前
+                let _ = BringWindowToTop(h);
+                let _ = SetForegroundWindow(h);
             }
         }
+
         let _ = window.set_focus();
+        // 屏幕外校正：恢复后窗口若获得焦点会触发 Focused 事件，由 on_window_event 统一处理
     }
 }
 
@@ -335,9 +356,19 @@ pub fn run() {
                 let mic_hotkey = "CommandOrControl+M";
                 let global_mute_hotkey = "CommandOrControl+T";
                 let push_to_talk_hotkey = "F2";
+                let summon_hotkey = "CommandOrControl+Alt+M";
                 
-                info!("注册固定快捷键: 麦克风=Ctrl+M, 全局静音=Ctrl+T, 临时开麦=F2");
-                println!("🔑 [快捷键] 注册固定快捷键: 麦克风=Ctrl+M, 全局静音=Ctrl+T, 临时开麦=F2");
+                info!("注册固定快捷键: 麦克风=Ctrl+M, 全局静音=Ctrl+T, 临时开麦=F2, 唤出窗口=Ctrl+Alt+M");
+                println!("🔑 [快捷键] 注册固定快捷键: 麦克风=Ctrl+M, 全局静音=Ctrl+T, 临时开麦=F2, 唤出窗口=Ctrl+Alt+M");
+
+                // 注册「唤出窗口」快捷键：作为 Win+D/任务栏最小化后无法唤出的可靠兜底
+                let hs = app_handle.clone();
+                if let Err(e) = app.global_shortcut().on_shortcut(summon_hotkey, move |_, _, ev| {
+                    if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released { return; }
+                    restore_main_window(&hs);
+                }) {
+                    println!("⚠️ [快捷键] 注册唤出窗口快捷键失败: {}", e);
+                }
                 
                 let ltm = Arc::new(Mutex::new(std::time::Instant::now() - std::time::Duration::from_millis(500)));
                 let ltt = Arc::new(Mutex::new(std::time::Instant::now() - std::time::Duration::from_millis(500)));
@@ -528,6 +559,11 @@ pub fn run() {
         .on_window_event(|window, event| {
             // 【#1】窗口越界自动回中：当窗口被拖到所有显示器可视范围之外时，自动居中找回
             if let tauri::WindowEvent::Moved(_pos) = event {
+                ensure_window_visible(window);
+            }
+            // 窗口重新获得焦点时（例如通过任务栏点击/Win+D 后恢复）校正位置，
+            // 避免无边框窗口被系统还原到屏幕外不可见区域
+            if let tauri::WindowEvent::Focused(true) = event {
                 ensure_window_visible(window);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
