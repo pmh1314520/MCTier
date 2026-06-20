@@ -835,6 +835,7 @@
 }
 .snd-text-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 .snd-text-btn.snd-reset { color: rgba(255, 255, 255, 0.55); }
+.snd-mute-label { font-size: 12px; color: rgba(255, 255, 255, 0.55); margin-left: 4px; white-space: nowrap; }
 
 .snd-dnd-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .snd-dnd-times { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; width: 100%; }

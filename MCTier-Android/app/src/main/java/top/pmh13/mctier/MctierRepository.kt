@@ -268,6 +268,9 @@ class MctierRepository(private val context: Context) {
             putString("customSoundJoin", settings.customSoundJoin)
             putString("customSoundLeave", settings.customSoundLeave)
             putBoolean("soundMuted", settings.soundMuted)
+            putBoolean("soundMutedMsg", settings.soundMutedMsg)
+            putBoolean("soundMutedJoin", settings.soundMutedJoin)
+            putBoolean("soundMutedLeave", settings.soundMutedLeave)
             putFloat("soundVolume", settings.soundVolume)
             putBoolean("dndEnabled", settings.dndEnabled)
             putInt("dndStartMinutes", settings.dndStartMinutes)
@@ -1440,6 +1443,9 @@ class MctierRepository(private val context: Context) {
         customSoundJoin = prefs.getString("customSoundJoin", null).orEmpty(),
         customSoundLeave = prefs.getString("customSoundLeave", null).orEmpty(),
         soundMuted = prefs.getBoolean("soundMuted", false),
+        soundMutedMsg = prefs.getBoolean("soundMutedMsg", prefs.getBoolean("soundMuted", false)),
+        soundMutedJoin = prefs.getBoolean("soundMutedJoin", prefs.getBoolean("soundMuted", false)),
+        soundMutedLeave = prefs.getBoolean("soundMutedLeave", prefs.getBoolean("soundMuted", false)),
         soundVolume = prefs.getFloat("soundVolume", 1.0f),
         dndEnabled = prefs.getBoolean("dndEnabled", false),
         dndStartMinutes = prefs.getInt("dndStartMinutes", 22 * 60),

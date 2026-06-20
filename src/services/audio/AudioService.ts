@@ -18,7 +18,8 @@ const LS_KEY = 'mctier_sound_settings';
 
 interface SoundSettings {
   volume: number; // 0~1
-  muted: boolean;
+  muted: boolean; // 旧版全局禁音（保留用于迁移）
+  mutedSounds: Partial<Record<SoundType, boolean>>; // 每个音效是否独立禁音
   custom: Partial<Record<SoundType, string>>; // 自定义音频文件路径（空=默认）
   dndEnabled: boolean;
   dndStart: number; // 自 00:00 起的分钟数
@@ -28,6 +29,7 @@ interface SoundSettings {
 const defaultSettings: SoundSettings = {
   volume: 0.5,
   muted: false,
+  mutedSounds: {},
   custom: {},
   dndEnabled: false,
   dndStart: 22 * 60,
@@ -48,8 +50,13 @@ class AudioService {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) this.settings = { ...defaultSettings, ...JSON.parse(raw) };
+      if (!this.settings.mutedSounds) this.settings.mutedSounds = {};
+      // 旧版全局禁音迁移：muted=true 时把所有音效设为禁音
+      if (this.settings.muted && Object.keys(this.settings.mutedSounds).length === 0) {
+        this.settings.mutedSounds = { newMessage: true, userJoined: true, userLeft: true };
+      }
     } catch {
-      this.settings = { ...defaultSettings };
+      this.settings = { ...defaultSettings, mutedSounds: {} };
     }
   }
 
@@ -95,6 +102,7 @@ class AudioService {
   /** 播放指定音效 */
   async play(soundType: SoundType): Promise<void> {
     if (!this.enabled) return;
+    if (this.settings.mutedSounds?.[soundType]) { console.log('该音效已禁音，跳过:', soundType); return; }
     if (this.inDnd()) { console.log('免打扰时段，跳过音效:', soundType); return; }
     try {
       const cached = this.sounds.get(soundType);
@@ -148,6 +156,18 @@ class AudioService {
 
   setMuted(muted: boolean) {
     this.settings.muted = muted;
+    this.persist();
+  }
+
+  /** 某个音效是否禁音 */
+  isSoundMuted(type: SoundType): boolean {
+    return !!this.settings.mutedSounds?.[type];
+  }
+
+  /** 设置某个音效是否禁音（独立配置） */
+  setSoundMuted(type: SoundType, muted: boolean) {
+    if (!this.settings.mutedSounds) this.settings.mutedSounds = {};
+    this.settings.mutedSounds[type] = muted;
     this.persist();
   }
 }

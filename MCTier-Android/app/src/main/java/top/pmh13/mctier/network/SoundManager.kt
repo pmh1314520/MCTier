@@ -113,13 +113,13 @@ class SoundManager(private val context: Context) {
     }
 
     /** 收到新聊天消息 */
-    fun message() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg) }
+    fun message() { if (settings.soundMutedMsg) return; playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg) }
 
     /** 有玩家加入大厅 */
-    fun playerJoin() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundJoin, R.raw.user_joined) }
+    fun playerJoin() { if (settings.soundMutedJoin) return; playCustomOrDefault(settings.customSoundJoin, R.raw.user_joined) }
 
     /** 有玩家离开大厅 */
-    fun playerLeave() { if (settings.soundMuted) return; playCustomOrDefault(settings.customSoundLeave, R.raw.user_left) }
+    fun playerLeave() { if (settings.soundMutedLeave) return; playCustomOrDefault(settings.customSoundLeave, R.raw.user_left) }
 
     fun previewMessage() = playCustomOrDefault(settings.customSoundMsg, R.raw.new_msg, ignoreDnd = true)
 

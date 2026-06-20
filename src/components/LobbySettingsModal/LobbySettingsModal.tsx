@@ -30,7 +30,11 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [useGlobalConfig, setUseGlobalConfig] = useState(true);
-  const [soundMuted, setSoundMuted] = useState<boolean>(() => audioService.getSettings().muted);
+  const [soundMuted, setSoundMuted] = useState<Record<string, boolean>>(() => ({
+    newMessage: audioService.isSoundMuted('newMessage'),
+    userJoined: audioService.isSoundMuted('userJoined'),
+    userLeft: audioService.isSoundMuted('userLeft'),
+  }));
   const myVoiceGroup = useAppStore((s) => s.myVoiceGroup);
   const setMyVoiceGroup = useAppStore((s) => s.setMyVoiceGroup);
   
@@ -212,19 +216,25 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         </div>
         <div className="lobby-voice-divider" />
 
-        {/* 提示音 */}
+        {/* 提示音（每个音效独立禁音） */}
         <div className="lobby-voice-section">
-          <div className="lobby-voice-section-title">{tl('提示音', 'Sounds')}</div>
-          <div className="use-global-config-switch">
-            <span>{tl('提示音禁音', 'Mute sounds')}</span>
-            <Switch
-              checked={soundMuted}
-              onChange={(checked) => {
-                setSoundMuted(checked);
-                audioService.setMuted(checked);
-              }}
-            />
-          </div>
+          <div className="lobby-voice-section-title">{tl('提示音禁音', 'Mute Sounds')}</div>
+          {([
+            ['newMessage', tl('新消息', 'New Message')],
+            ['userJoined', tl('玩家加入', 'Player Joined')],
+            ['userLeft', tl('玩家离开', 'Player Left')],
+          ] as const).map(([key, label]) => (
+            <div className="use-global-config-switch" key={key}>
+              <span>{label}</span>
+              <Switch
+                checked={soundMuted[key]}
+                onChange={(checked) => {
+                  setSoundMuted((prev) => ({ ...prev, [key]: checked }));
+                  audioService.setSoundMuted(key as any, checked);
+                }}
+              />
+            </div>
+          ))}
         </div>
         <div className="lobby-voice-divider" />
 

@@ -664,7 +664,11 @@ const SoundThemeManager: React.FC = () => {
   const [volume, setVolume] = useState(init.volume);
   const [custom, setCustom] = useState(init.custom);
   const [dndEnabled, setDndEnabled] = useState(init.dndEnabled);
-  const [muted, setMuted] = useState(init.muted);
+  const [mutedSounds, setMutedSounds] = useState<Record<string, boolean>>(() => ({
+    newMessage: audioService.isSoundMuted('newMessage'),
+    userJoined: audioService.isSoundMuted('userJoined'),
+    userLeft: audioService.isSoundMuted('userLeft'),
+  }));
   const [dndStart, setDndStart] = useState(init.dndStart);
   const [dndEnd, setDndEnd] = useState(init.dndEnd);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -712,17 +716,7 @@ const SoundThemeManager: React.FC = () => {
         />
       </div>
 
-      {/* 各事件提示音 */}
-      {/* 提示音禁音总开关 */}
-      <div className="snd-block" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div className="snd-block-title-text">{tl('提示音禁音', 'Mute sounds')}</div>
-          <div className="snd-block-desc">{tl('关闭后所有提示音将不再播放', 'No sounds will play when muted')}</div>
-        </div>
-        <Switch checked={muted} onChange={(v) => { setMuted(v); audioService.setMuted(v); }} />
-      </div>
-
-      {/* 各事件提示音 */}
+      {/* 各事件提示音（每个音效独立禁音 + 自定义） */}
       <div className="snd-list">
         {(Object.keys(labels) as SoundType[]).map((t) => (
           <div className="snd-card" key={t}>
@@ -738,6 +732,12 @@ const SoundThemeManager: React.FC = () => {
               {custom[t] && (
                 <button className="snd-text-btn snd-reset" onClick={() => { audioService.resetSound(t); setCustom({ ...audioService.getSettings().custom }); antdMessage.success(tl('已恢复默认提示音', 'Default sound restored')); }}>{tl('恢复默认', 'Restore Default')}</button>
               )}
+              <span className="snd-mute-label" title={tl('禁音此音效', 'Mute this sound')}>{tl('禁音', 'Mute')}</span>
+              <Switch
+                size="small"
+                checked={mutedSounds[t]}
+                onChange={(v) => { setMutedSounds((prev) => ({ ...prev, [t]: v })); audioService.setSoundMuted(t, v); }}
+              />
             </div>
           </div>
         ))}

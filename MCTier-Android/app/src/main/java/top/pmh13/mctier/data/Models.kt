@@ -111,7 +111,10 @@ data class UserSettings(
     val customSoundJoin: String = "",     // 玩家加入提示音 URI
     val customSoundLeave: String = "",    // 玩家离开提示音 URI
     val soundVolume: Float = 1.0f,        // 提示音音量 0.0~1.0
-    val soundMuted: Boolean = false,      // 提示音禁音开关
+    val soundMuted: Boolean = false,      // 旧版全局禁音（保留用于迁移）
+    val soundMutedMsg: Boolean = false,   // 新消息独立禁音
+    val soundMutedJoin: Boolean = false,  // 玩家加入独立禁音
+    val soundMutedLeave: Boolean = false, // 玩家离开独立禁音
     // —— 消息免打扰时段（开启后，时段内不播放任何提示音）——
     val dndEnabled: Boolean = false,
     val dndStartMinutes: Int = 22 * 60,   // 起始（自 00:00 起的分钟数），默认 22:00

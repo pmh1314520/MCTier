@@ -1597,8 +1597,16 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
             Text(L("会展示在公开广场，帮助其他用户快速了解这个大厅。", "Shown in the public plaza so others can understand this lobby."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
         }
         Spacer(Modifier.height(10.dp))
-        SwitchRow(L("提示音禁音", "Mute sounds"), state.settings.soundMuted) {
-            repository.updateSettings(state.settings.copy(soundMuted = it))
+        SwitchRow(L("新消息禁音", "Mute new message"), state.settings.soundMutedMsg) {
+            repository.updateSettings(state.settings.copy(soundMutedMsg = it))
+        }
+        Spacer(Modifier.height(8.dp))
+        SwitchRow(L("玩家加入禁音", "Mute player joined"), state.settings.soundMutedJoin) {
+            repository.updateSettings(state.settings.copy(soundMutedJoin = it))
+        }
+        Spacer(Modifier.height(8.dp))
+        SwitchRow(L("玩家离开禁音", "Mute player left"), state.settings.soundMutedLeave) {
+            repository.updateSettings(state.settings.copy(soundMutedLeave = it))
         }
         Spacer(Modifier.height(14.dp))
         PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
@@ -2740,14 +2748,20 @@ private fun NotificationSettingsSection(settings: UserSettings, onChange: (UserS
     )
     Spacer(Modifier.height(4.dp))
     SoundPickerRow(L("新消息提示音", "New message sound"), settings.customSoundMsg,
+        muted = settings.soundMutedMsg,
+        onMuteChange = { onChange(settings.copy(soundMutedMsg = it)) },
         onPick = { onChange(settings.copy(customSoundMsg = it)) },
         onReset = { onChange(settings.copy(customSoundMsg = "")) },
         onPreview = { onPreview("message") })
     SoundPickerRow(L("玩家加入提示音", "Join sound"), settings.customSoundJoin,
+        muted = settings.soundMutedJoin,
+        onMuteChange = { onChange(settings.copy(soundMutedJoin = it)) },
         onPick = { onChange(settings.copy(customSoundJoin = it)) },
         onReset = { onChange(settings.copy(customSoundJoin = "")) },
         onPreview = { onPreview("join") })
     SoundPickerRow(L("玩家离开提示音", "Leave sound"), settings.customSoundLeave,
+        muted = settings.soundMutedLeave,
+        onMuteChange = { onChange(settings.copy(soundMutedLeave = it)) },
         onPick = { onChange(settings.copy(customSoundLeave = it)) },
         onReset = { onChange(settings.copy(customSoundLeave = "")) },
         onPreview = { onPreview("leave") })
@@ -2767,7 +2781,7 @@ private fun NotificationSettingsSection(settings: UserSettings, onChange: (UserS
 }
 
 @Composable
-private fun SoundPickerRow(label: String, current: String, onPick: (String) -> Unit, onReset: () -> Unit, onPreview: () -> Unit) {
+private fun SoundPickerRow(label: String, current: String, muted: Boolean, onMuteChange: (Boolean) -> Unit, onPick: (String) -> Unit, onReset: () -> Unit, onPreview: () -> Unit) {
     val ctx = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -2795,6 +2809,13 @@ private fun SoundPickerRow(label: String, current: String, onPick: (String) -> U
                 Text(L("恢复默认", "Reset"), color = TextPrimary.copy(alpha = 0.6f), fontSize = 13.sp)
             }
         }
+        Text(L("禁音", "Mute"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
+        Spacer(Modifier.width(4.dp))
+        Switch(
+            checked = muted,
+            onCheckedChange = onMuteChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = GrassGreen),
+        )
     }
 }
 
