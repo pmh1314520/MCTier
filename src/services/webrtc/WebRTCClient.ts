@@ -199,6 +199,16 @@ export class WebRTCClient {
         // 不中断流程，屏幕共享是可选功能
       }
 
+      try {
+        const { remoteControlService } = await import('../remoteControl/RemoteControlService');
+        if (this.websocket) {
+          remoteControlService.initialize(playerId, playerName, this.websocket);
+          console.log('✅ 远程控制服务初始化成功');
+        }
+      } catch (error) {
+        console.error('❌ 远程控制服务初始化失败:', error);
+      }
+
       console.log('✅ WebRTC 客户端初始化完成');
     } catch (error) {
       console.error('❌ WebRTC 初始化失败:', error);
@@ -348,6 +358,16 @@ export class WebRTCClient {
         }
       } catch (error) {
         console.error('❌ 刷新屏幕共享服务WebSocket失败:', error);
+      }
+
+      // 刷新远程控制服务使用的WebSocket
+      try {
+        const { remoteControlService } = await import('../remoteControl/RemoteControlService');
+        if (this.websocket) {
+          remoteControlService.initialize(this.localPlayerId, this.localPlayerName, this.websocket);
+        }
+      } catch (error) {
+        console.error('❌ 刷新远程控制服务WebSocket失败:', error);
       }
       
       // 重连成功，重置重连计数
@@ -1079,6 +1099,43 @@ export class WebRTCClient {
             }
           } catch (error) {
             console.error('❌ 处理共享状态更新失败:', error);
+          }
+          break;
+
+        case 'remote-control-request':
+        case 'remote-control-accept':
+        case 'remote-control-reject':
+        case 'remote-control-offer':
+        case 'remote-control-answer':
+        case 'remote-control-ice':
+        case 'remote-control-stop':
+          try {
+            const { remoteControlService } = await import('../remoteControl/RemoteControlService');
+            switch (message.type) {
+              case 'remote-control-request':
+                remoteControlService.handleRequest(message.sessionId, message.from, message.fromName || '玩家');
+                break;
+              case 'remote-control-accept':
+                await remoteControlService.handleAccept(message.sessionId);
+                break;
+              case 'remote-control-reject':
+                remoteControlService.handleReject(message.reason || 'rejected');
+                break;
+              case 'remote-control-offer':
+                await remoteControlService.handleOffer(message.sessionId, message.offer.sdp);
+                break;
+              case 'remote-control-answer':
+                await remoteControlService.handleAnswer(message.sessionId, message.answer.sdp);
+                break;
+              case 'remote-control-ice':
+                await remoteControlService.handleIce(message.candidate);
+                break;
+              case 'remote-control-stop':
+                remoteControlService.handleStop();
+                break;
+            }
+          } catch (error) {
+            console.error('❌ 处理远程控制消息失败:', error);
           }
           break;
           

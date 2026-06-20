@@ -1,0 +1,122 @@
+/* 远程控制 UI */
+
+.rc-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 99990;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #fff;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.rc-banner.rc-waiting {
+  background: rgba(24, 144, 255, 0.92);
+}
+
+.rc-banner.rc-controlled {
+  background: rgba(250, 140, 22, 0.95);
+}
+
+.rc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  animation: rc-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes rc-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.rc-banner-btn {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: transparent;
+  color: #fff;
+  border-radius: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rc-banner-btn.danger {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: #fff;
+  font-weight: 600;
+}
+
+.rc-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 控制端全屏窗 */
+.rc-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 99995;
+  background: #0a0a0f;
+  display: flex;
+  flex-direction: column;
+}
+
+.rc-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  background: #15151f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.rc-viewer-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.rc-viewer-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.rc-viewer-stop {
+  margin-left: auto;
+  background: #ff4d4f;
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rc-viewer-stop:hover {
+  background: #ff7875;
+}
+
+.rc-surface {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: crosshair;
+  background: #000;
+}
+
+.rc-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}

@@ -48,3 +48,6 @@ pub mod chat_service;
 
 // Minecraft 局域网世界自动发现模块
 pub mod minecraft_discovery;
+
+// 远程控制（输入注入）模块
+pub mod remote_control;

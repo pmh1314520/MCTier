@@ -96,6 +96,8 @@ use modules::minecraft_discovery::{
     scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
 };
 
+use modules::remote_control::remote_inject_input;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     info!("Greeting user: {}", name);
@@ -360,6 +362,7 @@ pub fn run() {
             clear_lobby_easytier_advanced_config,
             scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
             set_tray_menu_texts,
+            remote_inject_input,
         ])
         .setup(|app| {
             info!("Tauri 应用设置完成");

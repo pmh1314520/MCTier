@@ -25,6 +25,8 @@ import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { RoomTools } from '../RoomTools/RoomTools';
 import { HostPanel } from '../HostPanel/HostPanel';
+import { RemoteControl } from '../RemoteControl/RemoteControl';
+import { remoteControlService } from '../../services/remoteControl/RemoteControlService';
 import './MiniWindow.css';
 
 /**
@@ -541,6 +543,9 @@ export const MiniWindow: React.FC = () => {
   const handleLeaveLobby = async () => {
     try {
       console.log('🚪 开始退出大厅流程...');
+
+      // 退出前确保停止任何远程控制会话
+      try { remoteControlService.stopControl(); } catch { /* ignore */ }
 
       // 数据统计：结束本次会话并累加时长
       try { statsService.endSession(); } catch { /* ignore */ }
@@ -1741,6 +1746,25 @@ Password: ${lobby.password || ''}
                             >
                               <SpeakerIcon muted={isPlayerMuted} size={16} />
                             </motion.button>
+                            <motion.button
+                              className="mini-action-btn"
+                              onClick={() => {
+                                try {
+                                  remoteControlService.requestControl(player.id, player.name);
+                                  window.dispatchEvent(new CustomEvent('rc-waiting'));
+                                } catch (e) {
+                                  message.warning(tl('已有进行中的远程控制会话', 'A remote control session is already active'));
+                                }
+                              }}
+                              title={tl('请求远程控制对方电脑', 'Request remote control of this PC')}
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                                <path d="M8 21h8M12 17v4M7 8l3 2-3 2M13 12h4"></path>
+                              </svg>
+                            </motion.button>
                             {isHost && (
                               <motion.button
                                 className={`mini-action-btn ${hostMutedPlayers.has(player.id) ? 'muted' : ''}`}
@@ -1923,6 +1947,9 @@ Password: ${lobby.password || ''}
 
       {/* 房主管理面板 */}
       <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />
+
+      {/* 远程控制（全局：授权弹窗 / 被控横幅 / 控制端窗口） */}
+      <RemoteControl />
 
       {/* 大厅二维码弹窗：手机端 MCTier 扫码即可加入 */}
       <Modal
