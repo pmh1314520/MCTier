@@ -44,6 +44,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        runCatching { MctierRepository.get(applicationContext).setAppForeground(true) }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 进入后台(如切到游戏)：标记非前台，使消息弹幕即使在聊天室界面也能飘出
+        runCatching { MctierRepository.get(applicationContext).setAppForeground(false) }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

@@ -367,8 +367,11 @@ export const MiniWindow: React.FC = () => {
       
       addChatMessage(chatMessage);
 
-      // 弹幕：把他人发来的消息以弹幕形式飘过屏幕（自己发的不飘）
-      if (message.playerId !== currentPlayerId) {
+      // 弹幕：把他人发来的消息以弹幕形式飘过屏幕（自己发的不飘）。
+      // 仅当(在聊天室界面 且 主窗口处于前台)时才不弹幕——此时能直接看到消息；
+      // 若挂后台(如玩游戏，窗口失焦)则即使开着聊天室也照常弹幕
+      const inChatAndFocused = !!(window as any).__isInChatRoom__ && document.hasFocus();
+      if (message.playerId !== currentPlayerId && !inChatAndFocused) {
         const danmakuText = message.type === 'image'
           ? `${senderName}: ${tl('[图片]', '[Image]')}`
           : `${senderName}: ${message.content || ''}`;

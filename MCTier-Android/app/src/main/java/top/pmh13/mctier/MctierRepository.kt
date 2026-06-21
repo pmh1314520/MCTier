@@ -145,6 +145,11 @@ class MctierRepository(private val context: Context) {
     @Volatile
     private var inChatRoom = false
     fun setInChatRoom(value: Boolean) { inChatRoom = value }
+
+    /** App 是否处于前台：用于弹幕判定——挂后台(玩游戏)时即使在聊天室界面也应显示弹幕 */
+    @Volatile
+    private var appForeground = true
+    fun setAppForeground(value: Boolean) { appForeground = value }
     var screenController: ScreenShareController? = null
         private set
     private val appContext = context
@@ -587,10 +592,13 @@ class MctierRepository(private val context: Context) {
             if (it.chatMessages.any { m -> m.id == message.id }) it
             else it.copy(chatMessages = (it.chatMessages + message).takeLast(500))
         }
-        // 弹幕：他人消息以弹幕飘过屏幕（含游戏中）
-        runCatching {
-            val dm = if (wire.messageType == "image") "$resolvedName: ${L("[图片]", "[Image]")}" else "$resolvedName: ${wire.content}"
-            top.pmh13.mctier.ui.DanmakuOverlay.push(dm)
+        // 弹幕：他人消息以弹幕飘过屏幕（含游戏中）。
+        // 仅当(不在聊天室界面) 或 (App 挂在后台)时才弹幕——已在聊天室且在前台能直接看到消息，无需再弹幕
+        if (!inChatRoom || !appForeground) {
+            runCatching {
+                val dm = if (wire.messageType == "image") "$resolvedName: ${L("[图片]", "[Image]")}" else "$resolvedName: ${wire.content}"
+                top.pmh13.mctier.ui.DanmakuOverlay.push(dm)
+            }
         }
         // 仅当不在聊天室界面时才播放提示音(在聊天室内能直接看到，无需提示)
         if (!inChatRoom) soundManager.message()
