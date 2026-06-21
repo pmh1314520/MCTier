@@ -2858,7 +2858,7 @@ private fun VoiceAuditionButton(settings: UserSettings) {
                     if (granted) {
                         top.pmh13.mctier.network.VoiceAuditioner.start(settings.voicePreset)
                         auditioning = true
-                        android.widget.Toast.makeText(ctx, L("试听已开启：请说话，约 1 秒后听到变声效果", "Audition on: speak now, hear the effect after ~1s"), android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(ctx, L("试听已开启：请说话即可实时听到变声效果", "Audition on: speak now to hear the effect in real time"), android.widget.Toast.LENGTH_SHORT).show()
                     } else {
                         permLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                     }

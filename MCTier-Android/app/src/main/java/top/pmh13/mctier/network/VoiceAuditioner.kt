@@ -11,10 +11,11 @@ import java.nio.ByteOrder
 
 /**
  * 变声器试听器（非通话场景）。
- * 打开麦克风采集 PCM，用 [VoiceProcessor] 按当前音色原地变声后，
- * 以约 1 秒延迟回放到扬声器，用户说话即可听到变声效果。
+ * 打开麦克风采集 PCM，用 [VoiceProcessor] 按当前音色原地变声后，实时回放到扬声器，
+ * 用户说话即可听到变声效果。
  *
- * 延迟实现：AudioTrack 流式播放前先写入 1 秒静音，使后续录音数据被自然推迟约 1 秒播放。
+ * 采集源使用 VOICE_COMMUNICATION 以启用系统硬件回声消除，减少外放回授；
+ * 实时回放（不加延迟），避免输出被麦克风再次采集后层层叠加。
  */
 object VoiceAuditioner {
     @Volatile private var running = false
@@ -40,7 +41,7 @@ object VoiceAuditioner {
             var track: AudioTrack? = null
             try {
                 record = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     sampleRate, channelIn, enc,
                     maxOf(minRec, frame * 8),
                 )
@@ -58,17 +59,22 @@ object VoiceAuditioner {
                             .setChannelMask(channelOut)
                             .build(),
                     )
-                    .setBufferSizeInBytes(maxOf(minPlay, sampleRate * 2 * 2)) // 足以容纳约 1 秒缓冲
+                    .setBufferSizeInBytes(maxOf(minPlay, frame * 8))
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
 
                 if (record.state != AudioRecord.STATE_INITIALIZED) { running = false; return@Thread }
+                // 录音管线上启用系统级回声消除/降噪（若设备支持），进一步减少外放回授
+                runCatching {
+                    if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+                        android.media.audiofx.AcousticEchoCanceler.create(record.audioSessionId)?.enabled = true
+                    }
+                    if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                        android.media.audiofx.NoiseSuppressor.create(record.audioSessionId)?.enabled = true
+                    }
+                }
                 record.startRecording()
                 track.play()
-
-                // 预填约 1 秒静音，制造 ~1s 延迟
-                val silence = ByteArray(sampleRate * 2) // 1s mono 16bit
-                track.write(silence, 0, silence.size)
 
                 val buf = ByteArray(frame)
                 while (running) {

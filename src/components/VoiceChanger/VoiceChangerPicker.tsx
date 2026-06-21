@@ -35,7 +35,7 @@ export const VoiceChangerPicker: React.FC = () => {
       } else {
         await voiceChangerService.startAudition();
         setAuditioning(true);
-        message.info(tl('试听已开启：请说话，约 1 秒后会听到变声效果', 'Audition on: speak now, you will hear the effect after ~1s'));
+        message.info(tl('试听已开启：请说话，即可实时听到变声效果', 'Audition on: speak now to hear the effect in real time'));
       }
     } catch (e) {
       console.error(e);

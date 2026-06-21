@@ -59,7 +59,7 @@ class VoiceChangerService {
   }
 
   /**
-   * 开始试听：打开麦克风，用当前音色变声后，延迟约 1 秒回放到扬声器，
+   * 开始试听：打开麦克风，用当前音色变声后实时回放到扬声器，
    * 用户可以直接说话听到变声效果。
    */
   async startAudition(): Promise<void> {
@@ -75,10 +75,8 @@ class VoiceChangerService {
     const ctx = new AC();
     this.auditionCtx = ctx;
     const src = ctx.createMediaStreamSource(processed);
-    const delay = ctx.createDelay(5.0);
-    delay.delayTime.value = 1.0; // 1 秒延迟回放
-    src.connect(delay);
-    delay.connect(ctx.destination);
+    // 实时回放（不加延迟，避免输出被麦克风再次采集形成叠加回声）
+    src.connect(ctx.destination);
     try { await ctx.resume(); } catch { /* ignore */ }
     this.auditioning = true;
   }
