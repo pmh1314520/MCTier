@@ -21,6 +21,7 @@ export const ChatRoom: React.FC = () => {
   const players = useAppStore((state) => state.players);
   const [inputValue, setInputValue] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const isAtBottomRef = useRef(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [displayedMessageCount, setDisplayedMessageCount] = useState(30);
@@ -78,6 +79,7 @@ export const ChatRoom: React.FC = () => {
     const isBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 50;
     
     setIsAtBottom(isBottom);
+    isAtBottomRef.current = isBottom;
     
     // 如果滚动到底部，标记所有消息为已读
     if (isBottom) {
@@ -158,14 +160,15 @@ export const ChatRoom: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages.length]);
 
-  // 新消息到达时：自己发的无条件置底；他人发的仅在已处于底部时跟随
+  // 新消息到达时：仅当用户当前已处于底部时才跟随他人消息（标准聊天行为）。
+  // 不再因"最新消息是自己发的"而强制置底——那会导致用户往上翻历史时被反复拽回底部。
+  // 自己发送消息时的瞬时置底由发送处理函数显式触发。
   useEffect(() => {
     if (chatMessages.length <= 0) return;
     if (!initializedScrollRef.current) return;
-    const last = chatMessages[chatMessages.length - 1];
-    const isOwnLatest = !!last && last.playerId === currentPlayerId;
-    if (isOwnLatest || isAtBottom) scrollToBottom(true);
-  }, [chatMessages.length, isAtBottom]);
+    if (isAtBottomRef.current) scrollToBottom(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMessages.length]);
 
   const buildReplyContent = (body: string): string => {
     if (!replyTo) return body;
@@ -212,6 +215,9 @@ export const ChatRoom: React.FC = () => {
       // 立即添加到本地消息列表
       addChatMessage(optimisticMessage);
       console.log('✅ [ChatRoom] 乐观更新：本地显示消息');
+      // 发送消息的一瞬间：瞬时滚动到底部（一次性，不锁定）
+      isAtBottomRef.current = true;
+      scrollToBottom(false);
       
       // 发送到P2P网络
       const res = await p2pChatService.sendTextMessage(messageContent);
@@ -408,8 +414,9 @@ export const ChatRoom: React.FC = () => {
           setReplyTo(null);
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
-          // 滚动到底部
-          setTimeout(() => scrollToBottom(), 100);
+          // 发送图片的一瞬间：瞬时滚动到底部（一次性）
+          isAtBottomRef.current = true;
+          scrollToBottom(false);
         } catch (error) {
           console.error('发送图片失败:', error);
           antdMessage.error(tl('发送图片失败', 'Failed to send image'));
@@ -475,8 +482,9 @@ export const ChatRoom: React.FC = () => {
 
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
-          // 滚动到底部
-          setTimeout(() => scrollToBottom(), 100);
+          // 发送图片的一瞬间：瞬时滚动到底部（一次性）
+          isAtBottomRef.current = true;
+          scrollToBottom(false);
           
           setIsUploading(false);
         } catch (error) {
@@ -542,8 +550,9 @@ export const ChatRoom: React.FC = () => {
 
       antdMessage.success(tl('图片发送成功', 'Image sent'));
       
-      // 滚动到底部
-      setTimeout(() => scrollToBottom(), 100);
+      // 发送图片的一瞬间：瞬时滚动到底部（一次性）
+      isAtBottomRef.current = true;
+      scrollToBottom(false);
       
       setIsUploading(false);
     } catch (error) {
