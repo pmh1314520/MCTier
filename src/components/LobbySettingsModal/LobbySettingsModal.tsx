@@ -6,6 +6,7 @@ import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
 import { audioService } from '../../services/audio/AudioService';
 import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
+import { DanmakuSettings } from '../Danmaku/DanmakuSettings';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import './LobbySettingsModal.css';
@@ -243,6 +244,14 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         <div className="lobby-voice-section">
           <div className="lobby-voice-section-title">{tl('变声器', 'Voice Changer')}</div>
           <VoiceChangerPicker />
+        </div>
+
+        <div className="lobby-voice-divider" />
+
+        {/* 消息弹幕（大厅内即时调整，无需退出大厅） */}
+        <div className="lobby-voice-section">
+          <div className="lobby-voice-section-title">{tl('消息弹幕', 'Message Danmaku')}</div>
+          <DanmakuSettings />
         </div>
 
         <div className="lobby-config-box">

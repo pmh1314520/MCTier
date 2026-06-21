@@ -253,18 +253,18 @@
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: rgba(100, 100, 120, 0.9);
+  background: #52c41a;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 10px rgba(82, 196, 26, 0.45);
   transition: all 0.3s ease;
   z-index: 10;
 }
 
 .new-message-indicator:hover {
-  background: rgba(120, 120, 140, 1);
+  background: #6fcf36;
   transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 14px rgba(82, 196, 26, 0.6);
 }
 
 .new-message-indicator svg {

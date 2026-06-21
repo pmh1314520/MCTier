@@ -1512,6 +1512,15 @@ private fun LobbyDynamicConfigView(state: MctierUiState, repository: MctierRepos
                 )
             }
         }
+        // 消息弹幕：大厅内即时调整，无需退出大厅
+        item {
+            SectionCard {
+                DanmakuSettingsSection(
+                    settings = state.settings,
+                    onChange = { repository.updateSettings(it) },
+                )
+            }
+        }
         item {
             SectionCard {
                 Text(L("EasyTier 动态配置", "EasyTier Live Config"), fontWeight = FontWeight.Bold, color = TextPrimary)
