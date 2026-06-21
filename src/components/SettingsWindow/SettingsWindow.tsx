@@ -524,7 +524,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
-                <div className="settings-card-icon settings-card-icon-purple">
+                <div className="settings-card-icon settings-card-icon-indigo">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/>
                   </svg>
@@ -539,7 +539,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
-                <div className="settings-card-icon settings-card-icon-purple">
+                <div className="settings-card-icon settings-card-icon-cyan">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M3 5h18v2H3V5zm0 6h12v2H3v-2zm0 6h18v2H3v-2z"/>
                   </svg>
@@ -554,7 +554,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
-                <div className="settings-card-icon settings-card-icon-purple">
+                <div className="settings-card-icon settings-card-icon-pink">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
                   </svg>
@@ -606,7 +606,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
-                <div className="settings-card-icon settings-card-icon-purple">
+                <div className="settings-card-icon settings-card-icon-green">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
                   </svg>
@@ -729,19 +729,17 @@ const DanmakuSettings: React.FC = () => {
         <div className="snd-block-title"><span>{tl('弹幕轨道数', 'Tracks')}</span><span className="snd-vol-val">{cfg.tracks}</span></div>
         <Slider min={1} max={10} step={1} value={cfg.tracks} onChange={(v) => update({ tracks: v as number })} />
       </div>
-      <div className="snd-block" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div className="snd-block-title-text">{tl('弹幕颜色', 'Danmaku Color')}</div>
-          <div className="snd-block-desc">{tl('自定义弹幕文字颜色', 'Customize the danmaku text color')}</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="snd-block">
+        <div className="snd-block-title-text">{tl('弹幕颜色', 'Danmaku Color')}</div>
+        <div className="snd-block-desc">{tl('自定义弹幕文字颜色', 'Customize the danmaku text color')}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           {['#ffffff', '#52c41a', '#1890ff', '#faad14', '#ff4d4f', '#eb2f96'].map((c) => (
             <span
               key={c}
               onClick={() => update({ color: c })}
               title={c}
               style={{
-                width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
+                width: 24, height: 24, borderRadius: '50%', background: c, cursor: 'pointer', flexShrink: 0,
                 border: cfg.color.toLowerCase() === c ? '2px solid #fff' : '2px solid rgba(255,255,255,0.25)',
                 boxShadow: cfg.color.toLowerCase() === c ? '0 0 6px rgba(255,255,255,0.6)' : 'none',
               }}
@@ -751,7 +749,7 @@ const DanmakuSettings: React.FC = () => {
             onClick={() => update({ color: 'rainbow' })}
             title={tl('彩色（每条随机）', 'Rainbow (random per message)')}
             style={{
-              width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
+              width: 24, height: 24, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
               background: 'conic-gradient(#ff4d4f,#faad14,#52c41a,#1890ff,#eb2f96,#ff4d4f)',
               border: cfg.color === 'rainbow' ? '2px solid #fff' : '2px solid rgba(255,255,255,0.25)',
               boxShadow: cfg.color === 'rainbow' ? '0 0 6px rgba(255,255,255,0.8)' : 'none',
@@ -762,7 +760,7 @@ const DanmakuSettings: React.FC = () => {
             value={cfg.color === 'rainbow' ? '#ffffff' : cfg.color}
             onChange={(e) => update({ color: e.target.value })}
             title={tl('自定义颜色', 'Custom color')}
-            style={{ width: 32, height: 26, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+            style={{ width: 34, height: 28, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', flexShrink: 0 }}
           />
         </div>
       </div>
@@ -868,6 +866,7 @@ const SoundThemeManager: React.FC = () => {
               )}
               <Switch
                 size="small"
+                className="snd-mute-toggle"
                 checked={!mutedSounds[t]}
                 title={tl('开启=使用该提示音，关闭=不使用', 'On = use this sound, Off = mute')}
                 onChange={(v) => { setMutedSounds((prev) => ({ ...prev, [t]: !v })); audioService.setSoundMuted(t, !v); }}

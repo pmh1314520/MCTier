@@ -639,14 +639,19 @@ pub fn run() {
                 ensure_window_visible(window);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label().to_string();
+                // 仅主窗口关闭时才退出应用；辅助窗口(弹幕覆盖层/屏幕查看等)正常关闭，
+                // 不得连带退出整个程序（修复：预览弹幕后弹幕窗关闭把主程序也带退了）
+                if label != "main" {
+                    return;
+                }
                 api.prevent_close();
                 let ah = window.app_handle().clone();
-                let label = window.label().to_string();
                 if let Some(state) = ah.try_state::<AppState>() {
                     let core = Arc::clone(&state.core);
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = core.lock().await.shutdown().await { error!("关闭错误: {}", e); }
-                        if let Some(w) = ah.get_webview_window(&label) { let _ = w.close(); }
+                        if let Some(w) = ah.get_webview_window("main") { let _ = w.close(); }
                         ah.exit(0);
                     });
                 } else {

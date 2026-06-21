@@ -31,6 +31,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // 超大 Compose 文件(MctierApp.kt)用 invokedynamic 生成 lambda 会导致编译器 IR 阶段 OOM，
+        // 改为 class 方式生成 lambda/SAM 转换，规避 GC overhead / 内部错误
+        freeCompilerArgs += listOf("-Xlambdas=class", "-Xsam-conversions=class")
     }
 
     buildFeatures {

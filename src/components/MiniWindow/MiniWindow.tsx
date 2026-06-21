@@ -1587,7 +1587,7 @@ Password: ${lobby.password || ''}
                       return (
                         <motion.div
                           key={player.id}
-                          className="mini-player-item"
+                          className={`mini-player-item ${isHost ? 'host-layout' : ''}`}
                           layout
                           initial={{ opacity: 0, x: -20, scale: 0.9 }}
                           animate={{ opacity: 1, x: 0, scale: 1 }}

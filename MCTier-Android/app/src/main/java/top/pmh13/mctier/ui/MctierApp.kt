@@ -2879,6 +2879,14 @@ private fun VoiceAuditionButton(settings: UserSettings) {
 private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettings) -> Unit) {
     val ctx = LocalContext.current
     var hasPerm by remember { mutableStateOf(DanmakuOverlay.hasPermission(ctx)) }
+    var showColorDialog by remember { mutableStateOf(false) }
+    if (showColorDialog) {
+        DanmakuColorPickerDialog(
+            initial = runCatching { android.graphics.Color.parseColor(settings.danmakuColor) }.getOrDefault(android.graphics.Color.WHITE),
+            onDismiss = { showColorDialog = false },
+            onConfirm = { hex -> onChange(settings.copy(danmakuColor = hex)); showColorDialog = false },
+        )
+    }
     Text(L("消息弹幕", "Message Danmaku"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
     Spacer(Modifier.height(4.dp))
     Text(
@@ -2969,6 +2977,23 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
                 )
                 .clickable { onChange(settings.copy(danmakuColor = "rainbow")) },
         )
+        // 自定义颜色（打开取色器）
+        val presetColors = listOf("#FFFFFF", "#52C41A", "#1890FF", "#FAAD14", "#FF4D4F", "#EB2F96", "rainbow")
+        val isCustom = presetColors.none { it.equals(settings.danmakuColor, ignoreCase = true) }
+        val customDisplay = runCatching { Color(android.graphics.Color.parseColor(settings.danmakuColor)) }.getOrDefault(PanelHigh)
+        Box(
+            Modifier.size(28.dp).clip(RoundedCornerShape(50))
+                .background(if (isCustom) customDisplay else PanelHigh)
+                .border(
+                    width = if (isCustom) 3.dp else 1.dp,
+                    color = if (isCustom) TextPrimary else TextPrimary.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(50),
+                )
+                .clickable { showColorDialog = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!isCustom) Text("+", color = TextPrimary.copy(alpha = 0.7f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
     Spacer(Modifier.height(8.dp))
     Box(
@@ -2987,6 +3012,49 @@ private fun DanmakuSettingsSection(settings: UserSettings, onChange: (UserSettin
             .padding(vertical = 11.dp),
         contentAlignment = Alignment.Center,
     ) { Text(L("预览弹幕", "Preview danmaku"), color = TextPrimary, fontWeight = FontWeight.SemiBold) }
+}
+
+@Composable
+private fun DanmakuColorPickerDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var r by remember { mutableStateOf(android.graphics.Color.red(initial).toFloat()) }
+    var g by remember { mutableStateOf(android.graphics.Color.green(initial).toFloat()) }
+    var b by remember { mutableStateOf(android.graphics.Color.blue(initial).toFloat()) }
+    val current = Color(r.toInt(), g.toInt(), b.toInt())
+    fun hex(): String = String.format("#%02X%02X%02X", r.toInt(), g.toInt(), b.toInt())
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onConfirm(hex()) }) {
+                Text(L("确定", "OK"), color = GrassGreen, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(L("取消", "Cancel"), color = TextPrimary.copy(alpha = 0.7f))
+            }
+        },
+        title = { Text(L("自定义弹幕颜色", "Custom Danmaku Color"), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Box(
+                    Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(10.dp)).background(current)
+                        .border(1.dp, TextPrimary.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { Text(hex(), color = if ((r + g + b) / 3 > 140) Color.Black else Color.White, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.height(12.dp))
+                Text("R: ${r.toInt()}", fontSize = 12.sp, color = Color(0xFFFF6B6B))
+                Slider(value = r, onValueChange = { r = it }, valueRange = 0f..255f,
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFFFF4D4F), activeTrackColor = Color(0xFFFF4D4F)))
+                Text("G: ${g.toInt()}", fontSize = 12.sp, color = Color(0xFF52C41A))
+                Slider(value = g, onValueChange = { g = it }, valueRange = 0f..255f,
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFF52C41A), activeTrackColor = Color(0xFF52C41A)))
+                Text("B: ${b.toInt()}", fontSize = 12.sp, color = Color(0xFF1890FF))
+                Slider(value = b, onValueChange = { b = it }, valueRange = 0f..255f,
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFF1890FF), activeTrackColor = Color(0xFF1890FF)))
+            }
+        },
+        containerColor = PanelHigh,
+    )
 }
 
 @Composable

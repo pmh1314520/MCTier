@@ -736,6 +736,18 @@
   color: rgba(186, 104, 200, 0.95);
 }
 
+/* 粉色（变声器） */
+.settings-card-icon-pink {
+  background: rgba(235, 47, 150, 0.16);
+}
+.settings-card-icon-pink svg { color: rgba(255, 120, 200, 0.95); }
+
+/* 靛蓝（音量） */
+.settings-card-icon-indigo {
+  background: rgba(99, 102, 241, 0.18);
+}
+.settings-card-icon-indigo svg { color: rgba(150, 158, 255, 0.95); }
+
 /* 私有服务器操作按钮 */
 .settings-action-btn {
   flex: 1;
@@ -822,7 +834,8 @@
   background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.5);
 }
 .snd-card-tag.is-custom { background: rgba(82, 196, 26, 0.18); color: #7ee03c; }
-.snd-card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.snd-card-actions { display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+.snd-mute-toggle { margin-left: auto; }
 .snd-icon-btn {
   width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; border: none; cursor: pointer;

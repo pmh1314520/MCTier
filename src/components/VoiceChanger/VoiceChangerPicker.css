@@ -1,12 +1,23 @@
+.vc-picker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .vc-picker {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 6px;
+  justify-content: flex-start;
 }
 
 .vc-chip {
-  padding: 6px 14px;
+  padding: 6px 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
@@ -29,19 +40,14 @@
   font-weight: 600;
 }
 
-.vc-picker-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
+/* 试听变声按钮：棕色 */
 .vc-audition-btn {
-  align-self: flex-start;
-  padding: 7px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(82, 196, 26, 0.5);
-  background: rgba(82, 196, 26, 0.14);
-  color: #7ee03c;
+  align-self: stretch;
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(150, 95, 50, 0.6);
+  background: rgba(122, 76, 38, 0.35);
+  color: #e3b58c;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -49,17 +55,18 @@
 }
 
 .vc-audition-btn:hover {
-  background: rgba(82, 196, 26, 0.24);
+  background: rgba(140, 88, 44, 0.5);
+  color: #f0c9a3;
 }
 
 .vc-audition-btn.active {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.6);
-  color: #ff7875;
+  background: rgba(120, 72, 36, 0.55);
+  border-color: rgba(180, 110, 55, 0.85);
+  color: #ffcf9e;
   animation: vc-audition-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes vc-audition-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(150, 95, 50, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(150, 95, 50, 0); }
 }

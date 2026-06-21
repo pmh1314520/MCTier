@@ -612,20 +612,28 @@
   margin-left: -2px;
 }
 
-/* 非房主视角：右侧两个按钮竖直靠右排布，节省横向空间 */
+/* 非房主视角：右侧两个按钮竖直靠右排布（上=远程控制，下=禁音此玩家），节省横向空间 */
 .mini-player-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 6px;
   flex-shrink: 0;
 }
 
-/* 房主视角：5 个操作按钮换行到条目底部，整行横向均匀分布 */
+/* 房主视角：整个条目改为纵向布局，信息在上、5 个操作按钮在底部整行均匀分布，彻底避免重叠 */
+.mini-player-item.host-layout {
+  flex-direction: column;
+  align-items: stretch;
+}
+.mini-player-item.host-layout .mini-player-info {
+  width: 100%;
+}
+
+/* 房主视角：5 个操作按钮在条目底部，整行横向均匀分布 */
 .mini-player-actions.host-grid {
   display: flex;
   flex-direction: row;
-  flex-basis: 100%;
   width: 100%;
   margin-top: 8px;
   padding-top: 8px;
