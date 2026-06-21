@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { tl } from '../../i18n';
 import './DanmakuOverlay.css';
 
 interface Bullet {
@@ -205,10 +206,10 @@ export const DanmakuOverlay: React.FC = () => {
     try {
       const mod = await import('@tauri-apps/plugin-clipboard-manager');
       await mod.writeText(t);
-      showToast('已复制消息内容');
+      showToast(tl('已复制消息内容', 'Message content copied'));
     } catch {
-      try { await navigator.clipboard.writeText(t); showToast('已复制消息内容'); }
-      catch { showToast('复制失败'); }
+      try { await navigator.clipboard.writeText(t); showToast(tl('已复制消息内容', 'Message content copied')); }
+      catch { showToast(tl('复制失败', 'Copy failed')); }
     }
     releaseAfterAction(b.id);
   }, [showToast, releaseAfterAction]);
@@ -217,9 +218,9 @@ export const DanmakuOverlay: React.FC = () => {
     if (!b.image) { releaseAfterAction(b.id); return; }
     try {
       await invoke<string>('save_danmaku_image', { dataUrl: b.image });
-      showToast('图片已保存到下载文件夹');
+      showToast(tl('图片已保存到下载文件夹', 'Image saved to Downloads'));
     } catch {
-      showToast('保存失败');
+      showToast(tl('保存失败', 'Save failed'));
     }
     releaseAfterAction(b.id);
   }, [showToast, releaseAfterAction]);
@@ -254,9 +255,9 @@ export const DanmakuOverlay: React.FC = () => {
             {paused && (
               <div className="danmaku-actions" ref={actionBtnRef}>
                 {b.kind === 'image' ? (
-                  <button className="danmaku-action-btn" onClick={() => doDownload(b)}>下载图片</button>
+                  <button className="danmaku-action-btn" onClick={() => doDownload(b)}>{tl('下载图片', 'Download')}</button>
                 ) : (
-                  <button className="danmaku-action-btn" onClick={() => doCopy(b)}>复制内容</button>
+                  <button className="danmaku-action-btn" onClick={() => doCopy(b)}>{tl('复制内容', 'Copy')}</button>
                 )}
               </div>
             )}

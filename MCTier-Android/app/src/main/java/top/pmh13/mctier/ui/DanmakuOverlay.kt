@@ -292,7 +292,7 @@ object DanmakuOverlay {
 
         val ctx = c.context
         val d = density()
-        val btnLabel = if (bullet.isImage) "下载图片" else "复制内容"
+        val btnLabel = if (bullet.isImage) L("下载图片", "Download") else L("复制内容", "Copy")
         val btn = makeActionButton(ctx, btnLabel) {
             if (bullet.isImage) downloadImage(bullet.imageData) else copyText(bullet.copyText ?: "")
             dismissPinned(resume = true)
@@ -357,7 +357,7 @@ object DanmakuOverlay {
         runCatching {
             val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("MCTier", text))
-            toast("已复制消息内容")
+            toast(L("已复制消息内容", "Message content copied"))
         }
     }
 
@@ -365,9 +365,9 @@ object DanmakuOverlay {
     private fun downloadImage(dataUrl: String?) {
         val ctx = appCtx ?: return
         val bytes = dataUrl?.let { decodeDataUrl(it) }
-        if (bytes == null) { toast("图片下载失败"); return }
+        if (bytes == null) { toast(L("图片下载失败", "Image download failed")); return }
         val ok = saveImageToGallery(ctx, bytes)
-        toast(if (ok) "图片已保存到相册" else "图片下载失败")
+        toast(if (ok) L("图片已保存到相册", "Image saved to gallery") else L("图片下载失败", "Image download failed"))
     }
 
     private fun toast(msg: String) {
