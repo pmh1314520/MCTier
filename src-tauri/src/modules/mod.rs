@@ -49,5 +49,8 @@ pub mod chat_service;
 // Minecraft 局域网世界自动发现模块
 pub mod minecraft_discovery;
 
+// Minecraft 局域网中继桥（让虚拟网内的 MC 世界出现在本机 Minecraft 局域网列表）
+pub mod mc_lan_bridge;
+
 // 远程控制（输入注入）模块
 pub mod remote_control;

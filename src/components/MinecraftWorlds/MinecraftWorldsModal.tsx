@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Button, Spin, Empty, message, Tag, InputNumber, Tooltip } from 'antd';
+import { Modal, Button, Spin, Empty, message, Tag, InputNumber, Tooltip, Switch } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
@@ -30,17 +30,31 @@ interface MinecraftWorldsModalProps {
 
 const DEFAULT_MC_PORT = 25565;
 const MC_PORT_KEY = 'mctier_mc_scan_port';
+const MC_AUTOLAN_KEY = 'mctier_mc_autolan';
 
 export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visible, onClose }) => {
   useTranslation();
   const { players, lobby, currentPlayerId, config } = useAppStore();
   const [scanning, setScanning] = useState(false);
   const [servers, setServers] = useState<DiscoveredServer[]>([]);
+  // 在 Minecraft 局域网列表自动显示（免输IP）
+  const [autoLan, setAutoLan] = useState<boolean>(() => localStorage.getItem(MC_AUTOLAN_KEY) === '1');
   // 扫描端口（默认 25565，支持自定义并本地记忆）
   const [port, setPort] = useState<number>(() => {
     const saved = Number(localStorage.getItem(MC_PORT_KEY));
     return saved >= 1 && saved <= 65535 ? saved : DEFAULT_MC_PORT;
   });
+
+  // 自身虚拟 IP（广播时排除自己的世界，避免把自己代理给自己）
+  const selfIp = lobby?.virtualIp || players.find(p => p.id === currentPlayerId)?.virtualIp || '';
+
+  // 把发现的（非自己的）服务器推送到本机 Minecraft 局域网列表
+  const pushBroadcast = useCallback(async (list: DiscoveredServer[]) => {
+    const payload = list
+      .filter(s => s.ip && s.ip !== selfIp)
+      .map(s => ({ ip: s.ip, port: s.port, motd: s.motd || '' }));
+    try { await invoke('start_mc_lan_broadcast', { servers: payload }); } catch (e) { console.warn('LAN 广播失败', e); }
+  }, [selfIp]);
 
   // 构建 IP -> 玩家名 映射（含自己）
   const buildIpNameMap = useCallback((): Map<string, string> => {
@@ -76,13 +90,26 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
         .map(s => ({ ...s, playerName: ipNameMap.get(s.ip) ?? s.ip }))
         .sort((a, b) => a.latencyMs - b.latencyMs);
       setServers(withNames);
+      if (autoLan) void pushBroadcast(withNames);
     } catch (error) {
       console.error('扫描局域网世界失败:', error);
       message.error(tl('扫描失败，请重试', 'Scan failed, please retry'));
     } finally {
       setScanning(false);
     }
-  }, [scanning, buildIpNameMap, port]);
+  }, [scanning, buildIpNameMap, port, autoLan, pushBroadcast]);
+
+  // 自动显示开关：开启时周期重扫并刷新广播；关闭时停止本机 Minecraft 局域网广播
+  useEffect(() => {
+    if (!autoLan) {
+      void invoke('stop_mc_lan_broadcast').catch(() => {});
+      return;
+    }
+    void handleScan();
+    const timer = window.setInterval(() => { void handleScan(); }, 8000);
+    return () => { window.clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLan]);
 
   // 打开时自动扫描一次
   useEffect(() => {
@@ -141,6 +168,21 @@ export const MinecraftWorldsModal: React.FC<MinecraftWorldsModalProps> = ({ visi
       </div>
       <div style={{ marginBottom: 12, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
         {tl(`自动扫描大厅成员是否在端口 ${port} 上开启了 Minecraft 世界（需对方开启「对局域网开放」或自建服务器）。`, `Automatically scans whether lobby members have a Minecraft world open on port ${port} (they must use "Open to LAN" or run a server).`)}
+      </div>
+
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(124,207,0,0.10)', border: '1px solid rgba(124,207,0,0.25)' }}>
+        <Switch
+          checked={autoLan}
+          onChange={(v) => { setAutoLan(v); try { localStorage.setItem(MC_AUTOLAN_KEY, v ? '1' : '0'); } catch { /* ignore */ } }}
+        />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+            {tl('在 Minecraft 局域网列表自动显示（免输IP）', 'Auto-show in Minecraft LAN list (no IP typing)')}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
+            {tl('开启后，大厅内发现的世界会直接出现在你 Minecraft 的「局域网」列表，点一下即可加入；保持开启即可后台持续刷新。', 'When on, discovered worlds appear directly in your Minecraft "LAN" tab — just click to join. Keep it on to refresh in the background.')}
+          </div>
+        </div>
       </div>
 
       {scanning && servers.length === 0 ? (

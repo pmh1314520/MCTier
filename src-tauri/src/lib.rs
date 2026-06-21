@@ -98,6 +98,8 @@ use modules::minecraft_discovery::{
     scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
 };
 
+use modules::mc_lan_bridge::{start_mc_lan_broadcast, stop_mc_lan_broadcast};
+
 use modules::remote_control::remote_inject_input;
 
 #[tauri::command]
@@ -365,6 +367,7 @@ pub fn run() {
             save_lobby_easytier_advanced_config, get_lobby_easytier_advanced_config,
             clear_lobby_easytier_advanced_config,
             scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
+            start_mc_lan_broadcast, stop_mc_lan_broadcast,
             set_tray_menu_texts,
             remote_inject_input,
         ])
