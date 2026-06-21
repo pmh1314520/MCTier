@@ -46,6 +46,7 @@ export const ChatRoom: React.FC = () => {
   const lastScrollTop = useRef(0);
   const textAreaRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isShooting, setIsShooting] = useState(false);
   const initializedScrollRef = useRef(false);
 
   // 计算未读消息数量（只计算其他人发送的消息）
@@ -612,6 +613,50 @@ export const ChatRoom: React.FC = () => {
     }
   };
 
+  // 截图并发送：抓取一帧屏幕画面直接发到聊天室（游戏中可快速分享高光/进度）
+  const handleScreenshot = async () => {
+    if (isShooting || isUploading) return;
+    setIsShooting(true);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 } as any, audio: false } as any);
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      await new Promise((r) => setTimeout(r, 280)); // 等首帧稳定
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no canvas ctx');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const messageContent = buildReplyContent(tl('[图片]', '[Image]'));
+      const optimisticMessage: ChatMessage = {
+        id: `msg-${currentPlayerId}-${Date.now()}`,
+        playerId: currentPlayerId!,
+        playerName: config.playerName || tl('我', 'Me'),
+        content: messageContent,
+        timestamp: Date.now(),
+        type: 'image',
+        imageData: dataUrl,
+      };
+      addChatMessage(optimisticMessage);
+      await p2pChatService.sendImageMessage(dataUrl, messageContent);
+      setReplyTo(null);
+      antdMessage.success(tl('截图已发送', 'Screenshot sent'));
+      isAtBottomRef.current = true;
+      scrollToBottom(false);
+    } catch (error) {
+      console.error('截图失败:', error);
+      antdMessage.error(tl('截图失败或已取消', 'Screenshot failed or cancelled'));
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      setIsShooting(false);
+    }
+  };
+
   // 下载图片
   const handleDownloadImage = async (imageData: string, messageId: string) => {
     try {
@@ -997,6 +1042,20 @@ export const ChatRoom: React.FC = () => {
             loading={isUploading}
             title={tl('发送图片', 'Send image')}
             className="image-button"
+          />
+
+          <Button
+            type="text"
+            onClick={handleScreenshot}
+            loading={isShooting}
+            title={tl('截图发送（选择要分享的屏幕/窗口）', 'Screenshot to chat (pick a screen/window)')}
+            className="image-button"
+            icon={(
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+            )}
           />
           
           <TextArea

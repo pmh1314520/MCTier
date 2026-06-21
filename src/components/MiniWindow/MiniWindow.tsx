@@ -15,7 +15,7 @@ import { statsService } from '../../services/stats/statsService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { versionCheckService } from '../../services/version/VersionCheckService';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emitTo } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
 import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
@@ -201,6 +201,48 @@ export const MiniWindow: React.FC = () => {
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [showGameConnect, setShowGameConnect] = useState(false); // 游戏快连弹窗
+  const [hudOn, setHudOn] = useState<boolean>(() => localStorage.getItem('mctier_game_hud') === '1'); // 游戏内HUD浮层
+
+  // 游戏内 HUD：开启时打开浮层窗并周期推送队友延迟/丢包/说话状态；关闭时关窗
+  useEffect(() => {
+    if (!hudOn) {
+      void invoke('close_game_hud_window').catch(() => {});
+      return;
+    }
+    void invoke('open_game_hud_window').catch(() => {});
+    let stopped = false;
+    const pushOnce = async () => {
+      try {
+        const st = useAppStore.getState();
+        const selfId = st.currentPlayerId;
+        const speaking = st.speakingPlayers;
+        const peerIps = st.players.filter((p) => p.virtualIp && p.id !== selfId).map((p) => p.virtualIp as string);
+        let latMap: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+        if (peerIps.length > 0) {
+          const lat = await invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>('measure_peers_latency', { peerIps });
+          lat.forEach((l) => { latMap[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate }; });
+        }
+        const peers = st.players.map((p) => {
+          const self = p.id === selfId;
+          const m = p.virtualIp ? latMap[p.virtualIp] : undefined;
+          return {
+            name: p.name,
+            self,
+            speaking: speaking.has(p.id),
+            ping: self ? null : (m ? m.latencyMs : null),
+            loss: self ? 0 : (m ? m.lossRate : 0),
+          };
+        });
+        // 自己排在最前
+        peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
+        if (!stopped) await emitTo('gamehud', 'hud-update', { peers });
+      } catch { /* ignore */ }
+    };
+    void pushOnce();
+    const timer = window.setInterval(() => { void pushOnce(); }, 4000);
+    return () => { stopped = true; window.clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hudOn]);
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
@@ -1477,6 +1519,18 @@ Password: ${lobby.password || ''}
                           <line x1="6" y1="11" x2="10" y2="11" /><line x1="8" y1="9" x2="8" y2="13" />
                           <line x1="15" y1="12" x2="15.01" y2="12" /><line x1="18" y1="10" x2="18.01" y2="10" />
                           <rect x="2" y="6" width="20" height="12" rx="2" />
+                        </svg>
+                      </motion.button>
+                      <motion.button
+                        className="lobby-card-action-btn"
+                        onClick={() => { const v = !hudOn; setHudOn(v); try { localStorage.setItem('mctier_game_hud', v ? '1' : '0'); } catch { /* ignore */ } }}
+                        title={tl('游戏内HUD浮层（队友延迟/谁在说话，置顶显示）', 'In-game HUD overlay (teammate ping / who is speaking)')}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        style={hudOn ? { boxShadow: '0 0 0 2px rgba(124,207,0,0.7)' } : undefined}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hudOn ? '#7CCF00' : '#FFFFFF'} strokeWidth="2">
+                          <path d="M3 5h18v12H3z" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
                         </svg>
                       </motion.button>
                       <motion.button

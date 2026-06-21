@@ -3667,6 +3667,59 @@ pub async fn set_danmaku_ignore_cursor(app: tauri::AppHandle, ignore: bool) -> R
     Ok(())
 }
 
+/// 打开游戏内 HUD 浮层窗口：置顶、透明、无边框、鼠标穿透，置于主屏右上角。
+/// 显示队友延迟/丢包与"谁在说话"，玩游戏时一眼掌握全队状态。
+#[tauri::command]
+pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri::WebviewWindowBuilder;
+    let label = "gamehud";
+    if let Some(existing) = app.get_webview_window(label) {
+        let _ = existing.show();
+        let _ = existing.set_always_on_top(true);
+        let _ = existing.set_ignore_cursor_events(true);
+        return Ok(());
+    }
+    let window = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html?gamehud=true".into()))
+        .title("MCTier HUD")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .resizable(false)
+        .focused(false)
+        .visible(false)
+        .inner_size(280.0, 360.0)
+        .build()
+        .map_err(|e| format!("创建HUD窗口失败: {}", e))?;
+    // 定位到主屏右上角
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let size = monitor.size();
+        let pos = monitor.position();
+        let scale = monitor.scale_factor();
+        let w = (280.0 * scale) as i32;
+        let x = pos.x + size.width as i32 - w - (24.0 * scale) as i32;
+        let y = pos.y + (60.0 * scale) as i32;
+        let _ = window.set_position(tauri::PhysicalPosition::new(x.max(pos.x), y));
+    }
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
+    log::info!("✅ 游戏HUD窗口已打开");
+    Ok(())
+}
+
+/// 关闭游戏内 HUD 浮层窗口
+#[tauri::command]
+pub async fn close_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("gamehud") {
+        let _ = window.close();
+    }
+    Ok(())
+}
+
 /// 获取鼠标相对弹幕窗口的逻辑坐标（用于在穿透模式下命中检测弹幕）。
 /// 返回 None 表示窗口不存在或取不到坐标。
 #[tauri::command]

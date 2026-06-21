@@ -1,0 +1,73 @@
+import React, { useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { tl } from '../../i18n';
+import './GameHudOverlay.css';
+
+interface HudPeer {
+  name: string;
+  ping: number | null; // ms，null=不可达
+  loss: number;        // 丢包率 0~100
+  speaking: boolean;
+  self: boolean;
+}
+
+interface HudPayload {
+  peers: HudPeer[];
+}
+
+/**
+ * 游戏内 HUD 浮层（运行在独立的置顶透明穿透窗口）。
+ * 接收主窗口推送的 'hud-update' 事件，显示每位队友的延迟/丢包与"谁在说话"。
+ */
+export const GameHudOverlay: React.FC = () => {
+  const [peers, setPeers] = useState<HudPeer[]>([]);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    html.style.background = 'transparent';
+    body.style.background = 'transparent';
+    body.style.margin = '0';
+    body.style.overflow = 'hidden';
+    body.style.pointerEvents = 'none';
+    body.style.userSelect = 'none';
+    const root = document.getElementById('root');
+    if (root) { root.style.background = 'transparent'; root.style.pointerEvents = 'none'; }
+
+    let un: (() => void) | undefined;
+    listen<HudPayload>('hud-update', (e) => {
+      if (e.payload && Array.isArray(e.payload.peers)) setPeers(e.payload.peers);
+    }).then((fn) => { un = fn; });
+    return () => { if (un) un(); };
+  }, []);
+
+  const pingColor = (p: number | null) => {
+    if (p == null) return '#ff5a5a';
+    if (p < 80) return '#7ccf00';
+    if (p < 200) return '#ffcc00';
+    return '#ff8a3d';
+  };
+
+  return (
+    <div className="hud-root">
+      <div className="hud-title">MCTier · {tl('队伍状态', 'Squad')}</div>
+      {peers.length === 0 ? (
+        <div className="hud-empty">{tl('暂无队友数据', 'No teammates yet')}</div>
+      ) : (
+        peers.map((p, i) => (
+          <div className="hud-row" key={i}>
+            <span className={`hud-dot${p.speaking ? ' speaking' : ''}`} />
+            <span className="hud-name">{p.name}{p.self ? tl('（我）', ' (me)') : ''}</span>
+            {p.self ? (
+              <span className="hud-ping" style={{ color: '#9aa0a6' }}>—</span>
+            ) : (
+              <span className="hud-ping" style={{ color: pingColor(p.ping) }}>
+                {p.ping == null ? tl('离线', 'off') : `${p.ping}ms`}{p.loss > 0 && p.ping != null ? ` · ${p.loss}%` : ''}
+              </span>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+};

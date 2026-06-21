@@ -20,6 +20,16 @@ interface RawStats {
   // 活跃时段计次：0=凌晨(0-6) 1=上午(6-12) 2=下午(12-18) 3=晚上(18-24)
   buckets: [number, number, number, number];
   sessionStart: number; // 进行中的会话开始时间，0=无
+  sessionIsHost?: boolean; // 进行中会话的身份
+  sessions?: SessionRecord[]; // 开黑记录（逐场）
+}
+
+/** 单场开黑记录 */
+export interface SessionRecord {
+  start: number;
+  end: number;
+  durationMs: number;
+  isHost: boolean;
 }
 
 export interface PartnerStat {
@@ -55,6 +65,8 @@ const DEFAULT: RawStats = {
   lastOnlineTs: 0,
   buckets: [0, 0, 0, 0],
   sessionStart: 0,
+  sessionIsHost: false,
+  sessions: [],
 };
 
 function read(): RawStats {
@@ -95,6 +107,7 @@ export const statsService = {
     else s.memberCount += 1;
     s.buckets[bucketOf(now)] += 1;
     s.sessionStart = now;
+    s.sessionIsHost = isHost;
     write(s);
   },
 
@@ -102,12 +115,18 @@ export const statsService = {
   endSession(): void {
     const s = read();
     if (s.sessionStart > 0) {
-      const dur = Date.now() - s.sessionStart;
+      const now = Date.now();
+      const dur = now - s.sessionStart;
       if (dur > 0) {
         s.totalOnlineMs += dur;
         if (dur > s.maxSessionMs) s.maxSessionMs = dur;
+        // 记录一场开黑（仅记录时长 >= 30 秒的有效会话，避免误触刷屏）
+        if (dur >= 30000) {
+          const rec: SessionRecord = { start: s.sessionStart, end: now, durationMs: dur, isHost: !!s.sessionIsHost };
+          s.sessions = [rec, ...(s.sessions ?? [])].slice(0, 50);
+        }
       }
-      s.lastOnlineTs = Date.now();
+      s.lastOnlineTs = now;
       s.sessionStart = 0;
       write(s);
     }
@@ -152,6 +171,11 @@ export const statsService = {
   clear(): void {
     write({ ...DEFAULT });
     recentService.clearPlayers();
+  },
+
+  /** 获取开黑记录（逐场，最新在前） */
+  getSessions(): SessionRecord[] {
+    return read().sessions ?? [];
   },
 };
 

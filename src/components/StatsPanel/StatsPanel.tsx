@@ -8,7 +8,7 @@ import { Modal, Empty, Popconfirm, Button, message } from 'antd';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
-import { statsService, formatDuration, getBucketLabels, type ComputedStats } from '../../services/stats/statsService';
+import { statsService, formatDuration, getBucketLabels, type ComputedStats, type SessionRecord } from '../../services/stats/statsService';
 import './StatsPanel.css';
 
 interface StatsPanelProps {
@@ -53,14 +53,16 @@ const Donut: React.FC<{ host: number; member: number }> = ({ host, member }) => 
 export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
   const [stats, setStats] = useState<ComputedStats>(() => statsService.getStats());
+  const [sessions, setSessions] = useState<SessionRecord[]>(() => statsService.getSessions());
 
   useEffect(() => {
-    if (visible) setStats(statsService.getStats());
+    if (visible) { setStats(statsService.getStats()); setSessions(statsService.getSessions()); }
   }, [visible]);
 
   const handleClear = () => {
     statsService.clear();
     setStats(statsService.getStats());
+    setSessions(statsService.getSessions());
     message.success(t('stats.cleared'));
   };
 
@@ -133,6 +135,25 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
                     <span className={`stats-partner-rank rank-${idx < 3 ? idx + 1 : 'n'}`}>{idx + 1}</span>
                     <span className="stats-partner-name">{p.name}</span>
                     <span className="stats-partner-count">{p.count} 次</span>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="stats-section">
+            <div className="stats-section-title">{tl('开黑记录', 'Session History')}</div>
+            {sessions.length === 0 ? (
+              <div className="stats-empty-mini">{tl('暂无开黑记录', 'No sessions yet')}</div>
+            ) : (
+              <div className="stats-partner-list">
+                {sessions.slice(0, 12).map((s, idx) => (
+                  <motion.div key={s.start} className="stats-partner-item"
+                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}>
+                    <span className="stats-partner-name">
+                      {new Date(s.start).toLocaleString()} · {s.isHost ? tl('房主', 'Host') : tl('成员', 'Member')}
+                    </span>
+                    <span className="stats-partner-count">{formatDuration(s.durationMs)}</span>
                   </motion.div>
                 ))}
               </div>

@@ -1,0 +1,67 @@
+/* 游戏内 HUD 浮层：半透明卡片，置顶穿透（穿透由 Rust set_ignore_cursor_events 实现） */
+.hud-root {
+  position: fixed;
+  top: 0;
+  right: 0;
+  margin: 8px;
+  min-width: 200px;
+  max-width: 264px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(16, 18, 24, 0.78);
+  border: 1px solid rgba(124, 207, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.hud-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7ccf00;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.hud-empty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.hud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.hud-dot.speaking {
+  background: #7ccf00;
+  box-shadow: 0 0 6px rgba(124, 207, 0, 0.9);
+}
+
+.hud-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-ping {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
