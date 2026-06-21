@@ -200,10 +200,10 @@ object DanmakuOverlay {
             val bmp = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
             if (bmp == null) { push(label, finalColor, null); return@post }
             val d = density()
-            // 缩略图尽量小，避免玩游戏时遮挡视野；高度贴合轨道行高，宽度按比例但限制最大值
-            val targetH = (fontSizeSp * 1.35f * d).toInt().coerceIn((20 * d).toInt(), (44 * d).toInt())
+            // 缩略图大小适中：高度贴合轨道行高，宽度按比例但限制最大值，既能看清又不过度遮挡
+            val targetH = (fontSizeSp * 1.55f * d).toInt().coerceIn((26 * d).toInt(), (54 * d).toInt())
             val ratio = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
-            val maxW = (fontSizeSp * 3.2f * d).toInt()
+            val maxW = (fontSizeSp * 3.6f * d).toInt()
             val targetW = (targetH * ratio).toInt().coerceIn((targetH * 0.4f).toInt(), maxW)
             // 名字 + 缩略图 横向排布，让用户知道是谁发的图
             val row = android.widget.LinearLayout(ctx).apply {
