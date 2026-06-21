@@ -98,33 +98,48 @@ class AndroidRtcController(private val context: Context) {
 
     private var speakerphoneOn = true
 
-    private fun applyAudioRouting() {
+    /**
+     * 通话音频路由：保持通话模式(回声消除需要)，同时把输出强制路由到"内置扬声器"，
+     * 避免默认走听筒/单个通话扬声器导致只有一个扬声器响、对方听到的声音很小。
+     */
+    private fun routeAudio() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            // 通话模式：让系统把扬声器播放流作为 AEC 参考信号，硬件回声消除才会真正生效
             am.mode = AudioManager.MODE_IN_COMMUNICATION
-            am.isSpeakerphoneOn = speakerphoneOn
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val targetType = if (speakerphoneOn)
+                    android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                else
+                    android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                val dev = am.availableCommunicationDevices.firstOrNull { it.type == targetType }
+                if (dev != null) am.setCommunicationDevice(dev)
+                else @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = speakerphoneOn }
+            } else {
+                @Suppress("DEPRECATION")
+                am.isSpeakerphoneOn = speakerphoneOn
+            }
         }
     }
+
+    private fun applyAudioRouting() = routeAudio()
 
     /** 切换扬声器外放 / 听筒 */
     fun setSpeakerphone(on: Boolean) {
         speakerphoneOn = on
-        applyAudioRouting()
+        routeAudio()
     }
 
-    private fun resetAudioRouting() {
-        runCatching {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.mode = AudioManager.MODE_IN_COMMUNICATION
-            am.isSpeakerphoneOn = speakerphoneOn
-        }
-    }
+    private fun resetAudioRouting() = routeAudio()
 
     /** 离开大厅/结束通话时恢复普通音频模式，避免长期占用通话模式影响系统其它音频 */
     fun restoreNormalAudio() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                runCatching { am.clearCommunicationDevice() }
+            } else {
+                @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = false }
+            }
             am.mode = AudioManager.MODE_NORMAL
         }
     }
