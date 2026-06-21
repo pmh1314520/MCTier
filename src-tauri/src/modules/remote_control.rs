@@ -26,6 +26,12 @@ pub enum RemoteInputEvent {
     /// 键盘抬起
     #[serde(rename = "keyup")]
     KeyUp { code: u32, extended: Option<bool> },
+    /// 文本输入（Unicode，逐字符注入，供手机端软键盘向电脑被控端打字）
+    #[serde(rename = "text")]
+    Text { text: String },
+    /// 未知/对端专属事件(如手机的 home/recents)：电脑端忽略，避免整批解析失败
+    #[serde(other)]
+    Unknown,
 }
 
 /// 注入一批输入事件
@@ -47,7 +53,7 @@ mod platform {
     use super::RemoteInputEvent;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MOUSEINPUT, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE,
+        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEINPUT, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE,
         MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
         MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
         MOUSEEVENTF_WHEEL, VIRTUAL_KEY,
@@ -96,6 +102,26 @@ mod platform {
                 ki: KEYBDINPUT {
                     wVk: VIRTUAL_KEY(code),
                     wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        }
+    }
+
+    /// Unicode 字符注入（用于文本输入），up=false 按下，up=true 抬起
+    fn unicode_input(unit: u16, up: bool) -> INPUT {
+        let mut flags = KEYEVENTF_UNICODE;
+        if up {
+            flags |= KEYEVENTF_KEYUP;
+        }
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: unit,
                     dwFlags: flags,
                     time: 0,
                     dwExtraInfo: 0,
@@ -174,6 +200,14 @@ mod platform {
                     }
                     inputs.push(key_input(*code as u16, flags));
                 }
+                RemoteInputEvent::Text { text } => {
+                    // 逐 UTF-16 码元注入 Unicode 字符（支持中文/emoji 等）
+                    for unit in text.encode_utf16() {
+                        inputs.push(unicode_input(unit, false));
+                        inputs.push(unicode_input(unit, true));
+                    }
+                }
+                RemoteInputEvent::Unknown => { /* 忽略对端专属事件 */ }
             }
         }
 

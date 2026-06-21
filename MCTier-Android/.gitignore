@@ -21,3 +21,5 @@ build/
 ui_now.xml
 screen_now.png
 color_sample.txt
+*.log
+.kotlin/

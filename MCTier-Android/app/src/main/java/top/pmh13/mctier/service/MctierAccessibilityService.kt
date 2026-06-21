@@ -72,6 +72,43 @@ class MctierAccessibilityService : AccessibilityService() {
     /** 全局动作：最近任务 */
     fun recents() { runCatching { performGlobalAction(GLOBAL_ACTION_RECENTS) } }
 
+    /** 向当前聚焦的可编辑控件追加文本 */
+    fun inputText(text: String) {
+        runCatching {
+            val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return
+            if (!node.isEditable) return
+            val existing = node.text?.toString() ?: ""
+            val args = android.os.Bundle().apply {
+                putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, existing + text)
+            }
+            node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        }
+    }
+
+    /** 退格：删除聚焦控件文本的最后一个字符 */
+    fun backspace() {
+        runCatching {
+            val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return
+            if (!node.isEditable) return
+            val existing = node.text?.toString() ?: ""
+            if (existing.isEmpty()) return
+            val args = android.os.Bundle().apply {
+                putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, existing.dropLast(1))
+            }
+            node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        }
+    }
+
+    /** 回车 / 提交输入法 */
+    fun imeEnter() {
+        runCatching {
+            val node = rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+        }
+    }
+
     companion object {
         @Volatile
         var instance: MctierAccessibilityService? = null

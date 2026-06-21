@@ -85,6 +85,9 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Mouse
 import androidx.compose.material.icons.rounded.MilitaryTech
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
@@ -411,6 +414,18 @@ private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository
     }
 }
 
+@Composable
+private fun RcToolBtn(icon: ImageVector, desc: String, active: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(horizontal = 3.dp).size(34.dp).clip(RoundedCornerShape(8.dp))
+            .background(if (active) GrassGreen.copy(alpha = 0.28f) else PanelHigh)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, desc, tint = if (active) GrassGreen else TextPrimary.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
+    }
+}
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun RemoteControlControllerView(repository: MctierRepository, peerName: String) {
@@ -421,6 +436,9 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
     var frameH by remember { mutableStateOf(0) }
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
+    var rightClick by remember { mutableStateOf(false) }
+    var showKeyboard by remember { mutableStateOf(false) }
+    var kbText by remember { mutableStateOf("") }
     val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     DisposableEffect(controller) {
@@ -453,6 +471,9 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
         }
     }
 
+    fun sendRaw(json: String) {
+        repository.remoteControl?.sendInput(json)
+    }
     fun sendEvent(kind: String, xPx: Float, yPx: Float) {
         val fw = if (frameW > 0) frameW.toFloat() else viewW.toFloat()
         val fh = if (frameH > 0) frameH.toFloat() else viewH.toFloat()
@@ -463,9 +484,13 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
         val offY = (viewH - contentH) / 2f
         val nx = ((xPx - offX) / contentW).coerceIn(0f, 1f)
         val ny = ((yPx - offY) / contentH).coerceIn(0f, 1f)
-        val json = "[{\"kind\":\"$kind\",\"button\":0,\"x\":$nx,\"y\":$ny}]"
-        repository.remoteControl?.sendInput(json)
+        // 右键模式：本次按下/抬起用 button=2（电脑→右键，手机→长按），抬起后自动复位
+        val btn = if (rightClick) 2 else 0
+        val json = "[{\"kind\":\"$kind\",\"button\":$btn,\"x\":$nx,\"y\":$ny}]"
+        sendRaw(json)
+        if (kind == "up" && rightClick) rightClick = false
     }
+    fun jsonEscape(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
 
     Box(Modifier.fillMaxSize().background(Color.Black).zIndex(50f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -475,12 +500,46 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
             ) {
                 Icon(Icons.Rounded.SettingsRemote, null, tint = GrassGreen, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(L("正在控制「$peerName」的设备", "Controlling \"$peerName\"'s device"), color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(L("控制「$peerName」", "Controlling \"$peerName\""), color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // 工具栏：键盘 / 右键 / 返回 / 主页 / 最近
+                RcToolBtn(Icons.Rounded.Edit, L("键盘", "Keyboard"), active = showKeyboard) { showKeyboard = !showKeyboard }
+                RcToolBtn(Icons.Rounded.Mouse, L("右键", "Right-click"), active = rightClick) { rightClick = !rightClick }
+                RcToolBtn(Icons.AutoMirrored.Rounded.ArrowBack, L("返回/ESC", "Back/ESC")) { sendRaw("[{\"kind\":\"keyup\",\"code\":27}]") }
+                RcToolBtn(Icons.Rounded.Home, L("主页", "Home")) { sendRaw("[{\"kind\":\"key\",\"key\":\"home\"}]") }
+                RcToolBtn(Icons.Rounded.Apps, L("最近", "Recents")) { sendRaw("[{\"kind\":\"key\",\"key\":\"recents\"}]") }
+                Spacer(Modifier.width(6.dp))
                 Box(
                     Modifier.clip(RoundedCornerShape(8.dp)).background(DangerRed)
                         .clickable { repository.stopRemoteControl() }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { Text(L("结束", "End"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+            }
+            // 软键盘输入行：输入文本即时发送到被控端聚焦的输入框
+            if (showKeyboard) {
+                Row(
+                    Modifier.fillMaxWidth().background(PanelHigh).padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = kbText,
+                        onValueChange = { new ->
+                            // 追加的字符立即作为 text 发送；退格作为 backspace 键
+                            if (new.length > kbText.length) {
+                                val added = new.substring(kbText.length)
+                                sendRaw("[{\"kind\":\"text\",\"text\":\"${jsonEscape(added)}\"}]")
+                            } else if (new.length < kbText.length) {
+                                repeat(kbText.length - new.length) { sendRaw("[{\"kind\":\"keyup\",\"code\":8}]") }
+                            }
+                            kbText = new
+                        },
+                        placeholder = { Text(L("在此输入，实时发送到对方", "Type here, sent live"), fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = fieldColors(),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    RcToolBtn(Icons.AutoMirrored.Rounded.Send, L("回车", "Enter")) { sendRaw("[{\"kind\":\"keyup\",\"code\":13}]") }
+                }
             }
             Box(
                 Modifier.fillMaxWidth().weight(1f).background(Color.Black)

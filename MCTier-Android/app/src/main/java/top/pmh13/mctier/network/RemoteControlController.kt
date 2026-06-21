@@ -71,6 +71,7 @@ class RemoteControlController(
 
     // 触摸手势状态
     private var isDown = false
+    private var downButton = 0
     private var downTime = 0L
     private val pathPoints = ArrayList<Pair<Float, Float>>()
 
@@ -88,6 +89,21 @@ class RemoteControlController(
     var onEnded: (() -> Unit)? = null
 
     val isActive: Boolean get() = sessionId != null
+
+    /** 与语音一致的 ICE 配置：带 STUN，便于在 EasyTier host 候选之外也能用反射候选连通 */
+    private fun rtcConfig(): PeerConnection.RTCConfiguration {
+        val iceServers = listOf(
+            PeerConnection.IceServer.builder("stun:stun.qq.com:3478").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.miwifi.com:3478").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+        )
+        return PeerConnection.RTCConfiguration(iceServers).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+            rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+        }
+    }
 
     init {
         PeerConnectionFactory.initialize(
@@ -121,6 +137,7 @@ class RemoteControlController(
                 val from = message.from ?: return
                 val sid = message.sessionId ?: return
                 val name = message.fromName ?: message.playerName ?: "玩家"
+                Log.i(TAG, "收到控制请求 from=$from active=$isActive")
                 if (isActive) {
                     sendSignal(SignalingEnvelope(type = "remote-control-reject", from = localPlayerId, to = from, sessionId = sid, reason = "busy"))
                     return
@@ -131,11 +148,13 @@ class RemoteControlController(
                 val from = message.from ?: return
                 val sid = message.sessionId ?: return
                 val offer = message.offer ?: return
+                Log.i(TAG, "收到 offer from=$from sid匹配=${sid == sessionId}")
                 if (sid != sessionId || from != controllerId) return
                 handleOffer(from, sid, offer.sdp)
             }
             "remote-control-accept" -> {
                 val sid = message.sessionId ?: return
+                Log.i(TAG, "收到 accept role=$role sid匹配=${sid == sessionId}")
                 if (role == "controller" && sid == sessionId) handleAccept(sid)
             }
             "remote-control-answer" -> {
@@ -186,14 +205,15 @@ class RemoteControlController(
     private fun handleAccept(sid: String) {
         val target = peerId ?: return
         val connection = factory.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
+            rtcConfig(),
             object : PeerConnection.Observer {
                 override fun onIceCandidate(candidate: IceCandidate) {
                     sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = target, sessionId = sid, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
                 }
                 override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {
-                    if (s == PeerConnection.IceConnectionState.FAILED || s == PeerConnection.IceConnectionState.CLOSED) stop(notify = false)
+                    Log.i(TAG, "控制端 ICE: $s")
+                    if (s == PeerConnection.IceConnectionState.FAILED) watchdog.post { stop(notify = false) }
                 }
                 override fun onIceConnectionReceivingChange(b: Boolean) = Unit
                 override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
@@ -279,14 +299,15 @@ class RemoteControlController(
     private fun handleOffer(from: String, sid: String, sdp: String) {
         val track = localVideoTrack ?: run { Log.w(TAG, "无屏幕轨，无法应答"); return }
         val connection = factory.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
+            rtcConfig(),
             object : PeerConnection.Observer {
                 override fun onIceCandidate(candidate: IceCandidate) {
                     sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = from, sessionId = sid, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
                 }
                 override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {
-                    if (s == PeerConnection.IceConnectionState.FAILED || s == PeerConnection.IceConnectionState.CLOSED) stop(notify = false)
+                    Log.i(TAG, "被控端 ICE: $s")
+                    if (s == PeerConnection.IceConnectionState.FAILED) watchdog.post { stop(notify = false) }
                 }
                 override fun onIceConnectionReceivingChange(b: Boolean) = Unit
                 override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
@@ -336,6 +357,7 @@ class RemoteControlController(
             when (ev.optString("kind")) {
                 "down" -> {
                     isDown = true
+                    downButton = ev.optInt("button", 0)
                     downTime = System.currentTimeMillis()
                     pathPoints.clear()
                     pathPoints.add(px(ev))
@@ -352,10 +374,26 @@ class RemoteControlController(
                     val dy = ev.optDouble("dy", 0.0).toFloat()
                     injectScroll(dy)
                 }
+                // 文本输入（软键盘）：注入到当前聚焦的可编辑控件
+                "text" -> {
+                    val t = ev.optString("text", "")
+                    if (t.isNotEmpty()) MctierAccessibilityService.instance?.inputText(t)
+                }
+                // 命名特殊键
+                "key" -> when (ev.optString("key")) {
+                    "back" -> MctierAccessibilityService.instance?.goBack()
+                    "home" -> MctierAccessibilityService.instance?.goHome()
+                    "recents" -> MctierAccessibilityService.instance?.recents()
+                    "enter" -> MctierAccessibilityService.instance?.imeEnter()
+                    "backspace", "delete" -> MctierAccessibilityService.instance?.backspace()
+                }
+                // 兼容电脑控制端发来的 VK 键码
                 "keyup" -> {
-                    // 仅处理少量按键：ESC=返回
-                    val code = ev.optInt("code", -1)
-                    if (code == 27) MctierAccessibilityService.instance?.goBack()
+                    when (ev.optInt("code", -1)) {
+                        27 -> MctierAccessibilityService.instance?.goBack()   // ESC
+                        13 -> MctierAccessibilityService.instance?.imeEnter() // Enter
+                        8 -> MctierAccessibilityService.instance?.backspace() // Backspace
+                    }
                 }
             }
         }
@@ -374,12 +412,12 @@ class RemoteControlController(
         val end = pathPoints.last()
         val dist = Math.hypot((end.first - start.first).toDouble(), (end.second - start.second).toDouble())
         val elapsed = (System.currentTimeMillis() - downTime).coerceAtLeast(1)
-        if (dist < 16 && elapsed < 350) {
-            svc.tap(start.first, start.second)
-        } else if (dist < 16) {
-            svc.longPress(start.first, start.second)
-        } else {
-            svc.gesturePath(pathPoints.toList(), elapsed.coerceIn(50, 8000))
+        when {
+            // 右键：映射为长按（呼出上下文菜单）
+            downButton == 2 && dist < 24 -> svc.longPress(start.first, start.second)
+            dist < 16 && elapsed < 350 -> svc.tap(start.first, start.second)
+            dist < 16 -> svc.longPress(start.first, start.second)
+            else -> svc.gesturePath(pathPoints.toList(), elapsed.coerceIn(50, 8000))
         }
         pathPoints.clear()
     }
