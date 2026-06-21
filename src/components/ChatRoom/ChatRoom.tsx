@@ -114,17 +114,28 @@ export const ChatRoom: React.FC = () => {
     setIsLoadingMore(false);
   };
 
-  // 滚动到底部
+  // 滚动到底部：直接滚动容器（比对 AnimatePresence 内的 ref 调 scrollIntoView 更可靠），
+  // 并在消息进入动画结束后多次补滚，确保稳稳停在最新消息处
   const scrollToBottom = (smooth = true) => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ 
-        behavior: smooth ? 'smooth' : 'auto',
-        block: 'end'
-      });
-      // 滚动到底部后标记所有消息为已读
-      setLastReadMessageIndex(chatMessages.length);
-      markMessagesAsRead();
-    }
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const doScroll = () => {
+      try {
+        el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+      } catch {
+        el.scrollTop = el.scrollHeight;
+      }
+    };
+    doScroll();
+    // 新消息有入场动画(缩放/位移)，布局稳定前先补滚两次
+    requestAnimationFrame(() => {
+      doScroll();
+      setTimeout(doScroll, 130);
+      setTimeout(doScroll, 340);
+    });
+    // 滚动到底部后标记所有消息为已读
+    setLastReadMessageIndex(chatMessages.length);
+    markMessagesAsRead();
   };
 
   const getMessageInitial = (message: ChatMessage) => {
@@ -132,19 +143,20 @@ export const ChatRoom: React.FC = () => {
     return (Array.from(name)[0] || '?').toUpperCase();
   };
 
-  // 首次进入聊天室：在浏览器绘制前直接把滚动条置底（避免出现“从顶部滚到底部”的可见过程）
+  // 首次进入聊天室：在浏览器绘制前直接把滚动条置底（避免出现"从顶部滚到底部"的可见过程）。
+  // 注意依赖 chatMessages.length：消息可能在挂载后才异步载入，确保有消息时才初始化一次，
+  // 否则 initializedScrollRef 永远为 false 会导致后续自动滚动失效。
   useLayoutEffect(() => {
+    if (initializedScrollRef.current) return;
     if (chatMessages.length <= 0) return;
-    if (!initializedScrollRef.current) {
-      initializedScrollRef.current = true;
-      const el = messagesContainerRef.current;
-      if (el) {
-        el.scrollTop = el.scrollHeight; // 瞬间置底，无动画
-      }
-      setLastReadMessageIndex(chatMessages.length);
+    initializedScrollRef.current = true;
+    const el = messagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight; // 瞬间置底，无动画
     }
+    setLastReadMessageIndex(chatMessages.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [chatMessages.length]);
 
   // 新消息到达时：自己发的无条件置底；他人发的仅在已处于底部时跟随
   useEffect(() => {
