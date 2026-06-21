@@ -28,24 +28,25 @@ interface DanmakuPayload {
 }
 
 /**
- * 弹幕覆盖窗口的渲染组件（运行在独立的置顶透明窗口中）
- * 接收 'danmaku-msg' 事件，按轨道从右向左飘过。
- * 支持图片弹幕；点击弹幕暂停并显示操作按钮（文本→复制，图片→下载），点击空白处恢复。
+ * 弹幕覆盖窗口的渲染组件（运行在独立的置顶透明窗口中）。
+ * 桌面端交互：鼠标悬停到弹幕上即暂停（定住）并显示操作按钮（文本→复制，图片→下载）；
+ * 鼠标移开自动恢复飘动；点击复制/下载后也立即恢复飘动。
  */
 export const DanmakuOverlay: React.FC = () => {
   const [bullets, setBullets] = useState<Bullet[]>([]);
   const [opacity, setOpacity] = useState(0.9);
-  const [pinnedId, setPinnedId] = useState<number | null>(null);
+  const [hoverId, setHoverId] = useState<number | null>(null);
   const [toast, setToast] = useState<string>('');
   const idRef = useRef(1);
   const trackFreeAt = useRef<number[]>([]);
-  // 弹幕 DOM 节点引用（用于命中检测）
   const nodeRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const pinnedIdRef = useRef<number | null>(null);
-  const ignoreRef = useRef<boolean>(true); // 当前是否处于穿透状态
+  const actionBtnRef = useRef<HTMLDivElement | null>(null);
+  const hoverIdRef = useRef<number | null>(null);
+  const actionedRef = useRef<Set<number>>(new Set()); // 已点过按钮的弹幕：不再因悬停暂停，直接飘走
+  const ignoreRef = useRef<boolean>(true);
   const toastTimer = useRef<number | null>(null);
 
-  pinnedIdRef.current = pinnedId;
+  hoverIdRef.current = hoverId;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -68,7 +69,6 @@ export const DanmakuOverlay: React.FC = () => {
     }
     const speed = Math.max(40, p.speed || 140);
     const isImage = p.kind === 'image' && !!p.image;
-    // 图片弹幕宽度 = 名字文本宽度 + 缩略图宽度（缩略图较小，避免遮挡）；文本按字数估算
     const imgH = p.fontSize * 1.55;
     const estWidth = isImage
       ? (p.text.length * p.fontSize * 0.62) + p.fontSize * 3.6 + 50
@@ -94,33 +94,27 @@ export const DanmakuOverlay: React.FC = () => {
     };
     setOpacity(p.opacity ?? 0.9);
     setBullets((prev) => [...prev, bullet]);
-    window.setTimeout(() => {
-      // 被定住的弹幕不自动移除
-      if (pinnedIdRef.current === bullet.id) return;
-      setBullets((prev) => prev.filter((b) => b.id !== bullet.id));
-      nodeRefs.current.delete(bullet.id);
-    }, duration * 1000 + 400);
+    // 移除交由 onAnimationEnd 处理：暂停时动画不结束故不会被移除，恢复后飘出自动清理。
   }, []);
 
-  // 设置穿透状态（去抖，只在变化时调用）
   const setIgnore = useCallback((ignore: boolean) => {
     if (ignoreRef.current === ignore) return;
     ignoreRef.current = ignore;
     void invoke('set_danmaku_ignore_cursor', { ignore }).catch(() => {});
   }, []);
 
-  // 鼠标位置轮询：穿透模式下也能感知鼠标是否悬停在弹幕上，从而临时关闭穿透以便点击
+  const within = (r: DOMRect, x: number, y: number) =>
+    x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+
+  // 轮询鼠标位置：悬停到某条弹幕（或其操作按钮）上时暂停该弹幕，移开后恢复。
   useEffect(() => {
-    let raf = 0;
+    let timer = 0;
     let stopped = false;
     let busy = false;
     const tick = async () => {
       if (stopped) return;
-      // 有定住的弹幕时，保持可交互（不穿透），等待用户点击按钮或空白
-      if (pinnedIdRef.current !== null) {
-        setIgnore(false);
-      } else if (nodeRefs.current.size === 0) {
-        // 屏幕上没有弹幕时保持穿透，省去无谓的 IPC 轮询
+      if (nodeRefs.current.size === 0) {
+        if (hoverIdRef.current !== null) setHoverId(null);
         setIgnore(true);
       } else if (!busy) {
         busy = true;
@@ -128,21 +122,33 @@ export const DanmakuOverlay: React.FC = () => {
           const pos = await invoke<[number, number] | null>('danmaku_cursor_pos');
           if (pos) {
             const [cx, cy] = pos;
-            let over = false;
-            nodeRefs.current.forEach((el) => {
-              if (over || !el) return;
-              const r = el.getBoundingClientRect();
-              if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) over = true;
-            });
-            setIgnore(!over);
+            let target: number | null = null;
+            const hid = hoverIdRef.current;
+            // 1) 维持当前悬停：鼠标仍在该弹幕或其按钮上
+            if (hid !== null) {
+              const el = nodeRefs.current.get(hid);
+              const btn = actionBtnRef.current;
+              const overBullet = !!el && within(el.getBoundingClientRect(), cx, cy);
+              const overBtn = !!btn && within(btn.getBoundingClientRect(), cx, cy);
+              if (overBullet || overBtn) target = hid;
+            }
+            // 2) 否则寻找鼠标下的新弹幕（已点过按钮的跳过）
+            if (target === null) {
+              nodeRefs.current.forEach((el, id) => {
+                if (target !== null || actionedRef.current.has(id)) return;
+                if (within(el.getBoundingClientRect(), cx, cy)) target = id;
+              });
+            }
+            if (target !== hoverIdRef.current) setHoverId(target);
+            setIgnore(target === null);
           }
         } catch { /* ignore */ }
         busy = false;
       }
-      raf = window.setTimeout(tick, 60) as unknown as number;
+      timer = window.setTimeout(tick, 50) as unknown as number;
     };
     tick();
-    return () => { stopped = true; window.clearTimeout(raf); };
+    return () => { stopped = true; window.clearTimeout(timer); };
   }, [setIgnore]);
 
   useEffect(() => {
@@ -159,8 +165,7 @@ export const DanmakuOverlay: React.FC = () => {
     body.style.background = 'transparent';
     body.style.margin = '0';
     body.style.overflow = 'hidden';
-    // body 保持 pointer-events:none（与可用版本一致，确保透明穿透窗口正常渲染）；
-    // 弹幕节点单独设 pointer-events:auto 即可点击，命中检测靠几何坐标不受此影响。
+    // body 保持 pointer-events:none 确保透明穿透窗正常渲染；弹幕/按钮单独设 auto 即可点击。
     body.style.pointerEvents = 'none';
     body.style.userSelect = 'none';
     if (root) {
@@ -181,28 +186,19 @@ export const DanmakuOverlay: React.FC = () => {
     };
   }, [spawn]);
 
-  const onBulletClick = useCallback((e: React.MouseEvent, b: Bullet) => {
-    e.stopPropagation();
-    setPinnedId((cur) => (cur === b.id ? null : b.id));
+  const removeBullet = useCallback((id: number) => {
+    setBullets((prev) => prev.filter((b) => b.id !== id));
+    nodeRefs.current.delete(id);
+    actionedRef.current.delete(id);
+    if (hoverIdRef.current === id) setHoverId(null);
   }, []);
 
-  // 点击空白区域：取消定住，让弹幕继续飘动并在飘出后移除
-  const onBackgroundClick = useCallback(() => {
-    if (pinnedIdRef.current !== null) {
-      const pid = pinnedIdRef.current;
-      setPinnedId(null);
-      // 恢复后按其完整时长兜底移除（恢复点在动画中段，剩余时间必然更短，飘出屏幕后清理）
-      setBullets((prev) => {
-        const b = prev.find((x) => x.id === pid);
-        const ms = (b ? b.duration : 8) * 1000 + 400;
-        window.setTimeout(() => {
-          setBullets((cur) => cur.filter((x) => x.id !== pid));
-          nodeRefs.current.delete(pid);
-        }, ms);
-        return prev;
-      });
-    }
-  }, []);
+  // 点击按钮后立即恢复飘动：标记为已操作并取消悬停暂停
+  const releaseAfterAction = useCallback((id: number) => {
+    actionedRef.current.add(id);
+    setHoverId(null);
+    setIgnore(true);
+  }, [setIgnore]);
 
   const doCopy = useCallback(async (b: Bullet) => {
     const t = b.copyText ?? b.text;
@@ -214,41 +210,38 @@ export const DanmakuOverlay: React.FC = () => {
       try { await navigator.clipboard.writeText(t); showToast('已复制消息内容'); }
       catch { showToast('复制失败'); }
     }
-  }, [showToast]);
+    releaseAfterAction(b.id);
+  }, [showToast, releaseAfterAction]);
 
   const doDownload = useCallback(async (b: Bullet) => {
-    if (!b.image) return;
+    if (!b.image) { releaseAfterAction(b.id); return; }
     try {
-      const path = await invoke<string>('save_danmaku_image', { dataUrl: b.image });
+      await invoke<string>('save_danmaku_image', { dataUrl: b.image });
       showToast('图片已保存到下载文件夹');
-      void path;
-    } catch (err) {
+    } catch {
       showToast('保存失败');
     }
-  }, [showToast]);
+    releaseAfterAction(b.id);
+  }, [showToast, releaseAfterAction]);
 
   return (
-    <div
-      className="danmaku-root"
-      style={{ opacity, pointerEvents: pinnedId !== null ? 'auto' : 'none' }}
-      onClick={onBackgroundClick}
-    >
+    <div className="danmaku-root" style={{ opacity, pointerEvents: 'none' }}>
       {bullets.map((b) => {
-        const pinned = pinnedId === b.id;
+        const paused = hoverId === b.id;
         return (
           <div
             key={b.id}
             ref={(el) => { if (el) nodeRefs.current.set(b.id, el); else nodeRefs.current.delete(b.id); }}
-            className={`danmaku-bullet${pinned ? ' danmaku-pinned' : ''}`}
+            className={`danmaku-bullet${paused ? ' danmaku-pinned' : ''}`}
             style={{
               top: `${b.top}px`,
               color: b.color,
               fontSize: `${b.fontSize}px`,
               animationDuration: `${b.duration}s`,
-              animationPlayState: pinned ? 'paused' : 'running',
+              animationPlayState: paused ? 'paused' : 'running',
               pointerEvents: 'auto',
             }}
-            onClick={(e) => onBulletClick(e, b)}
+            onAnimationEnd={() => removeBullet(b.id)}
           >
             {b.kind === 'image' && b.image ? (
               <>
@@ -258,8 +251,8 @@ export const DanmakuOverlay: React.FC = () => {
             ) : (
               <span>{b.text}</span>
             )}
-            {pinned && (
-              <div className="danmaku-actions" onClick={(e) => e.stopPropagation()}>
+            {paused && (
+              <div className="danmaku-actions" ref={actionBtnRef}>
                 {b.kind === 'image' ? (
                   <button className="danmaku-action-btn" onClick={() => doDownload(b)}>下载图片</button>
                 ) : (
