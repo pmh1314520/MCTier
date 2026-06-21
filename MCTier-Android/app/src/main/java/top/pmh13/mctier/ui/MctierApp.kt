@@ -319,6 +319,83 @@ fun MctierApp(repository: MctierRepository) {
             if (state.versionError == null) {
                 state.updateAvailable?.let { UpdateAvailableDialog(it, repository) }
             }
+            // 远程控制（电脑控制本机手机）：请求弹窗 + 被控横幅
+            RemoteControlGate(state, repository)
+        }
+    }
+}
+
+@Composable
+private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository) {
+    val ctx = LocalContext.current
+    val req = state.remoteControlRequest
+    // MediaProjection 授权回调：拿到授权后真正接受控制
+    val projectionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            repository.acceptRemoteControl(result.data!!)
+        } else {
+            android.widget.Toast.makeText(ctx, L("已取消：未授予屏幕录制权限", "Cancelled: screen capture permission not granted"), android.widget.Toast.LENGTH_SHORT).show()
+            repository.rejectRemoteControl()
+        }
+    }
+
+    // 收到控制请求：弹窗确认
+    if (req != null) {
+        AlertDialog(
+            onDismissRequest = { repository.rejectRemoteControl() },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    // 需先开启无障碍服务才能注入触摸
+                    if (!top.pmh13.mctier.service.MctierAccessibilityService.isEnabledInSettings(ctx)) {
+                        android.widget.Toast.makeText(ctx, L("请先开启 MCTier 无障碍服务以允许远程操作", "Please enable MCTier accessibility service first"), android.widget.Toast.LENGTH_LONG).show()
+                        runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                        return@TextButton
+                    }
+                    // 暂存请求并请求 MediaProjection 授权
+                    if (repository.beginAcceptRemoteControl() != null) {
+                        val mpm = ctx.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+                        projectionLauncher.launch(mpm.createScreenCaptureIntent())
+                    }
+                }) { Text(L("接受", "Accept"), color = GrassGreen, fontWeight = FontWeight.SemiBold) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { repository.rejectRemoteControl() }) {
+                    Text(L("拒绝", "Reject"), color = TextPrimary.copy(alpha = 0.7f))
+                }
+            },
+            title = { Text(L("远程控制请求", "Remote Control Request"), color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    L("「${req.fromName}」请求远程控制你的手机。接受后对方可看到你的屏幕并进行点击/滑动操作。需开启无障碍权限与屏幕录制权限。", "\"${req.fromName}\" requests to remotely control your phone. They will see your screen and can tap/swipe. Accessibility and screen-capture permissions are required."),
+                    color = TextPrimary.copy(alpha = 0.85f), fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            },
+            containerColor = PanelHigh,
+        )
+    }
+
+    // 正在被控制：顶部横幅 + 停止按钮
+    val activeBy = state.remoteControlActiveBy
+    if (activeBy != null) {
+        Box(
+            Modifier.fillMaxWidth().padding(10.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Row(
+                Modifier.clip(RoundedCornerShape(12.dp)).background(DangerRed.copy(alpha = 0.92f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(L("正在被「$activeBy」远程控制", "Being controlled by \"$activeBy\""), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(12.dp))
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.25f))
+                        .clickable { repository.stopRemoteControl() }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                ) { Text(L("停止", "Stop"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
         }
     }
 }

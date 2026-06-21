@@ -223,13 +223,32 @@ class NetworkController(private val context: Context) {
     // 不同大厅由 EasyTier 的 network-name/secret 隔离，复用同一网段不会串台。
     private val FIXED_SUBNET_OCTET = 126
 
-    // 主机位：避开桌面创建者占用的 .1 与 DHCP 低位顺序分配区间，
-    // 取高位区间 [120, 249]，降低与桌面 DHCP 顺序分配冲突的概率。
-    private fun hostOctet(playerName: String): Int =
-        120 + (playerName.hashCode().absoluteValue % 130)
+    /**
+     * 每台设备稳定且唯一的标识：优先用 ANDROID_ID（不同手机不同值，重连后稳定），
+     * 取不到时回退到一次性持久化的随机 UUID。
+     * 用它派生虚拟 IP 主机位，避免"相同玩家名 → 相同虚拟 IP"导致手机↔手机互相不可达
+     * （之前用 playerName.hashCode() 派生，同名两台手机会撞到同一 IP，语音/聊天全失效）。
+     */
+    private fun deviceKey(): String {
+        runCatching {
+            @Suppress("HardwareIds")
+            val aid = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            if (!aid.isNullOrBlank() && aid != "9774d56d682e549c") return aid
+        }
+        val prefs = context.getSharedPreferences("mctier_device", Context.MODE_PRIVATE)
+        prefs.getString("device_key", null)?.let { return it }
+        val gen = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString("device_key", gen).apply()
+        return gen
+    }
+
+    // 主机位：用每台设备唯一的 deviceKey 派生，取范围 [10, 249]（共 240 个），
+    // 避开桌面 DHCP 创建者占用的 .1 与低位顺序分配区，最大程度降低冲突概率。
+    private fun hostOctet(key: String): Int =
+        10 + (key.hashCode().absoluteValue % 240)
 
     private fun allocateVirtualIp(lobbyName: String, playerName: String): String =
-        "10.126.$FIXED_SUBNET_OCTET.${hostOctet(playerName)}"
+        "10.126.$FIXED_SUBNET_OCTET.${hostOctet(deviceKey() + "|" + lobbyName)}"
 
     private fun lobbyRoute(lobbyName: String): String =
         "10.126.$FIXED_SUBNET_OCTET.0/24"

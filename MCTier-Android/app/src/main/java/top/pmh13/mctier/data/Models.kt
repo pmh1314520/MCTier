@@ -174,6 +174,9 @@ data class SignalingEnvelope(
     val offer: SdpPayload? = null,
     val answer: SdpPayload? = null,
     val candidate: IcePayload? = null,
+    // 远程控制（电脑⇄手机）
+    val sessionId: String? = null,
+    val fromName: String? = null,
 )
 
 @Serializable
@@ -197,6 +200,9 @@ data class IcePayload(
 
 /** 内置 EasyTier 节点（与桌面端保持一致） */
 data class BuiltinNode(val name: String, val address: String)
+
+/** 收到的远程控制请求（电脑请求控制本机手机） */
+data class RemoteControlRequest(val sessionId: String, val fromId: String, val fromName: String)
 
 /** P2P 聊天 wire 消息（字段与桌面端 chat_service.rs 的 ChatMessage 完全一致，snake_case） */
 @Serializable

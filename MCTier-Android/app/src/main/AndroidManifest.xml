@@ -71,6 +71,20 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- 无障碍服务：用于"电脑远程控制手机"时注入触摸手势（需用户在系统设置中开启） -->
+        <service
+            android:name=".service.MctierAccessibilityService"
+            android:exported="false"
+            android:label="MCTier 远程控制"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

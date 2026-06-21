@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MCTier</string>
+    <string name="accessibility_rc_desc">开启后，允许大厅内的电脑在你同意后远程控制本机（注入点击/滑动）。仅在你接受远程控制请求时生效，可随时停止或关闭。</string>
 </resources>
