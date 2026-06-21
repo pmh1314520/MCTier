@@ -83,12 +83,12 @@ class RemoteControlService {
       sessionId: this.sessionId,
       fromName: this.playerName,
     });
-    // 25 秒内对方未接受则超时
+    // 90 秒内对方未接受则超时（首次需在手机上授予无障碍与录屏权限，留足时间）
     this.requestTimer = window.setTimeout(() => {
       if (this.role === 'controller' && !this.pc) {
         this.handleReject('timeout');
       }
-    }, 25000);
+    }, 90000);
   }
 
   // ==================== 被控端：接受/拒绝 ====================

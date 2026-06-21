@@ -994,6 +994,7 @@ class MctierRepository(private val context: Context) {
 
     /** 发起远程控制对方设备（本机作为控制端） */
     fun requestRemoteControl(targetId: String, targetName: String) {
+        remoteControlController?.localPlayerName = _state.value.settings.playerName.ifBlank { "玩家" }
         remoteControlController?.requestControl(targetId, targetName)
     }
 

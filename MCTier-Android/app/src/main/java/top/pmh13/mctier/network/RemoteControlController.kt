@@ -54,6 +54,8 @@ class RemoteControlController(
 
     // 角色：idle / controlled(本机被控) / controller(本机去控制别人)
     private var role: String = "idle"
+    /** 本机玩家名（作为控制端发起请求时告知对方） */
+    var localPlayerName: String = "玩家"
     // 控制端：对端 id/名、收到的远端屏幕轨、输入数据通道
     private var peerId: String? = null
     private var peerName: String? = null
@@ -71,6 +73,14 @@ class RemoteControlController(
     private var isDown = false
     private var downTime = 0L
     private val pathPoints = ArrayList<Pair<Float, Float>>()
+
+    // 看门狗：若发起请求/接受后迟迟未建立连接(pc 仍为空)，自动复位，避免卡在"忙碌"状态
+    private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
+    private fun armWatchdog(ms: Long) {
+        watchdog.removeCallbacksAndMessages(null)
+        watchdog.postDelayed({ if (pc == null && sessionId != null) stop(notify = true) }, ms)
+    }
+    private fun cancelWatchdog() { watchdog.removeCallbacksAndMessages(null) }
 
     var onRequest: ((sessionId: String, fromId: String, fromName: String) -> Unit)? = null
     var onActive: ((controllerName: String) -> Unit)? = null
@@ -167,7 +177,8 @@ class RemoteControlController(
         sessionId = "rc-$localPlayerId-${System.currentTimeMillis()}"
         peerId = targetId
         peerName = targetName
-        sendSignal(SignalingEnvelope(type = "remote-control-request", from = localPlayerId, to = targetId, sessionId = sessionId, fromName = "MCTier"))
+        sendSignal(SignalingEnvelope(type = "remote-control-request", from = localPlayerId, to = targetId, sessionId = sessionId, fromName = localPlayerName))
+        armWatchdog(95000)
     }
 
     /** 控制端：对方接受后建立连接并发 offer（接收对方屏幕 + 建输入数据通道） */
@@ -212,6 +223,7 @@ class RemoteControlController(
         }, MediaConstraints())
         pc = connection
         onControllerActive?.invoke(peerName ?: "")
+        cancelWatchdog()
     }
 
     /** 控制端：发送一批输入事件（归一化坐标） */
@@ -238,6 +250,7 @@ class RemoteControlController(
         updateScreenSize()
         startCapture(projectionData)
         sendSignal(SignalingEnvelope(type = "remote-control-accept", from = localPlayerId, to = fromId, sessionId = sid))
+        armWatchdog(40000)
     }
 
     private fun startCapture(permissionData: Intent) {
@@ -298,6 +311,7 @@ class RemoteControlController(
         }, MediaConstraints())
         pc = connection
         onActive?.invoke(controllerName ?: "")
+        cancelWatchdog()
     }
 
     private fun registerInputChannel(channel: DataChannel) {
@@ -380,6 +394,7 @@ class RemoteControlController(
 
     // ========================= 停止 =========================
     fun stop(notify: Boolean = true) {
+        cancelWatchdog()
         val other = controllerId ?: peerId
         val sid = sessionId
         if (notify && other != null && sid != null) {

@@ -173,6 +173,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
@@ -384,7 +385,7 @@ private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository
     val activeBy = state.remoteControlActiveBy
     if (activeBy != null) {
         Box(
-            Modifier.fillMaxWidth().padding(10.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(10.dp),
             contentAlignment = Alignment.TopCenter,
         ) {
             Row(
@@ -414,6 +415,7 @@ private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository
 @Composable
 private fun RemoteControlControllerView(repository: MctierRepository, peerName: String) {
     val controller = repository.remoteControl
+    val ctx = LocalContext.current
     var track by remember { mutableStateOf<VideoTrack?>(null) }
     var frameW by remember { mutableStateOf(0) }
     var frameH by remember { mutableStateOf(0) }
@@ -426,7 +428,31 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
         onDispose { controller?.onControllerVideoTrack = null }
     }
 
-    // 把触摸事件映射为归一化坐标并发送
+    // 沉浸式全屏 + 根据对方屏幕宽高比自动选择横屏/竖屏，最大化利用屏幕
+    val activity = ctx as? android.app.Activity
+    DisposableEffect(activity) {
+        val original = activity?.requestedOrientation ?: android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val win = activity?.window
+        val insetsController = win?.let { androidx.core.view.WindowCompat.getInsetsController(it, it.decorView) }
+        insetsController?.let {
+            it.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            it.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            activity?.requestedOrientation = original
+            insetsController?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+    // 对方屏幕为横向(宽>高)则本机横屏，否则竖屏；分辨率到达后再决定
+    LaunchedEffect(frameW, frameH) {
+        if (frameW > 0 && frameH > 0) {
+            activity?.requestedOrientation = if (frameW > frameH)
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
+    }
+
     fun sendEvent(kind: String, xPx: Float, yPx: Float) {
         val fw = if (frameW > 0) frameW.toFloat() else viewW.toFloat()
         val fh = if (frameH > 0) frameH.toFloat() else viewH.toFloat()
@@ -442,7 +468,7 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black).zIndex(50f)) {
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -453,11 +479,11 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
                 Box(
                     Modifier.clip(RoundedCornerShape(8.dp)).background(DangerRed)
                         .clickable { repository.stopRemoteControl() }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                ) { Text(L("结束", "End"), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) { Text(L("结束", "End"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
             }
             Box(
-                Modifier.fillMaxSize().background(Color.Black)
+                Modifier.fillMaxWidth().weight(1f).background(Color.Black)
                     .onSizeChanged { viewW = it.width.coerceAtLeast(1); viewH = it.height.coerceAtLeast(1) }
                     .pointerInteropFilter { ev ->
                         when (ev.actionMasked) {
@@ -471,8 +497,8 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
             ) {
                 if (controller != null) {
                     AndroidView(
-                        factory = { ctx ->
-                            SurfaceViewRenderer(ctx).apply {
+                        factory = { c ->
+                            SurfaceViewRenderer(c).apply {
                                 init(controller.eglBase.eglBaseContext, object : RendererCommon.RendererEvents {
                                     override fun onFirstFrameRendered() {}
                                     override fun onFrameResolutionChanged(w: Int, h: Int, rotation: Int) {
@@ -671,7 +697,8 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                 val nm = params["name"].orEmpty()
                 if (nm.isNotBlank()) {
                     lobbyName = nm
-                    params["pwd"]?.let { if (it.isNotEmpty()) password = it }
+                    // 始终以二维码中的密码为准（包括空密码），避免残留的旧密码导致加入到不同的 EasyTier 网络
+                    password = params["pwd"].orEmpty()
                     mode = "join"; ok = true
                 }
             }
@@ -2691,6 +2718,8 @@ private fun ScreenViewer(state: MctierUiState, repository: MctierRepository, sha
     var remoteTrack by remember(shareId) { mutableStateOf<VideoTrack?>(null) }
     var frameRendered by remember(shareId) { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
+    var shareFrameW by remember(shareId) { mutableStateOf(0) }
+    var shareFrameH by remember(shareId) { mutableStateOf(0) }
     val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     // 统一通过回调接收远端轨道，供内嵌与全屏渲染器共同使用
@@ -2723,6 +2752,7 @@ private fun ScreenViewer(state: MctierUiState, repository: MctierRepository, sha
                     controller = controller,
                     track = remoteTrack,
                     onFirstFrame = { frameRendered = true },
+                    onFrameSize = { w, h -> shareFrameW = w; shareFrameH = h },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 460.dp),
                 )
                 if (!frameRendered) Text(L("等待画面…", "Waiting for video..."), color = TextPrimary.copy(alpha = 0.4f))
@@ -2745,7 +2775,11 @@ private fun ScreenViewer(state: MctierUiState, repository: MctierRepository, sha
         // 进入全屏时强制横屏 + 隐藏系统状态栏/导航栏，退出时恢复
         DisposableEffect(Unit) {
             val original = activity?.requestedOrientation ?: android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            // 根据对方屏幕宽高比自动选择横屏/竖屏，画面铺满更完整
+            activity?.requestedOrientation = if (shareFrameW > 0 && shareFrameH in 1 until shareFrameW)
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             val win = activity?.window
             val insetsController = win?.let { androidx.core.view.WindowCompat.getInsetsController(it, it.decorView) }
             insetsController?.let {
@@ -2784,6 +2818,7 @@ private fun ScreenRenderSurface(
     controller: top.pmh13.mctier.network.ScreenShareController,
     track: VideoTrack?,
     onFirstFrame: () -> Unit,
+    onFrameSize: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val rendererRef = remember { arrayOfNulls<SurfaceViewRenderer>(1) }
@@ -2794,7 +2829,11 @@ private fun ScreenRenderSurface(
                     override fun onFirstFrameRendered() {
                         android.os.Handler(android.os.Looper.getMainLooper()).post { onFirstFrame() }
                     }
-                    override fun onFrameResolutionChanged(p0: Int, p1: Int, p2: Int) {}
+                    override fun onFrameResolutionChanged(p0: Int, p1: Int, p2: Int) {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            if (p2 % 180 == 0) onFrameSize(p0, p1) else onFrameSize(p1, p0)
+                        }
+                    }
                 })
                 setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 setEnableHardwareScaler(true)
