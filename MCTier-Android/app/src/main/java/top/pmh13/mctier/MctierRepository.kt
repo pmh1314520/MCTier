@@ -1566,7 +1566,7 @@ class MctierRepository(private val context: Context) {
         themeMode = prefs.getString("themeMode", null) ?: "dark",
         themePrimary = prefs.getString("themePrimary", null).orEmpty(),
         language = prefs.getString("language", null).orEmpty(),
-        danmakuEnabled = prefs.getBoolean("danmakuEnabled", false),
+        danmakuEnabled = prefs.getBoolean("danmakuEnabled", true),
         danmakuFontSize = prefs.getInt("danmakuFontSize", 20),
         danmakuSpeed = prefs.getInt("danmakuSpeed", 130),
         danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),

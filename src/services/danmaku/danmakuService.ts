@@ -18,7 +18,7 @@ export interface DanmakuConfig {
 }
 
 export const DEFAULT_DANMAKU_CONFIG: DanmakuConfig = {
-  enabled: false,
+  enabled: true,
   fontSize: 24,
   speed: 140,
   opacity: 0.9,
