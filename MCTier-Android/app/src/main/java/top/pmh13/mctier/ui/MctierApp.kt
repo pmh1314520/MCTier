@@ -345,6 +345,8 @@ fun MctierApp(repository: MctierRepository, onConsentGranted: () -> Unit = {}) {
             }
             // 远程控制（电脑控制本机手机）：请求弹窗 + 被控横幅
             RemoteControlGate(state, repository)
+            // 高风险功能一次性同意门控宿主
+            FeatureGateHost()
         }
     }
 }
@@ -2096,8 +2098,10 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                             if (state.remoteControllingPeer != null || state.remoteControlActiveBy != null) {
                                 android.widget.Toast.makeText(ctx, L("已有进行中的远程控制会话", "A remote control session is already active"), android.widget.Toast.LENGTH_SHORT).show()
                             } else {
-                                repository.requestRemoteControl(player.id, player.name)
-                                android.widget.Toast.makeText(ctx, L("已发送远程控制请求，等待对方接受…", "Request sent, waiting for the other side to accept..."), android.widget.Toast.LENGTH_SHORT).show()
+                                FeatureGate.run(ctx, "remote", L("远程控制须知", "Remote Control Notice")) {
+                                    repository.requestRemoteControl(player.id, player.name)
+                                    android.widget.Toast.makeText(ctx, L("已发送远程控制请求，等待对方接受…", "Request sent, waiting for the other side to accept..."), android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                         Spacer(Modifier.width(6.dp))
@@ -2511,7 +2515,9 @@ private fun FilesTab(state: MctierUiState, repository: MctierRepository) {
                 Spacer(Modifier.height(10.dp))
                 MctierField(password, { password = it }, L("访问密码（可留空）", "Access password (optional)"))
                 Spacer(Modifier.height(14.dp))
-                PrimaryButton(L("选择文件夹并共享", "Select a folder to share"), icon = Icons.Rounded.Add) { launcher.launch(null) }
+                PrimaryButton(L("选择文件夹并共享", "Select a folder to share"), icon = Icons.Rounded.Add) {
+                    FeatureGate.run(context, "folder", L("文件夹共享须知", "Folder Sharing Notice")) { launcher.launch(null) }
+                }
             }
         }
         items(state.sharedFolders, key = { it.id }) { SharedFolderRow(it, repository) }
@@ -2759,8 +2765,10 @@ private fun ScreenTab(state: MctierUiState, repository: MctierRepository) {
                     }
                     Spacer(Modifier.height(14.dp))
                     PrimaryButton(L("共享我的屏幕", "Share my screen")) {
-                        val mpm = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
-                        mpLauncher.launch(mpm.createScreenCaptureIntent())
+                        FeatureGate.run(context, "screen", L("屏幕共享须知", "Screen Sharing Notice")) {
+                            val mpm = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+                            mpLauncher.launch(mpm.createScreenCaptureIntent())
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                 }
@@ -3175,6 +3183,7 @@ private fun NotificationSettingsSection(settings: UserSettings, onChange: (UserS
 
 @Composable
 private fun VoiceChangerSection(settings: UserSettings, onChange: (UserSettings) -> Unit, showTitle: Boolean = true) {
+    val vcCtx = LocalContext.current
     val presets = listOf(
         "none" to L("原声", "Original"),
         "uncle" to L("大叔", "Uncle"),
@@ -3200,7 +3209,13 @@ private fun VoiceChangerSection(settings: UserSettings, onChange: (UserSettings)
         selectedLabel = presets.firstOrNull { it.first == settings.voicePreset }?.second,
     ) { label ->
         val id = presets.firstOrNull { it.second == label }?.first ?: "none"
-        onChange(settings.copy(voicePreset = id))
+        if (id == "none") {
+            onChange(settings.copy(voicePreset = id))
+        } else {
+            FeatureGate.run(vcCtx, "voice", L("变声器须知", "Voice Changer Notice")) {
+                onChange(settings.copy(voicePreset = id))
+            }
+        }
     }
     Spacer(Modifier.height(10.dp))
     VoiceAuditionButton(settings)

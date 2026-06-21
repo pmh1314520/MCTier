@@ -19,6 +19,16 @@ object ConsentStore {
     }
 }
 
+/** 高风险功能的一次性同意：每个功能首次使用前需单独同意，之后不再重复弹出 */
+object FeatureConsent {
+    private const val PREF = "mctier_feature_consent"
+    fun isAgreed(ctx: Context, key: String): Boolean =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(key, false)
+    fun setAgreed(ctx: Context, key: String) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(key, true).apply()
+    }
+}
+
 object ComplianceTexts {
     /** 隐私政策（摘要 + 主要条款） */
     fun privacyPolicy(): String = L(
@@ -181,4 +191,81 @@ The App follows the principle of minimal necessity; all permissions can be disab
 - Ignore battery optimization: reducing the chance of being killed in the background;
 - Network / network state: establishing and maintaining the virtual LAN connection.""",
     )
+
+    /** 免责声明 */
+    fun disclaimer(): String = L(
+        """免责声明
+
+请在使用 MCTier 前认真阅读本声明。下载、安装或使用本应用，即表示你已充分理解并同意以下内容：
+
+一、工具中立与用途合法
+MCTier 是一款中立的虚拟局域网组网与协作工具，仅供在符合所在地法律法规的前提下用于个人合法用途（如局域网游戏联机、协作沟通、访问你本人或已获授权的服务）。本应用的开发者不参与、不控制、也无法审查用户之间点对点直接传输的任何内容或用户的具体使用行为。
+
+二、用户责任自负
+你应对自己使用本应用的全部行为及通过本应用传输、发布、共享的全部内容独立承担责任。凡因你违反法律法规或本声明而产生的任何纠纷、损失或法律责任，均由你本人承担，与开发者无关。
+
+三、严格禁止的行为
+严禁利用本应用从事任何违反中华人民共和国法律法规的活动，包括但不限于：
+1. 未经电信主管部门许可从事经营性接入/组网业务，或进行非法跨境联网；
+2. 制作、传播违法违规、淫秽色情、暴恐、谣言、侵权及其他不良信息；
+3. 未经授权访问、控制、监控他人设备、系统或数据；
+4. 利用语音/变声功能实施电信网络诈骗、冒充他人或欺诈、骚扰；
+5. 传播恶意程序或破坏网络安全。
+一经发现，开发者有权不经通知停止提供相关服务，由此产生的后果由违规者自负。
+
+四、无担保
+本应用按"现状"提供，不对其适用性、稳定性、连接质量作任何明示或默示担保。在法律允许的最大范围内，开发者不对使用本应用造成的任何直接或间接损失承担责任。
+
+五、合规提示
+不同国家与地区对组网/网络接入、即时通信、数据与个人信息保护有不同规定。请你自行确认并遵守所在地的法律法规；如用于经营性用途，可能需取得相应资质或许可。
+
+如你不同意本声明的任何内容，请立即停止使用并卸载本应用。""",
+        """Disclaimer
+
+Please read this disclaimer carefully before using MCTier. By downloading, installing or using the App, you fully understand and agree to the following:
+
+1. Neutral tool, lawful use
+MCTier is a neutral virtual-LAN networking and collaboration tool, intended only for lawful personal use in compliance with the laws of your jurisdiction (e.g., LAN gaming, collaboration, accessing your own or authorized services). The developer does not participate in, control, or audit any content transmitted peer-to-peer between users or users' specific conduct.
+
+2. User responsibility
+You are solely responsible for all your use of the App and all content you transmit, publish or share through it. Any dispute, loss or legal liability arising from your violation of laws or this disclaimer is borne by you alone, unrelated to the developer.
+
+3. Strictly prohibited conduct
+It is strictly forbidden to use the App for any activity that violates applicable law, including but not limited to:
+3.1 Operating commercial access/networking services without telecom authorization, or unlawful cross-border networking;
+3.2 Creating or spreading illegal, pornographic, violent/terrorist, defamatory, infringing or other harmful content;
+3.3 Accessing, controlling or monitoring others' devices, systems or data without authorization;
+3.4 Using voice/voice-changer features for telecom fraud, impersonation, deception or harassment;
+3.5 Spreading malware or compromising network security.
+The developer may stop providing related services without notice upon discovery; consequences are borne by the violator.
+
+4. No warranty
+The App is provided "as is" without any express or implied warranty of fitness, stability or connection quality. To the maximum extent permitted by law, the developer is not liable for any direct or indirect loss arising from use of the App.
+
+5. Compliance note
+Regulations on networking/network access, instant messaging, data and personal-information protection differ by country and region. You must confirm and comply with the laws of your jurisdiction; commercial use may require corresponding qualifications or licenses.
+
+If you do not agree with any part of this disclaimer, stop using and uninstall the App immediately.""",
+    )
+
+    /** 高风险功能使用前的一次性同意提示文案。kind: remote/screen/voice/folder */
+    fun featureConsent(kind: String): String = when (kind) {
+        "remote" -> L(
+            "使用「远程控制对方设备」前请确认：\n\n· 仅可控制你本人设备，或已获对方真实、自愿明确授权的设备；\n· 严禁用于偷窥、窃取信息、非法控制他人设备等行为，否则可能触犯《刑法》及《网络安全法》，由你自行承担法律责任；\n· 对方可随时终止控制。\n\n点击「同意并继续」表示你已阅读《用户协议》与《免责声明》并承诺合法使用。",
+            "Before using \"Remote control\":\n\n- Only control your own devices or devices you are genuinely, voluntarily and explicitly authorized to control;\n- Spying, stealing information or unauthorized control is strictly forbidden and may violate the law; you bear all liability;\n- The other party can stop the session anytime.\n\nClicking \"Agree & Continue\" means you have read the User Agreement and Disclaimer and pledge lawful use.",
+        )
+        "screen" -> L(
+            "使用「屏幕共享」前请确认：\n\n· 共享屏幕时对方将看到你当前屏幕的全部内容，请避免展示银行、验证码、隐私等敏感信息；\n· 不得共享含违法、侵权或他人隐私的画面；\n· 责任由你自行承担。\n\n点击「同意并继续」表示你已阅读《用户协议》与《免责声明》并承诺合法使用。",
+            "Before using \"Screen sharing\":\n\n- Others will see everything on your current screen; avoid showing bank info, verification codes or private data;\n- Do not share illegal, infringing or others' private content;\n- You bear all responsibility.\n\nClicking \"Agree & Continue\" means you have read the User Agreement and Disclaimer and pledge lawful use.",
+        )
+        "voice" -> L(
+            "启用「变声器」前请确认：\n\n· 变声功能仅供娱乐与正常社交；\n· 严禁用于电信网络诈骗、冒充他人身份或任何欺骗、骚扰行为，违者依法自负责任。\n\n点击「同意并继续」表示你已阅读并承诺合法使用。",
+            "Before enabling the \"Voice changer\":\n\n- It is for entertainment and normal social use only;\n- Using it for telecom fraud, impersonation, deception or harassment is strictly forbidden; violators bear legal liability.\n\nClicking \"Agree & Continue\" means you have read and pledge lawful use.",
+        )
+        "folder" -> L(
+            "使用「文件夹共享」前请确认：\n\n· 不得共享含违法、淫秽、侵权或他人隐私的文件；\n· 共享内容及由此产生的责任由你自行承担。\n\n点击「同意并继续」表示你已阅读《用户协议》与《免责声明》并承诺合法使用。",
+            "Before using \"Folder sharing\":\n\n- Do not share illegal, obscene, infringing or others' private files;\n- You bear all responsibility for shared content.\n\nClicking \"Agree & Continue\" means you have read the User Agreement and Disclaimer and pledge lawful use.",
+        )
+        else -> ""
+    }
 }

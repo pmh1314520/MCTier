@@ -30,6 +30,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * 高风险功能门控：在任意触发点调用 FeatureGate.run(...)，若用户尚未同意该功能则弹出一次性同意框，
+ * 同意后执行动作并持久化；以后直接执行。需在应用根部渲染一次 FeatureGateHost()。
+ */
+object FeatureGate {
+    data class Req(val kind: String, val title: String, val onAgree: () -> Unit)
+    var pending by mutableStateOf<Req?>(null)
+        private set
+
+    fun run(ctx: android.content.Context, kind: String, title: String, action: () -> Unit) {
+        if (FeatureConsent.isAgreed(ctx, kind)) {
+            action()
+        } else {
+            pending = Req(kind, title) {
+                FeatureConsent.setAgreed(ctx, kind)
+                action()
+            }
+        }
+    }
+
+    fun clear() { pending = null }
+}
+
+/** 功能门控宿主：渲染在应用根部，负责弹出 FeatureConsentDialog */
+@Composable
+fun FeatureGateHost() {
+    val req = FeatureGate.pending
+    if (req != null) {
+        FeatureConsentDialog(
+            kind = req.kind,
+            title = req.title,
+            onAgree = { val a = req.onAgree; FeatureGate.clear(); a() },
+            onCancel = { FeatureGate.clear() },
+        )
+    }
+}
+
 /** 首次启动合规同意页：必须同意隐私政策与用户协议方可使用 */
 @Composable
 fun ConsentScreen(onAgree: () -> Unit, onDisagree: () -> Unit) {
@@ -55,6 +92,7 @@ fun ConsentScreen(onAgree: () -> Unit, onDisagree: () -> Unit) {
             LinkRow(L("《隐私政策》", "Privacy Policy")) { doc = 1 }
             LinkRow(L("《用户协议》", "User Agreement")) { doc = 2 }
             LinkRow(L("《权限用途说明》", "Permission Usage")) { doc = 3 }
+            LinkRow(L("《免责声明》", "Disclaimer")) { doc = 4 }
             Spacer(Modifier.height(18.dp))
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GrassGreen)
@@ -73,6 +111,7 @@ fun ConsentScreen(onAgree: () -> Unit, onDisagree: () -> Unit) {
         1 -> ComplianceDocDialog(L("隐私政策", "Privacy Policy"), ComplianceTexts.privacyPolicy()) { doc = 0 }
         2 -> ComplianceDocDialog(L("用户协议", "User Agreement"), ComplianceTexts.userAgreement()) { doc = 0 }
         3 -> ComplianceDocDialog(L("权限用途说明", "Permission Usage"), ComplianceTexts.permissionUsage()) { doc = 0 }
+        4 -> ComplianceDocDialog(L("免责声明", "Disclaimer"), ComplianceTexts.disclaimer()) { doc = 0 }
     }
 }
 
@@ -119,11 +158,13 @@ fun ComplianceLinksSection() {
         ComplianceEntryRow(L("隐私政策", "Privacy Policy")) { doc = 1 }
         ComplianceEntryRow(L("用户协议", "User Agreement")) { doc = 2 }
         ComplianceEntryRow(L("权限用途说明", "Permission Usage")) { doc = 3 }
+        ComplianceEntryRow(L("免责声明", "Disclaimer")) { doc = 4 }
     }
     when (doc) {
         1 -> ComplianceDocDialog(L("隐私政策", "Privacy Policy"), ComplianceTexts.privacyPolicy()) { doc = 0 }
         2 -> ComplianceDocDialog(L("用户协议", "User Agreement"), ComplianceTexts.userAgreement()) { doc = 0 }
         3 -> ComplianceDocDialog(L("权限用途说明", "Permission Usage"), ComplianceTexts.permissionUsage()) { doc = 0 }
+        4 -> ComplianceDocDialog(L("免责声明", "Disclaimer"), ComplianceTexts.disclaimer()) { doc = 0 }
     }
 }
 
@@ -134,5 +175,38 @@ private fun ComplianceEntryRow(label: String, onClick: () -> Unit) {
             .clickable { onClick() }.padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(label, color = TextPrimary.copy(alpha = 0.9f), fontSize = 14.sp)
+    }
+}
+
+/**
+ * 高风险功能首次使用前的一次性同意弹窗。
+ * kind: remote/screen/voice/folder。同意后通过 FeatureConsent 持久化，之后不再弹出。
+ */
+@Composable
+fun FeatureConsentDialog(kind: String, title: String, onAgree: () -> Unit, onCancel: () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(Color(0xCC000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(20.dp).clip(RoundedCornerShape(16.dp)).background(Panel).padding(20.dp),
+        ) {
+            Text(title, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text(ComplianceTexts.featureConsent(kind), color = TextPrimary.copy(alpha = 0.85f), fontSize = 13.sp, lineHeight = 20.sp)
+            }
+            Spacer(Modifier.height(16.dp))
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GrassGreen)
+                    .clickable { onAgree() }.padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(L("同意并继续", "Agree & Continue"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier.fillMaxWidth().clickable { onCancel() }.padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(L("取消", "Cancel"), color = TextPrimary.copy(alpha = 0.6f), fontSize = 14.sp) }
+        }
     }
 }
