@@ -29,9 +29,16 @@ void i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-export function setLanguage(lang: 'zh' | 'en'): void {
+/** 仅在本窗口应用语言（不广播事件），供覆盖窗口收到同步事件时调用 */
+export function applyLanguageLocal(lang: 'zh' | 'en'): void {
   localStorage.setItem(LANG_KEY, lang);
   void i18n.changeLanguage(lang);
+}
+
+export function setLanguage(lang: 'zh' | 'en'): void {
+  applyLanguageLocal(lang);
+  // 通知其它窗口（弹幕/HUD 等独立窗口）同步语言
+  void import('@tauri-apps/api/event').then(({ emit }) => { void emit('mctier-lang-changed', lang); }).catch(() => {});
 }
 
 export function getLanguage(): 'zh' | 'en' {

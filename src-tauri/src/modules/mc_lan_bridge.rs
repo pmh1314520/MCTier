@@ -90,8 +90,9 @@ fn pipe(mut a: TcpStream, mut b: TcpStream) {
 
 /// 启动一个本地代理监听，转发到 远端 ip:port，返回分配到的本地端口
 fn start_proxy(target_ip: String, target_port: u16, alive: Arc<AtomicBool>) -> Option<u16> {
-    // 绑定 0.0.0.0，使无论本机 Minecraft 以 127.0.0.1 还是本机其它网卡地址回连都能命中
-    let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    // 仅监听 127.0.0.1：组播公告的源地址即 127.0.0.1，本机 Minecraft 会回连到 127.0.0.1:端口；
+    // 不暴露到其它网卡，避免物理局域网的人通过本代理连到房主游戏。
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
     let local_port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
     thread::spawn(move || {
@@ -147,14 +148,15 @@ fn ensure_emit_thread() {
                 break;
             }
             let entries: Vec<(u16, String)> = {
-                let b = bridge().lock().unwrap();
-                if !b.running {
-                    Vec::new()
-                } else {
-                    b.proxies
-                        .values()
-                        .map(|p| (p.proxy_port, p.motd.clone()))
-                        .collect()
+                match bridge().lock() {
+                    Ok(b) => {
+                        if !b.running {
+                            Vec::new()
+                        } else {
+                            b.proxies.values().map(|p| (p.proxy_port, p.motd.clone())).collect()
+                        }
+                    }
+                    Err(_) => Vec::new(), // 锁中毒时本轮跳过，不 panic
                 }
             };
             if entries.is_empty() {

@@ -342,10 +342,22 @@ fn is_share_access_allowed(share: &SharedFolder, headers: &HeaderMap) -> bool {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
-        return provided_password == expected_password;
+        return ct_eq(provided_password.as_bytes(), expected_password.as_bytes());
     }
 
     true
+}
+
+/// 常量时间字符串比较，避免密码校验的时间侧信道
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
 }
 
 /// 安全地把共享内的相对路径拼接到共享根目录，防止路径穿越（`..` 逃逸）。
@@ -484,7 +496,7 @@ async fn verify_password(
     };
 
     let success = match &share.password {
-        Some(pwd) => pwd == &req.password,
+        Some(pwd) => ct_eq(pwd.as_bytes(), req.password.as_bytes()),
         None => true, // 无密码保护
     };
 

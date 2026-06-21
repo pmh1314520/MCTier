@@ -250,7 +250,7 @@ pub struct PeerLatency {
 async fn measure_one(ip: &str) -> Option<u64> {
     let start = std::time::Instant::now();
     let connect = TcpStream::connect((ip, 14540u16));
-    match tokio::time::timeout(Duration::from_millis(2000), connect).await {
+    match tokio::time::timeout(Duration::from_millis(800), connect).await {
         Ok(Ok(_stream)) => Some(start.elapsed().as_millis() as u64),
         // 连接被拒绝也说明主机可达（端口可能未开），仍记录 RTT
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
@@ -268,7 +268,7 @@ pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
     for ip in peer_ips {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(async move {
-            let probes = 4u32;
+            let probes = 2u32;
             let mut oks: Vec<u64> = Vec::new();
             for _ in 0..probes {
                 if let Some(rtt) = measure_one(&ip_clone).await {

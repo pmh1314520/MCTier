@@ -8,6 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // 生产构建移除 console / debugger，减小体积并避免泄露调试信息（保留 warn/error 便于排障）
+  esbuild: {
+    drop: process.env.TAURI_DEBUG ? [] : ['debugger'],
+    pure: process.env.TAURI_DEBUG ? [] : ['console.log', 'console.debug', 'console.info'],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

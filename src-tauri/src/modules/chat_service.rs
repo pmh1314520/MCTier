@@ -279,11 +279,49 @@ async fn get_messages(
     Json(result)
 }
 
+/// 简单的按玩家滑动窗口限流：防止同大厅恶意成员刷屏。
+/// 规则：每个 player_id 在最近 3 秒内最多 12 条消息，超出则拒绝（429）。
+fn rate_limit_allow(player_id: &str) -> bool {
+    use std::collections::VecDeque;
+    use std::sync::{Mutex, OnceLock};
+    static LIMITER: OnceLock<Mutex<std::collections::HashMap<String, VecDeque<u128>>>> = OnceLock::new();
+    let m = LIMITER.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let window_ms: u128 = 3000;
+    let max_in_window = 12usize;
+    let mut map = match m.lock() {
+        Ok(g) => g,
+        Err(_) => return true, // 锁异常时放行，不影响正常聊天
+    };
+    let dq = map.entry(player_id.to_string()).or_default();
+    while let Some(&front) = dq.front() {
+        if now.saturating_sub(front) > window_ms {
+            dq.pop_front();
+        } else {
+            break;
+        }
+    }
+    if dq.len() >= max_in_window {
+        return false;
+    }
+    dq.push_back(now);
+    // 防止 map 无限增长：超过 256 个发送者时清理空队列
+    if map.len() > 256 {
+        map.retain(|_, v| !v.is_empty());
+    }
+    true
+}
+
 /// 发送消息（接收其他玩家发送的消息）
 async fn send_message(
     State(state): State<AppState>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<ChatMessage>, StatusCode> {
+    // 限流：防止恶意成员刷屏（控制类消息如 voicegroup 不计入更严格限制，这里统一按 player 限流）
+    if !req.player_id.is_empty() && !rate_limit_allow(&req.player_id) {
+        log::warn!("⚠️ [ChatService] 玩家 {} 发送过于频繁，已限流", req.player_id);
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
     log::info!("💬 [ChatService] 收到消息: {} - {}", req.player_name, req.content);
     
     let message = ChatMessage {

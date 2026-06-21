@@ -38,6 +38,7 @@ export const DanmakuOverlay: React.FC = () => {
   const [opacity, setOpacity] = useState(0.9);
   const [hoverId, setHoverId] = useState<number | null>(null);
   const [toast, setToast] = useState<string>('');
+  const [, setLangTick] = useState(0);
   const idRef = useRef(1);
   const trackFreeAt = useRef<number[]>([]);
   const nodeRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -178,8 +179,16 @@ export const DanmakuOverlay: React.FC = () => {
     listen<DanmakuPayload>('danmaku-msg', (e) => {
       if (e.payload && (e.payload.text || e.payload.image)) spawn(e.payload);
     }).then((fn) => { un = fn; });
+    // 语言同步：主窗口切换语言时本窗口随之刷新
+    let unLang: (() => void) | undefined;
+    listen<string>('mctier-lang-changed', (e) => {
+      const lang = e.payload === 'en' ? 'en' : 'zh';
+      void import('../../i18n').then(({ applyLanguageLocal }) => { applyLanguageLocal(lang); });
+      setLangTick((t) => t + 1);
+    }).then((fn) => { unLang = fn; });
     return () => {
       if (un) un();
+      if (unLang) unLang();
       html.style.background = prev.htmlBg;
       body.style.background = prev.bodyBg;
       body.style.pointerEvents = prev.bodyPe;

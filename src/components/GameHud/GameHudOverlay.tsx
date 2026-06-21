@@ -23,6 +23,7 @@ interface HudPayload {
  */
 export const GameHudOverlay: React.FC = () => {
   const [peers, setPeers] = useState<HudPeer[]>([]);
+  const [, setLangTick] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef<boolean>(true);
 
@@ -42,7 +43,13 @@ export const GameHudOverlay: React.FC = () => {
     listen<HudPayload>('hud-update', (e) => {
       if (e.payload && Array.isArray(e.payload.peers)) setPeers(e.payload.peers);
     }).then((fn) => { un = fn; });
-    return () => { if (un) un(); };
+    let unLang: (() => void) | undefined;
+    listen<string>('mctier-lang-changed', (e) => {
+      const lang = e.payload === 'en' ? 'en' : 'zh';
+      void import('../../i18n').then(({ applyLanguageLocal }) => { applyLanguageLocal(lang); });
+      setLangTick((t) => t + 1);
+    }).then((fn) => { unLang = fn; });
+    return () => { if (un) un(); if (unLang) unLang(); };
   }, []);
 
   // 光标轮询：悬停到 HUD 卡片上时关闭穿透以便拖动，移开恢复穿透不挡游戏
