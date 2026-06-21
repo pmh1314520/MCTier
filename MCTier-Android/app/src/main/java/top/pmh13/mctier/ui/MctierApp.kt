@@ -2968,6 +2968,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
             MctierField(settings.autoLobbyPassword, { onChange(settings.copy(autoLobbyPassword = it)) }, L("自动大厅密码", "Auto lobby password"))
         }
         Spacer(Modifier.height(16.dp))
+        BackgroundKeepAliveSection()
+        Spacer(Modifier.height(16.dp))
         NotificationSettingsSection(settings, onChange, repository::previewSound)
         Spacer(Modifier.height(16.dp))
         DanmakuSettingsSection(settings, onChange)
@@ -2978,6 +2980,71 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(16.dp))
         UpdateSection()
     }
+}
+
+@Composable
+private fun BackgroundKeepAliveSection() {
+    val ctx = LocalContext.current
+    fun isIgnoringBattery(): Boolean = runCatching {
+        val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        pm.isIgnoringBatteryOptimizations(ctx.packageName)
+    }.getOrDefault(false)
+    var ignoring by remember { mutableStateOf(isIgnoringBattery()) }
+
+    Text(L("后台保活", "Background Keep-alive"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
+    Spacer(Modifier.height(4.dp))
+    Text(
+        L(
+            "为保证挂后台（如玩游戏时）语音、聊天、弹幕、远程控制不被系统杀掉，强烈建议：\n1. 允许 MCTier 忽略电池优化；\n2. 在系统「应用设置 → 省电策略/耗电管理」中把 MCTier 设为「无限制」；\n3. 在最近任务中给 MCTier 加锁，防止被一键清理。",
+            "To keep voice, chat, danmaku and remote control alive in the background (e.g. while gaming), it's strongly recommended to:\n1. Allow MCTier to ignore battery optimization;\n2. Set MCTier's power policy to \"No restrictions\" in system App settings;\n3. Lock MCTier in Recents so it isn't cleared.",
+        ),
+        fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f), lineHeight = 16.sp,
+    )
+    Spacer(Modifier.height(8.dp))
+    // 状态提示
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val (dotColor, statusText) = if (ignoring) GrassGreen to L("已忽略电池优化", "Battery optimization ignored")
+            else DangerRed to L("未忽略电池优化（容易被杀）", "Not ignored (may be killed)")
+        Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
+        Spacer(Modifier.width(6.dp))
+        Text(statusText, fontSize = 12.sp, color = dotColor)
+    }
+    Spacer(Modifier.height(8.dp))
+    if (!ignoring) {
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GrassGreen.copy(alpha = 0.16f))
+                .clickable {
+                    runCatching {
+                        @android.annotation.SuppressLint("BatteryLife")
+                        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = android.net.Uri.parse("package:${ctx.packageName}")
+                        }
+                        ctx.startActivity(intent)
+                    }.onFailure {
+                        runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                    }
+                }
+                .padding(vertical = 11.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(L("允许忽略电池优化", "Allow ignoring battery optimization"), color = GrassGreen, fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(8.dp))
+    }
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(PanelHigh.copy(alpha = 0.5f))
+            .clickable {
+                ignoring = isIgnoringBattery()
+                // 打开本应用的系统设置页，便于用户设置「省电策略 → 无限制」
+                runCatching {
+                    ctx.startActivity(
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = android.net.Uri.parse("package:${ctx.packageName}")
+                        },
+                    )
+                }
+            }
+            .padding(vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(L("打开应用设置（设为「无限制」省电策略）", "Open App Settings (set power policy to \"No restrictions\")"), color = TextPrimary, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable
