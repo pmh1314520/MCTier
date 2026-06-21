@@ -1,15 +1,6 @@
-/* 弹幕覆盖窗口：完全透明，鼠标穿透（穿透由 Rust set_ignore_cursor_events 实现） */
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  background: transparent !important;
-  overflow: hidden;
-  pointer-events: none;
-  user-select: none;
-}
-
+/* 弹幕覆盖窗口：完全透明，鼠标穿透（穿透由 Rust set_ignore_cursor_events 实现）。
+   注意：此文件被全局打包，绝不能对 html/body/#root 写全局样式，否则会影响主窗口交互。
+   透明背景与 pointer-events:none 改由 DanmakuOverlay 组件在弹幕窗口内通过 JS 设置。 */
 .danmaku-root {
   position: fixed;
   inset: 0;

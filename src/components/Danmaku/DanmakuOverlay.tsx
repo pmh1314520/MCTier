@@ -74,11 +74,38 @@ export const DanmakuOverlay: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // 仅在弹幕窗口自身文档上设置透明背景与鼠标穿透，绝不影响主窗口
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const prev = {
+      htmlBg: html.style.background,
+      bodyBg: body.style.background,
+      bodyPe: body.style.pointerEvents,
+      bodyOverflow: body.style.overflow,
+    };
+    html.style.background = 'transparent';
+    body.style.background = 'transparent';
+    body.style.margin = '0';
+    body.style.overflow = 'hidden';
+    body.style.pointerEvents = 'none';
+    body.style.userSelect = 'none';
+    if (root) {
+      root.style.background = 'transparent';
+      root.style.pointerEvents = 'none';
+    }
+
     let un: (() => void) | undefined;
     listen<DanmakuPayload>('danmaku-msg', (e) => {
       if (e.payload && e.payload.text) spawn(e.payload);
     }).then((fn) => { un = fn; });
-    return () => { if (un) un(); };
+    return () => {
+      if (un) un();
+      html.style.background = prev.htmlBg;
+      body.style.background = prev.bodyBg;
+      body.style.pointerEvents = prev.bodyPe;
+      body.style.overflow = prev.bodyOverflow;
+    };
   }, [spawn]);
 
   return (
