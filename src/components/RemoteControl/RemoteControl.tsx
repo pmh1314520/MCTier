@@ -59,9 +59,13 @@ export const RemoteControl: React.FC = () => {
       const { sessionId, from, fromName } = (e as CustomEvent).detail;
       modal.confirm({
         title: tl('远程控制请求', 'Remote Control Request'),
-        content: tl(
-          `${fromName} 请求远程控制你的设备。接受后对方将能操作你的设备，你可随时停止。`,
-          `${fromName} requests to remotely control your device. Once accepted, they can operate your device. You can stop anytime.`
+        content: (
+          <div style={{ whiteSpace: 'pre-line', lineHeight: 1.6 }}>
+            {tl(
+              `${fromName} 请求远程控制你的设备。\n\n· 用途：接受后对方可实时看到你的屏幕并操作你的设备，你可随时点「停止被控」结束。\n· 风险提示：请仅在信任的人之间使用，避免屏幕上出现银行、验证码、隐私等敏感信息。\n· 禁止用途：严禁用于偷窥、窃取信息、非法控制等行为，违者自负法律责任。`,
+              `${fromName} requests to remotely control your device.\n\n- Purpose: they will see your screen in real time and operate your device; you can click "Stop" anytime.\n- Risk: use only with people you trust; avoid showing bank info, verification codes or private data on screen.\n- Prohibited: spying, stealing information or unauthorized control are strictly forbidden; violators bear legal liability.`
+            )}
+          </div>
         ),
         okText: tl('接受', 'Accept'),
         cancelText: tl('拒绝', 'Reject'),

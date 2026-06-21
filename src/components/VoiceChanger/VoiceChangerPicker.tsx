@@ -63,6 +63,12 @@ export const VoiceChangerPicker: React.FC = () => {
       >
         {auditioning ? tl('停止试听', 'Stop audition') : tl('试听变声', 'Audition voice')}
       </button>
+      <div className="vc-risk-note" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5, color: 'rgba(255,90,90,0.8)' }}>
+        {tl(
+          '风险提示：变声功能仅供娱乐与正常社交使用，严禁用于电信网络诈骗、冒充他人身份或任何欺骗、骚扰行为，违者自负法律责任。',
+          'Notice: the voice changer is for entertainment and normal social use only. Using it for telecom fraud, impersonation, deception or harassment is strictly prohibited; violators bear legal liability.'
+        )}
+      </div>
     </div>
   );
 };

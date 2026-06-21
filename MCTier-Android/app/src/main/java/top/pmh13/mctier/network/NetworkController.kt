@@ -224,16 +224,18 @@ class NetworkController(private val context: Context) {
     private val FIXED_SUBNET_OCTET = 126
 
     /**
-     * 每台设备稳定且唯一的标识：优先用 ANDROID_ID（不同手机不同值，重连后稳定），
-     * 取不到时回退到一次性持久化的随机 UUID。
-     * 用它派生虚拟 IP 主机位，避免"相同玩家名 → 相同虚拟 IP"导致手机↔手机互相不可达
-     * （之前用 playerName.hashCode() 派生，同名两台手机会撞到同一 IP，语音/聊天全失效）。
+     * 每台设备稳定且唯一的标识：用户同意隐私政策后优先用 ANDROID_ID（不同手机不同值，重连后稳定），
+     * 未同意或取不到时回退到一次性持久化的随机 UUID（可通过卸载重置）。
+     * 用它派生虚拟 IP 主机位，避免"相同玩家名 → 相同虚拟 IP"导致手机↔手机互相不可达。
+     * 合规：ANDROID_ID 属设备标识符（个人信息），仅在用户已同意隐私政策后才采集。
      */
     private fun deviceKey(): String {
-        runCatching {
-            @Suppress("HardwareIds")
-            val aid = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            if (!aid.isNullOrBlank() && aid != "9774d56d682e549c") return aid
+        if (top.pmh13.mctier.ui.ConsentStore.isAgreed(context)) {
+            runCatching {
+                @Suppress("HardwareIds")
+                val aid = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                if (!aid.isNullOrBlank() && aid != "9774d56d682e549c") return aid
+            }
         }
         val prefs = context.getSharedPreferences("mctier_device", Context.MODE_PRIVATE)
         prefs.getString("device_key", null)?.let { return it }

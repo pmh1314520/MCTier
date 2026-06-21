@@ -267,8 +267,10 @@ fun applyAppTheme(mode: String, primaryHex: String) {
 }
 
 @Composable
-fun MctierApp(repository: MctierRepository) {
+fun MctierApp(repository: MctierRepository, onConsentGranted: () -> Unit = {}) {
     val state by repository.state.collectAsState()
+    val consentCtx = androidx.compose.ui.platform.LocalContext.current
+    var agreed by remember { mutableStateOf(ConsentStore.isAgreed(consentCtx)) }
     LaunchedEffect(Unit) { repository.maybeAutoJoin() }
     // 主题：根据设置实时应用（深/浅色 + 自定义主色），切换即重组整个界面
     LaunchedEffect(state.settings.themeMode, state.settings.themePrimary) {
@@ -296,6 +298,20 @@ fun MctierApp(repository: MctierRepository) {
     MaterialTheme(
         colorScheme = scheme,
     ) {
+        if (!agreed) {
+            // 首次启动：必须同意隐私政策与用户协议方可使用；不同意则退出
+            ConsentScreen(
+                onAgree = {
+                    ConsentStore.setAgreed(consentCtx, true)
+                    agreed = true
+                    onConsentGranted()
+                },
+                onDisagree = {
+                    (consentCtx as? android.app.Activity)?.finishAffinity()
+                },
+            )
+            return@MaterialTheme
+        }
         Box(
             Modifier
                 .fillMaxSize()
@@ -376,8 +392,11 @@ private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository
             title = { Text(L("远程控制请求", "Remote Control Request"), color = TextPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    L("「${req.fromName}」请求远程控制你的手机。接受后对方可看到你的屏幕并进行点击/滑动操作。需开启无障碍权限与屏幕录制权限。", "\"${req.fromName}\" requests to remotely control your phone. They will see your screen and can tap/swipe. Accessibility and screen-capture permissions are required."),
-                    color = TextPrimary.copy(alpha = 0.85f), fontSize = 14.sp, lineHeight = 20.sp,
+                    L(
+                        "「${req.fromName}」请求远程控制你的手机。\n\n· 用途：接受后对方可实时看到你的屏幕画面，并对你的手机进行点击/滑动等操作，需开启无障碍权限与屏幕录制权限。\n· 你的控制权：控制期间顶部会显示横幅，你可随时点「停止」结束，或关闭无障碍/录屏权限立即终止。\n· 风险提示：请仅在你信任的人之间使用，避免在屏幕上展示银行、验证码、隐私等敏感信息。\n· 禁止用途：严禁用于偷窥、窃取信息、非法控制等行为，否则相关责任由控制方承担并可能触犯法律。\n\n确认要接受吗？",
+                        "\"${req.fromName}\" requests to remotely control your phone.\n\n- Purpose: they will see your screen in real time and can tap/swipe on your phone; accessibility and screen-capture permissions are required.\n- Your control: a banner stays on top during the session; tap \"Stop\" anytime, or revoke accessibility/capture permission to end it immediately.\n- Risk: use only with people you trust; avoid showing bank info, verification codes or private data on screen.\n- Prohibited: spying, stealing information or unauthorized control are strictly forbidden and may violate the law.\n\nAccept?",
+                    ),
+                    color = TextPrimary.copy(alpha = 0.85f), fontSize = 13.sp, lineHeight = 19.sp,
                 )
             },
             containerColor = PanelHigh,
@@ -3037,6 +3056,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(16.dp))
         ThemeSettingsSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
+        ComplianceLinksSection()
+        Spacer(Modifier.height(16.dp))
         UpdateSection()
     }
 }
@@ -3183,6 +3204,14 @@ private fun VoiceChangerSection(settings: UserSettings, onChange: (UserSettings)
     }
     Spacer(Modifier.height(10.dp))
     VoiceAuditionButton(settings)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        L(
+            "风险提示：变声功能仅供娱乐与正常社交使用，严禁用于电信网络诈骗、冒充他人身份或任何欺骗、骚扰行为，违者自负法律责任。",
+            "Notice: the voice changer is for entertainment and normal social use only. Using it for telecom fraud, impersonation, deception or harassment is strictly prohibited; violators bear legal liability.",
+        ),
+        fontSize = 11.sp, color = DangerRed.copy(alpha = 0.75f), lineHeight = 16.sp,
+    )
 }
 
 @Composable

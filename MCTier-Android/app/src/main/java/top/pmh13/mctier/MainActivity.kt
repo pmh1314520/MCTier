@@ -23,13 +23,19 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         Log.i("MCTier", "EasyTier native available=${EasyTierJNI.available}, error=${EasyTierJNI.loadErrorMessage}")
         val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
-        permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS))
         val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode != Activity.RESULT_OK) {
                 // 用户可以稍后再次点加入大厅触发系统授权流程。
             }
         }
-        VpnService.prepare(this)?.let { vpnPermission.launch(it) }
+        // 合规：仅在用户已同意隐私政策/用户协议后才申请权限并初始化需采集设备信息的能力。
+        fun requestStartupPermissions() {
+            runCatching { permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)) }
+            runCatching { VpnService.prepare(this)?.let { vpnPermission.launch(it) } }
+        }
+        if (top.pmh13.mctier.ui.ConsentStore.isAgreed(applicationContext)) {
+            requestStartupPermissions()
+        }
         // 启动即应用已保存的主题（深/浅色 + 主色），避免冷启动闪烁
         run {
             val s = MctierRepository.get(applicationContext).state.value.settings
@@ -40,7 +46,7 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
         setContent {
             val repository = remember { MctierRepository.get(applicationContext) }
-            MctierApp(repository = repository)
+            MctierApp(repository = repository, onConsentGranted = { requestStartupPermissions() })
         }
     }
 
