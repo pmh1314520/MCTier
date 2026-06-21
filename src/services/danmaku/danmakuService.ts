@@ -46,6 +46,20 @@ export interface DanmakuPayload {
   speed: number;
   opacity: number;
   tracks: number;
+  /** 弹幕类型：text=文本，image=图片 */
+  kind?: 'text' | 'image';
+  /** 图片弹幕的图片数据（data URL） */
+  image?: string;
+  /** 文本弹幕可复制的原始消息内容（点击弹幕后复制用） */
+  copyText?: string;
+}
+
+/** push 的可选项 */
+export interface DanmakuPushOptions {
+  color?: string;
+  kind?: 'text' | 'image';
+  image?: string;
+  copyText?: string;
 }
 
 class DanmakuService {
@@ -93,16 +107,23 @@ class DanmakuService {
     else if (!inLobby) await this.closeWindow();
   }
 
-  /** 发送一条弹幕（带当前配置）。color 可选，默认使用配置中的颜色 */
-  async push(text: string, color?: string): Promise<void> {
-    if (!this.config.enabled || !text.trim()) return;
+  /** 发送一条弹幕（带当前配置）。opts 可携带颜色/类型/图片/可复制文本 */
+  async push(text: string, opts?: DanmakuPushOptions | string): Promise<void> {
+    if (!this.config.enabled) return;
+    // 兼容旧调用：第二参数为字符串时视为 color
+    const o: DanmakuPushOptions = typeof opts === 'string' ? { color: opts } : (opts || {});
+    const isImage = o.kind === 'image';
+    if (!isImage && !text.trim()) return;
     const payload: DanmakuPayload = {
       text,
-      color: resolveColor(color || this.config.color),
+      color: resolveColor(o.color || this.config.color),
       fontSize: this.config.fontSize,
       speed: this.config.speed,
       opacity: this.config.opacity,
       tracks: this.config.tracks,
+      kind: o.kind || 'text',
+      image: o.image,
+      copyText: o.copyText,
     };
     try {
       await emitTo('danmaku', 'danmaku-msg', payload);

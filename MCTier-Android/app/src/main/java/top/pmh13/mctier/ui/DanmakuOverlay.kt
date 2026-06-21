@@ -1,24 +1,37 @@
 package top.pmh13.mctier.ui
 
+import android.content.ContentValues
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Base64
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
+import java.io.File
 
 /**
  * 安卓系统级弹幕覆盖层。
- * 使用 SYSTEM_ALERT_WINDOW 悬浮窗在所有应用之上显示从右向左飘过的聊天弹幕，
- * 即使在玩游戏（其它 App 前台）时也能看到。鼠标/触摸完全穿透，不影响操作。
+ * 使用 SYSTEM_ALERT_WINDOW 悬浮窗在所有应用之上显示从右向左飘过的聊天弹幕。
  *
- * 横竖屏自适应：覆盖层为全屏 MATCH_PARENT，随屏幕旋转；每条弹幕按当前屏幕宽度与
- * 轨道数实时计算飞行距离与位置，因此横屏/竖屏都从屏幕右侧合适位置飘入。
+ * 交互：
+ * - 点击飘动的弹幕 → 暂停定在原地，并在其下方弹出操作按钮（文本=复制内容，图片=下载图片）；
+ * - 点击空白处 → 取消定住，弹幕继续飘动；
+ * - 支持图片消息弹幕（缩略图），点击后可一键下载原图到相册。
+ *
+ * 穿透策略：覆盖层只占据屏幕顶部弹幕区域（含按钮空间）。无弹幕时整窗设为不可触摸（完全穿透，
+ * 不影响游戏）；有弹幕飘动时该顶部条可点击；点击条以外区域（含下方游戏区）的触摸照常传给后面的应用。
  */
 object DanmakuOverlay {
     @Volatile var enabled = false
@@ -30,9 +43,15 @@ object DanmakuOverlay {
     var rainbow = false
 
     private var wm: WindowManager? = null
-    private var container: FrameLayout? = null
+    private var container: DanmakuContainer? = null
     private var appCtx: Context? = null
     private val trackFreeAt = LongArray(16)
+
+    // 当前被定住的弹幕视图（点击暂停）及其操作按钮
+    private var pinnedView: View? = null
+    private var actionView: View? = null
+    // 当前窗口是否可触摸（无弹幕时不可触摸=完全穿透）
+    private var touchable = false
 
     fun hasPermission(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(ctx)
@@ -46,7 +65,12 @@ object DanmakuOverlay {
         this.tracks = tracks.coerceIn(1, 12)
         this.colorValue = colorInt
         this.rainbow = rainbow
-        if (enabled && hasPermission(ctx)) show(ctx) else if (!enabled) hide()
+        if (enabled && hasPermission(ctx)) {
+            show(ctx)
+            updateWindowMetrics()
+        } else if (!enabled) {
+            hide()
+        }
     }
 
     /** 生成明亮鲜艳的随机颜色（彩色模式：每条弹幕颜色不同） */
@@ -55,88 +79,303 @@ object DanmakuOverlay {
         return Color.HSVToColor(hsv)
     }
 
+    private fun density(): Float = (appCtx ?: container?.context)?.resources?.displayMetrics?.density ?: 2.5f
+
+    /** 弹幕顶部条高度（含轨道与按钮空间），单位 px */
+    private fun stripHeightPx(): Int {
+        val d = density()
+        val lineH = fontSizeSp * 1.95f * d
+        return (12f * d + tracks.coerceIn(1, 12) * lineH + 64f * d).toInt()
+    }
+
+    private fun baseFlags(): Int =
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+    private fun overlayType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
     fun show(ctx: Context) {
         if (!hasPermission(ctx)) return
         appCtx = ctx.applicationContext
         if (container != null) return
         val manager = appCtx!!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val fl = FrameLayout(appCtx!!)
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else
-            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val fl = DanmakuContainer(appCtx!!)
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            stripHeightPx(),
+            overlayType(),
+            // 初始无弹幕：不可触摸=完全穿透
+            baseFlags() or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         )
         lp.gravity = Gravity.TOP or Gravity.START
         runCatching { manager.addView(fl, lp) }
         wm = manager
         container = fl
+        touchable = false
     }
 
     fun hide() {
+        dismissPinned(resume = false)
         val c = container
         val m = wm
         if (c != null && m != null) runCatching { m.removeView(c) }
         container = null
         wm = null
+        touchable = false
     }
 
-    /** 推送一条弹幕（在主线程执行） */
-    fun push(text: String, color: Int = colorValue) {
+    /** 更新窗口尺寸（轨道/字号变化或旋转后调用） */
+    private fun updateWindowMetrics() {
+        val c = container ?: return
+        val m = wm ?: return
+        val lp = c.layoutParams as? WindowManager.LayoutParams ?: return
+        lp.height = stripHeightPx()
+        runCatching { m.updateViewLayout(c, lp) }
+    }
+
+    /** 切换窗口是否可触摸：无弹幕时不可触摸（完全穿透），有弹幕/定住时可触摸 */
+    private fun setTouchable(value: Boolean) {
+        if (touchable == value) return
+        val c = container ?: return
+        val m = wm ?: return
+        val lp = c.layoutParams as? WindowManager.LayoutParams ?: return
+        lp.flags = if (value) baseFlags() else (baseFlags() or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        runCatching { m.updateViewLayout(c, lp) }
+        touchable = value
+    }
+
+    /** 屏幕上是否还有正在飘动/定住的弹幕；据此决定是否保持可触摸 */
+    private fun refreshTouchable() {
+        val c = container ?: return
+        val hasBullets = (0 until c.childCount).any { c.getChildAt(it) is BulletView }
+        setTouchable(hasBullets || pinnedView != null)
+    }
+
+    /** 推送一条文本弹幕。copyText 为点击后可复制的原始消息内容 */
+    fun push(text: String, color: Int = colorValue, copyText: String? = null) {
         if (!enabled || text.isBlank()) return
         val c = container ?: return
         val ctx = appCtx ?: return
         val finalColor = if (rainbow) randomBrightColor() else color
         c.post {
-            val density = ctx.resources.displayMetrics.density
-            val sw = ctx.resources.displayMetrics.widthPixels
             val tv = TextView(ctx).apply {
                 this.text = text
                 setTextColor(finalColor)
                 textSize = fontSizeSp
-                alpha = alphaValue
                 maxLines = 1
                 setShadowLayer(6f, 0f, 1f, Color.argb(220, 0, 0, 0))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             }
             tv.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-            val tw = tv.measuredWidth.coerceAtLeast(1)
-            val lineH = (fontSizeSp * 1.7f * density)
-            val now = System.currentTimeMillis()
-            val nTracks = tracks.coerceIn(1, 12)
-            var track = 0
-            var earliest = Long.MAX_VALUE
-            for (i in 0 until nTracks) {
-                if (trackFreeAt[i] <= now) { track = i; break }
-                if (trackFreeAt[i] < earliest) { earliest = trackFreeAt[i]; track = i }
-            }
-            val speedPx = (speedDp * density).coerceAtLeast(40f)
-            val distance = sw + tw
-            val dur = (distance / speedPx * 1000f).toLong().coerceIn(2000L, 20000L)
-            val releaseDelay = ((tw + 40) / speedPx * 1000f).toLong()
-            trackFreeAt[track] = now + releaseDelay
-            val topPx = (12 * density + track * lineH).toInt()
-            val lp = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = topPx; leftMargin = 0 }
-            c.addView(tv, lp)
-            tv.translationX = sw.toFloat()
-            tv.animate()
-                .translationX(-tw.toFloat())
-                .setDuration(dur)
-                .setInterpolator(LinearInterpolator())
-                .withEndAction { runCatching { c.removeView(tv) } }
-                .start()
+            launchBullet(BulletView(ctx, tv, isImage = false, copyText = copyText, imageData = null), tv.measuredWidth.coerceAtLeast(1))
         }
+    }
+
+    /** 推送一条图片弹幕。dataUrl 为 data:image/...;base64,xxx */
+    fun pushImage(label: String, dataUrl: String, color: Int = colorValue) {
+        if (!enabled) return
+        val c = container ?: return
+        val ctx = appCtx ?: return
+        c.post {
+            val bytes = decodeDataUrl(dataUrl)
+            if (bytes == null) { push("$label", color, null); return@post }
+            val bmp = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+            if (bmp == null) { push("$label", color, null); return@post }
+            val d = density()
+            val targetH = (fontSizeSp * 1.7f * d).toInt().coerceAtLeast(1)
+            val ratio = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
+            val targetW = (targetH * ratio).toInt().coerceIn(targetH, (targetH * 4f).toInt())
+            val iv = ImageView(ctx).apply {
+                setImageBitmap(bmp)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                layoutParams = FrameLayout.LayoutParams(targetW, targetH)
+                alpha = 1f
+            }
+            launchBullet(BulletView(ctx, iv, isImage = true, copyText = null, imageData = dataUrl), targetW)
+        }
+    }
+
+    /** 把一条弹幕加入容器并启动从右到左的动画 */
+    private fun launchBullet(bullet: BulletView, contentWidth: Int) {
+        val c = container ?: return
+        val ctx = appCtx ?: return
+        val d = density()
+        val sw = ctx.resources.displayMetrics.widthPixels
+        bullet.alpha = alphaValue
+        val lineH = fontSizeSp * 1.95f * d
+        val now = System.currentTimeMillis()
+        val nTracks = tracks.coerceIn(1, 12)
+        var track = 0
+        var earliest = Long.MAX_VALUE
+        for (i in 0 until nTracks) {
+            if (trackFreeAt[i] <= now) { track = i; break }
+            if (trackFreeAt[i] < earliest) { earliest = trackFreeAt[i]; track = i }
+        }
+        val speedPx = (speedDp * d).coerceAtLeast(40f)
+        val tw = contentWidth.coerceAtLeast(1)
+        val distance = sw + tw
+        val dur = (distance / speedPx * 1000f).toLong().coerceIn(2000L, 20000L)
+        val releaseDelay = ((tw + 40) / speedPx * 1000f).toLong()
+        trackFreeAt[track] = now + releaseDelay
+        val topPx = (12 * d + track * lineH).toInt()
+        val lp = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = topPx; leftMargin = 0 }
+        c.addView(bullet, lp)
+        bullet.translationX = sw.toFloat()
+        val anim = android.animation.ObjectAnimator.ofFloat(bullet, "translationX", sw.toFloat(), -tw.toFloat())
+        anim.duration = dur
+        anim.interpolator = LinearInterpolator()
+        anim.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                if (pinnedView === bullet) return
+                runCatching { c.removeView(bullet) }
+                refreshTouchable()
+            }
+        })
+        bullet.animator = anim
+        bullet.setOnClickListener { pinBullet(bullet) }
+        anim.start()
+        setTouchable(true)
+    }
+
+    /** 定住一条弹幕：暂停动画并在下方弹出操作按钮 */
+    private fun pinBullet(bullet: BulletView) {
+        val c = container ?: return
+        // 先取消之前定住的
+        if (pinnedView != null && pinnedView !== bullet) dismissPinned(resume = true)
+        bullet.animator?.pause()
+        pinnedView = bullet
+        bullet.bringToFront()
+        setTouchable(true)
+
+        val ctx = c.context
+        val d = density()
+        val btnLabel = if (bullet.isImage) "下载图片" else "复制内容"
+        val btn = makeActionButton(ctx, btnLabel) {
+            if (bullet.isImage) downloadImage(bullet.imageData) else copyText(bullet.copyText ?: "")
+            dismissPinned(resume = true)
+        }
+        // 放在弹幕正下方
+        val top = (bullet.layoutParams as? FrameLayout.LayoutParams)?.topMargin ?: 0
+        val left = bullet.translationX.toInt().coerceAtLeast(0)
+        val lp = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            topMargin = top + bullet.height + (6 * d).toInt()
+            leftMargin = left
+        }
+        c.addView(btn, lp)
+        btn.bringToFront()
+        actionView = btn
+    }
+
+    /** 取消定住：移除按钮，可选恢复动画 */
+    private fun dismissPinned(resume: Boolean) {
+        val c = container
+        val av = actionView
+        if (c != null && av != null) runCatching { c.removeView(av) }
+        actionView = null
+        val pv = pinnedView as? BulletView
+        pinnedView = null
+        if (pv != null) {
+            if (resume) {
+                runCatching { pv.animator?.resume() }
+            } else {
+                runCatching { pv.animator?.cancel() }
+                if (c != null) runCatching { c.removeView(pv) }
+            }
+        }
+        refreshTouchable()
+    }
+
+    /** 构造一个圆角操作按钮 */
+    private fun makeActionButton(ctx: Context, label: String, onClick: () -> Unit): View {
+        val d = density()
+        return TextView(ctx).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            val padH = (14 * d).toInt()
+            val padV = (8 * d).toInt()
+            setPadding(padH, padV, padH, padV)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 10 * d
+                setColor(Color.parseColor("#7CCF00"))
+            }
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
+    /** 复制文本到剪贴板 */
+    private fun copyText(text: String) {
+        val ctx = appCtx ?: return
+        runCatching {
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("MCTier", text))
+            toast("已复制消息内容")
+        }
+    }
+
+    /** 下载图片到相册 */
+    private fun downloadImage(dataUrl: String?) {
+        val ctx = appCtx ?: return
+        val bytes = dataUrl?.let { decodeDataUrl(it) }
+        if (bytes == null) { toast("图片下载失败"); return }
+        val ok = saveImageToGallery(ctx, bytes)
+        toast(if (ok) "图片已保存到相册" else "图片下载失败")
+    }
+
+    private fun toast(msg: String) {
+        val ctx = appCtx ?: return
+        runCatching { Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show() }
+    }
+
+    /** 解析 data URL 为字节数组 */
+    private fun decodeDataUrl(dataUrl: String): ByteArray? {
+        val idx = dataUrl.indexOf(',')
+        val b64 = if (idx >= 0) dataUrl.substring(idx + 1) else dataUrl
+        return runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
+    }
+
+    /** 保存图片字节到相册（Pictures/MCTier） */
+    private fun saveImageToGallery(ctx: Context, bytes: ByteArray): Boolean {
+        val name = "MCTier_弹幕图片_${System.currentTimeMillis()}.jpg"
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MCTier")
+                }
+                val uri = ctx.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: return false
+                ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return false
+                true
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "MCTier")
+                dir.mkdirs()
+                val f = File(dir, name)
+                f.writeBytes(bytes)
+                runCatching {
+                    android.media.MediaScannerConnection.scanFile(ctx, arrayOf(f.absolutePath), arrayOf("image/jpeg"), null)
+                }
+                true
+            }
+        }.getOrDefault(false)
     }
 
     /** 跳转到系统悬浮窗授权页 */
@@ -145,4 +384,39 @@ object DanmakuOverlay {
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             android.net.Uri.parse("package:${ctx.packageName}"),
         )
+
+    /** 弹幕视图：包裹文本/图片内容，持有动画与元数据 */
+    private class BulletView(
+        ctx: Context,
+        content: View,
+        val isImage: Boolean,
+        val copyText: String?,
+        val imageData: String?,
+    ) : FrameLayout(ctx) {
+        var animator: android.animation.ObjectAnimator? = null
+        init {
+            isClickable = true
+            addView(
+                content,
+                LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT),
+            )
+        }
+    }
+
+    /** 覆盖层容器：处理空白/窗口外点击以取消定住 */
+    private class DanmakuContainer(ctx: Context) : FrameLayout(ctx) {
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_OUTSIDE -> {
+                    if (pinnedView != null) dismissPinned(resume = true)
+                    return false
+                }
+                MotionEvent.ACTION_DOWN -> {
+                    if (pinnedView != null) { dismissPinned(resume = true); return true }
+                    return false
+                }
+            }
+            return false
+        }
+    }
 }

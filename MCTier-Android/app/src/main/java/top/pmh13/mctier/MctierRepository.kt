@@ -624,8 +624,12 @@ class MctierRepository(private val context: Context) {
         // 仅当(不在聊天室界面) 或 (App 挂在后台)时才弹幕——已在聊天室且在前台能直接看到消息，无需再弹幕
         if (!inChatRoom || !appForeground) {
             runCatching {
-                val dm = if (wire.messageType == "image") "$resolvedName: ${L("[图片]", "[Image]")}" else "$resolvedName: ${wire.content}"
-                top.pmh13.mctier.ui.DanmakuOverlay.push(dm)
+                if (wire.messageType == "image" && base64 != null) {
+                    top.pmh13.mctier.ui.DanmakuOverlay.pushImage("$resolvedName: ${L("[图片]", "[Image]")}", base64)
+                } else {
+                    val dm = "$resolvedName: ${wire.content}"
+                    top.pmh13.mctier.ui.DanmakuOverlay.push(dm, copyText = wire.content)
+                }
             }
         }
         // 仅当不在聊天室界面时才播放提示音(在聊天室内能直接看到，无需提示)

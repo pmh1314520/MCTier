@@ -1,16 +1,16 @@
-/* 弹幕覆盖窗口：完全透明，鼠标穿透（穿透由 Rust set_ignore_cursor_events 实现）。
-   注意：此文件被全局打包，绝不能对 html/body/#root 写全局样式，否则会影响主窗口交互。
-   透明背景与 pointer-events:none 改由 DanmakuOverlay 组件在弹幕窗口内通过 JS 设置。 */
+/* 弹幕覆盖窗口：完全透明。穿透由 Rust set_ignore_cursor_events 动态控制：
+   鼠标悬停在弹幕上或有弹幕被定住时关闭穿透以便点击，否则开启穿透不挡操作。 */
 .danmaku-root {
   position: fixed;
   inset: 0;
-  pointer-events: none;
   overflow: hidden;
 }
 
 .danmaku-bullet {
   position: absolute;
   left: 0;
+  display: inline-flex;
+  align-items: center;
   white-space: nowrap;
   font-weight: 800;
   font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
@@ -21,6 +21,69 @@
   animation-timing-function: linear;
   animation-fill-mode: forwards;
   animation-iteration-count: 1;
+  cursor: pointer;
+}
+
+/* 被定住的弹幕：高亮描边，提示可操作 */
+.danmaku-pinned {
+  z-index: 10;
+  filter: drop-shadow(0 0 6px rgba(124, 207, 0, 0.9));
+}
+
+.danmaku-img {
+  display: block;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* 定住后出现的操作按钮容器（位于弹幕下方） */
+.danmaku-actions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+}
+
+.danmaku-action-btn {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(124, 207, 0, 0.95);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+.danmaku-action-btn:hover {
+  background: rgba(108, 184, 0, 1);
+}
+
+.danmaku-action-btn:active {
+  transform: scale(0.96);
+}
+
+/* 操作结果轻提示 */
+.danmaku-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 100;
 }
 
 @keyframes danmaku-move {

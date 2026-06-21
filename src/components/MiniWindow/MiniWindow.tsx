@@ -372,10 +372,17 @@ export const MiniWindow: React.FC = () => {
       // 若挂后台(如玩游戏，窗口失焦)则即使开着聊天室也照常弹幕
       const inChatAndFocused = !!(window as any).__isInChatRoom__ && document.hasFocus();
       if (message.playerId !== currentPlayerId && !inChatAndFocused) {
-        const danmakuText = message.type === 'image'
-          ? `${senderName}: ${tl('[图片]', '[Image]')}`
-          : `${senderName}: ${message.content || ''}`;
-        void danmakuService.push(danmakuText);
+        if (message.type === 'image') {
+          void danmakuService.push(`${senderName}: ${tl('[图片]', '[Image]')}`, {
+            kind: 'image',
+            image: message.imageData,
+          });
+        } else {
+          void danmakuService.push(`${senderName}: ${message.content || ''}`, {
+            kind: 'text',
+            copyText: message.content || '',
+          });
+        }
       }
       
       // 消息提示音逻辑（支持 @ 提及）：

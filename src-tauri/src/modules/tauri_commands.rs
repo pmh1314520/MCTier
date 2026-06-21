@@ -3657,6 +3657,72 @@ pub async fn close_danmaku_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 切换弹幕窗口的鼠标穿透（用于点击弹幕暂停/复制/下载时临时关闭穿透）
+#[tauri::command]
+pub async fn set_danmaku_ignore_cursor(app: tauri::AppHandle, ignore: bool) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("danmaku") {
+        let _ = window.set_ignore_cursor_events(ignore);
+    }
+    Ok(())
+}
+
+/// 获取鼠标相对弹幕窗口的逻辑坐标（用于在穿透模式下命中检测弹幕）。
+/// 返回 None 表示窗口不存在或取不到坐标。
+#[tauri::command]
+pub async fn danmaku_cursor_pos(app: tauri::AppHandle) -> Result<Option<(f64, f64)>, String> {
+    use tauri::Manager;
+    let window = match app.get_webview_window("danmaku") {
+        Some(w) => w,
+        None => return Ok(None),
+    };
+    let cursor = match app.cursor_position() {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+    let pos = match window.outer_position() {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+    let rx = (cursor.x - pos.x as f64) / scale;
+    let ry = (cursor.y - pos.y as f64) / scale;
+    Ok(Some((rx, ry)))
+}
+
+/// 保存弹幕图片（data URL）到系统下载文件夹，返回保存的完整路径。
+#[tauri::command]
+pub async fn save_danmaku_image(data_url: String) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // 解析 data URL：data:image/<ext>;base64,<payload>
+    let (meta, payload) = data_url
+        .split_once(',')
+        .ok_or_else(|| "无效的图片数据".to_string())?;
+    let ext = if meta.contains("png") {
+        "png"
+    } else if meta.contains("gif") {
+        "gif"
+    } else if meta.contains("webp") {
+        "webp"
+    } else {
+        "jpg"
+    };
+    let bytes = STANDARD
+        .decode(payload.trim())
+        .map_err(|e| format!("图片解码失败: {}", e))?;
+
+    let dir = dirs::download_dir()
+        .or_else(dirs::picture_dir)
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "找不到下载目录".to_string())?;
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("MCTier_弹幕图片_{}.{}", ts, ext);
+    let path = dir.join(&filename);
+    std::fs::write(&path, &bytes).map_err(|e| format!("保存失败: {}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// 打开日志文件所在的文件夹
 /// 
 /// # 返回
