@@ -101,7 +101,8 @@ class AndroidRtcController(private val context: Context) {
     private fun applyAudioRouting() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.mode = AudioManager.MODE_NORMAL
+            // 通话模式：让系统把扬声器播放流作为 AEC 参考信号，硬件回声消除才会真正生效
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
             am.isSpeakerphoneOn = speakerphoneOn
         }
     }
@@ -115,8 +116,16 @@ class AndroidRtcController(private val context: Context) {
     private fun resetAudioRouting() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.mode = AudioManager.MODE_NORMAL
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
             am.isSpeakerphoneOn = speakerphoneOn
+        }
+    }
+
+    /** 离开大厅/结束通话时恢复普通音频模式，避免长期占用通话模式影响系统其它音频 */
+    fun restoreNormalAudio() {
+        runCatching {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            am.mode = AudioManager.MODE_NORMAL
         }
     }
 
@@ -137,19 +146,20 @@ class AndroidRtcController(private val context: Context) {
                 // 不忽略任何网卡（含 VPN/TUN/loopback），保证采集到虚拟网卡候选
                 networkIgnoreMask = 0
             }
-            // 显式配置音频设备模块：使用语音通话采集模式 + 硬件回声消除/降噪，
-            // 保证麦克风采集(发送方向)可靠工作（修“手机开麦电脑听不到”）
+            // 显式配置音频设备模块：必须用语音通话采集 + 通话模式，才能真正启用硬件回声消除/降噪，
+            // 否则会出现严重声学回声(对方扬声器→对方麦克风→无限循环啸叫)与嘈杂底噪。
             val adm = JavaAudioDeviceModule.builder(context)
-                .setAudioSource(MediaRecorder.AudioSource.MIC)
+                .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build(),
                 )
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
-                .setUseLowLatency(true)
+                // 不可开启低延迟通道：低延迟(FAST)路径会绕过系统 AEC/NS，导致回声
+                .setUseLowLatency(false)
                 // 变声器：在录音 PCM 进入 WebRTC 前原地处理
                 .setAudioBufferCallback { buffer, audioFormat, channelCount, sampleRate, bytesRead, captureTimestampNs ->
                     runCatching { VoiceProcessor.process(audioFormat, channelCount, sampleRate, buffer, bytesRead) }
@@ -162,8 +172,8 @@ class AndroidRtcController(private val context: Context) {
                 .createPeerConnectionFactory()
             adm.setMicrophoneMute(false)
         }
-        // 进大厅时不强制进入通话模式（通话模式会压低媒体音效音量、走听筒）；
-        // 仅在真正开麦时才切到通话模式，保证平时提示音/语音外放够响亮
+        // 语音大厅期间持续保持通话模式：这是硬件回声消除/降噪生效的前提，
+        // 否则会出现严重声学回声与底噪（媒体提示音音量略降是可接受的代价）。
         startStatsLoop()
         startAudioModeGuard()
         // 始终创建本地音频轨（默认禁用），保证连接含音频 m-line，可双向收发
@@ -343,7 +353,7 @@ class AndroidRtcController(private val context: Context) {
         audioSource = null
         _micEnabled.value = false
         globalMuted = false
-        resetAudioRouting()
+        restoreNormalAudio()
     }
 
     private fun handleOffer(message: SignalingEnvelope) {
