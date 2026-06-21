@@ -373,7 +373,7 @@ export const MiniWindow: React.FC = () => {
       const inChatAndFocused = !!(window as any).__isInChatRoom__ && document.hasFocus();
       if (message.playerId !== currentPlayerId && !inChatAndFocused) {
         if (message.type === 'image') {
-          void danmakuService.push(`${senderName}: ${tl('[图片]', '[Image]')}`, {
+          void danmakuService.push(`${senderName}:`, {
             kind: 'image',
             image: message.imageData,
           });

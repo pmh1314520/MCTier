@@ -625,7 +625,7 @@ class MctierRepository(private val context: Context) {
         if (!inChatRoom || !appForeground) {
             runCatching {
                 if (wire.messageType == "image" && base64 != null) {
-                    top.pmh13.mctier.ui.DanmakuOverlay.pushImage("$resolvedName: ${L("[图片]", "[Image]")}", base64)
+                    top.pmh13.mctier.ui.DanmakuOverlay.pushImage("$resolvedName:", base64)
                 } else {
                     val dm = "$resolvedName: ${wire.content}"
                     top.pmh13.mctier.ui.DanmakuOverlay.push(dm, copyText = wire.content)

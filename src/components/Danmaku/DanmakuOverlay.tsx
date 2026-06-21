@@ -69,9 +69,11 @@ export const DanmakuOverlay: React.FC = () => {
     }
     const speed = Math.max(40, p.speed || 140);
     const isImage = p.kind === 'image' && !!p.image;
-    // 图片弹幕按高度估算宽度，文本按字数估算
-    const imgH = p.fontSize * 1.8;
-    const estWidth = isImage ? imgH * 1.4 + 40 : p.text.length * p.fontSize * 0.62 + 40;
+    // 图片弹幕宽度 = 名字文本宽度 + 缩略图宽度（缩略图较小，避免遮挡）；文本按字数估算
+    const imgH = p.fontSize * 1.35;
+    const estWidth = isImage
+      ? (p.text.length * p.fontSize * 0.62) + p.fontSize * 3.2 + 50
+      : p.text.length * p.fontSize * 0.62 + 40;
     const distance = vw + estWidth;
     const duration = distance / speed; // s
     const releaseDelay = (estWidth + 30) / speed * 1000;
@@ -249,7 +251,10 @@ export const DanmakuOverlay: React.FC = () => {
             onClick={(e) => onBulletClick(e, b)}
           >
             {b.kind === 'image' && b.image ? (
-              <img className="danmaku-img" src={b.image} alt="img" style={{ height: `${b.fontSize * 1.8}px` }} draggable={false} />
+              <>
+                {b.text && <span className="danmaku-name">{b.text}</span>}
+                <img className="danmaku-img" src={b.image} alt="img" style={{ height: `${b.fontSize * 1.35}px`, maxWidth: `${b.fontSize * 3.2}px` }} draggable={false} />
+              </>
             ) : (
               <span>{b.text}</span>
             )}

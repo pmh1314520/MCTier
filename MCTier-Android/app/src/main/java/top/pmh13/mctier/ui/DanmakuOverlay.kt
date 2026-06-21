@@ -81,11 +81,20 @@ object DanmakuOverlay {
 
     private fun density(): Float = (appCtx ?: container?.context)?.resources?.displayMetrics?.density ?: 2.5f
 
+    /** 顶部安全间距：状态栏高度 + 额外留白，避免最顶部弹幕被系统状态栏遮挡而点不到 */
+    private fun topInsetPx(): Int {
+        val d = density()
+        val ctx = appCtx ?: container?.context ?: return (40 * d).toInt()
+        val resId = ctx.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val sb = if (resId > 0) ctx.resources.getDimensionPixelSize(resId) else (26 * d).toInt()
+        return sb + (12 * d).toInt()
+    }
+
     /** 弹幕顶部条高度（含轨道与按钮空间），单位 px */
     private fun stripHeightPx(): Int {
         val d = density()
         val lineH = fontSizeSp * 1.95f * d
-        return (12f * d + tracks.coerceIn(1, 12) * lineH + 64f * d).toInt()
+        return (topInsetPx() + tracks.coerceIn(1, 12) * lineH + 64f * d).toInt()
     }
 
     private fun baseFlags(): Int =
@@ -184,22 +193,45 @@ object DanmakuOverlay {
         if (!enabled) return
         val c = container ?: return
         val ctx = appCtx ?: return
+        val finalColor = if (rainbow) randomBrightColor() else color
         c.post {
             val bytes = decodeDataUrl(dataUrl)
-            if (bytes == null) { push("$label", color, null); return@post }
+            if (bytes == null) { push(label, finalColor, null); return@post }
             val bmp = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
-            if (bmp == null) { push("$label", color, null); return@post }
+            if (bmp == null) { push(label, finalColor, null); return@post }
             val d = density()
-            val targetH = (fontSizeSp * 1.7f * d).toInt().coerceAtLeast(1)
+            // 缩略图尽量小，避免玩游戏时遮挡视野；高度贴合轨道行高，宽度按比例但限制最大值
+            val targetH = (fontSizeSp * 1.35f * d).toInt().coerceIn((20 * d).toInt(), (44 * d).toInt())
             val ratio = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
-            val targetW = (targetH * ratio).toInt().coerceIn(targetH, (targetH * 4f).toInt())
+            val maxW = (fontSizeSp * 3.2f * d).toInt()
+            val targetW = (targetH * ratio).toInt().coerceIn((targetH * 0.4f).toInt(), maxW)
+            // 名字 + 缩略图 横向排布，让用户知道是谁发的图
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val nameTv = TextView(ctx).apply {
+                text = label
+                setTextColor(finalColor)
+                textSize = fontSizeSp
+                maxLines = 1
+                setShadowLayer(6f, 0f, 1f, Color.argb(220, 0, 0, 0))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
             val iv = ImageView(ctx).apply {
                 setImageBitmap(bmp)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                layoutParams = FrameLayout.LayoutParams(targetW, targetH)
-                alpha = 1f
             }
-            launchBullet(BulletView(ctx, iv, isImage = true, copyText = null, imageData = dataUrl), targetW)
+            row.addView(nameTv, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            ))
+            row.addView(iv, android.widget.LinearLayout.LayoutParams(targetW, targetH).apply {
+                leftMargin = (6 * d).toInt()
+            })
+            row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            val totalW = row.measuredWidth.coerceAtLeast(targetW)
+            launchBullet(BulletView(ctx, row, isImage = true, copyText = null, imageData = dataUrl), totalW)
         }
     }
 
@@ -225,7 +257,7 @@ object DanmakuOverlay {
         val dur = (distance / speedPx * 1000f).toLong().coerceIn(2000L, 20000L)
         val releaseDelay = ((tw + 40) / speedPx * 1000f).toLong()
         trackFreeAt[track] = now + releaseDelay
-        val topPx = (12 * d + track * lineH).toInt()
+        val topPx = (topInsetPx() + track * lineH).toInt()
         val lp = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,

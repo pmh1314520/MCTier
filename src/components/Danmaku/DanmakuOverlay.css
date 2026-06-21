@@ -30,6 +30,10 @@
   filter: drop-shadow(0 0 6px rgba(124, 207, 0, 0.9));
 }
 
+.danmaku-name {
+  margin-right: 8px;
+}
+
 .danmaku-img {
   display: block;
   border-radius: 6px;
