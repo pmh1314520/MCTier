@@ -696,9 +696,10 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                 }.toMap()
                 val nm = params["name"].orEmpty()
                 if (nm.isNotBlank()) {
-                    lobbyName = nm
-                    // 始终以二维码中的密码为准（包括空密码），避免残留的旧密码导致加入到不同的 EasyTier 网络
-                    password = params["pwd"].orEmpty()
+                    // 通过 pendingJoin 走与 deep link 相同的预填路径：经仓库单例下发，
+                    // 即使扫码 Activity 触发了本 Activity 重建也不会丢失，且会无条件覆盖输入框
+                    // （始终以二维码中的密码为准，包括空密码，避免残留旧密码进错大厅）
+                    repository.applyDeepLink(nm, params["pwd"].orEmpty())
                     mode = "join"; ok = true
                 }
             }
@@ -706,8 +707,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                 val nameM = Regex("大厅名称[:：]([^\\r\\n]+)").find(contents)
                 val pwdM = Regex("密码[:：]([^\\r\\n]*)").find(contents)
                 if (nameM != null) {
-                    lobbyName = nameM.groupValues[1].trim()
-                    pwdM?.groupValues?.getOrNull(1)?.trim()?.let { if (it.isNotEmpty()) password = it }
+                    repository.applyDeepLink(nameM.groupValues[1].trim(), pwdM?.groupValues?.getOrNull(1)?.trim().orEmpty())
                     mode = "join"; ok = true
                 }
             }
