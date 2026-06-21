@@ -23,6 +23,7 @@ import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
+import { GameQuickConnectModal } from '../GameQuickConnect/GameQuickConnectModal';
 import { RoomTools } from '../RoomTools/RoomTools';
 import { HostPanel } from '../HostPanel/HostPanel';
 import { RemoteControl } from '../RemoteControl/RemoteControl';
@@ -199,6 +200,7 @@ export const MiniWindow: React.FC = () => {
   const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
   const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
+  const [showGameConnect, setShowGameConnect] = useState(false); // 游戏快连弹窗
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
@@ -1465,6 +1467,19 @@ Password: ${lobby.password || ''}
                         <GlobeIcon size={16} color="#FFFFFF" />
                       </motion.button>
                       <motion.button
+                        className="lobby-card-action-btn"
+                        onClick={() => setShowGameConnect(true)}
+                        title={tl('游戏快连（常见游戏端口与连接地址）', 'Game quick-connect (common game ports & addresses)')}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2">
+                          <line x1="6" y1="11" x2="10" y2="11" /><line x1="8" y1="9" x2="8" y2="13" />
+                          <line x1="15" y1="12" x2="15.01" y2="12" /><line x1="18" y1="10" x2="18.01" y2="10" />
+                          <rect x="2" y="6" width="20" height="12" rx="2" />
+                        </svg>
+                      </motion.button>
+                      <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
                         title={tl('复制大厅信息', 'Copy Lobby Info')}
@@ -1962,6 +1977,12 @@ Password: ${lobby.password || ''}
       <MinecraftWorldsModal
         visible={showMcWorlds}
         onClose={() => setShowMcWorlds(false)}
+      />
+
+      {/* 游戏快连弹窗 */}
+      <GameQuickConnectModal
+        visible={showGameConnect}
+        onClose={() => setShowGameConnect(false)}
       />
 
       {/* 房间小工具弹窗 */}
