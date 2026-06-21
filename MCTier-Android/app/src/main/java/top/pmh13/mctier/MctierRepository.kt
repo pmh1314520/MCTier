@@ -547,8 +547,8 @@ class MctierRepository(private val context: Context) {
         st.players.filter { it.id != st.playerId }.forEach { p ->
             val theirGroup = st.playerVoiceGroups[p.id] ?: 0
             val shouldHear = theirGroup == myGroup
-            // 不覆盖用户手动设为 0 的禁音：仅在分组要求静音、或需恢复时调整
-            val target = if (shouldHear) (st.playerVolumes[p.id] ?: 1f) else 0f
+            // 不覆盖用户手动设为 0 的禁音：仅在分组要求静音、或需恢复时调整。默认听筒音量 50%
+            val target = if (shouldHear) (st.playerVolumes[p.id] ?: 0.5f) else 0f
             rtcController.setPlayerVolume(p.id, target.toDouble())
         }
     }

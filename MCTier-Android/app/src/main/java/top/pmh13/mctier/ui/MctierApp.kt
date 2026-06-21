@@ -2008,7 +2008,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                             android.widget.Toast.makeText(ctx, if (fav) L("已取消收藏 ${player.name}", "Unfavorited ${player.name}") else L("已收藏队友 ${player.name}", "Favorited ${player.name}"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                         Spacer(Modifier.width(6.dp))
-                        val muted = (state.playerVolumes[player.id] ?: 1f) <= 0f
+                        val muted = (state.playerVolumes[player.id] ?: 0.5f) <= 0f
                         CircleIconButton(if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp, if (muted) L("取消禁音", "Unmute") else L("禁音该玩家", "Mute player")) {
                             repository.setPlayerVolume(player.id, if (muted) 1f else 0f)
                         }
@@ -2027,7 +2027,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                 }
                 if (!isMe) {
                     Spacer(Modifier.height(6.dp))
-                    val vol = state.playerVolumes[player.id] ?: 1f
+                    val vol = state.playerVolumes[player.id] ?: 0.5f
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.VolumeUp, null, tint = TextPrimary.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                         Slider(

@@ -223,7 +223,7 @@ class AndroidRtcController(private val context: Context) {
     }
 
     private fun applyRemoteVolume(playerId: String, track: AudioTrack) {
-        val vol = if (globalMuted) 0.0 else (playerVolumes[playerId] ?: 1.0)
+        val vol = if (globalMuted) 0.0 else (playerVolumes[playerId] ?: 0.5)
         // WebRTC Android 音量范围 0~10
         runCatching { track.setVolume(vol * 10.0) }
         track.setEnabled(vol > 0.0)

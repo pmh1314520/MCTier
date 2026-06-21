@@ -76,6 +76,7 @@ class RemoteControlController(
 
     // 看门狗：若发起请求/接受后迟迟未建立连接(pc 仍为空)，自动复位，避免卡在"忙碌"状态
     private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var stopping = false
     private fun armWatchdog(ms: Long) {
         watchdog.removeCallbacksAndMessages(null)
         watchdog.postDelayed({ if (pc == null && sessionId != null) stop(notify = true) }, ms)
@@ -394,6 +395,8 @@ class RemoteControlController(
 
     // ========================= 停止 =========================
     fun stop(notify: Boolean = true) {
+        if (stopping) return // 防止 close() 同步回调 onIceConnectionChange(CLOSED) 重入导致无限递归崩溃
+        stopping = true
         cancelWatchdog()
         val other = controllerId ?: peerId
         val sid = sessionId
@@ -424,6 +427,7 @@ class RemoteControlController(
         isDown = false
         pathPoints.clear()
         onEnded?.invoke()
+        stopping = false
     }
 
     fun release() {
