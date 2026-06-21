@@ -111,6 +111,9 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 - **Lobby chat room**: Supports text and image messages.
 - **Folder sharing**: Share folders with lobby members, with download and transfer lists.
 - **Screen sharing**: View another member's screen via WebRTC.
+- **Remote control**: Remotely view and operate another device in real time via WebRTC, supporting PC↔phone control in both directions; mouse move, left/right click, long-press, drag, wheel, keyboard input, and back/home/recents gestures are all included, with automatic landscape/portrait and best window size based on the remote resolution.
+- **Built-in voice changer**: Real-time voice changing with presets like loli and uncle voices, making mic chat more fun; preview before applying.
+- **Message danmaku**: Chat messages float across the top of the screen as bullets, so you never miss them while in the background or gaming; adjustable size, speed, opacity, tracks and color (including random rainbow), enabled by default.
 - **Mini overlay**: Quickly check member status, control voice and open tools on desktop.
 - **Lobby QR code**: Join by scanning or copy the invite link.
 - **Self-hosting**: Run your own signaling server to control the connection entry.
