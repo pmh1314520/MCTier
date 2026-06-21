@@ -211,7 +211,10 @@ export const MiniWindow: React.FC = () => {
     }
     void invoke('open_game_hud_window').catch(() => {});
     let stopped = false;
+    let busy = false;
     const pushOnce = async () => {
+      if (busy) return; // 防重入：上一次延迟测量未完成则跳过
+      busy = true;
       try {
         const st = useAppStore.getState();
         const selfId = st.currentPlayerId;
@@ -237,6 +240,7 @@ export const MiniWindow: React.FC = () => {
         peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
         if (!stopped) await emitTo('gamehud', 'hud-update', { peers });
       } catch { /* ignore */ }
+      busy = false;
     };
     void pushOnce();
     const timer = window.setInterval(() => { void pushOnce(); }, 4000);

@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { tl } from '../../i18n';
 import './GameHudOverlay.css';
 
@@ -21,6 +23,8 @@ interface HudPayload {
  */
 export const GameHudOverlay: React.FC = () => {
   const [peers, setPeers] = useState<HudPeer[]>([]);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const ignoreRef = useRef<boolean>(true);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -41,6 +45,43 @@ export const GameHudOverlay: React.FC = () => {
     return () => { if (un) un(); };
   }, []);
 
+  // 光标轮询：悬停到 HUD 卡片上时关闭穿透以便拖动，移开恢复穿透不挡游戏
+  useEffect(() => {
+    let timer = 0;
+    let stopped = false;
+    let busy = false;
+    const setIgnore = (ig: boolean) => {
+      if (ignoreRef.current === ig) return;
+      ignoreRef.current = ig;
+      void invoke('set_gamehud_ignore_cursor', { ignore: ig }).catch(() => {});
+    };
+    const tick = async () => {
+      if (stopped) return;
+      if (!busy) {
+        busy = true;
+        try {
+          const pos = await invoke<[number, number] | null>('gamehud_cursor_pos');
+          const el = cardRef.current;
+          if (pos && el) {
+            const [cx, cy] = pos;
+            const r = el.getBoundingClientRect();
+            setIgnore(!(cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom));
+          }
+        } catch { /* ignore */ }
+        busy = false;
+      }
+      timer = window.setTimeout(tick, 120) as unknown as number;
+    };
+    tick();
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, []);
+
+  const onDragStart = (e: React.MouseEvent) => {
+    // 仅左键、且不在按钮等元素上时拖动整窗
+    if (e.button !== 0) return;
+    void getCurrentWindow().startDragging().catch(() => {});
+  };
+
   const pingColor = (p: number | null) => {
     if (p == null) return '#ff5a5a';
     if (p < 80) return '#7ccf00';
@@ -49,8 +90,8 @@ export const GameHudOverlay: React.FC = () => {
   };
 
   return (
-    <div className="hud-root">
-      <div className="hud-title">MCTier · {tl('队伍状态', 'Squad')}</div>
+    <div className="hud-root" ref={cardRef} style={{ pointerEvents: 'auto' }} onMouseDown={onDragStart}>
+      <div className="hud-title">MCTier · {tl('队伍状态（可拖动）', 'Squad (drag to move)')}</div>
       {peers.length === 0 ? (
         <div className="hud-empty">{tl('暂无队友数据', 'No teammates yet')}</div>
       ) : (

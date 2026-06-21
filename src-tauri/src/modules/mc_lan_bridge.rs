@@ -90,7 +90,8 @@ fn pipe(mut a: TcpStream, mut b: TcpStream) {
 
 /// 启动一个本地代理监听，转发到 远端 ip:port，返回分配到的本地端口
 fn start_proxy(target_ip: String, target_port: u16, alive: Arc<AtomicBool>) -> Option<u16> {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+    // 绑定 0.0.0.0，使无论本机 Minecraft 以 127.0.0.1 还是本机其它网卡地址回连都能命中
+    let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
     let local_port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
     thread::spawn(move || {

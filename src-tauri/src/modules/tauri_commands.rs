@@ -3720,6 +3720,38 @@ pub async fn close_game_hud_window(app: tauri::AppHandle) -> Result<(), String> 
     Ok(())
 }
 
+/// 切换 HUD 窗口鼠标穿透（悬停在 HUD 卡片上时关闭穿透以便拖动）
+#[tauri::command]
+pub async fn set_gamehud_ignore_cursor(app: tauri::AppHandle, ignore: bool) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("gamehud") {
+        let _ = window.set_ignore_cursor_events(ignore);
+    }
+    Ok(())
+}
+
+/// 获取鼠标相对 HUD 窗口的逻辑坐标（穿透模式下命中检测 HUD 卡片用）
+#[tauri::command]
+pub async fn gamehud_cursor_pos(app: tauri::AppHandle) -> Result<Option<(f64, f64)>, String> {
+    use tauri::Manager;
+    let window = match app.get_webview_window("gamehud") {
+        Some(w) => w,
+        None => return Ok(None),
+    };
+    let cursor = match app.cursor_position() {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+    let pos = match window.outer_position() {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+    let rx = (cursor.x - pos.x as f64) / scale;
+    let ry = (cursor.y - pos.y as f64) / scale;
+    Ok(Some((rx, ry)))
+}
+
 /// 获取鼠标相对弹幕窗口的逻辑坐标（用于在穿透模式下命中检测弹幕）。
 /// 返回 None 表示窗口不存在或取不到坐标。
 #[tauri::command]
