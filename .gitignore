@@ -16,6 +16,8 @@ dist-ssr
 *.local
 
 # Android / Gradle
+MCTier-Android.apk
+*.apk
 MCTier-Android/.gradle/
 MCTier-Android/.kotlin/
 MCTier-Android/build/
