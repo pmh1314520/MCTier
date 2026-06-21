@@ -106,6 +106,7 @@ data class MctierUiState(
     // 远程控制（电脑控制本机手机）
     val remoteControlRequest: top.pmh13.mctier.data.RemoteControlRequest? = null, // 收到的待确认控制请求
     val remoteControlActiveBy: String? = null, // 正在被谁远程控制（控制端名字）
+    val remoteControllingPeer: String? = null, // 本机正在远程控制的对方设备名（控制端视角）
 )
 
 class MctierRepository(private val context: Context) {
@@ -156,6 +157,8 @@ class MctierRepository(private val context: Context) {
     var screenController: ScreenShareController? = null
         private set
     private var remoteControlController: top.pmh13.mctier.network.RemoteControlController? = null
+    /** 供 UI 访问远程控制控制器（渲染对方屏幕、发送触摸输入） */
+    val remoteControl: top.pmh13.mctier.network.RemoteControlController? get() = remoteControlController
     // 暂存待接受的控制请求（用于 UI 拿到 MediaProjection 授权后调用 accept）
     private var pendingRcRequest: top.pmh13.mctier.data.RemoteControlRequest? = null
     private val appContext = context
@@ -381,7 +384,13 @@ class MctierRepository(private val context: Context) {
                         _state.update { it.copy(remoteControlActiveBy = name, remoteControlRequest = null) }
                     }
                     rc.onEnded = {
-                        _state.update { it.copy(remoteControlActiveBy = null, remoteControlRequest = null) }
+                        _state.update { it.copy(remoteControlActiveBy = null, remoteControlRequest = null, remoteControllingPeer = null) }
+                    }
+                    rc.onControllerActive = { name ->
+                        _state.update { it.copy(remoteControllingPeer = name) }
+                    }
+                    rc.onRejected = { reason ->
+                        _state.update { it.copy(remoteControllingPeer = null) }
                     }
                 }
                 rtcController.initialize(current.playerId) { signalingClient.send(it) }
@@ -983,6 +992,11 @@ class MctierRepository(private val context: Context) {
         ScreenCaptureService.stop(appContext)
     }
 
+    /** 发起远程控制对方设备（本机作为控制端） */
+    fun requestRemoteControl(targetId: String, targetName: String) {
+        remoteControlController?.requestControl(targetId, targetName)
+    }
+
     fun announceScreenShare(requirePassword: Boolean, password: String?) {
         val current = _state.value
         val share = ScreenShareInfo("share-${current.playerId}-${System.currentTimeMillis()}", current.playerId, current.settings.playerName, requirePassword)
@@ -1107,7 +1121,7 @@ class MctierRepository(private val context: Context) {
                 }
             }
             "screen-share-answer", "screen-share-ice-candidate", "screen-share-offer", "screen-share-viewer-left" -> screenController?.handleSignal(message)
-            "remote-control-request", "remote-control-offer", "remote-control-ice", "remote-control-stop" -> remoteControlController?.handleSignal(message)
+            "remote-control-request", "remote-control-offer", "remote-control-ice", "remote-control-stop", "remote-control-accept", "remote-control-answer", "remote-control-reject" -> remoteControlController?.handleSignal(message)
             "screen-share-error" -> {
                 if (message.shareId != null && _state.value.viewingShareId == message.shareId) {
                     screenController?.stopViewing(notify = false)

@@ -60,8 +60,8 @@ export const RemoteControl: React.FC = () => {
       modal.confirm({
         title: tl('远程控制请求', 'Remote Control Request'),
         content: tl(
-          `${fromName} 请求远程控制你的电脑。接受后对方将能操作你的鼠标和键盘，你可随时停止。`,
-          `${fromName} requests to remotely control your PC. Once accepted, they can operate your mouse and keyboard. You can stop anytime.`
+          `${fromName} 请求远程控制你的设备。接受后对方将能操作你的设备，你可随时停止。`,
+          `${fromName} requests to remotely control your device. Once accepted, they can operate your device. You can stop anytime.`
         ),
         okText: tl('接受', 'Accept'),
         cancelText: tl('拒绝', 'Reject'),
@@ -190,7 +190,7 @@ export const RemoteControl: React.FC = () => {
       {controlledBy && (
         <div className="rc-banner rc-controlled">
           <span className="rc-dot" />
-          {tl(`${controlledBy} 正在远程控制你的电脑`, `${controlledBy} is controlling your PC`)}
+          {tl(`${controlledBy} 正在远程控制你的设备`, `${controlledBy} is controlling your device`)}
           <button className="rc-banner-btn danger" onClick={stop}>{tl('停止被控', 'Stop')}</button>
         </div>
       )}
@@ -200,12 +200,12 @@ export const RemoteControl: React.FC = () => {
         <div className="rc-viewer">
           <div className="rc-viewer-bar">
             <span className="rc-viewer-title">
-              {tl(`正在控制 ${controllerPeer} 的电脑`, `Controlling ${controllerPeer}'s PC`)}
+              {tl(`正在控制 ${controllerPeer} 的设备`, `Controlling ${controllerPeer}'s device`)}
             </span>
             <span className="rc-viewer-hint">
-              {tl('鼠标键盘将直接操作对方电脑', 'Your mouse & keyboard control the remote PC')}
+              {tl('鼠标键盘将直接操作对方设备', 'Your mouse & keyboard control the remote device')}
             </span>
-            <button className="rc-viewer-stop" onClick={stop}>{tl('结束控制', 'End Control')}</button>
+            <button className="rc-viewer-stop" onClick={stop}>{tl('结束', 'End')}</button>
           </div>
           <div
             className="rc-surface"

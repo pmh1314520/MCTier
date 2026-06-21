@@ -97,6 +97,7 @@ import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SettingsRemote
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.VolumeOff
@@ -171,6 +172,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -395,6 +399,100 @@ private fun RemoteControlGate(state: MctierUiState, repository: MctierRepository
                         .clickable { repository.stopRemoteControl() }
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                 ) { Text(L("停止", "Stop"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+
+    // 本机正在远程控制对方设备：全屏查看器（渲染对方屏幕 + 触摸操作）
+    val controllingPeer = state.remoteControllingPeer
+    if (controllingPeer != null) {
+        RemoteControlControllerView(repository, controllingPeer)
+    }
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun RemoteControlControllerView(repository: MctierRepository, peerName: String) {
+    val controller = repository.remoteControl
+    var track by remember { mutableStateOf<VideoTrack?>(null) }
+    var frameW by remember { mutableStateOf(0) }
+    var frameH by remember { mutableStateOf(0) }
+    var viewW by remember { mutableStateOf(1) }
+    var viewH by remember { mutableStateOf(1) }
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    DisposableEffect(controller) {
+        controller?.onControllerVideoTrack = { t -> mainHandler.post { track = t } }
+        onDispose { controller?.onControllerVideoTrack = null }
+    }
+
+    // 把触摸事件映射为归一化坐标并发送
+    fun sendEvent(kind: String, xPx: Float, yPx: Float) {
+        val fw = if (frameW > 0) frameW.toFloat() else viewW.toFloat()
+        val fh = if (frameH > 0) frameH.toFloat() else viewH.toFloat()
+        val scale = minOf(viewW / fw, viewH / fh)
+        val contentW = fw * scale
+        val contentH = fh * scale
+        val offX = (viewW - contentW) / 2f
+        val offY = (viewH - contentH) / 2f
+        val nx = ((xPx - offX) / contentW).coerceIn(0f, 1f)
+        val ny = ((yPx - offY) / contentH).coerceIn(0f, 1f)
+        val json = "[{\"kind\":\"$kind\",\"button\":0,\"x\":$nx,\"y\":$ny}]"
+        repository.remoteControl?.sendInput(json)
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black).zIndex(50f)) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.SettingsRemote, null, tint = GrassGreen, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(L("正在控制「$peerName」的设备", "Controlling \"$peerName\"'s device"), color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(DangerRed)
+                        .clickable { repository.stopRemoteControl() }
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                ) { Text(L("结束", "End"), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            }
+            Box(
+                Modifier.fillMaxSize().background(Color.Black)
+                    .onSizeChanged { viewW = it.width.coerceAtLeast(1); viewH = it.height.coerceAtLeast(1) }
+                    .pointerInteropFilter { ev ->
+                        when (ev.actionMasked) {
+                            android.view.MotionEvent.ACTION_DOWN -> sendEvent("down", ev.x, ev.y)
+                            android.view.MotionEvent.ACTION_MOVE -> sendEvent("move", ev.x, ev.y)
+                            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> sendEvent("up", ev.x, ev.y)
+                        }
+                        true
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (controller != null) {
+                    AndroidView(
+                        factory = { ctx ->
+                            SurfaceViewRenderer(ctx).apply {
+                                init(controller.eglBase.eglBaseContext, object : RendererCommon.RendererEvents {
+                                    override fun onFirstFrameRendered() {}
+                                    override fun onFrameResolutionChanged(w: Int, h: Int, rotation: Int) {
+                                        mainHandler.post {
+                                            if (rotation % 180 == 0) { frameW = w; frameH = h } else { frameW = h; frameH = w }
+                                        }
+                                    }
+                                })
+                                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                                setEnableHardwareScaler(true)
+                                track?.let { runCatching { it.addSink(this) } }
+                            }
+                        },
+                        update = { view -> track?.let { runCatching { it.addSink(view) } } },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                if (track == null) {
+                    Text(L("等待对方接受并共享屏幕…", "Waiting for the other side to accept and share..."), color = TextPrimary.copy(alpha = 0.5f))
+                }
             }
         }
     }
@@ -1886,6 +1984,16 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                         val muted = (state.playerVolumes[player.id] ?: 1f) <= 0f
                         CircleIconButton(if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp, if (muted) L("取消禁音", "Unmute") else L("禁音该玩家", "Mute player")) {
                             repository.setPlayerVolume(player.id, if (muted) 1f else 0f)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        // 远程控制对方设备
+                        CircleIconButton(Icons.Rounded.SettingsRemote, L("远程控制对方设备", "Remote control this device")) {
+                            if (state.remoteControllingPeer != null || state.remoteControlActiveBy != null) {
+                                android.widget.Toast.makeText(ctx, L("已有进行中的远程控制会话", "A remote control session is already active"), android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                repository.requestRemoteControl(player.id, player.name)
+                                android.widget.Toast.makeText(ctx, L("已发送远程控制请求，等待对方接受…", "Request sent, waiting for the other side to accept..."), android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                         Spacer(Modifier.width(6.dp))
                     }

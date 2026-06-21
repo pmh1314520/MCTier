@@ -1774,7 +1774,7 @@ Password: ${lobby.password || ''}
                                   message.warning(tl('已有进行中的远程控制会话', 'A remote control session is already active'));
                                 }
                               }}
-                              title={tl('请求远程控制对方电脑', 'Request remote control of this PC')}
+                              title={tl('请求远程控制对方设备', 'Request remote control of this device')}
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
                             >
