@@ -7,6 +7,7 @@ import { p2pChatService } from '../../services/chat/P2PChatService';
 import { audioService } from '../../services/audio/AudioService';
 import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import { DanmakuSettings } from '../Danmaku/DanmakuSettings';
+import { GameHudSettings } from '../GameHud/GameHudSettings';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import './LobbySettingsModal.css';
@@ -252,6 +253,12 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
         <div className="lobby-voice-section">
           <div className="lobby-voice-section-title">{tl('消息弹幕', 'Message Danmaku')}</div>
           <DanmakuSettings />
+        </div>
+
+        {/* 游戏内 HUD 浮层透明度（大厅内即时调整） */}
+        <div className="lobby-voice-section">
+          <div className="lobby-voice-section-title">{tl('游戏内 HUD 浮层', 'In-game HUD')}</div>
+          <GameHudSettings />
         </div>
 
         <div className="lobby-config-box">

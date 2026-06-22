@@ -22,12 +22,32 @@ object GameHudOverlay {
     data class HudRow(val name: String, val latencyMs: Long?, val speaking: Boolean, val self: Boolean)
 
     @Volatile var enabled = false
+    @Volatile var opacity = 0.85f
     private var wm: WindowManager? = null
     private var container: LinearLayout? = null
     private var appCtx: Context? = null
 
     fun hasPermission(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(ctx)
+
+    /** 根据当前 opacity 生成卡片背景（alpha 跟随用户设置） */
+    private fun bgDrawable(d: Float): GradientDrawable {
+        val a = (opacity.coerceIn(0.2f, 1f) * 255f).toInt()
+        return GradientDrawable().apply {
+            cornerRadius = 14f * d
+            setColor(Color.argb(a, 16, 18, 24))
+            setStroke((1f * d).toInt(), Color.argb((a * 0.38f).toInt(), 124, 207, 0))
+        }
+    }
+
+    /** 实时调整透明度：更新已显示卡片的背景，无需重建窗口 */
+    fun applyOpacity(v: Float) {
+        opacity = v.coerceIn(0.2f, 1f)
+        val c = container ?: return
+        val ctx = appCtx ?: return
+        val d = ctx.resources.displayMetrics.density
+        c.post { c.background = bgDrawable(d) }
+    }
 
     fun show(ctx: Context) {
         if (!hasPermission(ctx)) return
@@ -37,11 +57,7 @@ object GameHudOverlay {
         val d = appCtx!!.resources.displayMetrics.density
         val root = LinearLayout(appCtx!!).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = 14f * d
-                setColor(Color.argb(210, 16, 18, 24))
-                setStroke((1 * d).toInt(), Color.argb(80, 124, 207, 0))
-            }
+            background = bgDrawable(d)
             setPadding((12 * d).toInt(), (10 * d).toInt(), (12 * d).toInt(), (10 * d).toInt())
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -88,7 +104,7 @@ object GameHudOverlay {
         c.removeAllViews()
         // 标题
         c.addView(TextView(ctx).apply {
-            text = "MCTier · " + L("队伍状态", "Squad")
+            text = "MCTier · " + L("大厅状态", "Lobby")
             setTextColor(Color.parseColor("#7CCF00"))
             textSize = 12f
             setTypeface(typeface, Typeface.BOLD)

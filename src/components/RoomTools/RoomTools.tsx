@@ -249,11 +249,11 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
           {
             key: 'net', label: tl('联机工具', 'Networking'), children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 0' }}>
-                <Button block onClick={() => { onClose(); onOpenWorlds?.(); }}>{tl('局域网世界（自动发现 Minecraft 世界）', 'LAN Worlds (auto-discover Minecraft)')}</Button>
-                <Button block onClick={() => { onClose(); onOpenGameConnect?.(); }}>{tl('游戏快连（常见游戏端口与地址）', 'Game Quick-Connect')}</Button>
-                <Button block onClick={() => { onClose(); onOpenDiagnostic?.(); }}>{tl('连接诊断（直连/中继·延迟·建议）', 'Connection Diagnostics')}</Button>
+                <Button block onClick={() => { onClose(); onOpenWorlds?.(); }}>{tl('局域网世界', 'LAN Worlds')}</Button>
+                <Button block onClick={() => { onClose(); onOpenGameConnect?.(); }}>{tl('游戏快连', 'Game Quick-Connect')}</Button>
+                <Button block onClick={() => { onClose(); onOpenDiagnostic?.(); }}>{tl('连接诊断', 'Connection Diagnostics')}</Button>
                 <Button block type={hudOn ? 'primary' : 'default'} onClick={() => { onToggleHud?.(); }}>
-                  {hudOn ? tl('关闭游戏内 HUD 浮层', 'Turn off in-game HUD') : tl('开启游戏内 HUD 浮层（延迟/说话/速率）', 'Turn on in-game HUD')}
+                  {hudOn ? tl('关闭游戏内 HUD 浮层', 'Turn off in-game HUD') : tl('开启游戏内 HUD 浮层', 'Turn on in-game HUD')}
                 </Button>
               </div>
             ),

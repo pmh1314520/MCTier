@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { setLanguage, getLanguage, tl } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import { DanmakuSettings } from '../Danmaku/DanmakuSettings';
+import { GameHudSettings } from '../GameHud/GameHudSettings';
 import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import './SettingsWindow.css';
 
@@ -550,6 +551,21 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 {tl('开启后聊天消息会以弹幕形式从屏幕顶部飘过，游戏时也不错过；可调字号、速度、透明度、轨道数并预览', 'When enabled, chat messages float across the top of the screen so you never miss them while gaming; adjust size, speed, opacity, tracks and preview')}
               </div>
               <DanmakuSettings />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-cyan">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5a5 5 0 110-10 5 5 0 010 10zm0-8a3 3 0 100 6 3 3 0 000-6z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('游戏内 HUD 浮层', 'In-game HUD')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('玩游戏时在屏幕角落显示队友延迟、谁在说话等状态；可在此调整浮层透明度。开关入口在「房间工具 - 联机」', 'Show teammate latency and who is speaking in a screen corner while gaming; adjust overlay opacity here. Toggle it in Room Tools - Networking')}
+              </div>
+              <GameHudSettings />
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>

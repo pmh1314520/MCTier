@@ -19,6 +19,7 @@ interface HudPeer {
 
 interface HudPayload {
   peers: HudPeer[];
+  opacity?: number;
 }
 
 /**
@@ -27,6 +28,7 @@ interface HudPayload {
  */
 export const GameHudOverlay: React.FC = () => {
   const [peers, setPeers] = useState<HudPeer[]>([]);
+  const [opacity, setOpacity] = useState<number>(0.85);
   const [, setLangTick] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef<boolean>(true);
@@ -46,14 +48,20 @@ export const GameHudOverlay: React.FC = () => {
     let un: (() => void) | undefined;
     listen<HudPayload>('hud-update', (e) => {
       if (e.payload && Array.isArray(e.payload.peers)) setPeers(e.payload.peers);
+      if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
     }).then((fn) => { un = fn; });
+    // 透明度实时变更（设置界面拖动滑块时）
+    let unCfg: (() => void) | undefined;
+    listen<{ opacity?: number }>('hud-config', (e) => {
+      if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
+    }).then((fn) => { unCfg = fn; });
     let unLang: (() => void) | undefined;
     listen<string>('mctier-lang-changed', (e) => {
       const lang = e.payload === 'en' ? 'en' : 'zh';
       void import('../../i18n').then(({ applyLanguageLocal }) => { applyLanguageLocal(lang); });
       setLangTick((t) => t + 1);
     }).then((fn) => { unLang = fn; });
-    return () => { if (un) un(); if (unLang) unLang(); };
+    return () => { if (un) un(); if (unCfg) unCfg(); if (unLang) unLang(); };
   }, []);
 
   // 光标轮询：悬停到 HUD 卡片上时关闭穿透以便拖动，移开恢复穿透不挡游戏
@@ -97,6 +105,13 @@ export const GameHudOverlay: React.FC = () => {
     void emit('hud-action', { action, playerId }).catch(() => {});
   };
 
+  // 静音切换：点击后立即本地翻转图标（乐观更新），用户能马上看到状态变化，
+  // 真实状态稍后由主窗口高频推送覆盖。
+  const toggleMute = (playerId: string) => {
+    sendAction('toggle-mute', playerId);
+    setPeers((prev) => prev.map((p) => (p.playerId === playerId ? { ...p, muted: !p.muted } : p)));
+  };
+
   const pingColor = (p: number | null) => {
     if (p == null) return '#ff5a5a';
     if (p < 80) return '#7ccf00';
@@ -105,8 +120,8 @@ export const GameHudOverlay: React.FC = () => {
   };
 
   return (
-    <div className="hud-root" ref={cardRef} style={{ pointerEvents: 'auto' }} onMouseDown={onDragStart}>
-      <div className="hud-title">MCTier · {tl('队伍状态（可拖动）', 'Squad (drag to move)')}</div>
+    <div className="hud-root" ref={cardRef} style={{ pointerEvents: 'auto', opacity }} onMouseDown={onDragStart}>
+      <div className="hud-title">MCTier · {tl('大厅状态（可拖动）', 'Lobby (drag to move)')}</div>
       {peers.length === 0 ? (
         <div className="hud-empty">{tl('暂无队友数据', 'No teammates yet')}</div>
       ) : (
@@ -124,11 +139,13 @@ export const GameHudOverlay: React.FC = () => {
                 <span className="hud-ping" style={{ color: pingColor(p.ping) }}>
                   {p.ping == null ? tl('离线', 'off') : `${p.ping}ms`}{p.loss > 0 && p.ping != null ? ` · ${p.loss}%` : ''}
                 </span>
-                <button className={`hud-btn${p.muted ? ' on' : ''}`} title={p.muted ? tl('取消静音', 'Unmute') : tl('静音', 'Mute')} onClick={() => sendAction('toggle-mute', p.playerId)}>
+                <button
+                  className={`hud-btn${p.muted ? ' on' : ''}`}
+                  title={p.muted ? tl('已静音 · 点击取消', 'Muted · click to unmute') : tl('点击静音', 'Click to mute')}
+                  onClick={() => toggleMute(p.playerId)}
+                >
                   {p.muted ? '🔇' : '🔊'}
                 </button>
-                <button className="hud-btn" title={tl('调小音量', 'Volume down')} onClick={() => sendAction('vol-down', p.playerId)}>−</button>
-                <button className="hud-btn" title={tl('调大音量', 'Volume up')} onClick={() => sendAction('vol-up', p.playerId)}>+</button>
               </>
             )}
           </div>

@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -1148,20 +1149,46 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     var showDiagnostic by remember { mutableStateOf(false) }
     var hudOn by remember { mutableStateOf(GameHudOverlay.enabled) }
 
-    // 游戏内 HUD：开启时显示悬浮层并周期推送队友延迟/说话状态；关闭时移除
+    // 游戏内 HUD：开启时显示悬浮层。说话状态高频刷新（实时绿点），延迟探测开销大单独低频，
+    // 仅展示队友（不含自己）。透明度跟随用户设置。
     LaunchedEffect(hudOn) {
         if (!hudOn) { GameHudOverlay.hide(); return@LaunchedEffect }
+        GameHudOverlay.applyOpacity(repository.state.value.settings.hudOpacity)
         GameHudOverlay.show(ctx)
-        while (hudOn) {
-            val st = repository.state.value
-            val selfId = st.playerId
-            val rows = st.players.map { p ->
-                val ip = p.virtualIp
-                val lat = if (p.id == selfId || ip.isNullOrBlank()) null else top.pmh13.mctier.ui.probeLatency(ip)
-                GameHudOverlay.HudRow(p.name, lat, p.speaking, p.id == selfId)
-            }.sortedByDescending { it.self }
-            GameHudOverlay.update(rows)
-            kotlinx.coroutines.delay(4000)
+        val latCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        // 子协程：低频(每 4s)在 IO 线程探测延迟，写入缓存，避免阻塞说话状态的高频刷新
+        val probeJob = launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                val st = repository.state.value
+                val selfId = st.playerId
+                st.players.filter { it.id != selfId }.forEach { p ->
+                    val ip = p.virtualIp
+                    val lat = if (ip.isNullOrBlank()) null else top.pmh13.mctier.ui.probeLatency(ip)
+                    if (lat != null) latCache[p.id] = lat else latCache.remove(p.id)
+                }
+                kotlinx.coroutines.delay(4000)
+            }
+        }
+        try {
+            // 主循环：高频(每 350ms)刷新说话/在线状态，绿点几乎即时跟随
+            while (hudOn) {
+                val st = repository.state.value
+                val selfId = st.playerId
+                val rows = st.players.filter { it.id != selfId }.map { p ->
+                    GameHudOverlay.HudRow(p.name, latCache[p.id], p.speaking, false)
+                }
+                GameHudOverlay.update(rows)
+                kotlinx.coroutines.delay(350)
+            }
+        } finally {
+            probeJob.cancel()
+        }
+    }
+    // 退出大厅（本组件离开组合）时自动关闭 HUD 浮层，并置为关闭状态
+    DisposableEffect(Unit) {
+        onDispose {
+            GameHudOverlay.hide()
+            GameHudOverlay.enabled = false
         }
     }
 
@@ -1656,19 +1683,16 @@ private fun LobbyHeader(state: MctierUiState, repository: MctierRepository, onTo
 }
 
 @Composable
-private fun RoomToolButton(icon: ImageVector, title: String, subtitle: String, active: Boolean = false, onClick: () -> Unit) {
+private fun RoomToolButton(icon: ImageVector, title: String, active: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(if (active) GrassGreen.copy(alpha = 0.18f) else PanelHigh)
-            .clickable { onClick() }.padding(horizontal = 14.dp, vertical = 12.dp),
+            .clickable { onClick() }.padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, title, tint = if (active) GrassGreen else TextPrimary, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Text(subtitle, color = TextPrimary.copy(alpha = 0.55f), fontSize = 11.sp)
-        }
+        Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
     }
 }
 
@@ -1781,13 +1805,12 @@ private fun RoomToolsDialog(
                     3 -> {
                         // 联机工具：把双端新增的游戏工具统一收纳到房间工具中
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            RoomToolButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds"), L("自动发现可加入的 Minecraft 世界", "Auto-discover joinable Minecraft worlds")) { onOpenWorlds() }
-                            RoomToolButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect"), L("常见游戏端口与成员地址一键复制", "Common game ports & member addresses")) { onOpenQuickConnect() }
-                            RoomToolButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics"), L("直连/中继 · 延迟 · 优化建议", "Direct/Relay · latency · tips")) { onOpenDiagnostic() }
+                            RoomToolButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds")) { onOpenWorlds() }
+                            RoomToolButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect")) { onOpenQuickConnect() }
+                            RoomToolButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics")) { onOpenDiagnostic() }
                             RoomToolButton(
                                 if (hudOn) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
                                 if (hudOn) L("关闭游戏内 HUD 浮层", "Turn off in-game HUD") else L("开启游戏内 HUD 浮层", "Turn on in-game HUD"),
-                                L("游戏内显示队友延迟 / 说话状态", "Show teammates' latency / speaking in-game"),
                                 active = hudOn,
                             ) { onToggleHud() }
                         }
@@ -1888,6 +1911,15 @@ private fun LobbyDynamicConfigView(state: MctierUiState, repository: MctierRepos
         item {
             SectionCard {
                 DanmakuSettingsSection(
+                    settings = state.settings,
+                    onChange = { repository.updateSettings(it) },
+                )
+            }
+        }
+        // 游戏内 HUD 浮层透明度：大厅内即时调整
+        item {
+            SectionCard {
+                HudSettingsSection(
                     settings = state.settings,
                     onChange = { repository.updateSettings(it) },
                 )
@@ -3150,6 +3182,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(16.dp))
         DanmakuSettingsSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
+        HudSettingsSection(settings, onChange)
+        Spacer(Modifier.height(16.dp))
         VoiceChangerSection(settings, onChange)
         Spacer(Modifier.height(16.dp))
         ThemeSettingsSection(settings, onChange)
@@ -3380,6 +3414,27 @@ private fun VoiceAuditionButton(settings: UserSettings) {
             fontWeight = FontWeight.SemiBold,
         )
     }
+}
+
+@Composable
+private fun HudSettingsSection(settings: UserSettings, onChange: (UserSettings) -> Unit) {
+    Text(L("游戏内 HUD 浮层", "In-game HUD"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
+    Spacer(Modifier.height(4.dp))
+    Text(
+        L("玩游戏时在屏幕角落显示队友延迟、谁在说话等状态。开关入口在「房间工具 - 联机」，此处调整浮层透明度。", "Show teammate latency and who's speaking in a screen corner while gaming. Toggle it in Room Tools - Networking; adjust overlay opacity here."),
+        fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f), lineHeight = 16.sp,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(L("浮层透明度", "HUD Opacity") + ": ${(settings.hudOpacity * 100).toInt()}%", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.hudOpacity,
+        onValueChange = {
+            onChange(settings.copy(hudOpacity = it))
+            GameHudOverlay.applyOpacity(it) // 实时作用于已显示的浮层
+        },
+        valueRange = 0.2f..1f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
 }
 
 @Composable

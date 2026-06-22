@@ -17,7 +17,7 @@ import { tl } from '../../i18n';
 import { versionCheckService } from '../../services/version/VersionCheckService';
 import { listen, emitTo } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
-import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon, GlobeIcon } from '../icons';
+import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
@@ -30,6 +30,7 @@ import { HostPanel } from '../HostPanel/HostPanel';
 import { RemoteControl } from '../RemoteControl/RemoteControl';
 import { remoteControlService } from '../../services/remoteControl/RemoteControlService';
 import { danmakuService } from '../../services/danmaku/danmakuService';
+import { gameHudService } from '../../services/gamehud/gameHudService';
 import './MiniWindow.css';
 
 /**
@@ -205,7 +206,8 @@ export const MiniWindow: React.FC = () => {
   const [hudOn, setHudOn] = useState<boolean>(() => localStorage.getItem('mctier_game_hud') === '1'); // 游戏内HUD浮层
   const [showDiagnostic, setShowDiagnostic] = useState(false); // 连接诊断弹窗
 
-  // 游戏内 HUD：开启时打开浮层窗并周期推送队友延迟/丢包/说话状态；关闭时关窗
+  // 游戏内 HUD：开启时打开浮层窗。说话/静音状态高频推送（实时绿点），
+  // 延迟/连接类型/速率开销大，单独低频测量并缓存，避免拖慢说话状态的实时性。
   useEffect(() => {
     if (!hudOn) {
       void invoke('close_game_hud_window').catch(() => {});
@@ -213,67 +215,87 @@ export const MiniWindow: React.FC = () => {
     }
     void invoke('open_game_hud_window').catch(() => {});
     let stopped = false;
-    let busy = false;
+    let measuring = false;
     const prevBytes = new Map<string, { rx: number; tx: number; t: number }>();
-    const pushOnce = async () => {
-      if (busy) return; // 防重入：上一次延迟测量未完成则跳过
-      busy = true;
+    // 缓存：低频测量写入，高频推送读取
+    let latMap: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+    let connMap: Record<string, { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }> = {};
+    const rateMap = new Map<string, { down: number; up: number }>();
+
+    // 低频（每 4s）测量延迟/连接类型/速率，写入缓存
+    const measure = async () => {
+      if (measuring) return;
+      measuring = true;
       try {
         const st = useAppStore.getState();
         const selfId = st.currentPlayerId;
-        const speaking = st.speakingPlayers;
-        const muted = st.mutedPlayers;
         const peerIps = st.players.filter((p) => p.virtualIp && p.id !== selfId).map((p) => p.virtualIp as string);
-        let latMap: Record<string, { latencyMs: number | null; lossRate: number }> = {};
-        let connMap: Record<string, { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }> = {};
+        const nextLat: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+        const nextConn: Record<string, { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }> = {};
         const tasks: Promise<void>[] = [];
         if (peerIps.length > 0) {
           tasks.push(invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>('measure_peers_latency', { peerIps })
-            .then((lat) => { lat.forEach((l) => { latMap[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate }; }); }).catch(() => {}));
+            .then((lat) => { lat.forEach((l) => { nextLat[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate }; }); }).catch(() => {}));
         }
         tasks.push(invoke<{ ip: string; connType: string; latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }[]>('get_peer_connection_types')
-          .then((cs) => { cs.forEach((c) => { connMap[c.ip] = c; }); }).catch(() => {}));
+          .then((cs) => { cs.forEach((c) => { nextConn[c.ip] = c; }); }).catch(() => {}));
         await Promise.all(tasks);
+        latMap = nextLat;
+        connMap = nextConn;
+        // 上下行速率（KB/s）：用 EasyTier 累计字节做差分
         const now = Date.now();
-        const peers = st.players.map((p) => {
-          const self = p.id === selfId;
-          const ip = p.virtualIp || '';
-          const c = connMap[ip];
-          const m = latMap[ip];
-          // 上下行速率（KB/s）：用 EasyTier 累计字节做差分
-          let down = 0, up = 0;
-          if (!self && c && (c.rxBytes != null || c.txBytes != null)) {
+        Object.entries(connMap).forEach(([ip, c]) => {
+          if (c.rxBytes != null || c.txBytes != null) {
             const prev = prevBytes.get(ip);
             if (prev && now > prev.t) {
               const dt = (now - prev.t) / 1000;
-              down = Math.max(0, Math.round(((c.rxBytes || 0) - prev.rx) / dt / 1024));
-              up = Math.max(0, Math.round(((c.txBytes || 0) - prev.tx) / dt / 1024));
+              const down = Math.max(0, Math.round(((c.rxBytes || 0) - prev.rx) / dt / 1024));
+              const up = Math.max(0, Math.round(((c.txBytes || 0) - prev.tx) / dt / 1024));
+              rateMap.set(ip, { down, up });
             }
             prevBytes.set(ip, { rx: c.rxBytes || 0, tx: c.txBytes || 0, t: now });
           }
-          const ping = self ? null : ((c && c.latencyMs != null) ? c.latencyMs : (m ? m.latencyMs : null));
-          const loss = self ? 0 : ((c && c.lossRate != null) ? c.lossRate : (m ? m.lossRate : 0));
-          return {
-            playerId: p.id,
-            name: p.name,
-            self,
-            speaking: speaking.has(p.id),
-            muted: muted.has(p.id),
-            ping,
-            loss,
-            down,
-            up,
-          };
         });
-        // 自己排在最前
-        peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
-        if (!stopped) await emitTo('gamehud', 'hud-update', { peers });
       } catch { /* ignore */ }
-      busy = false;
+      measuring = false;
     };
-    void pushOnce();
-    const timer = window.setInterval(() => { void pushOnce(); }, 4000);
-    return () => { stopped = true; window.clearInterval(timer); };
+
+    // 高频（每 400ms）组装并推送：实时说话/静音 + 缓存的延迟/速率
+    const push = async () => {
+      const st = useAppStore.getState();
+      const selfId = st.currentPlayerId;
+      const speaking = st.speakingPlayers;
+      const muted = st.mutedPlayers;
+      const peers = st.players.map((p) => {
+        const self = p.id === selfId;
+        const ip = p.virtualIp || '';
+        const c = connMap[ip];
+        const m = latMap[ip];
+        const rate = rateMap.get(ip);
+        const ping = self ? null : ((c && c.latencyMs != null) ? c.latencyMs : (m ? m.latencyMs : null));
+        const loss = self ? 0 : ((c && c.lossRate != null) ? c.lossRate : (m ? m.lossRate : 0));
+        return {
+          playerId: p.id,
+          name: p.name,
+          self,
+          speaking: speaking.has(p.id),
+          muted: muted.has(p.id),
+          ping,
+          loss,
+          down: self ? 0 : (rate?.down || 0),
+          up: self ? 0 : (rate?.up || 0),
+        };
+      });
+      // 自己排在最前
+      peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
+      if (!stopped) await emitTo('gamehud', 'hud-update', { peers, opacity: gameHudService.getOpacity() }).catch(() => {});
+    };
+
+    void measure();
+    void push();
+    const measureTimer = window.setInterval(() => { void measure(); }, 4000);
+    const pushTimer = window.setInterval(() => { void push(); }, 400);
+    return () => { stopped = true; window.clearInterval(measureTimer); window.clearInterval(pushTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hudOn]);
 
@@ -663,6 +685,13 @@ export const MiniWindow: React.FC = () => {
   const handleLeaveLobby = async () => {
     try {
       console.log('🚪 开始退出大厅流程...');
+
+      // 退出大厅时自动关闭游戏内 HUD 浮层（并持久化为关闭，下次进大厅默认不显示）
+      try {
+        setHudOn(false);
+        localStorage.setItem('mctier_game_hud', '0');
+        await invoke('close_game_hud_window');
+      } catch { /* ignore */ }
 
       // 退出前确保停止任何远程控制会话
       try { remoteControlService.stopControl(); } catch { /* ignore */ }
@@ -1550,15 +1579,6 @@ Password: ${lobby.password || ''}
                       {lobby.name.length > 12 ? `${lobby.name.substring(0, 12)}...` : lobby.name}
                     </h4>
                     <div className="lobby-card-actions">
-                      <motion.button
-                        className="lobby-card-action-btn"
-                        onClick={() => setShowMcWorlds(true)}
-                        title={tl('局域网世界（扫描可加入的 Minecraft 世界）', 'LAN worlds (scan for joinable Minecraft worlds)')}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <GlobeIcon size={16} color="#FFFFFF" />
-                      </motion.button>
                       <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
