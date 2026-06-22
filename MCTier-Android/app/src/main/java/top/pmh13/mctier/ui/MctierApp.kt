@@ -3129,16 +3129,13 @@ private fun BackgroundKeepAliveSection() {
     }.getOrDefault(false)
     var ignoring by remember { mutableStateOf(isIgnoringBattery()) }
 
-    // 从系统电池/省电设置页返回时(ON_RESUME)实时刷新状态，避免一直停留在红色"容易被杀"提示
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                ignoring = isIgnoringBattery()
-            }
+    // 定时轮询：从系统电池设置返回后自动刷新（比仅依赖生命周期回调更可靠，部分机型 ON_RESUME 不稳定）
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = isIgnoringBattery()
+            if (now != ignoring) ignoring = now
+            kotlinx.coroutines.delay(1000)
         }
-        lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     Text(L("后台保活", "Background Keep-alive"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
@@ -3153,12 +3150,17 @@ private fun BackgroundKeepAliveSection() {
     Spacer(Modifier.height(8.dp))
     // 状态提示
     Row(verticalAlignment = Alignment.CenterVertically) {
-        val (dotColor, statusText) = if (ignoring) GrassGreen to L("已忽略电池优化", "Battery optimization ignored")
-            else DangerRed to L("未忽略电池优化（容易被杀）", "Not ignored (may be killed)")
+        val (dotColor, statusText) = if (ignoring) GrassGreen to L("已加入电池优化白名单", "Added to battery whitelist")
+            else Color(0xFFF59E0B) to L("未加入电池优化白名单（建议开启）", "Not in battery whitelist (recommended)")
         Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
         Spacer(Modifier.width(6.dp))
         Text(statusText, fontSize = 12.sp, color = dotColor)
     }
+    Spacer(Modifier.height(4.dp))
+    Text(
+        L("注：此状态仅反映系统「电池优化白名单」。厂商的「省电策略 → 无限制」是另一项独立设置，系统接口无法自动检测，请按下方按钮手动设置。", "Note: this status only reflects the system battery-optimization whitelist. The vendor \"power policy → No restrictions\" is a separate setting that the system API cannot auto-detect; please set it manually via the button below."),
+        fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.4f), lineHeight = 14.sp,
+    )
     Spacer(Modifier.height(8.dp))
     if (!ignoring) {
         Box(
