@@ -1560,42 +1560,6 @@ Password: ${lobby.password || ''}
                         <GlobeIcon size={16} color="#FFFFFF" />
                       </motion.button>
                       <motion.button
-                        className="lobby-card-action-btn"
-                        onClick={() => setShowGameConnect(true)}
-                        title={tl('游戏快连（常见游戏端口与连接地址）', 'Game quick-connect (common game ports & addresses)')}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2">
-                          <line x1="6" y1="11" x2="10" y2="11" /><line x1="8" y1="9" x2="8" y2="13" />
-                          <line x1="15" y1="12" x2="15.01" y2="12" /><line x1="18" y1="10" x2="18.01" y2="10" />
-                          <rect x="2" y="6" width="20" height="12" rx="2" />
-                        </svg>
-                      </motion.button>
-                      <motion.button
-                        className="lobby-card-action-btn"
-                        onClick={() => { const v = !hudOn; setHudOn(v); try { localStorage.setItem('mctier_game_hud', v ? '1' : '0'); } catch { /* ignore */ } }}
-                        title={tl('游戏内HUD浮层（队友延迟/谁在说话，置顶显示）', 'In-game HUD overlay (teammate ping / who is speaking)')}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                        style={hudOn ? { boxShadow: '0 0 0 2px rgba(124,207,0,0.7)' } : undefined}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hudOn ? '#7CCF00' : '#FFFFFF'} strokeWidth="2">
-                          <path d="M3 5h18v12H3z" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
-                      </motion.button>
-                      <motion.button
-                        className="lobby-card-action-btn"
-                        onClick={() => setShowDiagnostic(true)}
-                        title={tl('连接诊断（直连/中继、延迟、优化建议）', 'Connection diagnostics (P2P/relay, latency, suggestions)')}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                        </svg>
-                      </motion.button>
-                      <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
                         title={tl('复制大厅信息', 'Copy Lobby Info')}
@@ -2108,7 +2072,15 @@ Password: ${lobby.password || ''}
       />
 
       {/* 房间小工具弹窗 */}
-      <RoomTools visible={showRoomTools} onClose={() => setShowRoomTools(false)} />
+      <RoomTools
+        visible={showRoomTools}
+        onClose={() => setShowRoomTools(false)}
+        onOpenWorlds={() => setShowMcWorlds(true)}
+        onOpenGameConnect={() => setShowGameConnect(true)}
+        onOpenDiagnostic={() => setShowDiagnostic(true)}
+        hudOn={hudOn}
+        onToggleHud={() => { const v = !hudOn; setHudOn(v); try { localStorage.setItem('mctier_game_hud', v ? '1' : '0'); } catch { /* ignore */ } }}
+      />
 
       {/* 共享剪贴板接收弹窗（全局） */}
 

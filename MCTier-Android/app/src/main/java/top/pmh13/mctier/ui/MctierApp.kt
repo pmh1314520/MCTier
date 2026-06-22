@@ -103,6 +103,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsRemote
+import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.VolumeOff
@@ -1138,9 +1139,52 @@ private data class TabItem(val label: String, val icon: ImageVector)
 @Composable
 private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     // 与桌面端 MiniWindow 一致：大厅主视图常驻，聊天/文件/屏幕/设置由底部动作按钮打开为覆盖视图
+    val ctx = LocalContext.current
     var currentView by remember { mutableStateOf("lobby") }
     var showTools by remember { mutableStateOf(false) }
-    if (showTools) RoomToolsDialog(state, repository) { showTools = false }
+    // 游戏联机工具：状态上提到大厅级，统一收纳进「房间工具 - 联机」中，避免堆在拥挤的大厅卡片头部
+    var showWorlds by remember { mutableStateOf(false) }
+    var showQuickConnect by remember { mutableStateOf(false) }
+    var showDiagnostic by remember { mutableStateOf(false) }
+    var hudOn by remember { mutableStateOf(GameHudOverlay.enabled) }
+
+    // 游戏内 HUD：开启时显示悬浮层并周期推送队友延迟/说话状态；关闭时移除
+    LaunchedEffect(hudOn) {
+        if (!hudOn) { GameHudOverlay.hide(); return@LaunchedEffect }
+        GameHudOverlay.show(ctx)
+        while (hudOn) {
+            val st = repository.state.value
+            val selfId = st.playerId
+            val rows = st.players.map { p ->
+                val ip = p.virtualIp
+                val lat = if (p.id == selfId || ip.isNullOrBlank()) null else top.pmh13.mctier.ui.probeLatency(ip)
+                GameHudOverlay.HudRow(p.name, lat, p.speaking, p.id == selfId)
+            }.sortedByDescending { it.self }
+            GameHudOverlay.update(rows)
+            kotlinx.coroutines.delay(4000)
+        }
+    }
+
+    if (showTools) RoomToolsDialog(
+        state, repository,
+        onOpenWorlds = { showTools = false; showWorlds = true },
+        onOpenQuickConnect = { showTools = false; showQuickConnect = true },
+        onOpenDiagnostic = { showTools = false; showDiagnostic = true },
+        hudOn = hudOn,
+        onToggleHud = {
+            if (!hudOn && !GameHudOverlay.hasPermission(ctx)) {
+                android.widget.Toast.makeText(ctx, L("请先授予悬浮窗权限", "Please grant overlay permission first"), android.widget.Toast.LENGTH_SHORT).show()
+                runCatching { ctx.startActivity(GameHudOverlay.requestPermissionIntent(ctx)) }
+            } else {
+                hudOn = !hudOn
+                GameHudOverlay.enabled = hudOn
+            }
+        },
+        onDismiss = { showTools = false },
+    )
+    if (showWorlds) MinecraftWorldsDialog(repository) { showWorlds = false }
+    if (showQuickConnect) GameQuickConnectDialog(state) { showQuickConnect = false }
+    if (showDiagnostic) ConnectionDiagnosticDialog(state) { showDiagnostic = false }
     // 返回键：在子视图时返回大厅（对齐桌面端 ESC 返回上一页）
     BackHandler(enabled = currentView != "lobby") { currentView = "lobby" }
     // 未读消息标记：不在聊天界面时收到新消息则标红
@@ -1177,6 +1221,7 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
                     onTools = { showTools = true },
                     onSettings = { currentView = "settings" },
                     onOpen = { currentView = it },
+                    onOpenWorlds = { showWorlds = true },
                 )
             }
         }
@@ -1221,6 +1266,7 @@ private fun LobbyMainView(
     onTools: () -> Unit,
     onSettings: () -> Unit,
     onOpen: (String) -> Unit,
+    onOpenWorlds: () -> Unit,
 ) {
     var showLeaveConfirm by remember { mutableStateOf(false) }
     if (showLeaveConfirm) {
@@ -1247,7 +1293,7 @@ private fun LobbyMainView(
             CircleIconButton(Icons.AutoMirrored.Rounded.Logout, L("退出大厅", "Leave Lobby")) { showLeaveConfirm = true }
         }
         Spacer(Modifier.height(12.dp))
-        LobbyCard(state, repository)
+        LobbyCard(state, repository, onOpenWorlds)
         Spacer(Modifier.height(12.dp))
         AnnouncementBar(state, repository)
         Box(Modifier.weight(1f)) { PlayersTab(state, repository) }
@@ -1258,59 +1304,21 @@ private fun LobbyMainView(
 }
 
 @Composable
-private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
+private fun LobbyCard(state: MctierUiState, repository: MctierRepository, onOpenWorlds: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val ctx = LocalContext.current
     var showHelp by remember { mutableStateOf(false) }
     var showQr by remember { mutableStateOf(false) }
-    var showWorlds by remember { mutableStateOf(false) }
-    var showQuickConnect by remember { mutableStateOf(false) }
-    var showDiagnostic by remember { mutableStateOf(false) }
-    var hudOn by remember { mutableStateOf(GameHudOverlay.enabled) }
     val lobby = state.lobby
     LaunchedEffect(lobby?.name, lobby?.password) {
         showQr = false
     }
     val ipText = (if (lobby?.useDomain == true) lobby.virtualDomain else lobby?.virtualIp).orEmpty().ifBlank { L("获取中...", "Loading...") }
 
-    // 游戏内 HUD：开启时显示悬浮层并周期推送队友延迟/说话状态；关闭时移除
-    LaunchedEffect(hudOn) {
-        if (!hudOn) { GameHudOverlay.hide(); return@LaunchedEffect }
-        GameHudOverlay.show(ctx)
-        while (hudOn) {
-            val st = repository.state.value
-            val selfId = st.playerId
-            val rows = st.players.map { p ->
-                val ip = p.virtualIp
-                val lat = if (p.id == selfId || ip.isNullOrBlank()) null else top.pmh13.mctier.ui.probeLatency(ip)
-                GameHudOverlay.HudRow(p.name, lat, p.speaking, p.id == selfId)
-            }.sortedByDescending { it.self }
-            GameHudOverlay.update(rows)
-            kotlinx.coroutines.delay(4000)
-        }
-    }
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(lobby?.name.orEmpty(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            CircleIconButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds")) { showWorlds = true }
-            Spacer(Modifier.width(6.dp))
-            CircleIconButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect")) { showQuickConnect = true }
-            Spacer(Modifier.width(6.dp))
-            CircleIconButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics")) { showDiagnostic = true }
-            Spacer(Modifier.width(6.dp))
-            CircleIconButton(
-                if (hudOn) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                L("游戏内HUD浮层", "In-game HUD"),
-                tint = if (hudOn) GrassGreen else TextPrimary.copy(alpha = 0.7f),
-            ) {
-                if (!hudOn && !GameHudOverlay.hasPermission(ctx)) {
-                    android.widget.Toast.makeText(ctx, L("请先授予悬浮窗权限", "Please grant overlay permission first"), android.widget.Toast.LENGTH_SHORT).show()
-                    runCatching { ctx.startActivity(GameHudOverlay.requestPermissionIntent(ctx)) }
-                } else {
-                    hudOn = !hudOn
-                    GameHudOverlay.enabled = hudOn
-                }
-            }
+            CircleIconButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds")) { onOpenWorlds() }
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.QrCode2, L("大厅二维码", "Lobby QR Code")) { if (lobby != null) showQr = true }
             Spacer(Modifier.width(6.dp))
@@ -1397,15 +1405,6 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
                 Text(L("「复制邀请链接」发给电脑端好友，粘贴到浏览器打开即可加入", "Copy the invite link and send it to a desktop friend to open in a browser"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-    }
-    if (showWorlds) {
-        MinecraftWorldsDialog(repository) { showWorlds = false }
-    }
-    if (showQuickConnect) {
-        GameQuickConnectDialog(state) { showQuickConnect = false }
-    }
-    if (showDiagnostic) {
-        ConnectionDiagnosticDialog(state) { showDiagnostic = false }
     }
     if (showHelp) {
         AlertDialog(
@@ -1657,11 +1656,37 @@ private fun LobbyHeader(state: MctierUiState, repository: MctierRepository, onTo
 }
 
 @Composable
-private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, onDismiss: () -> Unit) {
+private fun RoomToolButton(icon: ImageVector, title: String, subtitle: String, active: Boolean = false, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (active) GrassGreen.copy(alpha = 0.18f) else PanelHigh)
+            .clickable { onClick() }.padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, title, tint = if (active) GrassGreen else TextPrimary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(subtitle, color = TextPrimary.copy(alpha = 0.55f), fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun RoomToolsDialog(
+    state: MctierUiState,
+    repository: MctierRepository,
+    onOpenWorlds: () -> Unit,
+    onOpenQuickConnect: () -> Unit,
+    onOpenDiagnostic: () -> Unit,
+    hudOn: Boolean,
+    onToggleHud: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     var newTodo by remember { mutableStateOf("") }
     var minutes by remember { mutableStateOf("5") }
     var seconds by remember { mutableStateOf("0") }
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(3) }
     var dice by remember { mutableIntStateOf(1) }
     var diceSides by remember { mutableIntStateOf(6) }
     var rolling by remember { mutableStateOf(false) }
@@ -1677,6 +1702,7 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    ToggleChip(L("联机", "Net"), tab == 3, Icons.Rounded.SportsEsports) { tab = 3 }
                     ToggleChip(L("骰子", "Dice"), tab == 0, Icons.Rounded.Casino) { tab = 0 }
                     ToggleChip(L("倒计时", "Timer"), tab == 1, Icons.Rounded.History) { tab = 1 }
                     ToggleChip(L("待办", "To-Do"), tab == 2, Icons.Rounded.Checklist) { tab = 2 }
@@ -1750,6 +1776,20 @@ private fun RoomToolsDialog(state: MctierUiState, repository: MctierRepository, 
                                 val total = (minutes.toIntOrNull() ?: 0) * 60 + (seconds.toIntOrNull() ?: 0)
                                 if (total > 0) repository.startCountdown(total)
                             }
+                        }
+                    }
+                    3 -> {
+                        // 联机工具：把双端新增的游戏工具统一收纳到房间工具中
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            RoomToolButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds"), L("自动发现可加入的 Minecraft 世界", "Auto-discover joinable Minecraft worlds")) { onOpenWorlds() }
+                            RoomToolButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect"), L("常见游戏端口与成员地址一键复制", "Common game ports & member addresses")) { onOpenQuickConnect() }
+                            RoomToolButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics"), L("直连/中继 · 延迟 · 优化建议", "Direct/Relay · latency · tips")) { onOpenDiagnostic() }
+                            RoomToolButton(
+                                if (hudOn) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                if (hudOn) L("关闭游戏内 HUD 浮层", "Turn off in-game HUD") else L("开启游戏内 HUD 浮层", "Turn on in-game HUD"),
+                                L("游戏内显示队友延迟 / 说话状态", "Show teammates' latency / speaking in-game"),
+                                active = hudOn,
+                            ) { onToggleHud() }
                         }
                     }
                     else -> when (tab) {
