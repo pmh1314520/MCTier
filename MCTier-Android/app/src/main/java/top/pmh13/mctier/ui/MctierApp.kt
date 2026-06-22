@@ -3442,7 +3442,7 @@ private fun HudSettingsSection(settings: UserSettings, onChange: (UserSettings) 
         valueRange = 0.7f..1.6f,
         colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
     )
-    Text(L("提示：HUD 平时完全穿透，不会挡住你对背后应用 / 系统界面的任何点击；拖动 HUD 左上角的绿色小手柄即可移动位置。", "Tip: the HUD is fully click-through and never blocks taps on apps/system UI behind it; drag the small green handle at its top-left corner to move it."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
+    Text(L("提示：HUD 卡片以外的区域完全穿透，不挡你对背后应用/系统界面的点击；长按 HUD 卡片即可拖动到任意位置。", "Tip: everything outside the HUD card is fully click-through; long-press the HUD card to drag it anywhere."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
 }
 
 @Composable

@@ -6,8 +6,11 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -19,12 +22,13 @@ import android.widget.TextView
  * 安卓游戏内 HUD 悬浮层（SYSTEM_ALERT_WINDOW）。
  * 在所有应用之上显示一张小卡片：每位队友的延迟与「谁在说话」（绿点）。
  *
- * 触摸策略（关键）：
- * - 内容卡片窗口带 FLAG_NOT_TOUCHABLE —— 触摸完全穿透到背后的任何应用 / 桌面 / 系统界面，
- *   绝不拦截用户对下层 UI 的点击。
- * - 另设一个很小的「拖动手柄」窗口（可触摸），拖动它即可把整个 HUD 移到任意位置，松手记忆。
- *   这是 Android 上同时实现「内容区完全穿透」与「可拖动」的唯一可行方式
- *   （同一窗口区域无法既穿透又响应拖动）。
+ * 交互：
+ * - 窗口为 WRAP_CONTENT（仅卡片大小），卡片以外的所有区域触摸都照常穿透给背后的
+ *   任意应用 / 桌面 / 系统界面，不受影响。
+ * - 长按卡片任意位置即可拖动整张 HUD 到任意位置，松手记忆位置（带轻微震动反馈）。
+ * - 注意：要支持"长按拖动"，卡片本身必须可接收触摸，因此卡片那一小块区域的点击
+ *   不会穿透（这是 Android 悬浮窗的硬限制：同一区域无法既穿透又响应长按）。卡片很小，
+ *   仅占屏幕一角，其余区域完全不挡。
  * - 透明度、整体尺寸（等比缩放）可在设置中调整。
  */
 object GameHudOverlay {
@@ -35,11 +39,10 @@ object GameHudOverlay {
     @Volatile var scale = 1f
     private var wm: WindowManager? = null
     private var container: LinearLayout? = null
-    private var handle: TextView? = null
-    private var contentLp: WindowManager.LayoutParams? = null
-    private var handleLp: WindowManager.LayoutParams? = null
     private var appCtx: Context? = null
+    private var lp: WindowManager.LayoutParams? = null
     private var lastRows: List<HudRow> = emptyList()
+    @Volatile private var dragging = false
 
     private const val PREF = "mctier_hud"
     private const val KEY_X = "hud_x"
@@ -51,27 +54,27 @@ object GameHudOverlay {
     /** HUD 浮层窗口当前是否已显示 */
     fun hasContainer(): Boolean = container != null
 
-    /** 内容卡片背景（alpha 跟随用户设置，ds=已含缩放的密度） */
+    /** 卡片背景（alpha 跟随用户设置，ds=已含缩放的密度）。拖动时高亮提示。 */
     private fun bgDrawable(ds: Float): GradientDrawable {
         val a = (opacity.coerceIn(0.2f, 1f) * 255f).toInt()
         return GradientDrawable().apply {
             cornerRadius = 14f * ds
             setColor(Color.argb(a, 16, 18, 24))
-            setStroke((1f * ds).toInt().coerceAtLeast(1), Color.argb((a * 0.38f).toInt(), 124, 207, 0))
+            if (dragging) {
+                setStroke((2f * ds).toInt().coerceAtLeast(2), Color.argb(255, 124, 207, 0))
+            } else {
+                setStroke((1f * ds).toInt().coerceAtLeast(1), Color.argb((a * 0.38f).toInt(), 124, 207, 0))
+            }
         }
     }
 
-    private fun gripSizePx(d: Float): Int = (26 * d * scale).toInt().coerceAtLeast((20 * d).toInt())
-
-    /** 更新内容卡片背景与内边距（透明度/缩放变更时调用） */
+    /** 更新卡片背景与内边距（透明度/缩放/拖动状态变更时调用） */
     private fun applyContainerMetrics() {
         val c = container ?: return
         val ctx = appCtx ?: return
         val ds = ctx.resources.displayMetrics.density * scale
         c.background = bgDrawable(ds)
-        // 左上角留出手柄位置，避免手柄遮住标题文字
-        val gs = gripSizePx(ctx.resources.displayMetrics.density)
-        c.setPadding((12 * ds).toInt(), (10 * ds).toInt() + gs / 2, (12 * ds).toInt(), (10 * ds).toInt())
+        c.setPadding((12 * ds).toInt(), (10 * ds).toInt(), (12 * ds).toInt(), (10 * ds).toInt())
     }
 
     /** 实时调整透明度 */
@@ -83,20 +86,7 @@ object GameHudOverlay {
     /** 实时调整整体尺寸（等比缩放） */
     fun applyScale(v: Float) {
         scale = v.coerceIn(0.6f, 1.8f)
-        val ctx = appCtx
-        container?.post {
-            applyContainerMetrics()
-            renderRows(lastRows)
-            // 同步手柄尺寸
-            val h = handle
-            val hlp = handleLp
-            if (ctx != null && h != null && hlp != null) {
-                val gs = gripSizePx(ctx.resources.displayMetrics.density)
-                hlp.width = gs; hlp.height = gs
-                h.textSize = 12f * scale
-                runCatching { wm?.updateViewLayout(h, hlp) }
-            }
-        }
+        container?.post { applyContainerMetrics(); renderRows(lastRows) }
     }
 
     fun show(ctx: Context) {
@@ -107,108 +97,88 @@ object GameHudOverlay {
         val dm = appCtx!!.resources.displayMetrics
         val d = dm.density
         val ds = d * scale
-        val gs = gripSizePx(d)
-
+        val root = LinearLayout(appCtx!!).apply {
+            orientation = LinearLayout.VERTICAL
+            background = bgDrawable(ds)
+            setPadding((12 * ds).toInt(), (10 * ds).toInt(), (12 * ds).toInt(), (10 * ds).toInt())
+        }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-
-        // —— 内容卡片窗口：FLAG_NOT_TOUCHABLE，触摸完全穿透到背后任何界面 ——
-        val root = LinearLayout(appCtx!!).apply {
-            orientation = LinearLayout.VERTICAL
-            background = bgDrawable(ds)
-            setPadding((12 * ds).toInt(), (10 * ds).toInt() + gs / 2, (12 * ds).toInt(), (10 * ds).toInt())
-        }
-        val contentParams = WindowManager.LayoutParams(
+        // 窗口为 WRAP_CONTENT(仅卡片大小)且带 FLAG_NOT_TOUCH_MODAL：卡片以外区域的触摸照常
+        // 穿透给背后任意应用/系统界面；仅卡片本身可触摸以支持长按拖动。
+        val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT,
-        )
-        contentParams.gravity = Gravity.TOP or Gravity.START
-        val prefs = appCtx!!.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        val defX = (dm.widthPixels - 240 * ds).toInt().coerceAtLeast((8 * d).toInt())
-        val defY = (60 * d).toInt()
-        contentParams.x = prefs.getInt(KEY_X, defX)
-        contentParams.y = prefs.getInt(KEY_Y, defY)
-        runCatching { manager.addView(root, contentParams) }
-
-        // —— 拖动手柄窗口：可触摸的小绿块，拖动它移动整个 HUD ——
-        val grip = TextView(appCtx!!).apply {
-            text = "✛"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            textSize = 12f * scale
-            setTypeface(typeface, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                cornerRadius = 8f * ds
-                setColor(Color.argb(235, 90, 150, 0))
-                setStroke((1f * d).toInt().coerceAtLeast(1), Color.argb(255, 180, 240, 80))
-            }
-        }
-        val handleParams = WindowManager.LayoutParams(
-            gs, gs, type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         )
-        handleParams.gravity = Gravity.TOP or Gravity.START
-        handleParams.x = contentParams.x
-        handleParams.y = contentParams.y
-        attachDrag(grip, contentParams, handleParams, root)
-        runCatching { manager.addView(grip, handleParams) }
-
+        params.gravity = Gravity.TOP or Gravity.START
+        val prefs = appCtx!!.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val defX = (dm.widthPixels - 240 * ds).toInt().coerceAtLeast((8 * d).toInt())
+        val defY = (60 * d).toInt()
+        params.x = prefs.getInt(KEY_X, defX)
+        params.y = prefs.getInt(KEY_Y, defY)
+        attachDrag(root, params)
+        runCatching { manager.addView(root, params) }
         wm = manager
         container = root
-        handle = grip
-        contentLp = contentParams
-        handleLp = handleParams
+        lp = params
         renderRows(emptyList())
     }
 
-    /** 拖动手柄：按住拖动即可把整个 HUD（内容+手柄）移到任意位置，松手记忆位置 */
-    private fun attachDrag(grip: View, contentP: WindowManager.LayoutParams, handleP: WindowManager.LayoutParams, content: View) {
+    /** 长按卡片进入拖动，移动手指即可把 HUD 拖到任意位置，松手记忆位置 */
+    private fun attachDrag(root: View, params: WindowManager.LayoutParams) {
         val ctx = appCtx ?: return
         val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
-        var startCx = 0
-        var startCy = 0
+        val handler = Handler(Looper.getMainLooper())
+        var startX = 0
+        var startY = 0
         var startRawX = 0f
         var startRawY = 0f
-        var moved = false
-        grip.setOnTouchListener { v, e ->
+        var longPress: Runnable? = null
+        root.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    startCx = contentP.x; startCy = contentP.y
+                    startX = params.x; startY = params.y
                     startRawX = e.rawX; startRawY = e.rawY
-                    moved = false
+                    dragging = false
+                    longPress = Runnable {
+                        dragging = true
+                        runCatching { v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+                        applyContainerMetrics() // 高亮边框提示进入拖动
+                    }
+                    handler.postDelayed(longPress!!, 350)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (e.rawX - startRawX).toInt()
-                    val dy = (e.rawY - startRawY).toInt()
-                    if (!moved && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) moved = true
-                    if (moved) {
-                        contentP.x = startCx + dx
-                        contentP.y = startCy + dy
-                        handleP.x = contentP.x
-                        handleP.y = contentP.y
-                        runCatching { wm?.updateViewLayout(content, contentP) }
-                        runCatching { wm?.updateViewLayout(v, handleP) }
+                    val dx = e.rawX - startRawX
+                    val dy = e.rawY - startRawY
+                    if (!dragging && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) {
+                        // 长按未触发就滑动 → 取消长按（避免误触拖动）
+                        longPress?.let { handler.removeCallbacks(it) }
+                    }
+                    if (dragging) {
+                        params.x = (startX + dx).toInt()
+                        params.y = (startY + dy).toInt()
+                        runCatching { wm?.updateViewLayout(v, params) }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (moved) {
+                    longPress?.let { handler.removeCallbacks(it) }
+                    if (dragging) {
                         runCatching {
                             ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
-                                .putInt(KEY_X, contentP.x).putInt(KEY_Y, contentP.y).apply()
+                                .putInt(KEY_X, params.x).putInt(KEY_Y, params.y).apply()
                         }
+                        dragging = false
+                        applyContainerMetrics() // 取消高亮
                     }
-                    moved = false
                     true
                 }
                 else -> false
@@ -217,14 +187,13 @@ object GameHudOverlay {
     }
 
     fun hide() {
+        val c = container
         val m = wm
-        container?.let { c -> if (m != null) runCatching { m.removeView(c) } }
-        handle?.let { h -> if (m != null) runCatching { m.removeView(h) } }
+        if (c != null && m != null) runCatching { m.removeView(c) }
         container = null
-        handle = null
         wm = null
-        contentLp = null
-        handleLp = null
+        lp = null
+        dragging = false
     }
 
     /** 更新 HUD 行（在主线程执行） */
