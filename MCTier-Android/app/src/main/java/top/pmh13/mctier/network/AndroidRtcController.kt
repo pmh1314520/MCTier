@@ -48,6 +48,8 @@ class AndroidRtcController(private val context: Context) {
     private val pendingIceCandidates = linkedMapOf<String, MutableList<IceCandidate>>()
     private val playerVolumes = linkedMapOf<String, Double>() // 0.0 ~ 1.0
     private var globalMuted = false
+    // 通话中途连接抖动后的 ICE 自动重启任务（按 peer 防抖，避免重复重启）
+    private val iceRestartJobs = ConcurrentHashMap<String, Job>()
 
     private val _micEnabled = MutableStateFlow(false)
     val micEnabled: StateFlow<Boolean> = _micEnabled
@@ -105,18 +107,22 @@ class AndroidRtcController(private val context: Context) {
     private fun routeAudio() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            // 幂等设置：仅当当前模式/设备与目标不一致时才改动，避免 1.5s 守护循环反复重设
+            // 造成周期性音频中断（部分机型对重复 setMode/setCommunicationDevice 很敏感）。
+            if (am.mode != AudioManager.MODE_IN_COMMUNICATION) am.mode = AudioManager.MODE_IN_COMMUNICATION
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 val targetType = if (speakerphoneOn)
                     android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                 else
                     android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-                val dev = am.availableCommunicationDevices.firstOrNull { it.type == targetType }
-                if (dev != null) am.setCommunicationDevice(dev)
-                else @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = speakerphoneOn }
+                if (am.communicationDevice?.type != targetType) {
+                    val dev = am.availableCommunicationDevices.firstOrNull { it.type == targetType }
+                    if (dev != null) am.setCommunicationDevice(dev)
+                    else @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = speakerphoneOn }
+                }
             } else {
                 @Suppress("DEPRECATION")
-                am.isSpeakerphoneOn = speakerphoneOn
+                if (am.isSpeakerphoneOn != speakerphoneOn) am.isSpeakerphoneOn = speakerphoneOn
             }
         }
     }
@@ -288,6 +294,16 @@ class AndroidRtcController(private val context: Context) {
                 override fun onSignalingChange(newState: PeerConnection.SignalingState) = Unit
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
                     Log.i(TAG, "ICE 连接状态[$remotePlayerId]: $newState")
+                    when (newState) {
+                        // DISCONNECTED 多为短暂网络抖动，给 4s 自愈窗口；超时仍未恢复则发起 ICE 重启
+                        PeerConnection.IceConnectionState.DISCONNECTED -> scheduleIceRestart(remotePlayerId, 4000)
+                        // FAILED 不会自行恢复，立即发起 ICE 重启
+                        PeerConnection.IceConnectionState.FAILED -> scheduleIceRestart(remotePlayerId, 0)
+                        // 已恢复连接：取消尚未执行的重启任务
+                        PeerConnection.IceConnectionState.CONNECTED,
+                        PeerConnection.IceConnectionState.COMPLETED -> iceRestartJobs.remove(remotePlayerId)?.cancel()
+                        else -> Unit
+                    }
                 }
                 override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
                 override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {
@@ -329,6 +345,7 @@ class AndroidRtcController(private val context: Context) {
     }
 
     fun removePeer(playerId: String) {
+        iceRestartJobs.remove(playerId)?.cancel()
         peerConnections.remove(playerId)?.close()
         remoteAudioTracks.remove(playerId)
         pendingIceCandidates.remove(playerId)
@@ -342,6 +359,8 @@ class AndroidRtcController(private val context: Context) {
      */
     fun resetPeers() {
         Log.i(TAG, "重置所有对等连接（信令重连）")
+        iceRestartJobs.values.forEach { runCatching { it.cancel() } }
+        iceRestartJobs.clear()
         peerConnections.values.forEach { runCatching { it.close() } }
         peerConnections.clear()
         remoteAudioTracks.clear()
@@ -355,6 +374,8 @@ class AndroidRtcController(private val context: Context) {
         statsJob = null
         audioModeJob?.cancel()
         audioModeJob = null
+        iceRestartJobs.values.forEach { runCatching { it.cancel() } }
+        iceRestartJobs.clear()
         audioLevels.clear()
         _speakingPlayers.value = emptySet()
         peerConnections.values.forEach { it.close() }
@@ -425,6 +446,48 @@ class AndroidRtcController(private val context: Context) {
         pending.forEach { candidate ->
             runCatching { pc.addIceCandidate(candidate) }
         }
+    }
+
+    /**
+     * 通话中途连接中断后的自动恢复：在 DISCONNECTED/FAILED 时按防抖发起 ICE 重启。
+     * 仅由发起方（本地 ID 字典序较大）发起，避免双方同时重协商撞车；另一方在收到
+     * 重启 offer 后用 createAnswer 自动配合。这修复了“两人通话聊着聊着突然没声音、
+     * 且不再恢复”的问题（网络抖动 / NAT 绑定超时 / 隧道瞬断导致媒体通道失效）。
+     */
+    private fun scheduleIceRestart(remotePlayerId: String, delayMs: Long) {
+        if (localPlayerId <= remotePlayerId) return
+        iceRestartJobs[remotePlayerId]?.cancel()
+        iceRestartJobs[remotePlayerId] = rtcScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            if (!isActive) return@launch
+            val pc = peerConnections[remotePlayerId] ?: return@launch
+            val st = runCatching { pc.iceConnectionState() }.getOrNull()
+            // 等待期间已自行恢复则不再重启
+            if (st == PeerConnection.IceConnectionState.CONNECTED ||
+                st == PeerConnection.IceConnectionState.COMPLETED
+            ) return@launch
+            restartIce(remotePlayerId, pc)
+        }
+    }
+
+    private fun restartIce(remotePlayerId: String, pc: PeerConnection) {
+        Log.i(TAG, "发起 ICE 重启[$remotePlayerId]")
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+        }
+        pc.createOffer(object : SimpleSdpObserver() {
+            override fun onCreateSuccess(desc: SessionDescription) {
+                pc.setLocalDescription(SimpleSdpObserver(), desc)
+                sendSignal?.invoke(
+                    SignalingEnvelope(
+                        type = "offer",
+                        from = localPlayerId,
+                        to = remotePlayerId,
+                        offer = SdpPayload(desc.type.canonicalForm(), desc.description),
+                    ),
+                )
+            }
+        }, constraints)
     }
 
     private companion object {

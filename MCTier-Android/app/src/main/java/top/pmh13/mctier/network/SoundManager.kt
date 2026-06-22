@@ -73,7 +73,10 @@ class SoundManager(private val context: Context) {
     }
 
     private fun newPlayer(): MediaPlayer {
-        runCatching { audioManager.mode = AudioManager.MODE_NORMAL }
+        // 注意：绝不能在这里修改 audioManager.mode！
+        // 提示音使用 USAGE_MEDIA，在任何音频模式下都能正常播放，无需切换模式。
+        // 若在语音通话进行中(MODE_IN_COMMUNICATION)把模式改成 MODE_NORMAL，
+        // 会破坏 WebRTC 的通话音频会话，导致“聊着聊着所有人突然都没声音”。
         val sessionId = runCatching { audioManager.generateAudioSessionId() }
             .getOrDefault(AudioManager.AUDIO_SESSION_ID_GENERATE)
         val mp = MediaPlayer()

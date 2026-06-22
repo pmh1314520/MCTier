@@ -26,7 +26,7 @@ interface VersionInfo {
 
 class VersionCheckService {
   private readonly GITEE_API_URL = 'https://gitee.com/api/v5/repos/peng-minghang/mctier/tags';
-  private readonly CURRENT_VERSION = '2.2.0';
+  private readonly CURRENT_VERSION = '2.2.2';
   private readonly VERSION_CHECK_KEY = 'mctier_version_check_shown';
 
   /**

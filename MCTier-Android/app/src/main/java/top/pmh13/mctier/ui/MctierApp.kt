@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -57,6 +58,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -2476,124 +2478,153 @@ private fun ChatAvatar(message: ChatMessage) {
     ) { Text(ch, fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp) }
 }
 
+/** 聊天气泡尾巴：朝头像一侧凸出的小三角（仿桌面端，颜色与气泡一致） */
+@Composable
+private fun BubbleTail(mine: Boolean) {
+    val color = if (mine) GrassGreen else PanelHigh
+    val triangle = GenericShape { size, _ ->
+        if (mine) {
+            // 指向右侧（头像在右）：底边贴气泡(左)，尖端朝右
+            moveTo(0f, 0f)
+            lineTo(size.width, size.height / 2f)
+            lineTo(0f, size.height)
+            close()
+        } else {
+            // 指向左侧（头像在左）：底边贴气泡(右)，尖端朝左
+            moveTo(size.width, 0f)
+            lineTo(0f, size.height / 2f)
+            lineTo(size.width, size.height)
+            close()
+        }
+    }
+    Box(
+        Modifier
+            .padding(top = 11.dp)
+            .offset(x = if (mine) (-2).dp else 2.dp) // 轻微嵌入气泡，避免出现接缝
+            .size(width = 7.dp, height = 13.dp)
+            .background(color, triangle),
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modifier: Modifier = Modifier, onQuote: (ChatMessage) -> Unit = {}) {
-    Row(
-        horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Top,
+    // 名字与时间戳与气泡左/右边缘对齐：需避开头像占用的宽度（头像 34dp + 间距 8dp = 42dp，再留 4dp 视觉内缩）
+    val labelStart = if (message.mine) 4.dp else 46.dp
+    val labelEnd = if (message.mine) 46.dp else 4.dp
+    Column(
+        horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
         modifier = modifier.fillMaxWidth(),
     ) {
-        if (!message.mine) { ChatAvatar(message); Spacer(Modifier.width(8.dp)) }
-        Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
-                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 3.dp),
-            ) {
-                Text(
-                    if (message.mine) L("我", "Me") else message.playerName.ifBlank { L("玩家", "Player") },
-                    fontSize = 12.sp,
-                    color = if (message.mine) TextPrimary.copy(alpha = 0.5f) else GrassGreen,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            val shape = RoundedCornerShape(
-                topStart = 14.dp, topEnd = 14.dp,
-                bottomStart = if (message.mine) 14.dp else 4.dp,
-                bottomEnd = if (message.mine) 4.dp else 14.dp,
-            )
-            if (message.type == "image" && message.imageBase64 != null) {
-                val bitmap = remember(message.id) {
-                    runCatching {
-                        val raw = message.imageBase64.substringAfter("base64,", message.imageBase64)
-                        val bytes = android.util.Base64.decode(raw, android.util.Base64.DEFAULT)
-                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }.getOrNull()
-                }
-                if (bitmap != null) {
-                    var showZoom by remember(message.id) { mutableStateOf(false) }
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = L("图片", "Image"),
-                        modifier = Modifier.clip(shape).heightIn(max = 240.dp)
-                            .combinedClickable(onClick = { showZoom = true }, onLongClick = { onQuote(message) }),
-                    )
-                    if (showZoom) {
-                        Dialog(
-                            onDismissRequest = { showZoom = false },
-                            properties = DialogProperties(usePlatformDefaultWidth = false),
-                        ) {
-                            var scale by remember { mutableStateOf(1f) }
-                            var offsetX by remember { mutableStateOf(0f) }
-                            var offsetY by remember { mutableStateOf(0f) }
-                            val tState = rememberTransformableState { zoomChange, panChange, _ ->
-                                scale = (scale * zoomChange).coerceIn(1f, 5f)
-                                offsetX += panChange.x
-                                offsetY += panChange.y
-                            }
-                            Box(
-                                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.95f))
-                                    .clickable { showZoom = false },
-                                contentAlignment = Alignment.Center,
+        // 名字标签（位于头像与气泡上方）
+        Text(
+            if (message.mine) L("我", "Me") else message.playerName.ifBlank { L("玩家", "Player") },
+            fontSize = 12.sp,
+            color = if (message.mine) TextPrimary.copy(alpha = 0.5f) else GrassGreen,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = labelStart, end = labelEnd, bottom = 3.dp),
+        )
+        // 头像与气泡同处一行并顶部对齐（头像顶部与气泡顶部齐平）
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (!message.mine) { ChatAvatar(message); Spacer(Modifier.width(6.dp)); BubbleTail(mine = false) }
+            Box(modifier = Modifier.weight(1f, fill = false)) {
+                val shape = RoundedCornerShape(14.dp)
+                if (message.type == "image" && message.imageBase64 != null) {
+                    val bitmap = remember(message.id) {
+                        runCatching {
+                            val raw = message.imageBase64.substringAfter("base64,", message.imageBase64)
+                            val bytes = android.util.Base64.decode(raw, android.util.Base64.DEFAULT)
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        }.getOrNull()
+                    }
+                    if (bitmap != null) {
+                        var showZoom by remember(message.id) { mutableStateOf(false) }
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = L("图片", "Image"),
+                            modifier = Modifier.clip(shape).heightIn(max = 240.dp)
+                                .combinedClickable(onClick = { showZoom = true }, onLongClick = { onQuote(message) }),
+                        )
+                        if (showZoom) {
+                            Dialog(
+                                onDismissRequest = { showZoom = false },
+                                properties = DialogProperties(usePlatformDefaultWidth = false),
                             ) {
-                                Image(
-                                    bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = L("图片放大", "Zoom image"),
-                                    modifier = Modifier.fillMaxSize()
-                                        .graphicsLayer(
-                                            scaleX = scale, scaleY = scale,
-                                            translationX = offsetX, translationY = offsetY,
-                                        )
-                                        .transformable(tState),
-                                )
-                                CircleIconButton(
-                                    Icons.Rounded.Close, L("关闭", "Close"),
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
-                                ) { showZoom = false }
-                                val dlCtx = LocalContext.current
-                                CircleIconButton(
-                                    Icons.Rounded.Download, L("保存到相册", "Save to gallery"),
-                                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
+                                var scale by remember { mutableStateOf(1f) }
+                                var offsetX by remember { mutableStateOf(0f) }
+                                var offsetY by remember { mutableStateOf(0f) }
+                                val tState = rememberTransformableState { zoomChange, panChange, _ ->
+                                    scale = (scale * zoomChange).coerceIn(1f, 5f)
+                                    offsetX += panChange.x
+                                    offsetY += panChange.y
+                                }
+                                Box(
+                                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.95f))
+                                        .clickable { showZoom = false },
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    repository.saveChatImageToGallery(message.imageBase64) { ok ->
-                                        android.widget.Toast.makeText(dlCtx, if (ok) L("已保存到相册 Pictures/MCTier", "Saved to Pictures/MCTier") else L("保存失败", "Save failed"), android.widget.Toast.LENGTH_SHORT).show()
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = L("图片放大", "Zoom image"),
+                                        modifier = Modifier.fillMaxSize()
+                                            .graphicsLayer(
+                                                scaleX = scale, scaleY = scale,
+                                                translationX = offsetX, translationY = offsetY,
+                                            )
+                                            .transformable(tState),
+                                    )
+                                    CircleIconButton(
+                                        Icons.Rounded.Close, L("关闭", "Close"),
+                                        modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                                    ) { showZoom = false }
+                                    val dlCtx = LocalContext.current
+                                    CircleIconButton(
+                                        Icons.Rounded.Download, L("保存到相册", "Save to gallery"),
+                                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
+                                    ) {
+                                        repository.saveChatImageToGallery(message.imageBase64) { ok ->
+                                            android.widget.Toast.makeText(dlCtx, if (ok) L("已保存到相册 Pictures/MCTier", "Saved to Pictures/MCTier") else L("保存失败", "Save failed"), android.widget.Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
                             }
                         }
+                    } else {
+                        Box(Modifier.clip(shape).background(PanelHigh).padding(14.dp)) { Text(L("[图片加载失败]", "[Image failed]"), color = TextPrimary.copy(alpha = 0.7f)) }
                     }
                 } else {
-                    Box(Modifier.clip(shape).background(PanelHigh).padding(14.dp)) { Text(L("[图片加载失败]", "[Image failed]"), color = TextPrimary.copy(alpha = 0.7f)) }
-                }
-            } else {
-                // 解析引用回复：内容以 "> @名字 摘要\n实际内容" 开头
-                val isQuote = message.content.startsWith("> ")
-                val quoteLine = if (isQuote) message.content.substringBefore('\n').removePrefix("> ") else ""
-                val bodyText = if (isQuote) message.content.substringAfter('\n', "") else message.content
-                Box(
-                    Modifier.clip(shape).background(if (message.mine) GrassGreen else PanelHigh)
-                        .combinedClickable(onClick = {}, onLongClick = { onQuote(message) })
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Column {
-                        if (isQuote && quoteLine.isNotBlank()) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
-                                Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(if (message.mine) Color(0xFF06210A) else GrassGreen))
-                                Spacer(Modifier.width(6.dp))
-                                Text(quoteLine, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    color = if (message.mine) Color(0xFF06210A).copy(alpha = 0.7f) else TextPrimary.copy(alpha = 0.6f))
+                    // 解析引用回复：内容以 "> @名字 摘要\n实际内容" 开头
+                    val isQuote = message.content.startsWith("> ")
+                    val quoteLine = if (isQuote) message.content.substringBefore('\n').removePrefix("> ") else ""
+                    val bodyText = if (isQuote) message.content.substringAfter('\n', "") else message.content
+                    Box(
+                        Modifier.clip(shape).background(if (message.mine) GrassGreen else PanelHigh)
+                            .combinedClickable(onClick = {}, onLongClick = { onQuote(message) })
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Column {
+                            if (isQuote && quoteLine.isNotBlank()) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                                    Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(if (message.mine) Color(0xFF06210A) else GrassGreen))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(quoteLine, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        color = if (message.mine) Color(0xFF06210A).copy(alpha = 0.7f) else TextPrimary.copy(alpha = 0.6f))
+                                }
                             }
+                            Text(buildMentionText(bodyText, if (message.mine) Color(0xFF06210A) else TextPrimary.copy(alpha = 0.92f)), fontSize = 15.sp)
                         }
-                        Text(buildMentionText(bodyText, if (message.mine) Color(0xFF06210A) else TextPrimary.copy(alpha = 0.92f)), fontSize = 15.sp)
                     }
                 }
             }
-            // 发送时间（气泡底部）
-            Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f),
-                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp))
+            if (message.mine) { BubbleTail(mine = true); Spacer(Modifier.width(6.dp)); ChatAvatar(message) }
         }
-        if (message.mine) { Spacer(Modifier.width(8.dp)); ChatAvatar(message) }
+        // 发送时间（气泡底部）
+        Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f),
+            modifier = Modifier.padding(start = labelStart, end = labelEnd, top = 2.dp))
     }
 }
 
