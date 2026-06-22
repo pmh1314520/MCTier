@@ -1154,6 +1154,7 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     LaunchedEffect(hudOn) {
         if (!hudOn) { GameHudOverlay.hide(); return@LaunchedEffect }
         GameHudOverlay.applyOpacity(repository.state.value.settings.hudOpacity)
+        GameHudOverlay.scale = repository.state.value.settings.hudScale.coerceIn(0.6f, 1.8f)
         GameHudOverlay.show(ctx)
         val latCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
         // 子协程：低频(每 4s)在 IO 线程探测延迟，写入缓存，避免阻塞说话状态的高频刷新
@@ -1248,7 +1249,6 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
                     onTools = { showTools = true },
                     onSettings = { currentView = "settings" },
                     onOpen = { currentView = it },
-                    onOpenWorlds = { showWorlds = true },
                 )
             }
         }
@@ -1293,7 +1293,6 @@ private fun LobbyMainView(
     onTools: () -> Unit,
     onSettings: () -> Unit,
     onOpen: (String) -> Unit,
-    onOpenWorlds: () -> Unit,
 ) {
     var showLeaveConfirm by remember { mutableStateOf(false) }
     if (showLeaveConfirm) {
@@ -1320,7 +1319,7 @@ private fun LobbyMainView(
             CircleIconButton(Icons.AutoMirrored.Rounded.Logout, L("退出大厅", "Leave Lobby")) { showLeaveConfirm = true }
         }
         Spacer(Modifier.height(12.dp))
-        LobbyCard(state, repository, onOpenWorlds)
+        LobbyCard(state, repository)
         Spacer(Modifier.height(12.dp))
         AnnouncementBar(state, repository)
         Box(Modifier.weight(1f)) { PlayersTab(state, repository) }
@@ -1331,7 +1330,7 @@ private fun LobbyMainView(
 }
 
 @Composable
-private fun LobbyCard(state: MctierUiState, repository: MctierRepository, onOpenWorlds: () -> Unit) {
+private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
     val clipboard = LocalClipboardManager.current
     val ctx = LocalContext.current
     var showHelp by remember { mutableStateOf(false) }
@@ -1345,8 +1344,6 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository, onOpen
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(lobby?.name.orEmpty(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            CircleIconButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds")) { onOpenWorlds() }
-            Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.QrCode2, L("大厅二维码", "Lobby QR Code")) { if (lobby != null) showQr = true }
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.ContentCopy, L("复制大厅信息", "Copy Lobby Info")) {
@@ -3435,6 +3432,17 @@ private fun HudSettingsSection(settings: UserSettings, onChange: (UserSettings) 
         valueRange = 0.2f..1f,
         colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
     )
+    Text(L("浮层尺寸", "HUD Size") + ": ${(settings.hudScale * 100).toInt()}%", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    Slider(
+        value = settings.hudScale,
+        onValueChange = {
+            onChange(settings.copy(hudScale = it))
+            GameHudOverlay.applyScale(it) // 等比缩放，实时作用于已显示的浮层
+        },
+        valueRange = 0.7f..1.6f,
+        colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
+    )
+    Text(L("提示：长按 HUD 浮层可拖动到任意位置。", "Tip: long-press the HUD overlay to drag it anywhere."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
 }
 
 @Composable

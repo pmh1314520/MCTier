@@ -133,6 +133,7 @@ data class UserSettings(
     val danmakuColor: String = "#FFFFFF", // 弹幕文字颜色
     // —— 游戏内 HUD 浮层 ——
     val hudOpacity: Float = 0.85f,
+    val hudScale: Float = 1.0f,
     // —— 变声器音色（none/uncle/male/female/loli/chipmunk/robot/telephone）——
     val voicePreset: String = "none",
 )

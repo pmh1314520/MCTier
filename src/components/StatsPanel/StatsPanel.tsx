@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Empty, Popconfirm, Button, message } from 'antd';
+import { Modal, Empty, Button, App } from 'antd';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
@@ -52,6 +52,7 @@ const Donut: React.FC<{ host: number; member: number }> = ({ host, member }) => 
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
+  const { message, modal } = App.useApp();
   const [stats, setStats] = useState<ComputedStats>(() => statsService.getStats());
   const [sessions, setSessions] = useState<SessionRecord[]>(() => statsService.getSessions());
 
@@ -59,11 +60,24 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
     if (visible) { setStats(statsService.getStats()); setSessions(statsService.getSessions()); }
   }, [visible]);
 
-  const handleClear = () => {
+  const doClear = () => {
     statsService.clear();
     setStats(statsService.getStats());
     setSessions(statsService.getSessions());
     message.success(t('stats.cleared'));
+  };
+
+  // 用 modal.confirm 弹确认框：相比内嵌 Popconfirm，确认弹层始终置顶且可点击，
+  // 避免在统计弹窗内点击"清除"时确认气泡被遮挡导致毫无反应。
+  const handleClear = () => {
+    modal.confirm({
+      title: t('stats.clearConfirm'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: doClear,
+    });
   };
 
   const maxB = Math.max(1, ...stats.buckets);
@@ -161,9 +175,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
           </div>
 
           <div className="stats-footer">
-            <Popconfirm title={t('stats.clearConfirm')} okText={t('common.confirm')} cancelText={t('common.cancel')} onConfirm={handleClear}>
-              <Button size="small" danger>{t('stats.clear')}</Button>
-            </Popconfirm>
+            <Button size="small" danger onClick={handleClear}>{t('stats.clear')}</Button>
           </div>
         </motion.div>
       )}
