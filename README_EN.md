@@ -6,11 +6,12 @@
   **A universal virtual-LAN networking tool**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.1.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.2.0-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
   </p>
+
 
   **Supports Windows 10/11 and Android. Desktop and mobile can join the same lobby to quickly form a cross-network virtual LAN.**
 
@@ -105,18 +106,48 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 
 ## Core Features
 
+### Networking & Connection
+
 - **Virtual LAN networking**: Build a virtual network on EasyTier without a public IP.
 - **Cross-platform lobbies**: Phones and PCs can join the same lobby, with handy QR-code invites.
+- **Public lobby plaza**: Hosts can publish a lobby to the plaza, so strangers can find it and join with one click.
+- **Custom nodes & virtual domains**: Add your own EasyTier nodes and configure a custom domain for the virtual network.
+- **Connection / network diagnostics**: Aggregate members' direct/relay status, latency and packet loss into a score with tuning tips; network diagnostics can also check the virtual adapter, firewall, UDP ports and security-software blocking, with one-click firewall allow.
+- **Self-hosting**: Run your own signaling server to control the connection entry.
+
+### Communication & Collaboration
+
 - **Real-time voice channels**: Voice by channel within a lobby, ideal for collaboration.
-- **Lobby chat room**: Supports text and image messages.
+- **Voice squads**: Split members into squads so you only hear teammates in your squad — easy grouped voice chat.
+- **Built-in voice changer**: Real-time voice changing with presets like loli and uncle voices, making mic chat more fun; preview before applying.
+- **Lobby chat room**: Supports text, image and emoji messages.
+- **Message danmaku**: Chat messages float across the top of the screen as bullets, so you never miss them while in the background or gaming; adjustable size, speed, opacity, tracks and color (including random rainbow), enabled by default.
 - **Folder sharing**: Share folders with lobby members, with download and transfer lists.
 - **Screen sharing**: View another member's screen via WebRTC.
 - **Remote control**: Remotely view and operate another device in real time via WebRTC, supporting PC↔phone control in both directions; mouse move, left/right click, long-press, drag, wheel, keyboard input, and back/home/recents gestures are all included, with automatic landscape/portrait and best window size based on the remote resolution.
-- **Built-in voice changer**: Real-time voice changing with presets like loli and uncle voices, making mic chat more fun; preview before applying.
-- **Message danmaku**: Chat messages float across the top of the screen as bullets, so you never miss them while in the background or gaming; adjustable size, speed, opacity, tracks and color (including random rainbow), enabled by default.
-- **Mini overlay**: Quickly check member status, control voice and open tools on desktop.
+- **Room tools**: Built-in dice roller, countdown timer and a shared multi-user to-do list — great for tabletop games, draws and team task planning; the countdown keeps running even when you switch views or run in the background.
+
+### Lobby Management & Convenience
+
+- **Host management**: Hosts can post a scrolling announcement, set a member cap, kick members, and publish or unpublish to the public plaza.
 - **Lobby QR code**: Join by scanning or copy the invite link.
-- **Self-hosting**: Run your own signaling server to control the connection entry.
+- **Favorites & recents**: Save favorite lobbies for one-click fill, keep a history of recently joined lobbies and players you've played with, and favorite frequent teammates.
+- **Global hotkeys**: Customizable hotkeys supporting push-to-talk, one-key mute and more.
+- **Mini overlay**: Quickly check member status, control voice and open tools on desktop.
+- **In-game HUD overlay**: A pinned click-through overlay shows each teammate's latency, packet loss and who's talking while gaming, with mute, drag, opacity and scale controls.
+
+### Gaming Enhancements
+
+- **Minecraft world auto-discovery**: Scan Minecraft worlds opened by lobby members (MOTD/version/players/latency) and auto-inject them into your local LAN list to join without typing an IP.
+- **Game quick connect**: Built-in port presets for common multiplayer games, auto-generating a "virtual IP:port" direct address to copy in one click.
+- **Minecraft helper**: Detect the Minecraft install path and version, provide an illustrated LAN multiplayer guide, and automatically disable LAN online-mode verification for mainstream launchers.
+
+### Advanced & More
+
+- **EasyTier advanced network config**: Global and per-lobby advanced options (KCP/QUIC proxy, latency-first, P2P/hole-punching toggles), plus exit-node settings like SOCKS5 and port forwarding.
+- **Local statistics**: Purely local stats for play time, join/host counts, active hours and a most-played-with ranking — never uploaded to any server.
+- **Onboarding wizard**: On first launch, step through environment checks (permissions, firewall, security software) with one-click fixes.
+- **Update detection**: Check for new versions on launch and prompt to update.
 
 ## Quick Start
 

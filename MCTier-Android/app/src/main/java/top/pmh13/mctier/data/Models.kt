@@ -7,7 +7,7 @@ const val DefaultEasyTierNode = "udp://us01.225284.xyz:11010"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
-const val AppClientVersion = "2.1.6"
+const val AppClientVersion = "2.2.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 
