@@ -85,6 +85,8 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Mouse
@@ -1258,6 +1260,8 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
     var showHelp by remember { mutableStateOf(false) }
     var showQr by remember { mutableStateOf(false) }
     var showWorlds by remember { mutableStateOf(false) }
+    var showQuickConnect by remember { mutableStateOf(false) }
+    var showDiagnostic by remember { mutableStateOf(false) }
     val lobby = state.lobby
     LaunchedEffect(lobby?.name, lobby?.password) {
         showQr = false
@@ -1267,6 +1271,10 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(lobby?.name.orEmpty(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             CircleIconButton(Icons.Rounded.Public, L("局域网世界", "LAN Worlds")) { showWorlds = true }
+            Spacer(Modifier.width(6.dp))
+            CircleIconButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect")) { showQuickConnect = true }
+            Spacer(Modifier.width(6.dp))
+            CircleIconButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics")) { showDiagnostic = true }
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.QrCode2, L("大厅二维码", "Lobby QR Code")) { if (lobby != null) showQr = true }
             Spacer(Modifier.width(6.dp))
@@ -1356,6 +1364,12 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
     }
     if (showWorlds) {
         MinecraftWorldsDialog(repository) { showWorlds = false }
+    }
+    if (showQuickConnect) {
+        GameQuickConnectDialog(state) { showQuickConnect = false }
+    }
+    if (showDiagnostic) {
+        ConnectionDiagnosticDialog(state) { showDiagnostic = false }
     }
     if (showHelp) {
         AlertDialog(
