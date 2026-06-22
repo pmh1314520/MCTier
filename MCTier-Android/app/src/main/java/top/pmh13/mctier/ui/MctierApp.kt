@@ -3129,6 +3129,18 @@ private fun BackgroundKeepAliveSection() {
     }.getOrDefault(false)
     var ignoring by remember { mutableStateOf(isIgnoringBattery()) }
 
+    // 从系统电池/省电设置页返回时(ON_RESUME)实时刷新状态，避免一直停留在红色"容易被杀"提示
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                ignoring = isIgnoringBattery()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
     Text(L("后台保活", "Background Keep-alive"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
     Spacer(Modifier.height(4.dp))
     Text(
