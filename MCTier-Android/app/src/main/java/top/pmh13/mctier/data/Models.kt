@@ -275,7 +275,7 @@ data class PublicLobbyWire(
 
 /** 收藏大厅（本地存储） */
 @Serializable
-data class FavoriteLobby(val name: String, val password: String, val note: String = "")
+data class FavoriteLobby(val name: String, val password: String, val note: String = "", val useCount: Int = 0, val lastUsedAt: Long = 0)
 
 /** 用户自定义 EasyTier 节点（本地存储，可增删改） */
 @Serializable
@@ -302,6 +302,10 @@ data class RecentLobby(val name: String, val password: String, val lastJoined: L
 /** 最近一起联机的玩家（本地存储） */
 @Serializable
 data class RecentPlayer(val name: String, val lastSeen: Long, val count: Int = 1)
+
+/** 单场开黑记录（本地存储） */
+@Serializable
+data class SessionRecord(val start: Long, val durationMs: Long, val isHost: Boolean)
 
 /** 本地数据统计（纯本地，不上报） */
 data class LocalStats(

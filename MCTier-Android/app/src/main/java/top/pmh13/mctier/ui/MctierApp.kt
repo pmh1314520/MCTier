@@ -1043,15 +1043,19 @@ private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, 
                 Box(Modifier.heightIn(min = 80.dp, max = 360.dp)) {
                     if (state.favorites.isEmpty()) Text(L("还没有收藏", "No favorites yet"), color = TextPrimary.copy(alpha = 0.5f))
                     else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(state.favorites, key = { it.name + it.password }) { fav ->
+                        val sortedFavs = state.favorites.sortedWith(compareByDescending<top.pmh13.mctier.data.FavoriteLobby> { it.lastUsedAt })
+                        items(sortedFavs, key = { it.name + it.password }) { fav ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                    .clickable { onFill(fav.name, fav.password); onDismiss() }.padding(12.dp),
+                                    .clickable { repository.touchFavorite(fav.name, fav.password); onFill(fav.name, fav.password); onDismiss() }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Rounded.Star, null, tint = DirtBrown, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(10.dp))
-                                Text(fav.name, color = TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Column(Modifier.weight(1f)) {
+                                    Text(fav.name, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (fav.useCount > 0) Text(L("使用 ${fav.useCount} 次", "Used ${fav.useCount}x"), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.4f))
+                                }
                                 IconButton(onClick = { repository.removeFavorite(fav.name, fav.password) }) {
                                     Icon(Icons.Rounded.Close, L("移除", "Remove"), tint = DangerRed, modifier = Modifier.size(18.dp))
                                 }
@@ -3840,6 +3844,26 @@ private fun StatsScreen(repository: MctierRepository, onBack: () -> Unit) {
                             Spacer(Modifier.width(10.dp))
                             Text(p.name, color = TextPrimary, modifier = Modifier.weight(1f))
                             Text("${p.count} 次", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+            item {
+                val sessions = remember { repository.getSessions() }
+                SectionCard {
+                    Text(L("开黑记录", "Session History"), fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Spacer(Modifier.height(8.dp))
+                    if (sessions.isEmpty()) {
+                        Text(L("暂无开黑记录", "No sessions yet"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.45f))
+                    } else {
+                        sessions.take(12).forEach { s ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(fmtDate(s.start), color = TextPrimary, fontSize = 13.sp)
+                                    Text(if (s.isHost) L("房主", "Host") else L("成员", "Member"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
+                                }
+                                Text(fmtDur(s.durationMs), fontSize = 13.sp, color = GrassGreen, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }

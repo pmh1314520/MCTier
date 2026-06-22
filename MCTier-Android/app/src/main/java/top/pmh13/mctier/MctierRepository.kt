@@ -1277,6 +1277,16 @@ class MctierRepository(private val context: Context) {
         _state.update { it.copy(favorites = list) }
     }
 
+    /** 使用某收藏时记一次（次数+1、更新时间），用于按最近使用排序 */
+    fun touchFavorite(name: String, password: String) {
+        val now = System.currentTimeMillis()
+        val list = _state.value.favorites.map {
+            if (it.name == name && it.password == password) it.copy(useCount = it.useCount + 1, lastUsedAt = now) else it
+        }
+        saveFavorites(list)
+        _state.update { it.copy(favorites = list) }
+    }
+
     fun clearRecentLobbies() {
         saveRecentLobbies(emptyList())
         _state.update { it.copy(recentLobbies = emptyList()) }
@@ -1423,7 +1433,21 @@ class MctierRepository(private val context: Context) {
             putLong("stats_lastOnline", now)
             putLong("stats_sessionStart", 0L)
         }
+        // 记录一场开黑（时长 >= 30 秒才算有效，最多保留 50 场）
+        if (dur >= 30000) {
+            val rec = top.pmh13.mctier.data.SessionRecord(start, dur, isHost)
+            val list = (listOf(rec) + getSessions()).take(50)
+            runCatching {
+                prefs.edit { putString("stats_sessions", MctierJson.encodeToString(ListSerializer(top.pmh13.mctier.data.SessionRecord.serializer()), list)) }
+            }
+        }
     }
+
+    /** 读取开黑记录（最新在前） */
+    fun getSessions(): List<top.pmh13.mctier.data.SessionRecord> = runCatching {
+        val raw = prefs.getString("stats_sessions", null) ?: return emptyList()
+        MctierJson.decodeFromString(ListSerializer(top.pmh13.mctier.data.SessionRecord.serializer()), raw)
+    }.getOrNull().orEmpty()
 
     fun getStats(): top.pmh13.mctier.data.LocalStats {
         val total = prefs.getLong("stats_total", 0L)
@@ -1457,6 +1481,7 @@ class MctierRepository(private val context: Context) {
             remove("stats_total"); remove("stats_joinCount"); remove("stats_hostCount")
             remove("stats_memberCount"); remove("stats_maxSession"); remove("stats_firstUse")
             remove("stats_lastOnline"); remove("stats_sessionStart")
+            remove("stats_sessions")
             (0..3).forEach { remove("stats_bucket_$it") }
         }
         clearRecentPlayers()
