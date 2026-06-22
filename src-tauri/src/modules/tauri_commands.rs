@@ -3711,7 +3711,7 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = existing.set_ignore_cursor_events(true);
         return Ok(());
     }
-    let window = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html?gamehud=true".into()))
+    let mut builder = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html?gamehud=true".into()))
         .title("MCTier HUD")
         .decorations(false)
         .transparent(true)
@@ -3721,7 +3721,15 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         .resizable(false)
         .focused(false)
         .visible(false)
-        .inner_size(360.0, 360.0)
+        .inner_size(600.0, 600.0);
+    // 设为主窗口的子(owner)窗口：主程序进程结束时，HUD 窗口由系统随父窗口一并立即销毁，
+    // 避免主程序被杀后 HUD 还残留几秒。
+    if let Some(main_win) = app.get_webview_window("main") {
+        builder = builder
+            .parent(&main_win)
+            .map_err(|e| format!("设置HUD父窗口失败: {}", e))?;
+    }
+    let window = builder
         .build()
         .map_err(|e| format!("创建HUD窗口失败: {}", e))?;
     // 定位到主屏右上角
@@ -3729,7 +3737,7 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         let size = monitor.size();
         let pos = monitor.position();
         let scale = monitor.scale_factor();
-        let w = (360.0 * scale) as i32;
+        let w = (600.0 * scale) as i32;
         let x = pos.x + size.width as i32 - w - (24.0 * scale) as i32;
         let y = pos.y + (60.0 * scale) as i32;
         let _ = window.set_position(tauri::PhysicalPosition::new(x.max(pos.x), y));

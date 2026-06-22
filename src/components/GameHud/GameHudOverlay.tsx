@@ -20,6 +20,7 @@ interface HudPeer {
 interface HudPayload {
   peers: HudPeer[];
   opacity?: number;
+  scale?: number;
 }
 
 /**
@@ -29,6 +30,7 @@ interface HudPayload {
 export const GameHudOverlay: React.FC = () => {
   const [peers, setPeers] = useState<HudPeer[]>([]);
   const [opacity, setOpacity] = useState<number>(0.85);
+  const [scale, setScale] = useState<number>(1.0);
   const [, setLangTick] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef<boolean>(true);
@@ -49,11 +51,13 @@ export const GameHudOverlay: React.FC = () => {
     listen<HudPayload>('hud-update', (e) => {
       if (e.payload && Array.isArray(e.payload.peers)) setPeers(e.payload.peers);
       if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
+      if (e.payload && typeof e.payload.scale === 'number') setScale(e.payload.scale);
     }).then((fn) => { un = fn; });
-    // 透明度实时变更（设置界面拖动滑块时）
+    // 透明度/尺寸实时变更（设置界面拖动滑块时）
     let unCfg: (() => void) | undefined;
-    listen<{ opacity?: number }>('hud-config', (e) => {
+    listen<{ opacity?: number; scale?: number }>('hud-config', (e) => {
       if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
+      if (e.payload && typeof e.payload.scale === 'number') setScale(e.payload.scale);
     }).then((fn) => { unCfg = fn; });
     let unLang: (() => void) | undefined;
     listen<string>('mctier-lang-changed', (e) => {
@@ -120,7 +124,7 @@ export const GameHudOverlay: React.FC = () => {
   };
 
   return (
-    <div className="hud-root" ref={cardRef} style={{ pointerEvents: 'auto', opacity }} onMouseDown={onDragStart}>
+    <div className="hud-root" ref={cardRef} style={{ pointerEvents: 'auto', opacity, transform: `scale(${scale})`, transformOrigin: 'top right' }} onMouseDown={onDragStart}>
       <div className="hud-title">MCTier · {tl('大厅状态（可拖动）', 'Lobby (drag to move)')}</div>
       {peers.length === 0 ? (
         <div className="hud-empty">{tl('暂无队友数据', 'No teammates yet')}</div>

@@ -6,11 +6,8 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -31,6 +28,7 @@ object GameHudOverlay {
     @Volatile var enabled = false
     @Volatile var opacity = 0.85f
     @Volatile var scale = 1f
+    @Volatile var movable = false // 是否处于"调整位置"模式（可触摸拖动）；否则完全穿透不挡操作
     private var wm: WindowManager? = null
     private var container: LinearLayout? = null
     private var appCtx: Context? = null
@@ -44,13 +42,29 @@ object GameHudOverlay {
     fun hasPermission(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(ctx)
 
+    /** HUD 浮层窗口当前是否已显示 */
+    fun hasContainer(): Boolean = container != null
+
+    /** 窗口触摸标志：非调整模式下加 FLAG_NOT_TOUCHABLE 让触摸完全穿透到背后应用 */
+    private fun windowFlags(movableMode: Boolean): Int {
+        var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        if (!movableMode) f = f or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        return f
+    }
+
     /** 根据当前 opacity 生成卡片背景（alpha 跟随用户设置，ds=已含缩放的密度） */
     private fun bgDrawable(ds: Float): GradientDrawable {
         val a = (opacity.coerceIn(0.2f, 1f) * 255f).toInt()
         return GradientDrawable().apply {
             cornerRadius = 14f * ds
             setColor(Color.argb(a, 16, 18, 24))
-            setStroke((1f * ds).toInt().coerceAtLeast(1), Color.argb((a * 0.38f).toInt(), 124, 207, 0))
+            // 调整位置模式下用更亮更粗的绿色描边提示"可拖动"
+            if (movable) {
+                setStroke((2f * ds).toInt().coerceAtLeast(2), Color.argb(255, 124, 207, 0))
+            } else {
+                setStroke((1f * ds).toInt().coerceAtLeast(1), Color.argb((a * 0.38f).toInt(), 124, 207, 0))
+            }
         }
     }
 
@@ -92,14 +106,13 @@ object GameHudOverlay {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-        // 注意：不再使用 FLAG_NOT_TOUCHABLE —— 需要接收触摸以支持长按拖动。
-        // 窗口为 WRAP_CONTENT，仅卡片本身大小，卡片以外区域触摸仍穿透给游戏。
+        // 默认 FLAG_NOT_TOUCHABLE：触摸完全穿透给背后应用，单击不会被 HUD 拦截。
+        // 仅当进入"调整位置"模式(movable)时才接收触摸以拖动。窗口为 WRAP_CONTENT(仅卡片大小)。
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            windowFlags(movable),
             PixelFormat.TRANSLUCENT,
         )
         params.gravity = Gravity.TOP or Gravity.START
@@ -117,38 +130,35 @@ object GameHudOverlay {
         renderRows(emptyList())
     }
 
-    /** 长按进入拖动模式，移动手指即可把 HUD 拖到任意位置，松手记忆位置 */
+    /**
+     * 调整位置模式下的触摸处理：
+     * - 按住拖动 → 移动 HUD，松手记忆位置；
+     * - 轻点（未移动）→ 退出调整模式并锁定回穿透，方便用户定位完成后立刻恢复"不挡操作"。
+     * 非调整模式下窗口带 FLAG_NOT_TOUCHABLE，本监听不会触发，触摸直接穿透。
+     */
     private fun attachDrag(root: View, params: WindowManager.LayoutParams) {
         val ctx = appCtx ?: return
         val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
-        val handler = Handler(Looper.getMainLooper())
         var startX = 0
         var startY = 0
         var startRawX = 0f
         var startRawY = 0f
-        var dragging = false
-        var longPress: Runnable? = null
+        var moved = false
         root.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = params.x; startY = params.y
                     startRawX = e.rawX; startRawY = e.rawY
-                    dragging = false
-                    longPress = Runnable {
-                        dragging = true
-                        runCatching { v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
-                    }
-                    handler.postDelayed(longPress!!, 250)
+                    moved = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - startRawX
                     val dy = e.rawY - startRawY
-                    if (!dragging && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) {
-                        // 长按未触发前就滑动 → 取消长按（不进入拖动，避免误触）
-                        longPress?.let { handler.removeCallbacks(it) }
+                    if (!moved && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) {
+                        moved = true
                     }
-                    if (dragging) {
+                    if (moved) {
                         params.x = (startX + dx).toInt()
                         params.y = (startY + dy).toInt()
                         runCatching { wm?.updateViewLayout(v, params) }
@@ -156,18 +166,33 @@ object GameHudOverlay {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    longPress?.let { handler.removeCallbacks(it) }
-                    if (dragging) {
+                    if (moved) {
                         runCatching {
                             ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
                                 .putInt(KEY_X, params.x).putInt(KEY_Y, params.y).apply()
                         }
+                    } else if (e.actionMasked == MotionEvent.ACTION_UP) {
+                        // 轻点未拖动：定位完成，锁定回穿透模式
+                        setMovableMode(false)
                     }
-                    dragging = false
+                    moved = false
                     true
                 }
                 else -> false
             }
+        }
+    }
+
+    /** 进入/退出"调整位置"模式。调整模式下 HUD 可拖动且高亮提示，非调整模式完全穿透不挡操作。 */
+    fun setMovableMode(enable: Boolean) {
+        movable = enable
+        val c = container ?: return
+        val params = lp ?: return
+        c.post {
+            params.flags = windowFlags(movable)
+            runCatching { wm?.updateViewLayout(c, params) }
+            applyContainerMetrics()
+            renderRows(lastRows)
         }
     }
 
@@ -178,6 +203,7 @@ object GameHudOverlay {
         container = null
         wm = null
         lp = null
+        movable = false
     }
 
     /** 更新 HUD 行（在主线程执行） */
@@ -201,6 +227,15 @@ object GameHudOverlay {
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, 0, 0, (6 * ds).toInt())
         })
+        // 调整位置模式提示
+        if (movable) {
+            c.addView(TextView(ctx).apply {
+                text = L("拖动到合适位置，轻点锁定", "Drag to position, tap to lock")
+                setTextColor(Color.parseColor("#FFD24A"))
+                textSize = 10f * scale
+                setPadding(0, 0, 0, (6 * ds).toInt())
+            })
+        }
         if (rows.isEmpty()) {
             c.addView(TextView(ctx).apply {
                 text = L("暂无队友数据", "No teammates yet")

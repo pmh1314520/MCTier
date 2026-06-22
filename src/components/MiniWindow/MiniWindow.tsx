@@ -288,7 +288,7 @@ export const MiniWindow: React.FC = () => {
       });
       // 自己排在最前
       peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
-      if (!stopped) await emitTo('gamehud', 'hud-update', { peers, opacity: gameHudService.getOpacity() }).catch(() => {});
+      if (!stopped) await emitTo('gamehud', 'hud-update', { peers, opacity: gameHudService.getOpacity(), scale: gameHudService.getScale() }).catch(() => {});
     };
 
     void measure();
