@@ -3415,7 +3415,6 @@ private fun VoiceAuditionButton(settings: UserSettings) {
 
 @Composable
 private fun HudSettingsSection(settings: UserSettings, onChange: (UserSettings) -> Unit) {
-    val ctx = LocalContext.current
     Text(L("游戏内 HUD 浮层", "In-game HUD"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
     Spacer(Modifier.height(4.dp))
     Text(
@@ -3443,22 +3442,7 @@ private fun HudSettingsSection(settings: UserSettings, onChange: (UserSettings) 
         valueRange = 0.7f..1.6f,
         colors = SliderDefaults.colors(thumbColor = GrassGreen, activeTrackColor = GrassGreen),
     )
-    Spacer(Modifier.height(10.dp))
-    // 调整位置：HUD 平时完全穿透不挡操作，点此进入可拖动模式定位
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GrassGreen.copy(alpha = 0.16f))
-            .clickable {
-                if (!GameHudOverlay.enabled || !GameHudOverlay.hasContainer()) {
-                    android.widget.Toast.makeText(ctx, L("请先在「房间工具 - 联机」中开启游戏内 HUD", "Enable the in-game HUD in Room Tools - Networking first"), android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    GameHudOverlay.setMovableMode(true)
-                    android.widget.Toast.makeText(ctx, L("拖动 HUD 到合适位置，轻点 HUD 即可锁定", "Drag the HUD to position, then tap it to lock"), android.widget.Toast.LENGTH_LONG).show()
-                }
-            }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(L("调整 HUD 浮层位置", "Adjust HUD Position"), color = GrassGreen, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-    Text(L("提示：HUD 平时完全穿透不挡操作；需要移动时点上方按钮进入可拖动模式。", "Tip: the HUD is click-through by default; tap the button above to enter drag mode when you want to move it."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
+    Text(L("提示：HUD 平时完全穿透，不会挡住你对背后应用 / 系统界面的任何点击；拖动 HUD 左上角的绿色小手柄即可移动位置。", "Tip: the HUD is fully click-through and never blocks taps on apps/system UI behind it; drag the small green handle at its top-left corner to move it."), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
 }
 
 @Composable
