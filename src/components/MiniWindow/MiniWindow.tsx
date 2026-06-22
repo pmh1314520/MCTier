@@ -24,6 +24,7 @@ import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
 import { GameQuickConnectModal } from '../GameQuickConnect/GameQuickConnectModal';
+import { ConnectionDiagnosticModal } from '../ConnectionDiagnostic/ConnectionDiagnosticModal';
 import { RoomTools } from '../RoomTools/RoomTools';
 import { HostPanel } from '../HostPanel/HostPanel';
 import { RemoteControl } from '../RemoteControl/RemoteControl';
@@ -202,6 +203,7 @@ export const MiniWindow: React.FC = () => {
   const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
   const [showGameConnect, setShowGameConnect] = useState(false); // 游戏快连弹窗
   const [hudOn, setHudOn] = useState<boolean>(() => localStorage.getItem('mctier_game_hud') === '1'); // 游戏内HUD浮层
+  const [showDiagnostic, setShowDiagnostic] = useState(false); // 连接诊断弹窗
 
   // 游戏内 HUD：开启时打开浮层窗并周期推送队友延迟/丢包/说话状态；关闭时关窗
   useEffect(() => {
@@ -212,6 +214,7 @@ export const MiniWindow: React.FC = () => {
     void invoke('open_game_hud_window').catch(() => {});
     let stopped = false;
     let busy = false;
+    const prevBytes = new Map<string, { rx: number; tx: number; t: number }>();
     const pushOnce = async () => {
       if (busy) return; // 防重入：上一次延迟测量未完成则跳过
       busy = true;
@@ -219,21 +222,47 @@ export const MiniWindow: React.FC = () => {
         const st = useAppStore.getState();
         const selfId = st.currentPlayerId;
         const speaking = st.speakingPlayers;
+        const muted = st.mutedPlayers;
         const peerIps = st.players.filter((p) => p.virtualIp && p.id !== selfId).map((p) => p.virtualIp as string);
         let latMap: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+        let connMap: Record<string, { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }> = {};
+        const tasks: Promise<void>[] = [];
         if (peerIps.length > 0) {
-          const lat = await invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>('measure_peers_latency', { peerIps });
-          lat.forEach((l) => { latMap[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate }; });
+          tasks.push(invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>('measure_peers_latency', { peerIps })
+            .then((lat) => { lat.forEach((l) => { latMap[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate }; }); }).catch(() => {}));
         }
+        tasks.push(invoke<{ ip: string; connType: string; latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }[]>('get_peer_connection_types')
+          .then((cs) => { cs.forEach((c) => { connMap[c.ip] = c; }); }).catch(() => {}));
+        await Promise.all(tasks);
+        const now = Date.now();
         const peers = st.players.map((p) => {
           const self = p.id === selfId;
-          const m = p.virtualIp ? latMap[p.virtualIp] : undefined;
+          const ip = p.virtualIp || '';
+          const c = connMap[ip];
+          const m = latMap[ip];
+          // 上下行速率（KB/s）：用 EasyTier 累计字节做差分
+          let down = 0, up = 0;
+          if (!self && c && (c.rxBytes != null || c.txBytes != null)) {
+            const prev = prevBytes.get(ip);
+            if (prev && now > prev.t) {
+              const dt = (now - prev.t) / 1000;
+              down = Math.max(0, Math.round(((c.rxBytes || 0) - prev.rx) / dt / 1024));
+              up = Math.max(0, Math.round(((c.txBytes || 0) - prev.tx) / dt / 1024));
+            }
+            prevBytes.set(ip, { rx: c.rxBytes || 0, tx: c.txBytes || 0, t: now });
+          }
+          const ping = self ? null : ((c && c.latencyMs != null) ? c.latencyMs : (m ? m.latencyMs : null));
+          const loss = self ? 0 : ((c && c.lossRate != null) ? c.lossRate : (m ? m.lossRate : 0));
           return {
+            playerId: p.id,
             name: p.name,
             self,
             speaking: speaking.has(p.id),
-            ping: self ? null : (m ? m.latencyMs : null),
-            loss: self ? 0 : (m ? m.lossRate : 0),
+            muted: muted.has(p.id),
+            ping,
+            loss,
+            down,
+            up,
           };
         });
         // 自己排在最前
@@ -247,6 +276,24 @@ export const MiniWindow: React.FC = () => {
     return () => { stopped = true; window.clearInterval(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hudOn]);
+
+  // 监听 HUD 浮层发来的操作（静音/调音量），应用到语音
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    void listen<{ action: string; playerId: string }>('hud-action', (e) => {
+      const { action, playerId } = e.payload || ({} as any);
+      if (!playerId) return;
+      const st = useAppStore.getState();
+      if (action === 'toggle-mute') {
+        st.togglePlayerMute(playerId);
+      } else if (action === 'vol-up') {
+        st.setPlayerVolume(playerId, Math.min(1, (st.getPlayerVolume(playerId) ?? 1) + 0.1));
+      } else if (action === 'vol-down') {
+        st.setPlayerVolume(playerId, Math.max(0, (st.getPlayerVolume(playerId) ?? 1) - 0.1));
+      }
+    }).then((fn) => { un = fn; });
+    return () => { if (un) un(); };
+  }, []);
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
@@ -1538,6 +1585,17 @@ Password: ${lobby.password || ''}
                         </svg>
                       </motion.button>
                       <motion.button
+                        className="lobby-card-action-btn"
+                        onClick={() => setShowDiagnostic(true)}
+                        title={tl('连接诊断（直连/中继、延迟、优化建议）', 'Connection diagnostics (P2P/relay, latency, suggestions)')}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                        </svg>
+                      </motion.button>
+                      <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
                         title={tl('复制大厅信息', 'Copy Lobby Info')}
@@ -2041,6 +2099,12 @@ Password: ${lobby.password || ''}
       <GameQuickConnectModal
         visible={showGameConnect}
         onClose={() => setShowGameConnect(false)}
+      />
+
+      {/* 连接诊断弹窗 */}
+      <ConnectionDiagnosticModal
+        visible={showDiagnostic}
+        onClose={() => setShowDiagnostic(false)}
       />
 
       {/* 房间小工具弹窗 */}

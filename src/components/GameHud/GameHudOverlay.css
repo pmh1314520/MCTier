@@ -4,8 +4,8 @@
   top: 0;
   right: 0;
   margin: 8px;
-  min-width: 200px;
-  max-width: 264px;
+  min-width: 240px;
+  max-width: 340px;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(16, 18, 24, 0.78);
@@ -64,4 +64,33 @@
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.hud-rate {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9ad1ff;
+  white-space: nowrap;
+}
+
+.hud-btn {
+  font-size: 11px;
+  line-height: 1;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hud-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.hud-btn.on {
+  background: rgba(255, 90, 90, 0.7);
 }

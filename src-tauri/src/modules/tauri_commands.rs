@@ -814,6 +814,18 @@ pub struct PeerConnType {
     pub ip: String,
     #[serde(rename = "connType")]
     pub conn_type: String,
+    /// 链路延迟（毫秒，来自 EasyTier 自身统计），None 表示未知
+    #[serde(rename = "latencyMs", skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    /// 累计接收字节（用于上层计算下行速率）
+    #[serde(rename = "rxBytes", skip_serializing_if = "Option::is_none")]
+    pub rx_bytes: Option<u64>,
+    /// 累计发送字节（用于上层计算上行速率）
+    #[serde(rename = "txBytes", skip_serializing_if = "Option::is_none")]
+    pub tx_bytes: Option<u64>,
+    /// 丢包率（百分比 0~100），None 表示未知
+    #[serde(rename = "lossRate", skip_serializing_if = "Option::is_none")]
+    pub loss_rate: Option<u8>,
 }
 
 /// 查询大厅内各对等节点的连接类型（P2P 直连 / 中继）。
@@ -868,7 +880,26 @@ pub async fn get_peer_connection_types(
                 if let (false, Some(cost)) = (ip.is_empty(), cost) {
                     if !cost.eq_ignore_ascii_case("local") {
                         let conn = if cost.eq_ignore_ascii_case("p2p") { "p2p" } else { "relay" };
-                        out.push(PeerConnType { ip: ip.to_string(), conn_type: conn.to_string() });
+                        // 从 stats 提取延迟/收发字节/丢包（字段名兼容大小写差异）
+                        let stats = map.get("stats");
+                        let latency_ms = stats
+                            .and_then(|s| s.get("latency_us"))
+                            .and_then(|v| v.as_u64())
+                            .map(|us| us / 1000);
+                        let rx_bytes = stats.and_then(|s| s.get("rx_bytes")).and_then(|v| v.as_u64());
+                        let tx_bytes = stats.and_then(|s| s.get("tx_bytes")).and_then(|v| v.as_u64());
+                        let loss_rate = map
+                            .get("loss_rate")
+                            .and_then(|v| v.as_f64())
+                            .map(|f| ((f.clamp(0.0, 1.0)) * 100.0).round() as u8);
+                        out.push(PeerConnType {
+                            ip: ip.to_string(),
+                            conn_type: conn.to_string(),
+                            latency_ms,
+                            rx_bytes,
+                            tx_bytes,
+                            loss_rate,
+                        });
                     }
                 }
                 // 继续向下遍历（多实例结构里 peer 列表可能在子字段）
@@ -3690,7 +3721,7 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         .resizable(false)
         .focused(false)
         .visible(false)
-        .inner_size(280.0, 360.0)
+        .inner_size(360.0, 360.0)
         .build()
         .map_err(|e| format!("创建HUD窗口失败: {}", e))?;
     // 定位到主屏右上角
@@ -3698,7 +3729,7 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         let size = monitor.size();
         let pos = monitor.position();
         let scale = monitor.scale_factor();
-        let w = (280.0 * scale) as i32;
+        let w = (360.0 * scale) as i32;
         let x = pos.x + size.width as i32 - w - (24.0 * scale) as i32;
         let y = pos.y + (60.0 * scale) as i32;
         let _ = window.set_position(tauri::PhysicalPosition::new(x.max(pos.x), y));

@@ -1,16 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { tl } from '../../i18n';
 import './GameHudOverlay.css';
 
 interface HudPeer {
+  playerId: string;
   name: string;
   ping: number | null; // ms，null=不可达
   loss: number;        // 丢包率 0~100
   speaking: boolean;
   self: boolean;
+  muted?: boolean;
+  down?: number; // 下行 KB/s
+  up?: number;   // 上行 KB/s
 }
 
 interface HudPayload {
@@ -89,6 +93,10 @@ export const GameHudOverlay: React.FC = () => {
     void getCurrentWindow().startDragging().catch(() => {});
   };
 
+  const sendAction = (action: string, playerId: string) => {
+    void emit('hud-action', { action, playerId }).catch(() => {});
+  };
+
   const pingColor = (p: number | null) => {
     if (p == null) return '#ff5a5a';
     if (p < 80) return '#7ccf00';
@@ -103,15 +111,25 @@ export const GameHudOverlay: React.FC = () => {
         <div className="hud-empty">{tl('暂无队友数据', 'No teammates yet')}</div>
       ) : (
         peers.map((p, i) => (
-          <div className="hud-row" key={i}>
+          <div className="hud-row" key={i} onMouseDown={(e) => e.stopPropagation()}>
             <span className={`hud-dot${p.speaking ? ' speaking' : ''}`} />
             <span className="hud-name">{p.name}{p.self ? tl('（我）', ' (me)') : ''}</span>
             {p.self ? (
               <span className="hud-ping" style={{ color: '#9aa0a6' }}>—</span>
             ) : (
-              <span className="hud-ping" style={{ color: pingColor(p.ping) }}>
-                {p.ping == null ? tl('离线', 'off') : `${p.ping}ms`}{p.loss > 0 && p.ping != null ? ` · ${p.loss}%` : ''}
-              </span>
+              <>
+                {(p.down || p.up) ? (
+                  <span className="hud-rate">↓{p.down || 0} ↑{p.up || 0}</span>
+                ) : null}
+                <span className="hud-ping" style={{ color: pingColor(p.ping) }}>
+                  {p.ping == null ? tl('离线', 'off') : `${p.ping}ms`}{p.loss > 0 && p.ping != null ? ` · ${p.loss}%` : ''}
+                </span>
+                <button className={`hud-btn${p.muted ? ' on' : ''}`} title={p.muted ? tl('取消静音', 'Unmute') : tl('静音', 'Mute')} onClick={() => sendAction('toggle-mute', p.playerId)}>
+                  {p.muted ? '🔇' : '🔊'}
+                </button>
+                <button className="hud-btn" title={tl('调小音量', 'Volume down')} onClick={() => sendAction('vol-down', p.playerId)}>−</button>
+                <button className="hud-btn" title={tl('调大音量', 'Volume up')} onClick={() => sendAction('vol-up', p.playerId)}>+</button>
+              </>
             )}
           </div>
         ))

@@ -12,6 +12,10 @@ export interface FavoriteLobby {
   playerName?: string;
   useDomain?: boolean;
   createdAt: number;
+  /** 使用次数（每次一键填入/加入 +1） */
+  useCount?: number;
+  /** 上次使用时间戳 */
+  lastUsedAt?: number;
 }
 
 interface FavoriteLobbyManagerProps {
@@ -117,11 +121,37 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
     message.success(tl('删除成功', 'Deleted'));
   };
 
-  // 选择常用大厅
+  // 选择常用大厅（记录使用次数与时间，便于按最近使用排序）
   const handleSelectFavorite = (lobby: FavoriteLobby) => {
+    const updated = favorites.map(fav =>
+      fav.id === lobby.id
+        ? { ...fav, useCount: (fav.useCount ?? 0) + 1, lastUsedAt: Date.now() }
+        : fav
+    );
+    saveFavorites(updated);
     onSelect(lobby);
     onClose();
     message.success(tl('已填入大厅信息', 'Lobby info filled'));
+  };
+
+  // 展示排序：最近使用优先，其次按创建时间
+  const sortedFavorites = [...favorites].sort((a, b) => {
+    const la = a.lastUsedAt ?? 0;
+    const lb = b.lastUsedAt ?? 0;
+    if (lb !== la) return lb - la;
+    return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  });
+
+  const fmtLastUsed = (ts?: number): string => {
+    if (!ts) return tl('从未使用', 'Never used');
+    const diff = Date.now() - ts;
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return tl('刚刚使用', 'Just now');
+    if (min < 60) return tl(`${min} 分钟前`, `${min}m ago`);
+    const h = Math.floor(min / 60);
+    if (h < 24) return tl(`${h} 小时前`, `${h}h ago`);
+    const d = Math.floor(h / 24);
+    return tl(`${d} 天前`, `${d}d ago`);
   };
 
   // 开始编辑
@@ -309,7 +339,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
           </div>
         ) : (
           <div className="favorites-list">
-            {favorites.map((item) => (
+            {sortedFavorites.map((item) => (
               <div
                 key={item.id}
                 className="favorite-card"
@@ -331,6 +361,10 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                       </svg>
                       <span>{item.password.replace(/./g, '●')}</span>
+                    </div>
+                    <div className="favorite-card-meta" style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4, display: 'flex', gap: 12 }}>
+                      <span>{tl('使用', 'Used')} {item.useCount ?? 0} {tl('次', 'x')}</span>
+                      <span>{fmtLastUsed(item.lastUsedAt)}</span>
                     </div>
                   </div>
                   <div className="favorite-card-actions" onClick={(e) => e.stopPropagation()}>
