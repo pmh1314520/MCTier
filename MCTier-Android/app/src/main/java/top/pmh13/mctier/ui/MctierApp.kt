@@ -1266,11 +1266,29 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
     var showWorlds by remember { mutableStateOf(false) }
     var showQuickConnect by remember { mutableStateOf(false) }
     var showDiagnostic by remember { mutableStateOf(false) }
+    var hudOn by remember { mutableStateOf(GameHudOverlay.enabled) }
     val lobby = state.lobby
     LaunchedEffect(lobby?.name, lobby?.password) {
         showQr = false
     }
     val ipText = (if (lobby?.useDomain == true) lobby.virtualDomain else lobby?.virtualIp).orEmpty().ifBlank { L("获取中...", "Loading...") }
+
+    // 游戏内 HUD：开启时显示悬浮层并周期推送队友延迟/说话状态；关闭时移除
+    LaunchedEffect(hudOn) {
+        if (!hudOn) { GameHudOverlay.hide(); return@LaunchedEffect }
+        GameHudOverlay.show(ctx)
+        while (hudOn) {
+            val st = repository.state.value
+            val selfId = st.playerId
+            val rows = st.players.map { p ->
+                val ip = p.virtualIp
+                val lat = if (p.id == selfId || ip.isNullOrBlank()) null else top.pmh13.mctier.ui.probeLatency(ip)
+                GameHudOverlay.HudRow(p.name, lat, p.speaking, p.id == selfId)
+            }.sortedByDescending { it.self }
+            GameHudOverlay.update(rows)
+            kotlinx.coroutines.delay(4000)
+        }
+    }
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(lobby?.name.orEmpty(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -1279,6 +1297,20 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
             CircleIconButton(Icons.Rounded.Link, L("游戏快连", "Game Quick-Connect")) { showQuickConnect = true }
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.Wifi, L("连接诊断", "Diagnostics")) { showDiagnostic = true }
+            Spacer(Modifier.width(6.dp))
+            CircleIconButton(
+                if (hudOn) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                L("游戏内HUD浮层", "In-game HUD"),
+                tint = if (hudOn) GrassGreen else TextPrimary.copy(alpha = 0.7f),
+            ) {
+                if (!hudOn && !GameHudOverlay.hasPermission(ctx)) {
+                    android.widget.Toast.makeText(ctx, L("请先授予悬浮窗权限", "Please grant overlay permission first"), android.widget.Toast.LENGTH_SHORT).show()
+                    runCatching { ctx.startActivity(GameHudOverlay.requestPermissionIntent(ctx)) }
+                } else {
+                    hudOn = !hudOn
+                    GameHudOverlay.enabled = hudOn
+                }
+            }
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.QrCode2, L("大厅二维码", "Lobby QR Code")) { if (lobby != null) showQr = true }
             Spacer(Modifier.width(6.dp))

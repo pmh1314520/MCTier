@@ -136,7 +136,7 @@ fun GameQuickConnectDialog(state: MctierUiState, onDismiss: () -> Unit) {
 private data class DiagRow(val name: String, val latency: Long?, val loss: Int)
 
 /** 探测到某虚拟IP的延迟（连 14540 聊天端口估算 RTT），返回毫秒；null=不可达 */
-private suspend fun probeLatency(ip: String): Long? = withContext(Dispatchers.IO) {
+internal suspend fun probeLatency(ip: String): Long? = withContext(Dispatchers.IO) {
     var ok = 0L
     var got = false
     runCatching {
