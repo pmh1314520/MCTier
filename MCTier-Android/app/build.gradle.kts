@@ -13,8 +13,8 @@ android {
         applicationId = "top.pmh13.mctier"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "2.2.2-android"
+        versionCode = 11
+        versionName = "2.2.8-android"
     }
 
     buildTypes {

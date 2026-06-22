@@ -6,8 +6,6 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -25,10 +23,9 @@ import android.widget.TextView
  * 交互：
  * - 窗口为 WRAP_CONTENT（仅卡片大小），卡片以外的所有区域触摸都照常穿透给背后的
  *   任意应用 / 桌面 / 系统界面，不受影响。
- * - 长按卡片任意位置即可拖动整张 HUD 到任意位置，松手记忆位置（带轻微震动反馈）。
- * - 注意：要支持"长按拖动"，卡片本身必须可接收触摸，因此卡片那一小块区域的点击
- *   不会穿透（这是 Android 悬浮窗的硬限制：同一区域无法既穿透又响应长按）。卡片很小，
- *   仅占屏幕一角，其余区域完全不挡。
+ * - 直接按住卡片拖动即可移动整张 HUD（无需长按），松手记忆位置（带轻微震动反馈）。
+ * - 注意：要支持拖动，卡片本身必须可接收触摸，因此卡片那一小块区域的触摸不会穿透
+ *   （这是 Android 悬浮窗的硬限制）。卡片很小，仅占屏幕一角，其余区域完全不挡。
  * - 透明度、整体尺寸（等比缩放）可在设置中调整。
  */
 object GameHudOverlay {
@@ -131,36 +128,30 @@ object GameHudOverlay {
         renderRows(emptyList())
     }
 
-    /** 长按卡片进入拖动，移动手指即可把 HUD 拖到任意位置，松手记忆位置 */
+    /** 直接按住卡片并拖动即可移动 HUD（无需长按），松手记忆位置 */
     private fun attachDrag(root: View, params: WindowManager.LayoutParams) {
         val ctx = appCtx ?: return
         val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
-        val handler = Handler(Looper.getMainLooper())
         var startX = 0
         var startY = 0
         var startRawX = 0f
         var startRawY = 0f
-        var longPress: Runnable? = null
         root.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = params.x; startY = params.y
                     startRawX = e.rawX; startRawY = e.rawY
                     dragging = false
-                    longPress = Runnable {
-                        dragging = true
-                        runCatching { v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
-                        applyContainerMetrics() // 高亮边框提示进入拖动
-                    }
-                    handler.postDelayed(longPress!!, 350)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - startRawX
                     val dy = e.rawY - startRawY
                     if (!dragging && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) {
-                        // 长按未触发就滑动 → 取消长按（避免误触拖动）
-                        longPress?.let { handler.removeCallbacks(it) }
+                        // 移动超过阈值即进入拖动（无需长按等待）
+                        dragging = true
+                        runCatching { v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+                        applyContainerMetrics() // 高亮边框提示进入拖动
                     }
                     if (dragging) {
                         params.x = (startX + dx).toInt()
@@ -170,7 +161,6 @@ object GameHudOverlay {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    longPress?.let { handler.removeCallbacks(it) }
                     if (dragging) {
                         runCatching {
                             ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()

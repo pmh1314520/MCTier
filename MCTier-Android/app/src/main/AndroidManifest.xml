@@ -74,6 +74,12 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- 语音通话麦克风前台服务：保证 App 挂后台时麦克风采集不被系统切断 -->
+        <service
+            android:name=".service.VoiceForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <!-- 无障碍服务：用于"电脑远程控制手机"时注入触摸手势（需用户在系统设置中开启） -->
         <service
             android:name=".service.MctierAccessibilityService"

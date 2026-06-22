@@ -153,7 +153,23 @@ class MctierRepository(private val context: Context) {
     /** App 是否处于前台：用于弹幕判定——挂后台(玩游戏)时即使在聊天室界面也应显示弹幕 */
     @Volatile
     private var appForeground = true
-    fun setAppForeground(value: Boolean) { appForeground = value }
+    fun setAppForeground(value: Boolean) {
+        appForeground = value
+        updateMicKeepAlive()
+    }
+
+    /**
+     * 麦克风后台保活：当 App 处于后台且正在语音大厅时，显示 1×1 全透明保活悬浮窗，
+     * 让系统持续允许后台麦克风采集，避免切到后台数秒后语音被系统切断。
+     * 回到前台或离开大厅时移除。
+     */
+    private fun updateMicKeepAlive() {
+        val active = !appForeground && _state.value.state == AppConnectionState.InLobby
+        runCatching {
+            if (active) top.pmh13.mctier.ui.MicKeepAliveOverlay.show(appContext)
+            else top.pmh13.mctier.ui.MicKeepAliveOverlay.hide()
+        }
+    }
     var screenController: ScreenShareController? = null
         private set
     private var remoteControlController: top.pmh13.mctier.network.RemoteControlController? = null
@@ -394,6 +410,9 @@ class MctierRepository(private val context: Context) {
                     }
                 }
                 rtcController.initialize(current.playerId) { signalingClient.send(it) }
+                // 启动麦克风前台服务：保证挂后台时系统不切断麦克风采集（此时处于前台且已持有
+                // RECORD_AUDIO 权限，满足 Android 14 启动 microphone 前台服务的要求）
+                top.pmh13.mctier.service.VoiceForegroundService.start(appContext)
                 signalingClient.connect(
                     ConnectArgs(
                         url = lobby.signalingServer,
@@ -434,6 +453,8 @@ class MctierRepository(private val context: Context) {
             signalingClient.send(SignalingEnvelope(type = "leave", clientId = _state.value.playerId))
             signalingClient.close()
             rtcController.cleanup()
+            top.pmh13.mctier.service.VoiceForegroundService.stop(appContext)
+            top.pmh13.mctier.ui.MicKeepAliveOverlay.hide()
             chatClient?.stop()
             chatClient = null
             screenController?.release()
