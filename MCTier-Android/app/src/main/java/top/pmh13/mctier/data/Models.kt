@@ -3,11 +3,11 @@ package top.pmh13.mctier.data
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val DefaultEasyTierNode = "udp://us01.225284.xyz:11010"
+const val DefaultEasyTierNode = "wss://mctiers.pmhs.top"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
-const val AppClientVersion = "2.5.0"
+const val AppClientVersion = "2.6.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 
@@ -16,6 +16,11 @@ data class VersionAlert(
     val current: String,
     val minimum: String,
     val downloadUrl: String,
+)
+
+data class AvailableUpdate(
+    val version: String,
+    val releaseNotes: List<String>,
 )
 
 @Serializable
@@ -54,6 +59,7 @@ data class ChatMessage(
     val mine: Boolean = false,
     val type: String = "text", // "text" | "image"
     val imageBase64: String? = null, // data:image/jpeg;base64,... 用于显示
+    val recalled: Boolean = false,
 )
 
 @Serializable
@@ -76,6 +82,7 @@ data class ScreenShareInfo(
     val requirePassword: Boolean,
     val viewerId: String? = null,
     val viewerName: String? = null,
+    val viewerCount: Int = 0,
     val startedAt: Long = System.currentTimeMillis(),
 )
 
@@ -177,6 +184,18 @@ data class SignalingEnvelope(
     val offer: SdpPayload? = null,
     val answer: SdpPayload? = null,
     val candidate: IcePayload? = null,
+    val action: String? = null,
+    val upstreamId: String? = null,
+    val downstreamId: String? = null,
+    val routeVersion: Int? = null,
+    val sequence: Long? = null,
+    val sourceSequence: Long? = null,
+    val sentSequence: Long? = null,
+    val limited: Boolean? = null,
+    val connectionRole: String? = null,
+    val viewerId: String? = null,
+    val viewerName: String? = null,
+    val viewerCount: Int? = null,
     // 远程控制（电脑⇄手机）
     val sessionId: String? = null,
     val fromName: String? = null,
@@ -329,10 +348,10 @@ data class LocalStats(
 )
 
 val BuiltinNodes: List<BuiltinNode> = listOf(
-    BuiltinNode("MCTier 官方服务器", "udp://us01.225284.xyz:11010"),
-    BuiltinNode("海波节点", "tcp://225284.xyz:11010"),
-    BuiltinNode("唯爱节点", "tcp://easytier.weiai.org.cn:11010"),
-    BuiltinNode("明月清风节点", "wss://public.456469.xyz"),
+    BuiltinNode("青云香港节点", "wss://mctiers.pmhs.top"),
+    BuiltinNode("海波美国节点", "udp://us01.225284.xyz:11010"),
+    BuiltinNode("海波中国大陆节点", "tcp://225284.xyz:11010"),
+    BuiltinNode("唯爱厦门节点", "tcp://easytier.weiai.org.cn:11010"),
 )
 
 @Serializable

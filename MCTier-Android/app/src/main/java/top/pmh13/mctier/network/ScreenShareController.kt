@@ -3,34 +3,39 @@ package top.pmh13.mctier.network
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjection
+import android.os.Handler
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
+import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
+import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 import top.pmh13.mctier.data.IcePayload
 import top.pmh13.mctier.data.SdpPayload
 import top.pmh13.mctier.data.SignalingEnvelope
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 屏幕共享控制器（观看端 + 共享端，与桌面端互通）
- *
- * 约定：观看者创建 offer（recvonly 视频）发给共享者；共享者带屏幕视频轨 answer。
- * 信令：screen-share-offer / screen-share-answer / screen-share-ice-candidate（字段与语音同构）。
- *
- * 共享端（MediaProjection 采集）需真机验证；获取投屏前需先启动 mediaProjection 前台服务。
+ * Screen sharing uses an owner-coordinated shallow relay tree. The owner keeps
+ * two direct branches and each healthy viewer serves at most one downstream.
  */
 class ScreenShareController(
     private val context: Context,
@@ -39,20 +44,63 @@ class ScreenShareController(
 ) {
     val eglBase: EglBase = EglBase.create()
     private val factory: PeerConnectionFactory
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    // 观看端
-    private var viewerPc: PeerConnection? = null
     private var currentShareId: String? = null
-    var onRemoteVideoTrack: ((VideoTrack?) -> Unit)? = null
+    private var currentOwnerId: String? = null
+    private var currentPlayerName: String = ""
+    private var currentPassword: String? = null
+    private var currentUpstreamId: String? = null
+    private var currentRouteVersion: Int? = null
+    private var readyRouteVersion: Int? = null
+    private var remoteVideoTrack: VideoTrack? = null
+    private var pendingVideoTrack: VideoTrack? = null
+    private var remoteFrameProbe: VideoSink? = null
+    private var fallbackReadyVersion: Int? = null
+    private var remoteFrameLastAt: Long = 0L
+    private var remoteHealthCheck: Runnable? = null
+    private var pendingRouteTimeout: Runnable? = null
+    private val sourceFrameSequences = ConcurrentHashMap<String, AtomicLong>()
+    private var localFrameProbe: VideoSink? = null
+    private var upstreamHealthId: String? = null
+    private var upstreamHealthVersion: Int? = null
+    private var upstreamHealthSequence: Long = 0L
+    private var upstreamHealthAt: Long = 0L
+    private var upstreamHealthLimited: Boolean = false
+    private val inboundConnections = linkedMapOf<String, PeerConnection>()
+    private val outboundConnections = linkedMapOf<String, PeerConnection>()
+    private val outboundSenders = linkedMapOf<String, RtpSender>()
+    private val pendingIce = linkedMapOf<String, MutableList<IceCandidate>>()
+    private val expectedDownstreams = linkedMapOf<String, Int>()
+    private val pendingOffers = linkedMapOf<String, SignalingEnvelope>()
+    private var directFallback: Runnable? = null
 
-    // 共享端
+    var onRemoteVideoTrack: ((VideoTrack?) -> Unit)? = null
+        set(value) {
+            field = value
+            value?.invoke(remoteVideoTrack)
+        }
+    var onViewerCountChanged: ((String, Int) -> Unit)? = null
+
     private var screenCapturer: ScreenCapturerAndroid? = null
     private var videoSource: VideoSource? = null
     private var localVideoTrack: VideoTrack? = null
     private var surfaceHelper: SurfaceTextureHelper? = null
     private var sharingShareId: String? = null
     private var sharePassword: String? = null
-    private val sharerConnections = linkedMapOf<String, PeerConnection>()
+
+    private val viewerOrder = mutableListOf<String>()
+    private val viewerNames = linkedMapOf<String, String>()
+    private val readyViewers = linkedSetOf<String>()
+    private val assignedUpstreams = linkedMapOf<String, String>()
+    private val assignedRouteVersions = linkedMapOf<String, Int>()
+    private val pendingDetachUpstreams = linkedMapOf<String, String>()
+    private val unhealthyRelays = linkedMapOf<String, Long>()
+    private val unhealthyEdges = linkedMapOf<String, Long>()
+    private val relayFailureCounts = linkedMapOf<String, Int>()
+    private val outboundHealthChecks = linkedMapOf<String, Runnable>()
+    private var relayRecoveryCheck: Runnable? = null
+    private var routeVersion = 0
 
     val isSharing: Boolean get() = localVideoTrack != null
 
@@ -60,7 +108,6 @@ class ScreenShareController(
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(false)
-                // 同 AndroidRtcController：安卓 VPN(TUN) 下按接口名绑定 socket，保证屏幕共享能 P2P 直连
                 .setFieldTrials("WebRTC-BindUsingInterfaceName/Enabled/")
                 .createInitializationOptions(),
         )
@@ -72,137 +119,524 @@ class ScreenShareController(
             .createPeerConnectionFactory()
     }
 
-    // ========================= 观看端 =========================
     fun startViewing(shareId: String, sharerPlayerId: String, playerName: String, password: String?) {
         stopViewing(notify = false)
         currentShareId = shareId
-        val connection = factory.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
-            viewerObserver(sharerPlayerId, shareId),
-        ) ?: return
-        connection.addTransceiver(
+        currentOwnerId = sharerPlayerId
+        currentPlayerName = playerName
+        currentPassword = password?.takeIf { it.isNotBlank() }
+        sendSignal(
+            SignalingEnvelope(
+                type = "screen-share-relay", action = "join", from = localPlayerId, to = sharerPlayerId,
+                shareId = shareId, playerName = playerName, password = currentPassword,
+            ),
+        )
+
+        // Compatibility with an older owner that does not understand relay control.
+        directFallback = Runnable {
+            if (currentShareId == shareId && remoteVideoTrack == null) {
+                fallbackReadyVersion = currentRouteVersion
+                connectUpstream(shareId, sharerPlayerId, null)
+            }
+        }.also { mainHandler.postDelayed(it, 5_000) }
+    }
+
+    fun startViewingLocal(shareId: String): Boolean {
+        val track = localVideoTrack ?: return false
+        if (sharingShareId != shareId) return false
+        stopViewing(notify = false)
+        currentShareId = shareId
+        currentOwnerId = localPlayerId
+        remoteVideoTrack = track
+        onRemoteVideoTrack?.invoke(track)
+        return true
+    }
+
+    private fun connectUpstream(shareId: String, upstreamId: String, requestedVersion: Int?) {
+        if (currentShareId != shareId) return
+        if (requestedVersion == null && remoteVideoTrack != null) return
+
+        val connectionKey = peerKey(shareId, upstreamId)
+        val existing = inboundConnections[connectionKey]
+        if (currentUpstreamId == upstreamId && existing != null && currentRouteVersion == requestedVersion) {
+            if (readyRouteVersion == requestedVersion) requestedVersion?.let { notifyReady(shareId, it) }
+            return
+        }
+
+        val previousUpstream = currentUpstreamId
+        val pc = createPeerConnection(observerForInbound(shareId, upstreamId, requestedVersion, previousUpstream)) ?: return
+        inboundConnections.remove(connectionKey)?.close()
+        inboundConnections[connectionKey] = pc
+        currentUpstreamId = upstreamId
+        currentRouteVersion = requestedVersion
+        readyRouteVersion = null
+        pendingRouteTimeout?.let(mainHandler::removeCallbacks)
+        pendingRouteTimeout = Runnable {
+            if (currentShareId == shareId && currentUpstreamId == upstreamId && currentRouteVersion == requestedVersion && readyRouteVersion != requestedVersion) {
+                currentOwnerId?.let { ownerId ->
+                    sendSignal(
+                        SignalingEnvelope(
+                            type = "screen-share-relay", action = "failure", from = localPlayerId, to = ownerId,
+                            shareId = shareId, upstreamId = upstreamId, routeVersion = requestedVersion, reason = "no-frame",
+                        ),
+                    )
+                }
+            }
+        }.also { mainHandler.postDelayed(it, 6_000L) }
+        pc.addTransceiver(
             MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
             RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
         )
-        connection.createOffer(object : SimpleSdpObserver() {
+        pc.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(desc: SessionDescription) {
-                connection.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal(
-                    SignalingEnvelope(
-                        type = "screen-share-offer", from = localPlayerId, to = sharerPlayerId, shareId = shareId,
-                        playerName = playerName, password = password?.takeIf { it.isNotBlank() },
-                        offer = SdpPayload(desc.type.canonicalForm(), desc.description),
-                    ),
-                )
+                pc.setLocalDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        sendSignal(
+                            SignalingEnvelope(
+                                type = "screen-share-offer", from = localPlayerId, to = upstreamId, shareId = shareId,
+                                playerName = currentPlayerName, password = if (requestedVersion == null) currentPassword else null,
+                                routeVersion = requestedVersion, offer = SdpPayload(desc.type.canonicalForm(), desc.description),
+                            ),
+                        )
+                    }
+                }, desc)
             }
         }, MediaConstraints())
-        viewerPc = connection
     }
 
-    private fun viewerObserver(sharerPlayerId: String, shareId: String) = object : PeerConnection.Observer {
-        override fun onIceCandidate(candidate: IceCandidate) {
-            sendSignal(SignalingEnvelope(type = "screen-share-ice-candidate", from = localPlayerId, to = sharerPlayerId, shareId = shareId, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
-        }
-        override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
-        override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) = Unit
-        override fun onIceConnectionReceivingChange(b: Boolean) = Unit
-        override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
-        override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) = Unit
-        override fun onAddStream(s: org.webrtc.MediaStream) = Unit
-        override fun onRemoveStream(s: org.webrtc.MediaStream) = Unit
-        override fun onDataChannel(d: org.webrtc.DataChannel) = Unit
-        override fun onRenegotiationNeeded() = Unit
-        override fun onAddTrack(receiver: org.webrtc.RtpReceiver, streams: Array<out org.webrtc.MediaStream>) {
-            val track = receiver.track()
-            if (track is VideoTrack && track.kind() == MediaStreamTrack.VIDEO_TRACK_KIND) {
-                Log.i(TAG, "收到远端屏幕视频轨: $shareId")
-                onRemoteVideoTrack?.invoke(track)
+    private fun observerForInbound(
+        shareId: String,
+        upstreamId: String,
+        requestedVersion: Int?,
+        previousUpstream: String?,
+    ) = baseObserver(
+        onIce = { candidate ->
+            sendSignal(
+                SignalingEnvelope(
+                    type = "screen-share-ice-candidate", from = localPlayerId, to = upstreamId, shareId = shareId,
+                    connectionRole = "out", routeVersion = requestedVersion, candidate = candidate.toPayload(),
+                ),
+            )
+        },
+        onIceState = { state ->
+            if (state == PeerConnection.IceConnectionState.FAILED || state == PeerConnection.IceConnectionState.DISCONNECTED) {
+                mainHandler.postDelayed({
+                    if (currentShareId == shareId && currentUpstreamId == upstreamId && currentRouteVersion == requestedVersion) {
+                        currentOwnerId?.let { ownerId ->
+                            sendSignal(
+                                SignalingEnvelope(
+                                    type = "screen-share-relay", action = "failure", from = localPlayerId, to = ownerId,
+                                    shareId = shareId, upstreamId = upstreamId, routeVersion = requestedVersion,
+                                    reason = "connection",
+                                ),
+                            )
+                        }
+                    }
+                }, if (state == PeerConnection.IceConnectionState.FAILED) 0 else 3_500)
             }
+        },
+        onTrack = { track ->
+            if (track !is VideoTrack || currentShareId != shareId || currentUpstreamId != upstreamId || currentRouteVersion != requestedVersion) return@baseObserver
+            clearRemoteFrameProbe()
+            pendingVideoTrack = track
+            var activated = false
+            lateinit var probe: VideoSink
+            probe = VideoSink {
+                mainHandler.post {
+                    if (pendingVideoTrack !== track || currentShareId != shareId || currentUpstreamId != upstreamId || currentRouteVersion != requestedVersion) return@post
+                    remoteFrameLastAt = android.os.SystemClock.elapsedRealtime()
+                    sourceFrameSequences.computeIfAbsent(shareId) { AtomicLong(0L) }.incrementAndGet()
+                    if (!activated) {
+                        activated = true
+                        directFallback?.let(mainHandler::removeCallbacks)
+                        directFallback = null
+                        remoteVideoTrack = track
+                        val effectiveReadyVersion = requestedVersion ?: fallbackReadyVersion
+                        readyRouteVersion = effectiveReadyVersion
+                        pendingRouteTimeout?.let(mainHandler::removeCallbacks)
+                        pendingRouteTimeout = null
+                        fallbackReadyVersion = null
+                        onRemoteVideoTrack?.invoke(track)
+                        outboundSenders.filterKeys { it.startsWith("$shareId|") }.values.forEach { sender ->
+                            runCatching { sender.setTrack(track, false) }
+                        }
+                        if (previousUpstream != null && previousUpstream != upstreamId) {
+                            inboundConnections.remove(peerKey(shareId, previousUpstream))?.close()
+                        }
+                        if (requestedVersion == null && effectiveReadyVersion != null) {
+                            currentOwnerId?.let { ownerId ->
+                                sendSignal(SignalingEnvelope(type = "screen-share-relay", action = "failure", from = localPlayerId, to = ownerId, shareId = shareId, routeVersion = effectiveReadyVersion, reason = "direct-fallback"))
+                            }
+                        } else {
+                            effectiveReadyVersion?.let { notifyReady(shareId, it) }
+                        }
+                        processPendingOffers(shareId)
+                        startRemoteHealthMonitor(shareId, upstreamId, effectiveReadyVersion)
+                    }
+                }
+            }
+            remoteFrameProbe = probe
+            track.addSink(probe)
+        },
+    )
+
+    private fun clearRemoteFrameProbe() {
+        remoteHealthCheck?.let(mainHandler::removeCallbacks)
+        remoteHealthCheck = null
+        val track = pendingVideoTrack
+        val probe = remoteFrameProbe
+        if (track != null && probe != null) runCatching { track.removeSink(probe) }
+        pendingVideoTrack = null
+        remoteFrameProbe = null
+    }
+
+    private fun startRemoteHealthMonitor(shareId: String, upstreamId: String, routeVersion: Int?) {
+        remoteHealthCheck?.let(mainHandler::removeCallbacks)
+        var lastSequence = upstreamHealthSequence
+        var badChecks = 0
+        val monitorStartedAt = android.os.SystemClock.elapsedRealtime()
+        val check = object : Runnable {
+            override fun run() {
+                if (currentShareId != shareId || currentUpstreamId != upstreamId || remoteVideoTrack == null) return
+                val stalledFor = android.os.SystemClock.elapsedRealtime() - remoteFrameLastAt
+                val healthMatches = upstreamHealthId == upstreamId && (routeVersion == null || upstreamHealthVersion == null || upstreamHealthVersion == routeVersion)
+                val heartbeatAge = android.os.SystemClock.elapsedRealtime() - upstreamHealthAt
+                if (stalledFor < 4_000L) {
+                    badChecks = 0
+                } else if (healthMatches && heartbeatAge < 5_500L) {
+                    if (upstreamHealthSequence > lastSequence) badChecks++ else badChecks = 0
+                    lastSequence = maxOf(lastSequence, upstreamHealthSequence)
+                } else if (healthMatches && heartbeatAge > 9_000L) {
+                    badChecks++
+                } else if (!healthMatches && routeVersion != null && android.os.SystemClock.elapsedRealtime() - monitorStartedAt > 12_000L) {
+                    badChecks++
+                }
+                if (badChecks >= 3) {
+                    currentOwnerId?.let { ownerId ->
+                        sendSignal(
+                            SignalingEnvelope(
+                                type = "screen-share-relay", action = "failure", from = localPlayerId, to = ownerId,
+                                shareId = shareId, upstreamId = upstreamId, routeVersion = routeVersion,
+                                reason = if (upstreamHealthLimited) "bandwidth" else "stalled",
+                            ),
+                        )
+                    }
+                    return
+                }
+                mainHandler.postDelayed(this, 2_000L)
+            }
+        }
+        remoteHealthCheck = check
+        mainHandler.postDelayed(check, 2_000L)
+    }
+
+    private fun startOutboundHealthHeartbeat(shareId: String, downstreamId: String, routeVersion: Int?, connectionKey: String) {
+        stopOutboundHealthHeartbeat(connectionKey)
+        val heartbeat = object : Runnable {
+            override fun run() {
+                if (outboundConnections[connectionKey] == null) return
+                sendSignal(
+                    SignalingEnvelope(
+                        type = "screen-share-relay", action = "health", from = localPlayerId, to = downstreamId,
+                        shareId = shareId, routeVersion = routeVersion,
+                        sequence = sourceFrameSequences[shareId]?.get() ?: 0L,
+                        sourceSequence = sourceFrameSequences[shareId]?.get() ?: 0L,
+                    ),
+                )
+                mainHandler.postDelayed(this, 2_000L)
+            }
+        }
+        outboundHealthChecks[connectionKey] = heartbeat
+        mainHandler.post(heartbeat)
+    }
+
+    private fun stopOutboundHealthHeartbeat(connectionKey: String) {
+        outboundHealthChecks.remove(connectionKey)?.let(mainHandler::removeCallbacks)
+    }
+
+    private fun notifyReady(shareId: String, version: Int) {
+        currentOwnerId?.let { ownerId ->
+            sendSignal(
+                SignalingEnvelope(
+                    type = "screen-share-relay", action = "ready", from = localPlayerId, to = ownerId,
+                    shareId = shareId, routeVersion = version,
+                ),
+            )
         }
     }
 
     fun stopViewing(notify: Boolean = true) {
-        val sid = currentShareId
-        if (notify && sid != null) sendSignal(SignalingEnvelope(type = "screen-share-viewer-left", from = localPlayerId, shareId = sid))
+        val shareId = currentShareId
+        directFallback?.let(mainHandler::removeCallbacks)
+        directFallback = null
+        if (notify && shareId != null) {
+            if (currentOwnerId == localPlayerId) handleViewerLeft(shareId, localPlayerId)
+            else sendSignal(SignalingEnvelope(type = "screen-share-viewer-left", from = localPlayerId, shareId = shareId))
+        }
         onRemoteVideoTrack?.invoke(null)
-        viewerPc?.close()
-        viewerPc = null
+        clearRemoteFrameProbe()
+        pendingRouteTimeout?.let(mainHandler::removeCallbacks)
+        pendingRouteTimeout = null
+        remoteVideoTrack = null
+        if (shareId != null) {
+            outboundHealthChecks.keys.filter { it.startsWith("$shareId|") }.toList().forEach(::stopOutboundHealthHeartbeat)
+            closeConnectionsForShare(inboundConnections, shareId)
+            closeConnectionsForShare(outboundConnections, shareId)
+            outboundSenders.keys.filter { it.startsWith("$shareId|") }.forEach(outboundSenders::remove)
+            pendingIce.keys.filter { it.contains("$shareId|") }.forEach(pendingIce::remove)
+            pendingOffers.keys.filter { it.startsWith("$shareId|") }.forEach(pendingOffers::remove)
+            expectedDownstreams.keys.filter { it.startsWith("$shareId|") }.forEach(expectedDownstreams::remove)
+        }
         currentShareId = null
+        currentOwnerId = null
+        currentUpstreamId = null
+        currentRouteVersion = null
+        readyRouteVersion = null
+        fallbackReadyVersion = null
+        upstreamHealthId = null
+        upstreamHealthVersion = null
+        upstreamHealthSequence = 0L
+        upstreamHealthAt = 0L
+        upstreamHealthLimited = false
+        currentPassword = null
     }
 
-    // ========================= 共享端 =========================
-    /** 开始采集屏幕（需已获得 MediaProjection 授权数据 + 前台服务已启动） */
     fun startSharing(shareId: String, permissionData: Intent, password: String? = null) {
         sharePassword = password?.takeIf { it.isNotBlank() }
+        viewerOrder.clear()
+        viewerNames.clear()
+        readyViewers.clear()
+        assignedUpstreams.clear()
+        assignedRouteVersions.clear()
+        pendingDetachUpstreams.clear()
+        unhealthyRelays.clear()
+        unhealthyEdges.clear()
+        relayFailureCounts.clear()
+        relayRecoveryCheck?.let(mainHandler::removeCallbacks)
+        relayRecoveryCheck = null
+        routeVersion = 0
         runCatching {
             val metrics = DisplayMetrics()
             @Suppress("DEPRECATION")
             (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getMetrics(metrics)
             val width = metrics.widthPixels.coerceAtMost(1280)
             val height = metrics.heightPixels.coerceAtMost(2280)
-
             val helper = SurfaceTextureHelper.create("MCTierScreenCapture", eglBase.eglBaseContext)
             surfaceHelper = helper
-            val source = factory.createVideoSource(true) // isScreencast = true
+            val source = factory.createVideoSource(true)
             videoSource = source
             val capturer = ScreenCapturerAndroid(permissionData, object : MediaProjection.Callback() {
-                override fun onStop() { Log.i(TAG, "MediaProjection 已停止") }
+                override fun onStop() { Log.i(TAG, "MediaProjection stopped") }
             })
             screenCapturer = capturer
             capturer.initialize(helper, context, source.capturerObserver)
             capturer.startCapture(width, height, 15)
             localVideoTrack = factory.createVideoTrack("screen-$localPlayerId", source)
+            localFrameProbe?.let { probe -> localVideoTrack?.removeSink(probe) }
+            sourceFrameSequences[shareId] = AtomicLong(0L)
+            localFrameProbe = VideoSink { sourceFrameSequences.computeIfAbsent(shareId) { AtomicLong(0L) }.incrementAndGet() }.also { localVideoTrack?.addSink(it) }
             sharingShareId = shareId
-            Log.i(TAG, "屏幕采集已启动 ${width}x$height")
-        }.onFailure { Log.e(TAG, "启动屏幕采集失败: ${it.message}", it) }
+            Log.i(TAG, "Screen capture started: ${width}x$height")
+        }.onFailure { Log.e(TAG, "Failed to start screen capture: ${it.message}", it) }
     }
 
-    private fun handleViewerOffer(from: String, shareId: String, offer: SdpPayload, providedPassword: String?) {
-        // 密码校验：共享端设置了密码时，观看者必须提供正确密码，否则拒绝
-        val expected = sharePassword
-        if (expected != null && providedPassword != expected) {
-            Log.w(TAG, "观看者密码错误，拒绝: $from")
-            sendSignal(SignalingEnvelope(type = "screen-share-error", from = localPlayerId, to = from, shareId = shareId, error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password")))
+    private fun handleViewerOffer(message: SignalingEnvelope) {
+        val from = message.from ?: return
+        val shareId = message.shareId ?: return
+        val offer = message.offer ?: return
+        val isOwner = sharingShareId == shareId && localVideoTrack != null
+        if (!isOwner && currentShareId != shareId) return
+        val connectionKey = peerKey(shareId, from)
+        val expectedVersion = expectedDownstreams[connectionKey]
+        val legacyDirect = isOwner && message.routeVersion == null
+        if (!legacyDirect && expectedVersion != message.routeVersion) {
+            pendingOffers[connectionKey] = message
             return
         }
-        val track = localVideoTrack ?: return
-        val pc = factory.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
-            object : PeerConnection.Observer {
-                override fun onIceCandidate(candidate: IceCandidate) {
-                    sendSignal(SignalingEnvelope(type = "screen-share-ice-candidate", from = localPlayerId, to = from, shareId = shareId, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
-                }
-                override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
-                override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) = Unit
-                override fun onIceConnectionReceivingChange(b: Boolean) = Unit
-                override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
-                override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) = Unit
-                override fun onAddStream(s: org.webrtc.MediaStream) = Unit
-                override fun onRemoveStream(s: org.webrtc.MediaStream) = Unit
-                override fun onDataChannel(d: org.webrtc.DataChannel) = Unit
-                override fun onRenegotiationNeeded() = Unit
-                override fun onAddTrack(receiver: org.webrtc.RtpReceiver, streams: Array<out org.webrtc.MediaStream>) = Unit
-            },
+        if (legacyDirect && sharePassword != null && message.password != sharePassword) {
+            sendSignal(
+                SignalingEnvelope(
+                    type = "screen-share-error", from = localPlayerId, to = from, shareId = shareId,
+                    error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password"),
+                ),
+            )
+            return
+        }
+        val sourceTrack = if (isOwner) localVideoTrack else remoteVideoTrack
+        if (sourceTrack == null) {
+            pendingOffers[connectionKey] = message
+            return
+        }
+
+        val pc = createPeerConnection(
+            baseObserver(
+                onIce = { candidate ->
+                    sendSignal(
+                        SignalingEnvelope(
+                            type = "screen-share-ice-candidate", from = localPlayerId, to = from, shareId = shareId,
+                            connectionRole = "in", routeVersion = message.routeVersion, candidate = candidate.toPayload(),
+                        ),
+                    )
+                },
+            ),
         ) ?: return
-        pc.addTrack(track, listOf("screen-stream-$localPlayerId"))
-        pc.setRemoteDescription(SimpleSdpObserver(), SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
-        pc.createAnswer(object : SimpleSdpObserver() {
-            override fun onCreateSuccess(desc: SessionDescription) {
-                pc.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal(SignalingEnvelope(type = "screen-share-answer", from = localPlayerId, to = from, shareId = shareId, answer = SdpPayload(desc.type.canonicalForm(), desc.description)))
+        stopOutboundHealthHeartbeat(connectionKey)
+        outboundConnections.remove(connectionKey)?.close()
+        outboundSenders.remove(connectionKey)
+        outboundConnections[connectionKey] = pc
+        outboundSenders[connectionKey] = pc.addTrack(sourceTrack, listOf("screen-stream-$localPlayerId"))
+        startOutboundHealthHeartbeat(shareId, from, message.routeVersion, connectionKey)
+        pc.setRemoteDescription(object : SimpleSdpObserver() {
+            override fun onSetSuccess() {
+                flushPendingIce(iceKey(shareId, "out", from), pc)
+                pc.createAnswer(object : SimpleSdpObserver() {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        pc.setLocalDescription(object : SimpleSdpObserver() {
+                            override fun onSetSuccess() {
+                                sendSignal(
+                                    SignalingEnvelope(
+                                        type = "screen-share-answer", from = localPlayerId, to = from, shareId = shareId,
+                                        routeVersion = message.routeVersion, answer = SdpPayload(desc.type.canonicalForm(), desc.description),
+                                    ),
+                                )
+                            }
+                        }, desc)
+                    }
+                }, MediaConstraints())
             }
-        }, MediaConstraints())
-        sharerConnections[from] = pc
+        }, SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
+    }
+
+    private fun processPendingOffers(shareId: String) {
+        val offers = pendingOffers.values.filter { it.shareId == shareId }.toList()
+        offers.forEach { message ->
+            message.from?.let { pendingOffers.remove(peerKey(shareId, it)) }
+            handleViewerOffer(message)
+        }
+    }
+
+    private fun rebuildRelayRoutes() {
+        val shareId = sharingShareId ?: return
+        routeVersion += 1
+        val children = linkedMapOf<String, Int>()
+        val eligibleRelays = linkedSetOf<String>()
+        val parents = linkedMapOf<String, String>()
+        var ownerChildren = 0
+        for (viewerId in viewerOrder) {
+            val candidates = listOf(localPlayerId) + eligibleRelays
+            val upstream = candidates.firstOrNull { candidate ->
+                val hasCapacity = if (candidate == localPlayerId) ownerChildren < 2 else (children[candidate] ?: 0) < 1
+                hasCapacity && isRelayEdgeAvailable(candidate, viewerId)
+            } ?: localPlayerId
+            parents[viewerId] = upstream
+            if (upstream == localPlayerId) ownerChildren++
+            children[upstream] = (children[upstream] ?: 0) + 1
+            if (viewerId in readyViewers && isRelayAvailable(viewerId)) eligibleRelays += viewerId
+        }
+        for ((viewerId, upstream) in parents) {
+            val oldUpstream = assignedUpstreams[viewerId]
+            if (oldUpstream != upstream) {
+                if (oldUpstream != null && oldUpstream != upstream) {
+                    pendingDetachUpstreams[viewerId] = oldUpstream
+                }
+                if (upstream == localPlayerId) {
+                    expectedDownstreams[peerKey(shareId, viewerId)] = routeVersion
+                } else {
+                    sendSignal(
+                        SignalingEnvelope(
+                            type = "screen-share-relay", action = "child", from = localPlayerId, to = upstream,
+                            shareId = shareId, downstreamId = viewerId, routeVersion = routeVersion,
+                        ),
+                    )
+                }
+                sendSignal(
+                    SignalingEnvelope(
+                        type = "screen-share-relay", action = "route", from = localPlayerId, to = viewerId,
+                        shareId = shareId, upstreamId = upstream, routeVersion = routeVersion,
+                    ),
+                )
+                assignedUpstreams[viewerId] = upstream
+                assignedRouteVersions[viewerId] = routeVersion
+                readyViewers.remove(viewerId)
+            }
+        }
+        val stale = assignedUpstreams.keys.filter { it !in viewerOrder }
+        stale.forEach {
+            assignedUpstreams.remove(it)
+            assignedRouteVersions.remove(it)
+        }
+        val head = viewerOrder.firstOrNull()
+        sendSignal(
+            SignalingEnvelope(
+                type = "screen-share-update", from = localPlayerId, shareId = shareId,
+                viewerId = head, viewerName = head?.let(viewerNames::get), viewerCount = viewerOrder.size,
+            ),
+        )
+        onViewerCountChanged?.invoke(shareId, viewerOrder.size)
+    }
+
+    private fun isRelayAvailable(playerId: String): Boolean {
+        val until = unhealthyRelays[playerId] ?: return true
+        if (until <= android.os.SystemClock.elapsedRealtime()) {
+            unhealthyRelays.remove(playerId)
+            return true
+        }
+        return false
+    }
+
+    private fun isRelayEdgeAvailable(upstreamId: String, viewerId: String): Boolean {
+        val key = upstreamId + ">" + viewerId
+        val until = unhealthyEdges[key] ?: return true
+        if (until <= android.os.SystemClock.elapsedRealtime()) {
+            unhealthyEdges.remove(key)
+            return true
+        }
+        return false
+    }
+
+    private fun scheduleRelayRecovery() {
+        relayRecoveryCheck?.let(mainHandler::removeCallbacks)
+        relayRecoveryCheck = null
+        val now = android.os.SystemClock.elapsedRealtime()
+        val nextExpiry = (unhealthyRelays.values + unhealthyEdges.values)
+            .filter { it > now }
+            .minOrNull() ?: return
+        relayRecoveryCheck = Runnable {
+            relayRecoveryCheck = null
+            rebuildRelayRoutes()
+            scheduleRelayRecovery()
+        }.also { mainHandler.postDelayed(it, maxOf(250L, nextExpiry - now + 100L)) }
     }
 
     fun stopSharing() {
+        val shareId = sharingShareId
         sharingShareId = null
-        sharerConnections.values.forEach { it.close() }
-        sharerConnections.clear()
+        viewerOrder.clear()
+        viewerNames.clear()
+        readyViewers.clear()
+        assignedUpstreams.clear()
+        assignedRouteVersions.clear()
+        pendingDetachUpstreams.clear()
+        unhealthyRelays.clear()
+        unhealthyEdges.clear()
+        relayFailureCounts.clear()
+        relayRecoveryCheck?.let(mainHandler::removeCallbacks)
+        relayRecoveryCheck = null
+        shareId?.let { currentShareId ->
+            outboundHealthChecks.keys.filter { it.startsWith("$currentShareId|") }.toList().forEach(::stopOutboundHealthHeartbeat)
+            closeConnectionsForShare(outboundConnections, currentShareId)
+            outboundSenders.keys.filter { it.startsWith("$currentShareId|") }.forEach(outboundSenders::remove)
+            expectedDownstreams.keys.filter { it.startsWith("$currentShareId|") }.forEach(expectedDownstreams::remove)
+            pendingOffers.keys.filter { it.startsWith("$currentShareId|") }.forEach(pendingOffers::remove)
+            pendingIce.keys.filter { it.contains("$currentShareId|") }.forEach(pendingIce::remove)
+        }
         runCatching { screenCapturer?.stopCapture() }
         screenCapturer?.dispose()
         screenCapturer = null
+        localFrameProbe?.let { probe -> localVideoTrack?.removeSink(probe) }
         localVideoTrack?.dispose()
+        localFrameProbe = null
+        sourceFrameSequences.remove(shareId)
         localVideoTrack = null
         videoSource?.dispose()
         videoSource = null
@@ -210,36 +644,228 @@ class ScreenShareController(
         surfaceHelper = null
     }
 
-    // ========================= 信令路由 =========================
     fun handleSignal(message: SignalingEnvelope) {
         when (message.type) {
-            "screen-share-offer" -> {
-                val from = message.from ?: return
-                val offer = message.offer ?: return
-                if (isSharing) handleViewerOffer(from, message.shareId ?: sharingShareId ?: "", offer, message.password)
-            }
+            "screen-share-relay" -> handleRelayControl(message)
+            "screen-share-offer" -> handleViewerOffer(message)
             "screen-share-answer" -> {
+                val from = message.from ?: return
                 val answer = message.answer ?: return
-                viewerPc?.setRemoteDescription(SimpleSdpObserver(), SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
+                val shareId = message.shareId ?: return
+                if (message.routeVersion != null && message.routeVersion != currentRouteVersion) return
+                val pc = inboundConnections[peerKey(shareId, from)] ?: return
+                pc.setRemoteDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() { flushPendingIce(iceKey(shareId, "in", from), pc) }
+                }, SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
             }
-            "screen-share-ice-candidate" -> {
-                val from = message.from ?: return
-                val c = message.candidate ?: return
-                val ice = IceCandidate(c.sdpMid, c.sdpMLineIndex ?: 0, c.candidate)
-                val sharerPc = sharerConnections[from]
-                if (sharerPc != null) sharerPc.addIceCandidate(ice) else viewerPc?.addIceCandidate(ice)
-            }
+            "screen-share-ice-candidate" -> handleIce(message)
             "screen-share-viewer-left" -> {
-                val from = message.from ?: return
-                sharerConnections.remove(from)?.close()
+                val shareId = message.shareId ?: return
+                message.from?.let { handleViewerLeft(shareId, it) }
             }
         }
+    }
+
+    private fun handleRelayControl(message: SignalingEnvelope) {
+        val shareId = message.shareId ?: return
+        if (sharingShareId != shareId && currentShareId != shareId) return
+        val ownerId = if (sharingShareId == shareId) localPlayerId else currentOwnerId ?: return
+        if (message.action == "health" && message.to == localPlayerId) {
+            upstreamHealthId = message.from
+            upstreamHealthVersion = message.routeVersion
+            upstreamHealthSequence = message.sourceSequence ?: message.sequence ?: 0L
+            upstreamHealthLimited = message.limited == true
+            upstreamHealthAt = android.os.SystemClock.elapsedRealtime()
+            return
+        }
+        when (message.action) {
+            "join" -> if (localPlayerId == ownerId && sharingShareId == shareId) {
+                val viewerId = message.from ?: return
+                if (sharePassword != null && message.password != sharePassword) {
+                    sendSignal(
+                        SignalingEnvelope(
+                            type = "screen-share-error", from = localPlayerId, to = viewerId, shareId = shareId,
+                            error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password"),
+                        ),
+                    )
+                    return
+                }
+                if (viewerId !in viewerOrder) viewerOrder += viewerId
+                viewerNames[viewerId] = message.playerName ?: top.pmh13.mctier.ui.L("玩家", "Player")
+                sendSignal(
+                    SignalingEnvelope(
+                        type = "screen-share-relay", action = "accepted", from = localPlayerId, to = viewerId, shareId = shareId,
+                    ),
+                )
+                rebuildRelayRoutes()
+            }
+            "ready" -> if (localPlayerId == ownerId && sharingShareId == shareId) {
+                val viewerId = message.from ?: return
+                if (viewerId !in viewerOrder) return
+                if (message.routeVersion != assignedRouteVersions[viewerId]) return
+                readyViewers += viewerId
+                val oldUpstream = pendingDetachUpstreams.remove(viewerId)
+                val activeUpstream = assignedUpstreams[viewerId]
+                if (oldUpstream != null && oldUpstream != activeUpstream) {
+                    if (oldUpstream == localPlayerId) {
+                        expectedDownstreams.remove(peerKey(shareId, viewerId))
+                        stopOutboundHealthHeartbeat(peerKey(shareId, viewerId))
+                        outboundConnections.remove(peerKey(shareId, viewerId))?.close()
+                        outboundSenders.remove(peerKey(shareId, viewerId))
+                    } else {
+                        sendSignal(SignalingEnvelope(type = "screen-share-relay", action = "detach", from = localPlayerId, to = oldUpstream, shareId = shareId, downstreamId = viewerId, routeVersion = message.routeVersion))
+                    }
+                }
+                rebuildRelayRoutes()
+            }
+            "failure" -> if (localPlayerId == ownerId && sharingShareId == shareId) {
+                val viewerId = message.from ?: return
+                if (viewerId !in viewerOrder) return
+                val assignedUpstream = assignedUpstreams[viewerId]
+                if (message.upstreamId != null && assignedUpstream != null && message.upstreamId != assignedUpstream) return
+                if (message.routeVersion != null && message.routeVersion != assignedRouteVersions[viewerId]) return
+                val assignedVersion = assignedRouteVersions[viewerId]
+                val failedUpstream = message.upstreamId ?: assignedUpstream
+                if (failedUpstream != null) {
+                    val count = (relayFailureCounts[failedUpstream] ?: 0) + 1
+                    relayFailureCounts[failedUpstream] = count
+                    val backoff = minOf(60_000L, 4_000L * (1L shl minOf(count - 1, 4)))
+                    val until = android.os.SystemClock.elapsedRealtime() + backoff
+                    if (failedUpstream != localPlayerId) unhealthyRelays[failedUpstream] = until
+                    unhealthyEdges[failedUpstream + ">" + viewerId] = until
+                    scheduleRelayRecovery()
+                }
+                if (assignedUpstream == localPlayerId) {
+                    val key = peerKey(shareId, viewerId)
+                    stopOutboundHealthHeartbeat(key)
+                    expectedDownstreams.remove(key)
+                    outboundConnections.remove(key)?.close()
+                    outboundSenders.remove(key)
+                } else if (assignedUpstream != null) {
+                    sendSignal(SignalingEnvelope(type = "screen-share-relay", action = "detach", from = localPlayerId, to = assignedUpstream, shareId = shareId, downstreamId = viewerId, routeVersion = assignedVersion))
+                }
+                readyViewers.remove(viewerId)
+                assignedUpstreams.remove(viewerId)
+                assignedRouteVersions.remove(viewerId)
+                rebuildRelayRoutes()
+            }
+            else -> {
+                if (message.from != ownerId) return
+                when (message.action) {
+                    "accepted" -> Unit
+                    "route" -> {
+                        val upstreamId = message.upstreamId ?: return
+                        connectUpstream(shareId, upstreamId, message.routeVersion ?: 0)
+                    }
+                    "child" -> {
+                        val downstreamId = message.downstreamId ?: return
+                        expectedDownstreams[peerKey(shareId, downstreamId)] = message.routeVersion ?: 0
+                        pendingOffers.remove(peerKey(shareId, downstreamId))?.let(::handleViewerOffer)
+                    }
+                    "detach" -> {
+                        val downstreamId = message.downstreamId ?: return
+                        expectedDownstreams.remove(peerKey(shareId, downstreamId))
+                        stopOutboundHealthHeartbeat(peerKey(shareId, downstreamId))
+                        outboundConnections.remove(peerKey(shareId, downstreamId))?.close()
+                        outboundSenders.remove(peerKey(shareId, downstreamId))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleIce(message: SignalingEnvelope) {
+        val from = message.from ?: return
+        val shareId = message.shareId ?: return
+        val payload = message.candidate ?: return
+        val ice = IceCandidate(payload.sdpMid, payload.sdpMLineIndex ?: 0, payload.candidate)
+        val targetsInbound = when (message.connectionRole) {
+            "in" -> true
+            "out" -> false
+            else -> outboundConnections[peerKey(shareId, from)] == null && inboundConnections[peerKey(shareId, from)] != null
+        }
+        val key = iceKey(shareId, if (targetsInbound) "in" else "out", from)
+        val pc = if (targetsInbound) inboundConnections[peerKey(shareId, from)] else outboundConnections[peerKey(shareId, from)]
+        if (message.routeVersion != null) {
+            val expectedVersion = if (targetsInbound) currentRouteVersion else expectedDownstreams[peerKey(shareId, from)]
+            if (expectedVersion != message.routeVersion) return
+        }
+        if (pc?.remoteDescription != null) pc.addIceCandidate(ice) else pendingIce.getOrPut(key) { mutableListOf() }.add(ice)
+    }
+
+    private fun flushPendingIce(key: String, pc: PeerConnection) {
+        pendingIce.remove(key)?.forEach(pc::addIceCandidate)
+    }
+
+    private fun handleViewerLeft(shareId: String, viewerId: String) {
+        stopOutboundHealthHeartbeat(peerKey(shareId, viewerId))
+        outboundConnections.remove(peerKey(shareId, viewerId))?.close()
+        outboundSenders.remove(peerKey(shareId, viewerId))
+        expectedDownstreams.remove(peerKey(shareId, viewerId))
+        if (sharingShareId == shareId) {
+            viewerOrder.remove(viewerId)
+            viewerNames.remove(viewerId)
+            readyViewers.remove(viewerId)
+            assignedUpstreams.remove(viewerId)
+            assignedRouteVersions.remove(viewerId)
+            rebuildRelayRoutes()
+        }
+    }
+
+    fun handlePlayerLeft(playerId: String) {
+        sharingShareId?.let { handleViewerLeft(it, playerId) }
+        currentShareId?.let { handleViewerLeft(it, playerId) }
+        if (currentUpstreamId == playerId && currentOwnerId != null && currentShareId != null) {
+            sendSignal(
+                SignalingEnvelope(
+                    type = "screen-share-relay", action = "failure", from = localPlayerId, to = currentOwnerId,
+                    shareId = currentShareId, upstreamId = playerId,
+                ),
+            )
+        }
+        if (currentOwnerId == playerId) stopViewing(notify = false)
     }
 
     fun release() {
         stopViewing(notify = false)
         stopSharing()
         runCatching { eglBase.release() }
+    }
+
+    private fun createPeerConnection(observer: PeerConnection.Observer): PeerConnection? =
+        factory.createPeerConnection(
+            PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
+            observer,
+        )
+
+    private fun baseObserver(
+        onIce: (IceCandidate) -> Unit = {},
+        onIceState: (PeerConnection.IceConnectionState) -> Unit = {},
+        onTrack: (MediaStreamTrack?) -> Unit = {},
+    ) = object : PeerConnection.Observer {
+        override fun onIceCandidate(candidate: IceCandidate) = onIce(candidate)
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) = onIceState(state)
+        override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) = onTrack(receiver.track())
+        override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
+        override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
+        override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
+        override fun onAddStream(stream: MediaStream) = Unit
+        override fun onRemoveStream(stream: MediaStream) = Unit
+        override fun onDataChannel(channel: DataChannel) = Unit
+        override fun onRenegotiationNeeded() = Unit
+    }
+
+    private fun IceCandidate.toPayload() = IcePayload(sdp, sdpMLineIndex, sdpMid)
+
+    private fun peerKey(shareId: String, playerId: String) = "$shareId|$playerId"
+
+    private fun iceKey(shareId: String, direction: String, playerId: String) = "$direction:$shareId|$playerId"
+
+    private fun closeConnectionsForShare(connections: MutableMap<String, PeerConnection>, shareId: String) {
+        connections.keys.filter { it.startsWith("$shareId|") }.forEach { key ->
+            connections.remove(key)?.close()
+        }
     }
 
     private companion object {

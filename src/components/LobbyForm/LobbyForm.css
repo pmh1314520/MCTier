@@ -52,7 +52,7 @@
   background-image:
     radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
     radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
-  animation: particleFloat 20s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes particleFloat {
@@ -94,10 +94,10 @@
   background: linear-gradient(135deg, rgba(90, 148, 40, 0.95) 0%, rgba(74, 122, 32, 0.95) 100%);
   border-radius: 50%;
   box-shadow: 0 6px 20px rgba(90, 148, 40, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   pointer-events: none;
-  animation: floatingPulse 2s ease-in-out infinite;
+  animation: none;
   color: rgba(255, 255, 255, 1);
 }
 
@@ -154,7 +154,7 @@
 .lobby-form .ant-input,
 .lobby-form .ant-select-selector {
   border-radius: 8px !important;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.14s ease, background-color 0.14s ease;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
   height: 40px !important;
   background: rgba(255, 255, 255, 0.05) !important;
@@ -239,14 +239,15 @@
   height: 42px;
   font-size: 14px;
   font-weight: 700;
-  border-radius: 10px;
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border-radius: 7px;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
   position: relative;
   overflow: hidden;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
 }
 
 .lobby-form-actions .ant-btn::before {
+  display: none;
   content: '';
   position: absolute;
   top: 0;
@@ -269,8 +270,8 @@
 
 .lobby-form-actions .ant-btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, #6aa438 0%, #5a8a30 100%);
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(90, 148, 40, 0.5);
+  transform: none;
+  box-shadow: 0 3px 10px rgba(90, 148, 40, 0.35);
 }
 
 .lobby-form-actions .ant-btn-primary:active:not(:disabled) {
@@ -279,8 +280,8 @@
 }
 
 .lobby-form-actions .ant-btn-default:hover:not(:disabled) {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.15);
+  transform: none;
+  box-shadow: none;
 }
 
 .lobby-form-actions .ant-btn:not(.ant-btn-primary) {
@@ -329,7 +330,7 @@
 .network-tip-icon {
   flex-shrink: 0;
   color: rgba(255, 193, 7, 1);
-  animation: tipPulse 2s ease-in-out infinite;
+  animation: none;
   margin-top: 2px;
 }
 
@@ -385,14 +386,14 @@
   align-items: flex-start;
   gap: 10px;
   text-align: left;
-  animation: warningPulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 .lobby-form-tip.network-warning .tip-icon {
   font-size: 18px;
   flex-shrink: 0;
   line-height: 1;
-  animation: warningShake 3s ease-in-out infinite;
+  animation: none;
 }
 
 .lobby-form-tip.network-warning .tip-content {

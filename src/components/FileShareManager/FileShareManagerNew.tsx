@@ -123,7 +123,7 @@ export const FileShareManagerNew: React.FC = () => {
           if (!share.expire_time || share.expire_time > now) {
             allShares.push({
               share,
-              ownerName: `${config.playerName || '我'} (我)`,
+              ownerName: `${config.playerName || tl('我', 'Me')} (${tl('我', 'Me')})`,
               ownerIp: lobby.virtualIp!
             });
           }
@@ -648,7 +648,7 @@ export const FileShareManagerNew: React.FC = () => {
                 ...task, 
                 status: 'completed' as const, 
                 speed: 0,
-                fileName: `${selectedFileList.length} 个文件`, // 更新显示名称
+                fileName: tl(`${selectedFileList.length} 个文件`, `${selectedFileList.length} files`), // 更新显示名称
                 savePath: saveDir // 【修复】更新为实际的解压目录，而不是临时ZIP路径
               } : task
             ));
@@ -1173,9 +1173,9 @@ export const FileShareManagerNew: React.FC = () => {
                               <div className="transfer-meta">
                                 {formatSize(task.downloaded)} / {formatSize(task.fileSize)}
                                 {task.status === 'downloading' && task.speed && ` - ${formatSpeed(task.speed)}`}
-                                {task.status === 'downloading' && !task.speed && ' - 下载中'}
-                                {task.status === 'completed' && ' - 已完成'}
-                                {task.status === 'failed' && ` - 失败: ${task.error}`}
+                                {task.status === 'downloading' && !task.speed && tl(' - 下载中', ' - Downloading')}
+                                {task.status === 'completed' && tl(' - 已完成', ' - Completed')}
+                                {task.status === 'failed' && `${tl(' - 失败', ' - Failed')}: ${task.error}`}
                               </div>
                             </div>
                           </motion.div>

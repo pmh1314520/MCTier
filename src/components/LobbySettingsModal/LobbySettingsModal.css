@@ -441,6 +441,44 @@
   font-weight: 600;
 }
 
+html[data-theme='light'] .lobby-settings-modal .lobby-vc-chip:not(.active) {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(24, 32, 43, 0.2);
+  color: #273241;
+}
+
+html[data-theme='light'] .lobby-settings-modal .lobby-vc-chip:not(.active):hover {
+  background: rgba(82, 196, 26, 0.1);
+  border-color: rgba(64, 158, 14, 0.55);
+  color: #245b13;
+}
+
+html[data-theme='light'] .lobby-settings-modal .lobby-voice-section,
+html[data-theme='light'] .lobby-settings-modal .snd-block,
+html[data-theme='light'] .lobby-settings-modal .use-global-config-switch {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='light'] .lobby-settings-modal .lobby-voice-section {
+  border-color: rgba(82, 196, 26, 0.22);
+}
+
+html[data-theme='light'] .lobby-settings-modal .snd-block {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+html[data-theme='light'] .lobby-settings-modal .use-global-config-switch {
+  border-color: rgba(82, 196, 26, 0.22);
+}
+
+html[data-theme='light'] .lobby-settings-modal .lobby-vc-hint {
+  color: #3f4c5c;
+  background: rgba(82, 196, 26, 0.055);
+  border-color: rgba(82, 196, 26, 0.25);
+}
+
 /* ==================== 网络配置分区标题 ==================== */
 .lobby-config-section-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .lobby-config-section-title { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }

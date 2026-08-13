@@ -73,7 +73,7 @@ export const en = {
     dataStatsDesc: 'View your online time, active periods and top partners (stored locally)',
     viewStats: 'View Statistics',
     language: 'Language',
-    languageDesc: '切换界面语言 / Switch interface language',
+    languageDesc: 'Choose the interface language or follow your operating system',
     configMgr: 'Config Management',
     configMgrDesc: 'Export or import all settings for backup and migration',
     theme: 'Theme & Colors',

@@ -341,6 +341,8 @@ pub struct ExitNodeConfig {
 /// 用户配置结构
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserConfig {
+    /// 界面语言偏好（system/zh/en）
+    pub language: Option<String>,
     /// 玩家名称
     pub player_name: Option<String>,
     /// 首选服务器节点
@@ -394,6 +396,7 @@ pub struct UserConfig {
 impl Default for UserConfig {
     fn default() -> Self {
         Self {
+            language: None,
             player_name: None,
             preferred_server: None,
             mic_hotkey: Some("Ctrl+M".to_string()),
@@ -1079,6 +1082,7 @@ mod tests {
             }),
             audio_device_id: Some("device123".to_string()),
             opacity: Some(0.85),
+            ..UserConfig::default()
         };
 
         // 序列化

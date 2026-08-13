@@ -4,11 +4,22 @@ pub mod modules;
 use log::{error, info};
 use modules::app_core::AppCore;
 use modules::tauri_commands::AppState;
+use modules::system_audio::{start_system_audio_loopback, stop_system_audio_loopback};
+use modules::sonora_audio::{process_voice_frame, process_voice_frames, reset_voice_processor};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::Manager;
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+static TRAY_NOTIFICATION_TEXT: std::sync::OnceLock<std::sync::RwLock<(String, String)>> =
+    std::sync::OnceLock::new();
+static TRAY_SUMMON_HOTKEY: std::sync::OnceLock<std::sync::RwLock<String>> =
+    std::sync::OnceLock::new();
+static TRAY_NOTIFICATION_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+static TRAY_NOTIFICATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static RESTORE_ALWAYS_ON_TOP_AFTER_TRAY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// 在应用启动时应用 GPU 设置
 fn apply_gpu_settings_on_startup() {
@@ -49,10 +60,33 @@ fn apply_gpu_settings_on_startup() {
     }
 }
 
+fn reset_microphone_permission_cache_on_startup() {
+    if !std::env::args().any(|arg| arg == "--reset-microphone-permission") {
+        return;
+    }
+
+    let Some(local_app_data) = dirs::data_local_dir() else {
+        return;
+    };
+    let webview_dir = local_app_data.join("com.mctier.app").join("EBWebView");
+
+    // The previous process may hold WebView2 files briefly after spawning us.
+    for attempt in 0..40 {
+        if !webview_dir.exists() {
+            break;
+        }
+        match std::fs::remove_dir_all(&webview_dir) {
+            Ok(()) => break,
+            Err(_) if attempt < 39 => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Err(error) => eprintln!("failed to clear WebView2 permission cache: {}", error),
+        }
+    }
+}
+
 
 use modules::tauri_commands::{
     create_lobby, join_lobby, leave_lobby,
-    toggle_mic, mute_player, mute_all,
+    toggle_mic, set_mic_enabled, open_microphone_privacy_settings, reset_microphone_permission, mute_player, mute_all,
     get_config, update_config, save_opacity,
     get_audio_devices, get_app_state, get_current_lobby, get_players,
     get_mic_status, get_global_mute_status, is_player_muted,
@@ -61,7 +95,6 @@ use modules::tauri_commands::{
     send_signaling_message, broadcast_status_update, send_heartbeat,
     force_stop_easytier,
     cancel_lobby_connecting,
-    download_and_run_installer,
     check_virtual_adapter, check_firewall_rules, ping_virtual_ip, check_udp_port,
     is_admin, add_firewall_rules, restart_as_admin,
     save_window_position, exit_app,
@@ -82,7 +115,7 @@ use modules::tauri_commands::{
     set_danmaku_ignore_cursor, danmaku_cursor_pos, save_danmaku_image,
     open_game_hud_window, close_game_hud_window,
     set_gamehud_ignore_cursor, gamehud_cursor_pos,
-    open_log_folder, open_log_file, get_log_file_path,
+    open_log_folder, open_log_file, get_log_file_path, read_log_file,
     save_settings, get_settings, set_auto_start, check_auto_start,
     reset_config_to_default, save_voice_volume,
     export_config, import_config,
@@ -128,6 +161,9 @@ fn open_devtools(_app: tauri::AppHandle) {
 /// 【#1】确保窗口在可视范围内：若窗口已完全移出所有显示器，则自动居中。
 /// 仅在窗口与所有显示器都没有任何重叠（完全丢失）时触发，避免拖拽贴边时误触发。
 fn ensure_window_visible(window: &tauri::Window) {
+    if window.is_minimized().unwrap_or(false) || !window.is_visible().unwrap_or(true) {
+        return;
+    }
     let pos = match window.outer_position() {
         Ok(p) => p,
         Err(_) => return,
@@ -185,6 +221,7 @@ fn ensure_window_visible(window: &tauri::Window) {
 /// 3. 恢复后校正位置，避免窗口被还原到屏幕外不可见区域。
 fn restore_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
+    TRAY_NOTIFICATION_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     if let Some(window) = app.get_webview_window("main") {
         // 先确保不再是隐藏 / 最小化状态
         let _ = window.unminimize();
@@ -209,15 +246,449 @@ fn restore_main_window(app: &tauri::AppHandle) {
         }
 
         let _ = window.set_focus();
-        // 屏幕外校正：恢复后窗口若获得焦点会触发 Focused 事件，由 on_window_event 统一处理
+        if RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            let _ = window.set_always_on_top(true);
+        }
+        let host_window = window.as_ref().window();
+        ensure_window_visible(&host_window);
     }
 }
 
-/// 拦截窗口的「最小化」动作（任务栏点击 / Win+D），改为隐藏窗口。
-///
-/// 原因：无边框 + 透明（WS_POPUP）窗口在 Windows 上真正进入“最小化”状态后，
-/// WebView2/DWM 的合成会出问题，导致窗口卡死、无法再唤出（程序未响应）。
-/// 改为 SW_HIDE 隐藏，可完全规避该死锁；之后通过系统托盘或 Ctrl+Alt+M 可靠唤回。
+#[cfg(target_os = "windows")]
+fn release_windows_foreground_after_hide(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetShellWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        SetWindowPos, HWND_NOTOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = HWND(hwnd.0 as *mut _);
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+
+            let foreground = GetForegroundWindow();
+            let mut foreground_process_id = 0;
+            GetWindowThreadProcessId(foreground, Some(&mut foreground_process_id));
+            if foreground_process_id == std::process::id() {
+                let shell = GetShellWindow();
+                if !shell.0.is_null() {
+                    let _ = SetForegroundWindow(shell);
+                }
+            }
+        }
+    }
+}
+
+fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
+    if TRAY_NOTIFICATION_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation {
+        info!("跳过过期的托盘后台运行通知任务：generation={}", generation);
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(true) {
+        info!("窗口已恢复，跳过托盘后台运行通知任务：generation={}", generation);
+        return;
+    }
+    let _notification_lock = match TRAY_NOTIFICATION_LOCK.lock() {
+        Ok(lock) => lock,
+        Err(error) => error.into_inner(),
+    };
+    if TRAY_NOTIFICATION_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation {
+        info!("跳过已被新托盘状态取代的通知任务：generation={}", generation);
+        return;
+    }
+
+    let (title, body_template) = TRAY_NOTIFICATION_TEXT
+        .get_or_init(|| {
+            std::sync::RwLock::new((
+                "MCTier 正在后台运行".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。".to_string(),
+            ))
+        })
+        .read()
+        .map(|text| text.clone())
+        .unwrap_or_else(|_| {
+            (
+                "MCTier 正在后台运行".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。".to_string(),
+            )
+        });
+    let summon_hotkey = TRAY_SUMMON_HOTKEY
+        .get_or_init(|| std::sync::RwLock::new("Ctrl+Alt+M".to_string()))
+        .read()
+        .map(|hotkey| hotkey.clone())
+        .unwrap_or_else(|_| "Ctrl+Alt+M".to_string());
+    let body = if summon_hotkey.is_empty() {
+        body_template
+            .replace("或按 {shortcut} ", "")
+            .replace("or press {shortcut} ", "")
+    } else {
+        body_template.replace("{shortcut}", &summon_hotkey)
+    };
+    let notification_body = body;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::{w, PCWSTR};
+        use windows::Win32::Foundation::{GetLastError, HWND};
+        use windows::Win32::UI::Shell::{
+            Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIIF_INFO,
+            NIIF_LARGE_ICON, NIIF_USER, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+            NOTIFYICONIDENTIFIER,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DestroyIcon, FindWindowExW, GetWindowThreadProcessId, LoadImageW, HICON, IMAGE_ICON,
+            LR_LOADFROMFILE,
+        };
+
+        fn write_wide<const N: usize>(target: &mut [u16; N], value: &str) {
+            for (slot, character) in target
+                .iter_mut()
+                .zip(value.encode_utf16().chain(std::iter::once(0)))
+            {
+                *slot = character;
+            }
+        }
+
+        fn load_notification_icon() -> Option<HICON> {
+            let icon_dir = dirs::cache_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("mctier");
+            let icon_path = icon_dir.join("notification-logo.ico");
+            let icon_bytes = include_bytes!("../icons/icon.ico");
+            let icon_ready = std::fs::create_dir_all(&icon_dir)
+                .and_then(|_| {
+                    if std::fs::read(&icon_path).ok().as_deref() != Some(icon_bytes.as_slice()) {
+                        std::fs::write(&icon_path, icon_bytes)?;
+                    }
+                    Ok(())
+                })
+                .is_ok();
+            if !icon_ready {
+                return None;
+            }
+
+            let icon_wide: Vec<u16> = icon_path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            unsafe {
+                LoadImageW(
+                    None,
+                    PCWSTR(icon_wide.as_ptr()),
+                    IMAGE_ICON,
+                    32,
+                    32,
+                    LR_LOADFROMFILE,
+                )
+                .ok()
+                .map(|icon| HICON(icon.0))
+            }
+        }
+
+        let current_process_id = std::process::id();
+        let mut previous = HWND::default();
+        let mut tray_window = None;
+        loop {
+            let Ok(candidate) = (unsafe {
+                FindWindowExW(HWND::default(), previous, w!("tray_icon_app"), None)
+            }) else {
+                break;
+            };
+            if candidate.0.is_null() {
+                break;
+            }
+            let mut process_id = 0;
+            unsafe { GetWindowThreadProcessId(candidate, Some(&mut process_id)) };
+            if process_id == current_process_id {
+                tray_window = Some(candidate);
+                break;
+            }
+            previous = candidate;
+        }
+
+        if let Some(tray_window) = tray_window {
+            let tray_id = (1..=64).find(|candidate_id| {
+                let identifier = NOTIFYICONIDENTIFIER {
+                    cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
+                    hWnd: tray_window,
+                    uID: *candidate_id,
+                    ..Default::default()
+                };
+                unsafe { Shell_NotifyIconGetRect(&identifier).is_ok() }
+            });
+
+            let Some(tray_id) = tray_id else {
+                log::warn!("MCTier tray icon ID was not found for balloon notification");
+                return;
+            };
+
+            // Clear the previous balloon first. Windows otherwise coalesces
+            // identical tray notifications and reports success without showing
+            // the next one, which is especially visible after entering a lobby.
+            let mut clear_data = NOTIFYICONDATAW::default();
+            clear_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            clear_data.hWnd = tray_window;
+            clear_data.uID = tray_id;
+            clear_data.uFlags = NIF_INFO;
+            let cleared = unsafe { Shell_NotifyIconW(NIM_MODIFY, &clear_data).as_bool() };
+            let clear_error = if cleared { 0 } else { unsafe { GetLastError().0 } };
+            if cleared {
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+
+            let mut data = NOTIFYICONDATAW::default();
+            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            data.hWnd = tray_window;
+            data.uID = tray_id;
+            data.uFlags = NIF_INFO;
+            let notification_icon = load_notification_icon();
+            if let Some(icon) = notification_icon {
+                data.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
+                data.hBalloonIcon = icon;
+            } else {
+                data.dwInfoFlags = NIIF_INFO;
+            }
+            data.Anonymous.uTimeout = 7000;
+            write_wide(&mut data.szInfoTitle, &title);
+            write_wide(&mut data.szInfo, &notification_body);
+            let shown = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() };
+            let show_error = if shown { 0 } else { unsafe { GetLastError().0 } };
+            log::info!(
+                "Windows tray balloon on MCTier tray icon: hwnd={:?}, pid={}, id={}, cb_size={}, cleared={} error={}, shown={} error={}",
+                tray_window.0,
+                current_process_id,
+                tray_id,
+                data.cbSize,
+                cleared,
+                clear_error,
+                shown,
+                show_error
+            );
+            if shown {
+                if let Some(icon) = notification_icon {
+                    let icon_value = icon.0 as usize;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        unsafe {
+                            let _ = DestroyIcon(HICON(icon_value as *mut _));
+                        }
+                    });
+                }
+                return;
+            }
+            if let Some(icon) = notification_icon {
+                unsafe {
+                    let _ = DestroyIcon(icon);
+                }
+            }
+
+            let fallback_icon = load_notification_icon();
+            let fallback_id = 0x4D43_0001;
+            if let Some(fallback_icon) = fallback_icon {
+                let mut add_data = NOTIFYICONDATAW::default();
+                add_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                add_data.hWnd = tray_window;
+                add_data.uID = fallback_id;
+                add_data.uFlags = NIF_ICON;
+                add_data.hIcon = fallback_icon;
+                let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &add_data) };
+                let added = unsafe { Shell_NotifyIconW(NIM_ADD, &add_data).as_bool() };
+                let add_error = if added { 0 } else { unsafe { GetLastError().0 } };
+                if added {
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                    let mut fallback_data = NOTIFYICONDATAW::default();
+                    fallback_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                    fallback_data.hWnd = tray_window;
+                    fallback_data.uID = fallback_id;
+                    fallback_data.uFlags = NIF_INFO;
+                    fallback_data.dwInfoFlags = NIIF_INFO;
+                    fallback_data.Anonymous.uTimeout = 7000;
+                    write_wide(&mut fallback_data.szInfoTitle, &title);
+                    write_wide(&mut fallback_data.szInfo, &notification_body);
+                    let fallback_shown = unsafe {
+                        Shell_NotifyIconW(NIM_MODIFY, &fallback_data).as_bool()
+                    };
+                    let fallback_error = if fallback_shown {
+                        0
+                    } else {
+                        unsafe { GetLastError().0 }
+                    };
+                    log::info!(
+                        "Windows tray balloon fallback: id={}, added={} error={}, shown={} error={}",
+                        fallback_id,
+                        added,
+                        add_error,
+                        fallback_shown,
+                        fallback_error
+                    );
+                    let cleanup_app = app.clone();
+                    let tray_window_value = tray_window.0 as usize;
+                    let fallback_icon_value = fallback_icon.0 as usize;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        let _ = cleanup_app.run_on_main_thread(move || {
+                            let mut delete_data = NOTIFYICONDATAW::default();
+                            delete_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                            delete_data.hWnd = HWND(tray_window_value as *mut _);
+                            delete_data.uID = fallback_id;
+                            delete_data.uFlags = NIF_ICON;
+                            unsafe {
+                                let _ = Shell_NotifyIconW(NIM_DELETE, &delete_data);
+                                let _ = DestroyIcon(HICON(fallback_icon_value as *mut _));
+                            }
+                        });
+                    });
+                    if fallback_shown {
+                        return;
+                    }
+                } else {
+                    unsafe {
+                        let _ = DestroyIcon(fallback_icon);
+                    }
+                }
+            }
+        } else {
+            log::warn!("MCTier tray window was not found for balloon notification");
+        }
+    }
+
+}
+
+/// Hide the main window without closing its WebView and tell the user where it went.
+/// Keeping every tray transition on this path prevents Win+D, the close button and
+/// start-minimized behavior from drifting apart again.
+fn hide_main_window_to_tray(app: &tauri::AppHandle, source: &str) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let was_visible = window.is_visible().unwrap_or(false);
+    if !was_visible && source != "关闭按钮" {
+        info!("{}：MCTier 已经处于系统托盘，不重复发送后台运行通知", source);
+        return;
+    }
+
+    // Clear the minimized state before hiding so restore does not inherit a
+    // stale taskbar/Win+D state from the previous transition.
+    let _ = window.unminimize();
+    let was_always_on_top = window.is_always_on_top().unwrap_or(false);
+    RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.store(
+        was_always_on_top,
+        std::sync::atomic::Ordering::Release,
+    );
+    if was_always_on_top {
+        let _ = window.set_always_on_top(false);
+    }
+    if let Err(e) = window.hide() {
+        error!("{} 隐藏主窗口到托盘失败: {}", source, e);
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    release_windows_foreground_after_hide(&window);
+
+    info!("{}：MCTier 已最小化到系统托盘，准备发送后台运行通知", source);
+    let generation = TRAY_NOTIFICATION_GENERATION.fetch_add(
+        1,
+        std::sync::atomic::Ordering::AcqRel,
+    ) + 1;
+    let notification_app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let main_thread_app = notification_app.clone();
+        let _ = notification_app.run_on_main_thread(move || {
+            show_tray_background_notification(&main_thread_app, generation);
+        });
+    });
+}
+
+/// Toggle the main window from the native process so this keeps working while
+/// the WebView is hidden in the system tray.
+fn toggle_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let visible = window.is_visible().unwrap_or(false);
+    let minimized = window.is_minimized().unwrap_or(false);
+    if visible && !minimized {
+        hide_main_window_to_tray(app, "Ctrl+Alt+M");
+    } else {
+        restore_main_window(app);
+    }
+}
+
+#[tauri::command]
+fn minimize_main_window_to_tray(app: tauri::AppHandle) {
+    hide_main_window_to_tray(&app, "窗口按钮");
+}
+
+#[cfg(target_os = "windows")]
+static SUMMON_FALLBACK_TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<()>> = std::sync::OnceLock::new();
+#[cfg(target_os = "windows")]
+static SUMMON_FALLBACK_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+fn start_summon_fallback_listener(app: &tauri::AppHandle) {
+    SUMMON_FALLBACK_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    if SUMMON_FALLBACK_TX.get().is_some() {
+        return;
+    }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(2);
+    if SUMMON_FALLBACK_TX.set(tx).is_err() {
+        return;
+    }
+    let action_app = app.clone();
+    std::thread::spawn(move || {
+        while rx.recv().is_ok() {
+            toggle_main_window(&action_app);
+        }
+    });
+    std::thread::spawn(move || {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_M, VK_MENU};
+
+        let mut triggered = false;
+        loop {
+            let pressed = if SUMMON_FALLBACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+                unsafe {
+                    GetAsyncKeyState(VK_CONTROL.0 as i32) < 0
+                        && GetAsyncKeyState(VK_MENU.0 as i32) < 0
+                        && GetAsyncKeyState(VK_M.0 as i32) < 0
+                }
+            } else {
+                false
+            };
+
+            if pressed && !triggered {
+                info!("检测到 Ctrl+Alt+M，切换主窗口可见状态");
+                if let Some(tx) = SUMMON_FALLBACK_TX.get() {
+                    let _ = tx.try_send(());
+                }
+            }
+            triggered = pressed;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    });
+    info!("Ctrl+Alt+M 已启用 Windows 原生按键状态监听");
+}
+
+/// 由前端按当前界面语言更新系统托盘菜单文本（显示/退出）。
+/// 保持菜单项 id 不变（show_main / exit_app），故已注册的 on_menu_event 仍生效。
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn window_subclass_proc(
     hwnd: windows::Win32::Foundation::HWND,
@@ -232,33 +703,31 @@ unsafe extern "system" fn window_subclass_proc(
     use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SC_MINIMIZE, SW_HIDE, WM_SYSCOMMAND};
 
     if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
-        // 用隐藏代替最小化，规避透明无边框窗口最小化卡死
         let _ = ShowWindow(hwnd, SW_HIDE);
         return LRESULT(0);
     }
     DefSubclassProc(hwnd, msg, wparam, lparam)
 }
 
-/// 为主窗口安装最小化拦截子类。
 #[cfg(target_os = "windows")]
 fn install_minimize_to_hide(window: &tauri::WebviewWindow) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::SetWindowSubclass;
     if let Ok(hwnd) = window.hwnd() {
-        let h = HWND(hwnd.0 as *mut _);
+        let hwnd = HWND(hwnd.0 as *mut _);
         unsafe {
-            let _ = SetWindowSubclass(h, Some(window_subclass_proc), 1, 0);
+            let _ = SetWindowSubclass(hwnd, Some(window_subclass_proc), 1, 0);
         }
     }
 }
 
-/// 由前端按当前界面语言更新系统托盘菜单文本（显示/退出）。
-/// 保持菜单项 id 不变（show_main / exit_app），故已注册的 on_menu_event 仍生效。
 #[tauri::command]
 fn set_tray_menu_texts(
     app: tauri::AppHandle,
     show_text: String,
     exit_text: String,
+    notification_title: String,
+    notification_body: String,
 ) -> Result<(), String> {
     use tauri::menu::{MenuBuilder, MenuItem};
     if let Some(tray) = app.tray_by_id("main-tray") {
@@ -273,6 +742,12 @@ fn set_tray_menu_texts(
             .build()
             .map_err(|e| e.to_string())?;
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    if let Ok(mut text) = TRAY_NOTIFICATION_TEXT
+        .get_or_init(|| std::sync::RwLock::new((String::new(), String::new())))
+        .write()
+    {
+        *text = (notification_title, notification_body);
     }
     Ok(())
 }
@@ -349,6 +824,12 @@ fn register_global_hotkeys(
     let global_mute_hotkey = normalize_hotkey(&bindings.global_mute);
     let push_to_talk_hotkey = normalize_hotkey(&bindings.push_to_talk);
     let summon_hotkey = normalize_hotkey(&bindings.summon);
+    if let Ok(mut current) = TRAY_SUMMON_HOTKEY
+        .get_or_init(|| std::sync::RwLock::new(String::new()))
+        .write()
+    {
+        *current = bindings.summon.trim().to_string();
+    }
 
     info!(
         "注册全局快捷键: 麦克风={}, 全局听筒={}, 临时开麦={}, 唤出窗口={}",
@@ -356,11 +837,19 @@ fn register_global_hotkeys(
     );
 
     // ===== 唤出主窗口 =====
-    if !summon_hotkey.is_empty() {
+    let use_default_summon_fallback = cfg!(target_os = "windows")
+        && summon_hotkey.eq_ignore_ascii_case("CommandOrControl+Alt+M");
+    #[cfg(target_os = "windows")]
+    if use_default_summon_fallback {
+        start_summon_fallback_listener(app);
+    } else {
+        SUMMON_FALLBACK_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    if !summon_hotkey.is_empty() && !use_default_summon_fallback {
         let hs = app.clone();
         if let Err(e) = app.global_shortcut().on_shortcut(summon_hotkey.as_str(), move |_, _, ev| {
             if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released { return; }
-            restore_main_window(&hs);
+            toggle_main_window(&hs);
         }) {
             error!("唤出窗口快捷键 {} 注册失败: {}", summon_hotkey, e);
         }
@@ -482,6 +971,7 @@ async fn apply_hotkeys(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    reset_microphone_permission_cache_on_startup();
     // 在应用启动时检查并应用 GPU 设置
     apply_gpu_settings_on_startup();
     
@@ -534,7 +1024,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet, open_devtools,
             create_lobby, join_lobby, leave_lobby,
-            toggle_mic, mute_player, mute_all,
+            toggle_mic, set_mic_enabled, open_microphone_privacy_settings, reset_microphone_permission, mute_player, mute_all,
+            start_system_audio_loopback, stop_system_audio_loopback,
+            process_voice_frame, process_voice_frames, reset_voice_processor,
             get_config, update_config, save_opacity,
             get_audio_devices, get_app_state, get_current_lobby, get_players,
             get_mic_status, get_global_mute_status, is_player_muted,
@@ -543,7 +1035,6 @@ pub fn run() {
             send_signaling_message, broadcast_status_update, send_heartbeat,
             force_stop_easytier,
             cancel_lobby_connecting,
-            download_and_run_installer,
             check_virtual_adapter, check_firewall_rules, ping_virtual_ip, check_udp_port,
             is_admin, add_firewall_rules, restart_as_admin,
             save_window_position, exit_app,
@@ -564,7 +1055,7 @@ pub fn run() {
             set_danmaku_ignore_cursor, danmaku_cursor_pos, save_danmaku_image,
             open_game_hud_window, close_game_hud_window,
             set_gamehud_ignore_cursor, gamehud_cursor_pos,
-            open_log_folder, open_log_file, get_log_file_path,
+            open_log_folder, open_log_file, get_log_file_path, read_log_file,
             save_settings, get_settings, set_auto_start, check_auto_start,
             reset_config_to_default, save_voice_volume,
             export_config, import_config,
@@ -576,6 +1067,7 @@ pub fn run() {
             scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
             start_mc_lan_broadcast, stop_mc_lan_broadcast,
             set_tray_menu_texts,
+            minimize_main_window_to_tray,
             remote_inject_input,
             apply_hotkeys,
         ])
@@ -584,10 +1076,9 @@ pub fn run() {
             println!("🚀 [Setup] Tauri 应用设置开始");
             let app_handle = app.handle().clone();
 
-            // 安装「最小化改为隐藏」子类，规避透明无边框窗口最小化卡死
             #[cfg(target_os = "windows")]
-            if let Some(main_win) = app.get_webview_window("main") {
-                install_minimize_to_hide(&main_win);
+            if let Some(main_window) = app.get_webview_window("main") {
+                install_minimize_to_hide(&main_window);
             }
 
             {
@@ -713,11 +1204,7 @@ pub fn run() {
                         // 启动后自动隐藏到系统托盘（后台运行）
                         let start_minimized = config.start_minimized.unwrap_or(false);
                         if start_minimized {
-                            if let Err(e) = win.hide() {
-                                error!("启动时隐藏窗口到托盘失败: {}", e);
-                            } else {
-                                info!("已根据配置在启动后隐藏到系统托盘");
-                            }
+                            hide_main_window_to_tray(win.app_handle(), "启动配置");
                         }
                     });
                 }
@@ -751,9 +1238,6 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // 【#1】窗口越界自动回中：当窗口被拖到所有显示器可视范围之外时，自动居中找回
-            if let tauri::WindowEvent::Moved(_pos) = event {
-                ensure_window_visible(window);
-            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label().to_string();
                 // 仅主窗口关闭时才退出应用；辅助窗口(弹幕覆盖层/屏幕查看等)正常关闭，
@@ -763,6 +1247,9 @@ pub fn run() {
                 }
                 // 始终先阻止默认关闭，之后根据配置决定：隐藏到托盘 或 退出程序
                 api.prevent_close();
+                // 先立即隐藏窗口，再在后台判断是保留托盘运行还是清理退出，避免
+                // 网络与虚拟网卡清理耗时让用户感觉关闭按钮没有响应。
+                let _ = window.hide();
                 let ah = window.app_handle().clone();
                 if let Some(state) = ah.try_state::<AppState>() {
                     let core = Arc::clone(&state.core);
@@ -776,11 +1263,7 @@ pub fn run() {
                         };
 
                         if close_to_tray {
-                            // 后台运行：仅隐藏到系统托盘，不退出程序
-                            if let Some(w) = ah.get_webview_window("main") {
-                                let _ = w.hide();
-                                info!("关闭按钮触发：已根据配置最小化到系统托盘");
-                            }
+                            hide_main_window_to_tray(&ah, "关闭按钮");
                             return;
                         }
 

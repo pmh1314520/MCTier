@@ -410,6 +410,83 @@ pub async fn toggle_mic(
     }
 }
 
+/// 显式设置麦克风状态。用于浏览器权限请求失败后把 Rust 与前端状态一起回滚。
+#[tauri::command]
+pub async fn set_mic_enabled(
+    enabled: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    let core = state.core.lock().await;
+    let voice_service = core.get_voice_service();
+    let new_state = voice_service
+        .lock()
+        .await
+        .set_mic_enabled(enabled)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Err(e) = app.emit("mic-toggled", new_state) {
+        log::error!("发送麦克风状态事件失败: {}", e);
+    }
+    Ok(new_state)
+}
+
+/// 打开操作系统的麦克风隐私设置，供永久拒绝权限的用户恢复授权。
+#[tauri::command]
+pub fn open_microphone_privacy_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", "ms-settings:privacy-microphone"])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return Err("当前 Linux 桌面环境无法自动定位麦克风权限页，请在系统设置中手动允许 MCTier 使用麦克风".to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+/// Restart into the permission-reset startup path. The new process waits for this
+/// WebView to exit before deleting EBWebView, avoiding locked-file failures.
+#[tauri::command]
+pub fn reset_microphone_permission(app: tauri::AppHandle) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new(&exe)
+            .arg("--reset-microphone-permission")
+            .creation_flags(0x08000000)
+            .spawn()
+            .map_err(|e| format!("重启 MCTier 失败: {}", e))?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(&exe)
+            .arg("--reset-microphone-permission")
+            .spawn()
+            .map_err(|e| format!("重启 MCTier 失败: {}", e))?;
+    }
+    app.exit(0);
+    Ok(())
+}
+
 /// 静音或取消静音指定玩家
 /// 
 /// # 参数
@@ -854,7 +931,6 @@ pub async fn get_peer_connection_types(
     cmd.args(["-p", &format!("127.0.0.1:{}", port), "-o", "json", "peer"]);
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -1188,7 +1264,6 @@ pub async fn cancel_lobby_connecting() -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         for image in ["easytier-core.exe", "easytier-cli.exe"] {
             let _ = tokio::process::Command::new("taskkill")
@@ -1208,94 +1283,6 @@ pub async fn cancel_lobby_connecting() -> Result<(), String> {
     }
 
     log::info!("✅ 已发送终止信号给 easytier-core 进程");
-    Ok(())
-}
-
-/// 【#14/#15/#16】客户端内一键更新：下载安装包到临时目录并运行，然后退出应用
-///
-/// * `url` - 最新安装包(.exe) 的直链地址
-/// 下载过程通过 "update-download-progress" 事件向前端汇报进度。
-#[tauri::command]
-pub async fn download_and_run_installer(
-    url: String,
-    app_handle: tauri::AppHandle,
-) -> Result<(), String> {
-    use tauri::Emitter;
-    use tokio::io::AsyncWriteExt;
-    use futures_util::StreamExt;
-
-    log::info!("📥 开始客户端内更新，下载地址: {}", url);
-
-    // 目标临时文件
-    let mut tmp_path = std::env::temp_dir();
-    tmp_path.push("MCTier_update_setup.exe");
-
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| format!("创建下载客户端失败: {}", e))?;
-
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("请求下载失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("下载失败，服务器返回状态: {}", resp.status()));
-    }
-
-    let total = resp.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-
-    let mut file = tokio::fs::File::create(&tmp_path)
-        .await
-        .map_err(|e| format!("创建临时文件失败: {}", e))?;
-
-    let mut stream = resp.bytes_stream();
-    let mut last_emit = std::time::Instant::now();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载数据出错: {}", e))?;
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("写入文件失败: {}", e))?;
-        downloaded += chunk.len() as u64;
-
-        // 限制事件频率，避免过于频繁
-        if last_emit.elapsed().as_millis() >= 150 {
-            let _ = app_handle.emit(
-                "update-download-progress",
-                serde_json::json!({ "downloaded": downloaded, "total": total }),
-            );
-            last_emit = std::time::Instant::now();
-        }
-    }
-    file.flush().await.map_err(|e| format!("刷新文件失败: {}", e))?;
-    drop(file);
-
-    // 最终进度
-    let _ = app_handle.emit(
-        "update-download-progress",
-        serde_json::json!({ "downloaded": downloaded, "total": total }),
-    );
-
-    log::info!("✅ 安装包下载完成: {:?}（{} 字节）", tmp_path, downloaded);
-
-    // 启动安装包（NSIS，currentUser 模式会自动覆盖安装并重启应用）
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new(&tmp_path)
-            .spawn()
-            .map_err(|e| format!("启动安装包失败: {}", e))?;
-    }
-
-    // 稍作延迟后退出应用，让安装程序接管覆盖文件
-    let ah = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
-        ah.exit(0);
-    });
-
     Ok(())
 }
 
@@ -3318,6 +3305,7 @@ pub async fn send_p2p_chat_message(
     content: String,
     message_type: String,
     image_data: Option<Vec<u8>>,
+    message_id: Option<String>,
     peer_ips: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
@@ -3335,12 +3323,13 @@ pub async fn send_p2p_chat_message(
         "clipboard" => MessageType::Clipboard,
         "todo" => MessageType::Todo,
         "whiteboard" => MessageType::Whiteboard,
+        "recall" => MessageType::Recall,
         _ => MessageType::Text,
     };
     
     // 创建消息
     let message = ChatServiceMessage {
-        id: format!("msg-{}-{}", player_id, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+        id: message_id.unwrap_or_else(|| format!("msg-{}-{}", player_id, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis())),
         player_id: player_id.clone(),
         player_name: player_name.clone(),
         content: content.clone(),
@@ -3435,7 +3424,7 @@ pub async fn send_p2p_chat_message(
     }
     log::info!("🎉 [ChatService] 消息发送完成：送达 {}/{}", delivered, total);
     
-    Ok(serde_json::json!({ "delivered": delivered, "total": total }))
+    Ok(serde_json::json!({ "delivered": delivered, "total": total, "messageId": message_id }))
 }
 
 /// 获取P2P聊天消息
@@ -3961,6 +3950,27 @@ pub async fn get_log_file_path() -> Result<String, String> {
     Ok(log_path.to_string_lossy().to_string())
 }
 
+/// 读取最近的运行日志，供设置页内查看。仅返回末尾内容，避免日志过大阻塞界面。
+#[tauri::command]
+pub async fn read_log_file() -> Result<String, String> {
+    let log_path = if let Some(data_dir) = dirs::data_local_dir() {
+        data_dir.join("MCTier").join("mctier.log")
+    } else {
+        std::path::PathBuf::from("mctier.log")
+    };
+
+    let bytes = tokio::fs::read(&log_path)
+        .await
+        .map_err(|e| format!("读取日志失败: {}", e))?;
+    const MAX_BYTES: usize = 512 * 1024;
+    let start = bytes.len().saturating_sub(MAX_BYTES);
+    let mut content = String::from_utf8_lossy(&bytes[start..]).into_owned();
+    if start > 0 {
+        content = format!("[仅显示最近 512 KB 日志]\n{}", content);
+    }
+    Ok(content)
+}
+
 /// 保存设置配置（开机自启 + 自动大厅）
 ///
 /// # 参数
@@ -3985,6 +3995,7 @@ pub async fn get_log_file_path() -> Result<String, String> {
 /// * `enable_gpu_rendering` - 是否启用 GPU 渲染
 #[tauri::command]
 pub async fn save_settings(
+    language: Option<String>,
     auto_startup: bool,
     auto_lobby_enabled: bool,
     lobby_name: Option<String>,
@@ -4024,6 +4035,11 @@ pub async fn save_settings(
         let config_manager = core.get_config_manager();
         let mut cfg_mgr = config_manager.lock().await;
         cfg_mgr.update_config(|config| {
+            if let Some(value) = language.as_deref() {
+                if matches!(value, "system" | "zh" | "en") {
+                    config.language = Some(value.to_string());
+                }
+            }
             config.auto_startup = Some(auto_startup);
             // 读取已有的auto_lobby配置，只更新非None的字段
             let existing = config.auto_lobby.clone().unwrap_or_default();
@@ -4259,6 +4275,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
     let exit_node_config = config.exit_node_config.clone().unwrap_or_default();
 
     Ok(serde_json::json!({
+        "language": config.language.clone(),
         "autoStartup": actual_auto_start,
         "autoLobbyEnabled": auto_lobby.enabled,
         "lobbyName": auto_lobby.lobby_name,

@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Modal, message } from 'antd';
 import { motion } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-shell';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
-import { versionCheckService } from '../../services/version/VersionCheckService';
+import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
 import './VersionUpdateModal.css';
 
 interface VersionUpdateModalProps {
@@ -28,59 +26,16 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
   onClose,
 }) => {
   useTranslation();
-  const [updating, setUpdating] = useState(false);
-  const [progress, setProgress] = useState(0);
 
-  // 监听下载进度事件
-  useEffect(() => {
-    if (!updating) return;
-    let unlisten: (() => void) | undefined;
-    listen<{ downloaded: number; total: number }>('update-download-progress', (e) => {
-      const { downloaded, total } = e.payload;
-      if (total > 0) {
-        setProgress(Math.min(100, Math.round((downloaded / total) * 100)));
-      }
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [updating]);
-
-  // 客户端内一键更新：下载最新安装包并运行
+  // 更新包统一由官网提供，客户端只负责版本检测与打开官网。
   const handleDownload = async () => {
-    if (updating) return;
     try {
-      setUpdating(true);
-      setProgress(0);
-      message.loading({ content: tl('正在获取最新安装包…', 'Fetching the latest installer…'), key: 'mctier-update', duration: 0 });
-
-      const url = await versionCheckService.fetchLatestInstallerUrl();
-      if (!url) {
-        message.destroy('mctier-update');
-        message.warning(tl('未找到可下载的安装包，将打开下载页面', 'No installer found, opening the download page'));
-        await open('https://gitee.com/peng-minghang/mctier/releases');
-        setUpdating(false);
-        onClose();
-        return;
-      }
-
-      message.loading({ content: tl('正在下载并更新，请勿关闭软件…', 'Downloading and updating, please keep the app open…'), key: 'mctier-update', duration: 0 });
-      // 下载完成后后端会自动运行安装包并退出应用
-      await invoke('download_and_run_installer', { url });
-      message.destroy('mctier-update');
-      message.success(tl('下载完成，即将启动安装程序…', 'Download complete, launching the installer…'));
+      await open(DOWNLOAD_WEBSITE);
+      message.success(tl('已在浏览器中打开 MCTier 官网', 'Opened the MCTier website in your browser'));
+      onClose();
     } catch (error) {
-      console.error('❌ 客户端内更新失败:', error);
-      message.destroy('mctier-update');
-      message.error(tl('更新失败，将打开下载页面', 'Update failed, opening the download page'));
-      try {
-        await open('https://gitee.com/peng-minghang/mctier/releases');
-      } catch (_) {
-        // ignore
-      }
-      setUpdating(false);
+      console.error('打开 MCTier 官网失败:', error);
+      message.error(tl('无法打开官网，请手动访问 mctier.pmhs.top', 'Unable to open the website. Visit mctier.pmhs.top manually.'));
     }
   };
 
@@ -153,25 +108,23 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
           <motion.button
             className="version-update-btn later"
             onClick={onClose}
-            disabled={updating}
-            whileHover={{ scale: updating ? 1 : 1.02 }}
-            whileTap={{ scale: updating ? 1 : 0.98 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             {tl('稍后更新', 'Update Later')}
           </motion.button>
           <motion.button
             className="version-update-btn download"
             onClick={handleDownload}
-            disabled={updating}
-            whileHover={{ scale: updating ? 1 : 1.02 }}
-            whileTap={{ scale: updating ? 1 : 0.98 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>{updating ? `${tl('更新中', 'Updating')} ${progress}%` : tl('立即更新', 'Update Now')}</span>
+            <span>{tl('前往官网更新', 'Update on Website')}</span>
           </motion.button>
         </div>
       </div>

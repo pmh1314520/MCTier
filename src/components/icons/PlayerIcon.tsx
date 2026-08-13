@@ -46,7 +46,7 @@ export const PlayerIcon: React.FC<PlayerIconProps> = ({
           cy="18"
           r="3"
           fill="#52c41a"
-          stroke="#fff"
+          stroke="currentColor"
           strokeWidth="1.5"
         />
       )}

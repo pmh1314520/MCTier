@@ -148,7 +148,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ visible, onClose }) => {
                     initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}>
                     <span className={`stats-partner-rank rank-${idx < 3 ? idx + 1 : 'n'}`}>{idx + 1}</span>
                     <span className="stats-partner-name">{p.name}</span>
-                    <span className="stats-partner-count">{p.count} 次</span>
+                    <span className="stats-partner-count">{p.count} {tl('次', 'sessions')}</span>
                   </motion.div>
                 ))}
               </div>

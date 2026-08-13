@@ -3,15 +3,15 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   color: #ffffff;
   overflow: hidden;
   border-radius: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* 默认使用较高透明度的背景，配合毛玻璃效果 */
-  background: rgba(20, 20, 30, 0.7);
+  background: rgba(20, 20, 30, var(--mini-window-opacity, 0.7));
 }
 
 .mini-window.collapsed {
@@ -67,13 +67,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.14s ease, color 0.14s ease;
   font-size: 13px;
 }
 
 .mini-control-btn:hover {
   background: rgba(255, 255, 255, 0.2);
-  transform: scale(1.1);
+  transform: none;
 }
 
 .mini-control-btn:active {
@@ -91,7 +91,7 @@
 }
 
 .mini-control-btn.voice-btn.active:hover {
-  background: rgba(160, 160, 160, 0.4);
+  background: rgba(160, 160, 160, 0.3);
 }
 
 .mini-control-btn.voice-btn.muted {
@@ -100,19 +100,19 @@
 }
 
 .mini-control-btn.voice-btn.muted:hover {
-  background: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.3);
 }
 
 /* 新消息按钮样式 */
 .mini-control-btn.new-message-btn {
   background: rgba(82, 196, 26, 0.3);
   color: #52c41a;
-  animation: newMessagePulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 .mini-control-btn.new-message-btn:hover {
   background: rgba(82, 196, 26, 0.45);
-  animation: newMessagePulse 1.5s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes newMessagePulse {
@@ -396,7 +396,7 @@
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .mini-player-item:hover {
@@ -573,7 +573,7 @@
 }
 
 .player-volume-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  transform: none;
   box-shadow: 0 0 8px rgba(82, 196, 26, 0.8);
 }
 
@@ -654,7 +654,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.14s ease, color 0.14s ease;
   font-size: 13px;
 }
 
@@ -674,26 +674,11 @@
   color: #ef4444;
 }
 
-/* 语音重连进行中：图标持续旋转并禁用点击，给出明确的进行中反馈 */
-.mini-action-btn.reconnecting {
-  background: rgba(126, 211, 33, 0.22);
-  color: #7ed321;
-  cursor: default;
-}
-
-.mini-action-btn.reconnecting svg {
-  animation: mini-action-spin 0.9s linear infinite;
-}
-
 .mini-action-btn:disabled {
   opacity: 0.75;
   cursor: default;
 }
 
-@keyframes mini-action-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 .mini-action-btn.muted:hover {
   background: rgba(239, 68, 68, 0.4);
@@ -720,7 +705,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
   font-size: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   position: relative;
@@ -728,8 +713,8 @@
 
 .mini-voice-btn:hover {
   background: rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .mini-voice-btn:active {
@@ -738,7 +723,7 @@
 
 .mini-voice-btn.active {
   background: rgba(160, 160, 160, 0.3);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: none;
 }
 
 .mini-voice-btn.muted {
@@ -763,12 +748,12 @@
 .mini-voice-btn.chat-btn.has-unread {
   background: rgba(82, 196, 26, 0.3);
   color: #52c41a;
-  animation: chatPulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 .mini-voice-btn.chat-btn.has-unread:hover {
   background: rgba(82, 196, 26, 0.45);
-  animation: chatPulse 1.5s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes chatPulse {
@@ -795,7 +780,7 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 1px 4px rgba(239, 68, 68, 0.5);
-  animation: badgePulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 .mini-unread-dot {
@@ -807,14 +792,14 @@
   background: #ef4444;
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgba(20, 20, 30, 0.9);
-  animation: badgePulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 .mini-new-message-text {
   color: #52c41a;
   font-size: 12px;
   font-weight: 500;
-  animation: textPulse 2s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes textPulse {
@@ -864,13 +849,13 @@
 .mini-game-tip:hover {
   background: rgba(33, 150, 243, 0.15);
   border-color: rgba(33, 150, 243, 0.4);
-  transform: translateX(2px);
+  transform: none;
 }
 
 .game-tip-icon {
   flex-shrink: 0;
   color: rgba(33, 150, 243, 1);
-  animation: tipGlow 2s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes tipGlow {
@@ -898,29 +883,34 @@
   margin-bottom: 5px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .mini-opacity-control-wrapper {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-right: 8px;
+  gap: 6px;
+  padding-right: 0;
 }
 
 .mini-opacity-label {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
   margin: 0;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
   font-weight: 500;
 }
 
 .mini-opacity-slider {
   flex: 1;
+  min-width: 40px;
   height: 3px;
-  background: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.18);
+  background-image: linear-gradient(to right, #7a8491 0%, #7a8491 var(--opacity-percent, 57%), transparent var(--opacity-percent, 57%));
   border-radius: 2px;
   outline: none;
   -webkit-appearance: none;
@@ -1600,6 +1590,89 @@
 .hotkey-desc {
   color: rgba(255, 255, 255, 0.6);
   font-size: 10px;
+}
+
+html[data-theme='light'] .chat-room-view,
+html[data-theme='light'] .file-share-view,
+html[data-theme='light'] .screen-share-view {
+  background: #f4f6f8;
+  color: #18202b;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme='light'] .chat-room-header,
+html[data-theme='light'] .file-share-header,
+html[data-theme='light'] .screen-share-header {
+  background: #ffffff;
+  border-bottom-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .chat-room-title,
+html[data-theme='light'] .file-share-title,
+html[data-theme='light'] .screen-share-title {
+  color: #18202b;
+}
+
+html[data-theme='light'] .file-share-info-icon,
+html[data-theme='light'] .screen-share-info-icon {
+  color: #596574;
+}
+
+html[data-theme='light'] .back-button {
+  background: #eef2f5;
+  color: #364151;
+  border: 1px solid rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .back-button:hover {
+  background: #e3e8ed;
+  color: #c7353a;
+}
+
+html[data-theme='light'] .mini-hotkey-hints {
+  background: #eef2f5;
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .hotkey-desc { color: #596574; }
+
+
+html[data-theme='light'] .screen-share-view {
+  background: #ffffff;
+  color: #18202b;
+  backdrop-filter: none;
+}
+html[data-theme='light'] .screen-share-header {
+  background: #f4f6f8;
+  border-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .screen-share-title {
+  color: #18202b;
+}
+html[data-theme='light'] .screen-share-info-icon {
+  color: #596574;
+}
+html[data-theme='light'] .mini-hotkey-hints {
+  background: #f4f6f8;
+  border-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .hotkey-desc {
+  color: #596574;
+}
+html[data-theme='light'] .hotkey-key {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.16);
+  color: #3f8f19;
+  box-shadow: none;
+}
+html[data-theme='light'] .mini-announce-marquee,
+html[data-theme='light'] .mini-vg-label,
+html[data-theme='light'] .mini-vg-chip {
+  color: #364151;
+}
+html[data-theme='light'] .mini-vg-chip {
+  background: #e9edf2;
 }
 
 /* 重新连接 Modal 样式 */

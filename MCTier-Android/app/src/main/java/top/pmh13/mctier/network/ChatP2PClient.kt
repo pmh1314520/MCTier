@@ -60,6 +60,9 @@ class ChatP2PClient(
     fun sendTodo(playerName: String, todosJson: String): ChatWireMessage =
         sendInternal(playerName, todosJson, "todo", null)
 
+    fun sendRecall(playerName: String, messageId: String): ChatWireMessage =
+        sendInternal(playerName, messageId, "recall", null)
+
     private fun sendInternal(playerName: String, content: String, type: String, imageData: List<Int>?): ChatWireMessage {
         val id = "msg-$playerId-${System.currentTimeMillis()}"
         val msg = ChatWireMessage(id, playerId, playerName, content, type, System.currentTimeMillis() / 1000, imageData)

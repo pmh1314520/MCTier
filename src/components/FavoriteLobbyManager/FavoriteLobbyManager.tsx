@@ -323,6 +323,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
         {!showAddForm && (
           <Button
             type="dashed"
+            className="favorite-add-button"
             block
             onClick={() => setShowAddForm(true)}
             style={{ marginBottom: '16px' }}

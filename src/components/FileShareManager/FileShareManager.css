@@ -833,6 +833,53 @@
 }
 
 .file-share-container .ant-checkbox-checked:hover .ant-checkbox-inner {
-  background-color: #73d13d;
-  border-color: #73d13d;
+  background-color: #52c41a;
+  border-color: #52c41a;
+}
+
+html[data-theme='light'] .file-share-container {
+  background: #ffffff;
+  color: #18202b;
+}
+
+html[data-theme='light'] .sidebar-tabs {
+  background: #f0f2f5;
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .sidebar-tab {
+  background: #ffffff;
+  color: #596574;
+  border-color: rgba(24, 32, 43, 0.08);
+}
+
+html[data-theme='light'] .sidebar-tab:hover { background: #e8edf1; color: #18202b; }
+html[data-theme='light'] .sidebar-tab.active { background: #edf8e8; color: #3b8d1c; border-color: #9ed181; }
+
+html[data-theme='light'] .file-share-container :where(.share-item, .file-item, .transfer-item) {
+  background: #f7f9fb;
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .file-share-container :where(.share-name, .share-owner, .file-name, .transfer-name, .empty-text, h3, h4, p) {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .file-share-container :where(.share-meta, .file-size, .transfer-meta, .empty-hint) {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .custom-confirm-dialog {
+  background: #ffffff;
+  border: 1px solid rgba(24, 32, 43, 0.14);
+  box-shadow: 0 18px 48px rgba(24, 32, 43, 0.2);
+}
+html[data-theme='light'] .confirm-title { color: #18202b; }
+html[data-theme='light'] .confirm-message { color: #596574; }
+html[data-theme='light'] .cancel-btn { background: #ffffff; color: #364151; border-color: #aab2bd; }
+
+html[data-theme='light'] .file-share-container ~ .ant-modal-root .ant-modal-content,
+html[data-theme='light'] .file-share-container .ant-modal-content {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
 }

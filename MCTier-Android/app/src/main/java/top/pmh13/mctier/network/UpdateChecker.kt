@@ -2,7 +2,7 @@ package top.pmh13.mctier.network
 
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.FileProvider
+import android.net.Uri
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -10,13 +10,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import top.pmh13.mctier.data.AppClientVersion
+import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.ui.L
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * 客户端内更新：从 Gitee 检测最新版本，下载 APK 并调起系统安装器。
- * 与桌面端一致使用 Gitee 仓库 peng-minghang/mctier。
+ * 从 Gitee 检测最新版本和更新日志，安装包由官网引导用户手动下载。
  */
 class UpdateChecker(private val context: Context) {
     private val client = OkHttpClient.Builder()
@@ -25,70 +24,45 @@ class UpdateChecker(private val context: Context) {
         .build()
     private val json = Json { ignoreUnknownKeys = true }
     private val tagsUrl = "https://gitee.com/api/v5/repos/peng-minghang/mctier/tags"
-    private val latestReleaseUrl = "https://gitee.com/api/v5/repos/peng-minghang/mctier/releases/latest"
+    private val downloadWebsite = "https://mctier.pmhs.top"
 
     /** 检测是否有新版本。回调在子线程触发，UI 层需切回主线程。 */
-    fun check(onResult: (hasUpdate: Boolean, latest: String) -> Unit) {
+    fun check(onResult: (AvailableUpdate?) -> Unit) {
         Thread {
             runCatching {
                 client.newCall(Request.Builder().url(tagsUrl).build()).execute().use { resp ->
-                    if (!resp.isSuccessful) { onResult(false, AppClientVersion); return@use }
+                    if (!resp.isSuccessful) { onResult(null); return@use }
                     val text = resp.body?.string().orEmpty()
                     val arr = json.parseToJsonElement(text).jsonArray
-                    val latest = arr.lastOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.content
-                        ?.removePrefix("v") ?: AppClientVersion
-                    onResult(compareVersions(latest, AppClientVersion) > 0, latest)
-                }
-            }.onFailure { onResult(false, AppClientVersion) }
-        }.start()
-    }
-
-    /** 下载最新 APK 并调起安装器。回调在子线程触发。 */
-    fun downloadAndInstall(onProgress: (Int) -> Unit, onError: (String) -> Unit) {
-        Thread {
-            runCatching {
-                val relText = client.newCall(Request.Builder().url(latestReleaseUrl).build()).execute().use {
-                    if (!it.isSuccessful) error("获取发行版失败 HTTP ${it.code}")
-                    it.body?.string().orEmpty()
-                }
-                val assets = json.parseToJsonElement(relText).jsonObject["assets"]?.jsonArray
-                    ?: error("发行版无附件")
-                val apkUrl = assets.firstNotNullOfOrNull { el ->
-                    val o = el.jsonObject
-                    val name = o["name"]?.jsonPrimitive?.content.orEmpty()
-                    if (name.endsWith(".apk", true)) o["browser_download_url"]?.jsonPrimitive?.content else null
-                } ?: error("未找到 APK 安装包")
-
-                val apk = File(context.getExternalFilesDir(null), "mctier-update.apk")
-                client.newCall(Request.Builder().url(apkUrl).build()).execute().use { resp ->
-                    if (!resp.isSuccessful) error("下载失败 HTTP ${resp.code}")
-                    val body = resp.body ?: error("空响应")
-                    val total = body.contentLength()
-                    var downloaded = 0L
-                    body.byteStream().use { input ->
-                        apk.outputStream().use { out ->
-                            val buf = ByteArray(8192)
-                            var r: Int
-                            while (input.read(buf).also { r = it } != -1) {
-                                out.write(buf, 0, r)
-                                downloaded += r
-                                if (total > 0) onProgress((downloaded * 100 / total).toInt())
-                            }
-                        }
+                    val latestTag = arr.maxWithOrNull { left, right ->
+                        val leftVersion = left.jsonObject["name"]?.jsonPrimitive?.content.orEmpty().removePrefix("v")
+                        val rightVersion = right.jsonObject["name"]?.jsonPrimitive?.content.orEmpty().removePrefix("v")
+                        compareVersions(leftVersion, rightVersion)
                     }
+                    val latest = latestTag?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty().removePrefix("v")
+                    if (latest.isBlank() || compareVersions(latest, AppClientVersion) <= 0) {
+                        onResult(null)
+                        return@use
+                    }
+                    val releaseNotes = latestTag?.jsonObject?.get("message")?.jsonPrimitive?.content
+                        .orEmpty()
+                        .lineSequence()
+                        .map { it.trim().removePrefix("- ").trim() }
+                        .filter { it.isNotBlank() }
+                        .toList()
+                    onResult(AvailableUpdate(latest, releaseNotes))
                 }
-                install(apk)
-            }.onFailure { onError(it.message ?: L("更新失败", "Update failed")) }
+            }.onFailure { onResult(null) }
         }.start()
     }
 
-    private fun install(apk: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+    /** 版本仍从 Gitee 检测，安装包统一由官网引导用户手动下载。 */
+    fun openDownloadWebsite(onError: (String) -> Unit = {}) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(downloadWebsite)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure { onError(it.message ?: L("无法打开官网", "Could not open website")) }
     }
 
     private fun compareVersions(v1: String, v2: String): Int {

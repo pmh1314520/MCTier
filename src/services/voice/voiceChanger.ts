@@ -192,6 +192,9 @@ export class VoiceChanger {
     this.source.connect(this.inputGain);
     this.outputGain.connect(this.dest);
     this.buildChain(preset);
+    // MediaStreamDestination is silent while a new AudioContext is suspended.
+    // Opening the mic is an explicit user gesture, so resume it immediately.
+    void this.ctx.resume().catch(() => {});
     return this.dest.stream;
   }
 

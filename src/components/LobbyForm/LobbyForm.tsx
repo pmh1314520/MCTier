@@ -35,14 +35,15 @@ interface LobbyFormValues {
   useDomain: boolean;
 }
 
-// 官方 EasyTier 服务器节点（使用海波节点作为官方中继）
-const OFFICIAL_EASYTIER_SERVER = 'udp://us01.225284.xyz:11010';
+// 内置 EasyTier 公共节点
+const HAIBO_US_EASYTIER_SERVER = 'udp://us01.225284.xyz:11010';
 
-// 默认备用节点（与SettingsWindow中的定义保持一致）
-const DEFAULT_BUILTIN_NODE = {
-  name: '明月清风节点',
-  address: 'wss://public.456469.xyz'
+// 香港 WebSocket 节点（与 SettingsWindow 中的定义保持一致）
+const QINGYUN_HONG_KONG_NODE = {
+  name: '青云香港节点',
+  address: 'wss://mctiers.pmhs.top'
 };
+const DEFAULT_EASYTIER_SERVER = QINGYUN_HONG_KONG_NODE.address;
 
 // 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
 const isLegacyOfficialServer = (server?: string) => {
@@ -64,10 +65,10 @@ interface CustomEasyTierNode {
 // 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
-    { value: OFFICIAL_EASYTIER_SERVER, label: tl('MCTier 官方服务器', 'MCTier Official Server') },
-    { value: 'tcp://225284.xyz:11010', label: tl('海波节点 (备用)', 'Haibo Node (backup)') },
-    { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱节点 (备用)', 'Weiai Node (backup)') },
-    { value: DEFAULT_BUILTIN_NODE.address, label: `${tl('明月清风节点', 'Mingyue Qingfeng Node')} ${tl('(备用)', '(backup)')}` },
+    { value: QINGYUN_HONG_KONG_NODE.address, label: tl('青云香港节点', 'Qingyun Hong Kong Node') },
+    { value: HAIBO_US_EASYTIER_SERVER, label: tl('海波美国节点', 'Haibo US Node') },
+    { value: 'tcp://225284.xyz:11010', label: tl('海波中国大陆节点', 'Haibo Mainland China Node') },
+    { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱厦门节点', 'Weiai Xiamen Node') },
   ];
   
   // 添加自定义节点
@@ -164,6 +165,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   const { setAppState, setLobby, config } = useAppStore();
   const [form] = Form.useForm<LobbyFormValues>();
   const [loading, setLoading] = useState(false);
+  const preferredServerSaveGeneration = useRef(0);
   const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
   const [showRecentModal, setShowRecentModal] = useState(false);
@@ -315,10 +317,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   // 解析上次成功使用的首选节点（#10 记住上次成功进入大厅的节点）
   const resolvedPreferredServer = (() => {
     const pref = config.preferredServer;
-    if (!pref) return OFFICIAL_EASYTIER_SERVER;
+    if (!pref) return DEFAULT_EASYTIER_SERVER;
     if (pref === 'custom') return 'custom';
     // 旧版官方节点地址自动迁移到当前官方节点
-    if (isLegacyOfficialServer(pref)) return OFFICIAL_EASYTIER_SERVER;
+    if (isLegacyOfficialServer(pref)) return DEFAULT_EASYTIER_SERVER;
     // 直接使用上次成功连上的节点地址（官方/备用/自定义节点）
     return pref;
   })();
@@ -327,6 +329,24 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     playerName: config.playerName || '',
     serverNode: resolvedPreferredServer,
     // 不设置 useDomain 的初始值，让 Switch 组件自己管理状态（默认为 false）
+  };
+
+  const handleServerNodeChange = (value: string) => {
+    setShowCustomServer(value === 'custom');
+    useAppStore.getState().updateConfig({ preferredServer: value });
+
+    const generation = ++preferredServerSaveGeneration.current;
+    void (async () => {
+      try {
+        const currentConfig = await invoke<UserConfig>('get_config');
+        if (preferredServerSaveGeneration.current !== generation) return;
+        await invoke('update_config', {
+          config: { ...currentConfig, preferredServer: value },
+        });
+      } catch (error) {
+        console.warn('保存首选节点失败:', error);
+      }
+    })();
   };
 
   // 组件加载时尝试从剪贴板自动识别大厅信息
@@ -531,7 +551,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         form.setFieldsValue({ serverNode: best.value });
         setShowCustomServer(false);
         const bestLabel = candidates.find((n) => n.value === best.value)?.label ?? best.value;
-        message.success(`${tl('已自动选择延迟最低的节点：', 'Auto-selected the lowest-latency node: ')}${bestLabel}（${best.latency}ms）`);
+        message.success(tl(`已自动选择延迟最低的节点：${bestLabel}（${best.latency}ms）`, `Auto-selected the lowest-latency node: ${bestLabel} (${best.latency}ms)`));
       } else {
         message.warning(tl('所有节点均不可达，请检查网络或稍后重试', 'All nodes unreachable, check your network or retry later'));
       }
@@ -1132,7 +1152,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                   <Select 
                     size="large" 
                     disabled={loading}
-                    onChange={(value) => setShowCustomServer(value === 'custom')}
+                    onChange={handleServerNodeChange}
                   >
                     {serverNodes.map((node) => {
                       const lat = nodeLatencies[node.value];

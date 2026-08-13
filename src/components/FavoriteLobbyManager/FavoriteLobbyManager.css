@@ -294,6 +294,22 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   display: none !important;
 }
 
+html[data-theme='light'] .favorite-add-button {
+  background: #465463 !important;
+  border-color: #354250 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .favorite-add-button span,
+html[data-theme='light'] .favorite-add-button .anticon {
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .favorite-add-button:hover {
+  background: #364452 !important;
+  border-color: #26323e !important;
+}
+
 /* 通用隐藏 */
 .favorite-form-container input[type="password"]::-ms-reveal,
 .favorite-form-container input[type="password"]::-ms-clear,

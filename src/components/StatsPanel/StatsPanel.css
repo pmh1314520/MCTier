@@ -29,6 +29,11 @@
   border-color: rgba(82, 196, 26, 0.25);
 }
 
+.stats-grid .stats-card:last-child {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .stats-val {
   font-size: 18px;
   font-weight: 700;
@@ -193,3 +198,30 @@
   margin-top: 18px;
   text-align: right;
 }
+
+html[data-theme='light'] .stats-card {
+  background: #f4f6f8;
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .stats-highlight {
+  background: #edf7e8;
+  border-color: rgba(82, 196, 26, 0.28);
+}
+
+html[data-theme='light'] .stats-label,
+html[data-theme='light'] .stats-section-title,
+html[data-theme='light'] .stats-donut-legend,
+html[data-theme='light'] .stats-row-info,
+html[data-theme='light'] .stats-bucket-label,
+html[data-theme='light'] .stats-bucket-count,
+html[data-theme='light'] .stats-partner-name,
+html[data-theme='light'] .stats-partner-count,
+html[data-theme='light'] .stats-empty-mini {
+  color: #364151;
+}
+
+html[data-theme='light'] .stats-donut-num { fill: #18202b !important; }
+html[data-theme='light'] .stats-donut-label { fill: #596574 !important; }
+html[data-theme='light'] .stats-donut circle:first-child { stroke: #dce1e7; }
+html[data-theme='light'] .stats-partner-item { background: #f4f6f8; }

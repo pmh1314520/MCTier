@@ -54,6 +54,8 @@ pub enum MessageType {
     Todo,
     /// 共享白板（控制消息，content 为单笔画/清空指令 JSON）
     Whiteboard,
+    /// 撤回聊天消息（控制消息，content 为目标消息 ID）
+    Recall,
 }
 
 /// 获取消息请求参数

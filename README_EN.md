@@ -6,16 +6,16 @@
   **A universal virtual-LAN networking tool**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.5.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.6.0-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
   </p>
 
 
-  **Supports Windows 10/11 and Android. Desktop and mobile can join the same lobby to quickly form a cross-network virtual LAN.**
+  **Supports Windows 10/11 and Android. Desktop and mobile can join the same lobby to quickly form a cross-network virtual LAN. Current version: 2.6.0.**
 
-  [Website](../MCTier官网/index.html) · [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [Quick Start](#quick-start) · [Screenshots](#screenshots) · [Sponsor](#sponsor)
+  [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [Quick Start](#quick-start) · [Screenshots](#screenshots) · [Sponsor](#sponsor)
 
   English | [简体中文](./README.md)
 </div>
@@ -112,6 +112,7 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 - **Cross-platform lobbies**: Phones and PCs can join the same lobby, with handy QR-code invites.
 - **Public lobby plaza**: Hosts can publish a lobby to the plaza, so strangers can find it and join with one click.
 - **Custom nodes & virtual domains**: Add your own EasyTier nodes and configure a custom domain for the virtual network.
+- **Built-in EasyTier nodes**: The default is the Qingyun Hong Kong node, `wss://mctiers.pmhs.top`; Haibo US, Haibo Mainland China and Weiai Xiamen nodes are also available, and the last selection is remembered.
 - **Connection / network diagnostics**: Aggregate members' direct/relay status, latency and packet loss into a score with tuning tips; network diagnostics can also check the virtual adapter, firewall, UDP ports and security-software blocking, with one-click firewall allow.
 - **Self-hosting**: Run your own signaling server to control the connection entry.
 
@@ -134,6 +135,8 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 - **Favorites & recents**: Save favorite lobbies for one-click fill, keep a history of recently joined lobbies and players you've played with, and favorite frequent teammates.
 - **Global hotkeys**: Customizable hotkeys supporting push-to-talk, one-key mute and more.
 - **Mini overlay**: Quickly check member status, control voice and open tools on desktop.
+- **System tray**: Hide the desktop app to the system tray with a hotkey or window button, customize the restore hotkey, and receive a Windows background-running notification.
+- **Application logs**: Desktop and Android settings provide log viewing or export entry points for diagnosing connection, voice and UI issues.
 - **In-game HUD overlay**: A pinned click-through overlay shows each teammate's latency, packet loss and who's talking while gaming, with mute, drag, opacity and scale controls.
 
 ### Gaming Enhancements
@@ -163,8 +166,8 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 
 Download the latest build from [GitHub Releases](https://github.com/pmh1314520/MCTier/releases) or [Gitee Releases](https://gitee.com/peng-minghang/mctier/releases).
 
-- Windows Installer: download `MCTier-安装包-vx.y.z.exe` and double-click to install.
-- Windows Portable: download `MCTier-便携版-vx.y.z.exe` and run it directly.
+- Windows Installer: download `MCTier_x.y.z_x64-setup.exe` and double-click to install.
+- Windows Portable: download `MCTier.exe` and run it directly.
 - Android: download `MCTier-Android.apk` and install it on your phone.
 
 ### Create or Join a Lobby
@@ -189,7 +192,7 @@ If virtual domains are enabled, you can also connect with an address like `membe
 
 ## Self-hosting Quick Flow
 
-If you want to host your own MCTier signaling server, download `MCTier信令服务器.zip` from the official website, or check `快速部署信令服务器.md` and `私有化部署README.md` in the repository root.
+If you want to host your own MCTier signaling server, download `MCTier信令服务器.zip` and the deployment documentation from the official MCTier website. This source repository contains the desktop and Android client source code, not the website or signaling-server deployment package.
 
 Basic flow:
 
@@ -216,8 +219,11 @@ docker compose -f docker-compose-http.yml logs -f
 ```bash
 npm install
 npm run tauri dev
-npm run tauri build
+# Build the Windows NSIS installer (recommended with the pinned Node runtime)
+npm run tauri build -- --bundles nsis --ci
 ```
+
+Desktop release builds generate the NSIS installer only. This avoids processing the offline WebView2 installer twice when MSI is also enabled. The repository's one-click version update tool prepares the pinned Node runtime and uses the same NSIS arguments.
 
 The Android source code is located at:
 

@@ -320,7 +320,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
               <Form.Item name="enable_socks5" label={tl("启用 SOCKS5 代理", "Enable SOCKS5 proxy")} valuePropName="checked">
                 <Switch />
               </Form.Item>
-              <Form.Item name="socks5_port" label="SOCKS5 端口">
+              <Form.Item name="socks5_port" label={tl('SOCKS5 端口', 'SOCKS5 port')}>
                 <InputNumber min={1024} max={65535} placeholder="1080" style={{ width: '100%' }} />
               </Form.Item>
               
@@ -516,8 +516,8 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
               <Form.Item name="disable_quic_input" label={tl("禁用 QUIC 输入", "Disable QUIC input")} valuePropName="checked">
                 <Switch />
               </Form.Item>
-              <Form.Item name="quic_listen_port" label="QUIC 监听端口">
-                <InputNumber min={0} max={65535} placeholder="0（随机）" style={{ width: '100%' }} />
+              <Form.Item name="quic_listen_port" label={tl('QUIC 监听端口', 'QUIC listen port')}>
+                <InputNumber min={0} max={65535} placeholder={tl('0（随机）', '0 (random)')} style={{ width: '100%' }} />
               </Form.Item>
 
               {/* 加密和安全 */}
@@ -534,10 +534,10 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
               <Form.Item name="bind_device" label={tl("绑定物理设备", "Bind physical device")} valuePropName="checked">
                 <Switch />
               </Form.Item>
-              <Form.Item name="dev_name" label="TUN 设备名称">
+              <Form.Item name="dev_name" label={tl('TUN 设备名称', 'TUN device name')}>
                 <Input placeholder="MCTier_Net" />
               </Form.Item>
-              <Form.Item name="mtu" label="MTU 大小">
+              <Form.Item name="mtu" label={tl('MTU 大小', 'MTU size')}>
                 <InputNumber min={1280} max={1500} placeholder="1380" style={{ width: '100%' }} />
               </Form.Item>
 
@@ -562,7 +562,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
               {/* 中继配置 */}
               <div className="config-section-title">{tl("中继配置", "Relay")}</div>
               <Form.Item name="relay_network_whitelist" label={tl("中继网络白名单", "Relay network whitelist")}>
-                <Input.TextArea placeholder="*（允许所有）" rows={2} />
+                <Input.TextArea placeholder={tl('*（允许所有）', '* (allow all)')} rows={2} />
               </Form.Item>
               <Form.Item name="relay_all_peer_rpc" label={tl("转发所有对等节点 RPC", "Relay all peer RPC")} valuePropName="checked">
                 <Switch />
@@ -574,7 +574,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
                 <Switch />
               </Form.Item>
               <Form.Item name="foreign_relay_bps_limit" label={tl("外部网络流量限制（BPS）", "Foreign network rate limit (BPS)")}>
-                <InputNumber min={0} placeholder="0（无限制）" style={{ width: '100%' }} />
+                <InputNumber min={0} placeholder={tl('0（无限制）', '0 (unlimited)')} style={{ width: '100%' }} />
               </Form.Item>
 
               {/* 路由配置 */}

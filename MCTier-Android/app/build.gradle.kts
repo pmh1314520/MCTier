@@ -13,8 +13,13 @@ android {
         applicationId = "top.pmh13.mctier"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "2.5.0-android"
+        versionCode = 19
+        versionName = "2.6.0-android"
+        ndk {
+            // The bundled LocalVQE engine is currently built for the primary
+            // Android ABI; unsupported ABIs retain the WebRTC hardware AEC/NS path.
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -38,6 +43,13 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
     }
 }
 

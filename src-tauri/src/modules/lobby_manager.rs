@@ -203,20 +203,26 @@ impl LobbyManager {
 
     /// 标准化服务器节点地址
     ///
-    /// 将历史官方地址统一迁移到 EasyTier 官方域名节点
+    /// 迁移历史地址，并为 TCP/UDP 裸域名补齐 EasyTier 默认端口。
     fn normalize_server_node(server_node: &str) -> String {
         let trimmed = server_node.trim();
 
-        if trimmed == "tcp://mctiers.pmhs.top:11010"
-            || trimmed == "udp://mctiers.pmhs.top:11010"
-            || trimmed == "ws://mctiers.pmhs.top:11011"
-            || trimmed == "wss://mctiers.pmhs.top"
-            || trimmed == "tcp://mctier.pmhs.top:11010"
+        if trimmed == "tcp://mctier.pmhs.top:11010"
             || trimmed == "udp://mctier.pmhs.top:11010"
             || trimmed == "ws://mctier.pmhs.top/signaling"
             || trimmed == "wss://mctier.pmhs.top/signaling"
         {
             return "udp://us01.225284.xyz:11010".to_string();
+        }
+
+        if trimmed == "tcp://mctiers.pmhs.top" {
+            return "tcp://mctiers.pmhs.top:11010".to_string();
+        }
+        if trimmed == "udp://mctiers.pmhs.top" {
+            return "udp://mctiers.pmhs.top:11010".to_string();
+        }
+        if trimmed == "ws://mctiers.pmhs.top" {
+            return "ws://mctiers.pmhs.top:11011".to_string();
         }
 
         trimmed.to_string()
@@ -1154,8 +1160,8 @@ mod tests {
     fn test_add_and_remove_player() {
         let mut manager = LobbyManager::new();
         
-        let player1 = Player::new("玩家1".to_string());
-        let player2 = Player::new("玩家2".to_string());
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
         
         let player1_id = player1.id.clone();
         let player2_id = player2.id.clone();
@@ -1185,11 +1191,11 @@ mod tests {
         let mut manager = LobbyManager::new();
         
         // 添加多个玩家（会按加入时间排序）
-        let player1 = Player::new("玩家1".to_string());
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let player2 = Player::new("玩家2".to_string());
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let player3 = Player::new("玩家3".to_string());
+        let player3 = Player::new("玩家3".to_string(), "10.126.126.3".to_string());
         
         manager.add_player(player1.clone());
         manager.add_player(player2.clone());
@@ -1268,8 +1274,8 @@ mod tests {
     fn test_clear_players() {
         let mut manager = LobbyManager::new();
         
-        manager.add_player(Player::new("玩家1".to_string()));
-        manager.add_player(Player::new("玩家2".to_string()));
+        manager.add_player(Player::new("玩家1".to_string(), "10.126.126.1".to_string()));
+        manager.add_player(Player::new("玩家2".to_string(), "10.126.126.2".to_string()));
         
         assert_eq!(manager.get_player_count(), 2);
         
@@ -1532,8 +1538,8 @@ mod tests {
 
     #[test]
     fn test_player_id_uniqueness() {
-        let player1 = Player::new("玩家1".to_string());
-        let player2 = Player::new("玩家2".to_string());
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
         
         // 验证每个玩家都有唯一的 ID
         assert_ne!(player1.id, player2.id, "玩家 ID 应该是唯一的");
@@ -1621,8 +1627,8 @@ mod tests {
         let mut manager = LobbyManager::new();
         
         // 添加玩家
-        manager.add_player(Player::new("玩家1".to_string()));
-        manager.add_player(Player::new("玩家2".to_string()));
+        manager.add_player(Player::new("玩家1".to_string(), "10.126.126.1".to_string()));
+        manager.add_player(Player::new("玩家2".to_string(), "10.126.126.2".to_string()));
         
         assert_eq!(manager.get_player_count(), 2);
         
@@ -1644,5 +1650,4 @@ mod tests {
         assert_eq!(manager1.get_player_count(), manager2.get_player_count());
     }
 }
-
 

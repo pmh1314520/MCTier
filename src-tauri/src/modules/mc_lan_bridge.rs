@@ -37,8 +37,6 @@ struct Bridge {
     running: bool,
     /// key = "ip:port"
     proxies: HashMap<String, ProxyEntry>,
-    /// 公告线程代次，stop 或重置时自增以让旧线程退出
-    emit_gen: u64,
 }
 
 static BRIDGE: OnceLock<Mutex<Bridge>> = OnceLock::new();
@@ -50,7 +48,6 @@ fn bridge() -> &'static Mutex<Bridge> {
         Mutex::new(Bridge {
             running: false,
             proxies: HashMap::new(),
-            emit_gen: 0,
         })
     })
 }

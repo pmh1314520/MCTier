@@ -6,15 +6,15 @@
   **虚拟局域网通用组网工具**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.5.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.6.0-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
   </p>
 
-  **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。**
+  **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。当前版本：2.6.0。**
 
-  [官网](../MCTier官网/index.html) · [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [快速开始](#快速开始) · [运行预览](#运行预览) · [赞助支持](#赞助支持)
+  [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [快速开始](#快速开始) · [运行预览](#运行预览) · [赞助支持](#赞助支持)
 
   [English](./README_EN.md) | 简体中文
 </div>
@@ -111,6 +111,7 @@ MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组�
 - **跨端加入大厅**：手机和电脑可加入同一个大厅，二维码邀请更方便。
 - **公开大厅广场**：房主可把大厅公开到广场，陌生人也能在广场看到并一键加入一起玩。
 - **自定义节点与虚拟域名**：支持添加自定义 EasyTier 节点，并为虚拟网络配置自定义域名。
+- **内置 EasyTier 节点**：默认使用青云香港节点 `wss://mctiers.pmhs.top`，也可切换海波美国、海波中国大陆或唯爱厦门节点；客户端会记住上次选择。
 - **连接 / 网络诊断**：聚合成员直连、中继、延迟、丢包，给出整体评分与优化建议；网络诊断还能检测虚拟网卡、防火墙、UDP 端口与安全软件拦截，并支持一键放行防火墙。
 - **私有化部署**：支持自建信令服务，便于掌控连接入口。
 
@@ -133,6 +134,8 @@ MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组�
 - **常用大厅与最近联机**：收藏常用大厅一键填入，记录最近进入的大厅与一起玩过的玩家，并可收藏常用队友。
 - **全局快捷键**：自定义快捷键，支持按键说话、一键静音等操作。
 - **迷你悬浮窗**：在桌面端快速查看成员状态、控制语音和打开工具。
+- **系统托盘运行**：桌面端支持快捷键或窗口按钮隐藏到系统托盘，恢复快捷键可自定义；隐藏后会显示 Windows 后台运行通知。
+- **软件日志**：桌面端和 Android 端设置中提供日志查看或导出入口，便于排查连接、语音和界面问题。
 - **游戏内 HUD 浮层**：游戏中以置顶穿透浮窗显示队友延迟、丢包与谁在说话，可静音、拖动、调透明度与缩放。
 
 ### 游戏联机增强
@@ -162,8 +165,8 @@ MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组�
 
 前往 [GitHub Releases](https://github.com/pmh1314520/MCTier/releases) 或 [Gitee Releases](https://gitee.com/peng-minghang/mctier/releases) 下载最新版。
 
-- Windows 安装包：下载 `MCTier-安装包-vx.y.z.exe` 后双击安装。
-- Windows 便携版：下载 `MCTier-便携版-vx.y.z.exe` 后直接运行。
+- Windows 安装包：下载 `MCTier_x.y.z_x64-setup.exe` 后双击安装。
+- Windows 便携版：下载 `MCTier.exe` 后直接运行。
 - Android：下载 `MCTier-Android.apk` 后在手机上安装。
 
 ### 创建或加入大厅
@@ -188,7 +191,7 @@ MCTier 是通用组网工具，Minecraft 只是其中一个典型使用场景。
 
 ## 私有化部署快速流程
 
-如果你想自建 MCTier 信令服务器，可以下载官网中的 `MCTier信令服务器.zip`，也可以查看仓库根目录中的 `快速部署信令服务器.md`、`私有化部署README.md`。
+如果你想自建 MCTier 信令服务器，请从 MCTier 官网获取 `MCTier信令服务器.zip` 及配套部署文档。本源码仓库只包含桌面端与 Android 客户端源码，不包含官网和信令服务器部署包。
 
 基本流程：
 
@@ -215,8 +218,11 @@ docker compose -f docker-compose-http.yml logs -f
 ```bash
 npm install
 npm run tauri dev
-npm run tauri build
+# 发布 Windows NSIS 安装包（推荐使用仓库内固定 Node）
+npm run tauri build -- --bundles nsis --ci
 ```
+
+桌面端的发布构建只生成 NSIS 安装包，避免同时生成 MSI 时重复处理离线 WebView2 安装器。仓库中的一键版本更新工具会自动准备固定 Node，并使用相同的 NSIS 参数。
 
 Android 端源码位于：
 

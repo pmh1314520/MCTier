@@ -8,6 +8,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { shouldHandleGlobalTooltip } from './tooltipPolicy';
 import './GlobalTooltip.css';
 
 interface RawTip {
@@ -23,6 +24,28 @@ interface Pos {
 }
 
 const MARGIN = 8;
+const COMPONENT_TOOLTIP_SELECTOR = '.ant-form-item-tooltip, .ant-tooltip-open, [aria-describedby]';
+
+const findTitledElement = (target: HTMLElement): HTMLElement | null => {
+  let element: HTMLElement | null = target;
+  while (element) {
+    if (element.getAttribute('title')?.trim()) return element;
+    element = element.parentElement;
+  }
+  return null;
+};
+
+const isComponentTooltipTarget = (target: HTMLElement, titledElement: HTMLElement): boolean => {
+  if (target.closest(COMPONENT_TOOLTIP_SELECTOR) || titledElement.closest(COMPONENT_TOOLTIP_SELECTOR)) {
+    return true;
+  }
+
+  // Ant Design puts the visible field label and its help icon in the same
+  // <label title="...">. That title only repeats the label while the icon owns
+  // the real explanatory Tooltip, so the global tooltip must ignore the label.
+  return titledElement.matches('.ant-form-item-label > label')
+    && Boolean(titledElement.querySelector('.ant-form-item-tooltip'));
+};
 
 export const GlobalTooltip: React.FC = () => {
   const [raw, setRaw] = useState<RawTip | null>(null);
@@ -54,13 +77,41 @@ export const GlobalTooltip: React.FC = () => {
       setPos(null);
     };
 
+    const suppressCurrentBubble = () => {
+      clearShowTimer();
+      setRaw(null);
+      setPos(null);
+    };
+
+    const suppressTitle = (el: HTMLElement, text: string) => {
+      if (currentRef.current && currentRef.current !== el) {
+        restore(currentRef.current);
+      }
+      if (el.dataset.mctTip === undefined) {
+        el.dataset.mctTip = text;
+        el.removeAttribute('title');
+      }
+      currentRef.current = el;
+      suppressCurrentBubble();
+    };
+
     const handleOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target || typeof target.closest !== 'function') return;
-      const el = target.closest('[title]') as HTMLElement | null;
+      const el = findTitledElement(target);
       if (!el) return;
       const text = el.getAttribute('title');
-      if (!text || !text.trim()) return;
+      const isComponentOwned = () => Boolean(
+        isComponentTooltipTarget(target, el)
+      );
+      const componentOwned = isComponentOwned();
+      const optedOut = Boolean(el.closest('[data-mct-tooltip="off"]'));
+      if (!shouldHandleGlobalTooltip({ title: text, componentOwned, optedOut })) {
+        if (componentOwned && text) suppressTitle(el, text);
+        else if (currentRef.current?.contains(target)) suppressCurrentBubble();
+        return;
+      }
+      if (!text) return;
 
       if (currentRef.current && currentRef.current !== el) {
         restore(currentRef.current);
@@ -73,6 +124,12 @@ export const GlobalTooltip: React.FC = () => {
       clearShowTimer();
       showTimerRef.current = window.setTimeout(() => {
         if (currentRef.current !== el) return;
+        // Ant Design may mark its trigger only after the initial mouseover.
+        // Recheck here so its delayed Tooltip never overlaps ours.
+        if (isComponentOwned()) {
+          suppressCurrentBubble();
+          return;
+        }
         const r = el.getBoundingClientRect();
         setPos(null);
         setRaw({

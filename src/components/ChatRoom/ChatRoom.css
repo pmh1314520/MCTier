@@ -388,17 +388,51 @@
   align-items: center;
   gap: 20px;
   cursor: default;
+}
+
+.image-preview-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 10002;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(20, 20, 28, 0.88);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.image-preview-close:hover {
+  background: #d9363e;
+}
+
+.image-preview-stage {
+  width: min(90vw, 1200px);
+  height: min(80vh, 800px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.image-preview-stage:active {
+  cursor: grabbing;
 }
 
 .image-preview-content img {
   max-width: 100%;
-  max-height: 80vh;
+  max-height: 100%;
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   transition: transform 0.12s ease;
   transform-origin: center center;
+  user-select: none;
 }
 
 .image-preview-actions {
@@ -569,7 +603,12 @@
 
 /* ==================== 引用回复 ==================== */
 .chat-quote {
+  display: block;
+  width: 100%;
   border-left: 3px solid #52C41A;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
   padding: 2px 8px;
   margin-bottom: 6px;
   font-size: 12px;
@@ -580,34 +619,99 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-quote:hover { filter: brightness(1.12); }
+
+.message-text-body {
+  display: inline;
+}
+
+.chat-message.message-highlighted .message-content-image .chat-image,
+.chat-message.message-highlighted .message-content:not(.message-content-image) .message-text-body {
+  animation: chat-message-content-blink 0.4s ease-in-out 3;
+}
+
+@keyframes chat-message-content-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.22; }
 }
 .chat-message.own .chat-quote {
   color: rgba(6, 33, 10, 0.7);
   background: rgba(6, 33, 10, 0.1);
   border-left-color: rgba(6, 33, 10, 0.5);
 }
-.message-reply-btn {
+.message-hover-actions {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 4;
+}
+.message-hover-actions { display: none !important; }
+
+.chat-message.own .message-hover-actions { left: -58px; }
+.chat-message.other .message-hover-actions { right: -30px; }
+.chat-message:hover .message-hover-actions,
+.message-hover-actions:focus-within { opacity: 1; }
+
+.message-action-btn {
   background: transparent;
   border: none;
   color: rgba(255, 255, 255, 0.35);
   cursor: pointer;
   padding: 4px;
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
-  z-index: 4;
+  transition: color 0.15s ease;
 }
 
-.chat-message.own .message-reply-btn { left: -28px; }
-.chat-message.other .message-reply-btn { right: -28px; }
-.chat-message:hover .message-reply-btn { opacity: 1; }
-.message-content-image:hover + .message-reply-btn,
-.message-reply-btn:focus-visible {
-  opacity: 1;
+.message-action-btn:hover { color: #52C41A; }
+.message-recall-btn:hover { color: #ff7875; }
+
+.chat-message-context-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--text-color) 18%, transparent);
+  border-radius: 7px;
+  background: var(--bg-color);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .22);
 }
-.message-reply-btn:hover { color: #52C41A; }
+.chat-message-context-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-message-context-item:hover { background: color-mix(in srgb, var(--primary-color) 12%, transparent); }
+.chat-message-context-item svg { flex: 0 0 auto; color: color-mix(in srgb, var(--text-color) 68%, transparent); }
+.chat-message-context-danger:hover { color: #d9363e; background: rgba(217, 54, 62, .1); }
+.chat-message-context-danger:hover svg { color: #d9363e; }
+
+.message-content-recalled {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+.message-content-recalled::after { display: none; }
+.message-recalled-text {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 12px;
+  font-style: italic;
+}
 
 .reply-preview {
   display: flex;
@@ -653,4 +757,484 @@
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.16);
   color: #fff;
+}
+
+/* ==================== 未读分割线 / 链接 / @提及（暗色基线） ==================== */
+.chat-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: #ff7875;
+}
+
+.chat-unread-divider-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 120, 117, 0.4);
+}
+
+.chat-link {
+  color: #69b1ff;
+  text-decoration: underline;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.chat-mention {
+  color: inherit;
+  font-weight: 600;
+  margin: 0 1px;
+}
+
+/* ==================================================================== */
+/* 亮色主题（html[data-theme='light']）覆盖                              */
+/* 面：#f4f6f8 页面底 / #ffffff 卡片 / #eef2f5 弱面                      */
+/* 文字：#18202b 主 / #596574 次 / #768291 三级                          */
+/* 边框：rgba(24,32,43,.14) / 弱 rgba(24,32,43,.1)                       */
+/* hover 面：rgba(24,32,43,.055)  强调：#52c41a / 绿字 #2f7d12 / 浅底 #edf7e8 */
+/* 规则：深色或彩色实底元素内部文字与图标保持白色                          */
+/* ==================================================================== */
+
+/* ---------- 基础面与文字 ---------- */
+html[data-theme='light'] .chat-room {
+  background: #f4f6f8;
+  color: #18202b;
+}
+
+html[data-theme='light'] .chat-room,
+html[data-theme='light'] .chat-room * {
+  text-shadow: none;
+}
+
+html[data-theme='light'] .chat-messages {
+  background: transparent;
+}
+
+html[data-theme='light'] .chat-header {
+  background: #ffffff;
+  border-bottom-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .chat-header h4 {
+  color: #18202b;
+}
+
+html[data-theme='light'] .chat-count {
+  color: #768291;
+}
+
+/* ---------- 滚动条 ---------- */
+html[data-theme='light'] .chat-messages::-webkit-scrollbar-track {
+  background: rgba(24, 32, 43, 0.055);
+}
+
+html[data-theme='light'] .chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(24, 32, 43, 0.18);
+}
+
+html[data-theme='light'] .chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(24, 32, 43, 0.3);
+}
+
+html[data-theme='light'] .mention-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+html[data-theme='light'] .mention-dropdown::-webkit-scrollbar-track {
+  background: rgba(24, 32, 43, 0.055);
+  border-radius: 3px;
+}
+
+html[data-theme='light'] .mention-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(24, 32, 43, 0.18);
+  border-radius: 3px;
+}
+
+/* ---------- 加载 / 无更多 / 系统提示文本 ---------- */
+html[data-theme='light'] .chat-loading,
+html[data-theme='light'] .chat-no-more {
+  color: #768291;
+}
+
+/* ---------- 头像 ---------- */
+html[data-theme='light'] .message-avatar,
+html[data-theme='light'] .chat-message.other .message-avatar {
+  background: #eef2f5;
+  border-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .chat-message.own .message-avatar {
+  background: #edf7e8;
+  border-color: rgba(82, 196, 26, 0.32);
+}
+
+html[data-theme='light'] .message-avatar svg,
+html[data-theme='light'] .message-avatar span {
+  color: #596574;
+}
+
+html[data-theme='light'] .chat-message.own .message-avatar span,
+html[data-theme='light'] .chat-message.own .message-avatar svg {
+  color: #2f7d12;
+}
+
+/* ---------- 昵称与时间 ---------- */
+html[data-theme='light'] .message-author-outside {
+  color: #596574;
+}
+
+html[data-theme='light'] .message-time-below {
+  color: #768291;
+}
+
+/* ---------- 消息气泡：自己（绿色实底，文字保持白色） ---------- */
+html[data-theme='light'] .chat-message.own .message-content {
+  background: linear-gradient(135deg, #52c41a 0%, #45a814 100%);
+  color: #ffffff;
+}
+
+html[data-theme='light'] .chat-message.own .message-content::after {
+  border-color: transparent transparent transparent #45a814;
+}
+
+html[data-theme='light'] .chat-message.own .message-content .chat-mention,
+html[data-theme='light'] .chat-message.own .message-content .chat-link {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .chat-message.own .chat-quote {
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.18);
+  border-left-color: rgba(255, 255, 255, 0.75);
+}
+
+/* ---------- 消息气泡：他人（白色卡片） ---------- */
+html[data-theme='light'] .chat-message.other .message-content {
+  background: #ffffff;
+  color: #18202b;
+  box-shadow: 0 1px 2px rgba(24, 32, 43, 0.08);
+}
+
+html[data-theme='light'] .chat-message.other .message-content::after {
+  border-color: transparent #ffffff transparent transparent;
+}
+
+/* 图片气泡不需要卡片底与阴影 */
+html[data-theme='light'] .message-content.message-content-image,
+html[data-theme='light'] .chat-message.own .message-content.message-content-image,
+html[data-theme='light'] .chat-message.other .message-content.message-content-image {
+  background: transparent !important;
+  box-shadow: none;
+}
+
+/* ---------- 引用块（他人气泡内） ---------- */
+html[data-theme='light'] .chat-quote {
+  color: #596574;
+  background: #edf7e8;
+  border-left-color: #52c41a;
+}
+
+/* ---------- 链接与 @提及高亮 ---------- */
+html[data-theme='light'] .chat-link {
+  color: #1668dc;
+}
+
+html[data-theme='light'] .chat-message.other .message-content .chat-mention {
+  color: #2f7d12;
+}
+
+/* ---------- 未读分割线 ---------- */
+html[data-theme='light'] .chat-unread-divider {
+  color: #d9363e;
+}
+
+html[data-theme='light'] .chat-unread-divider-line {
+  background: rgba(217, 54, 62, 0.32);
+}
+
+/* ---------- 撤回消息 ---------- */
+html[data-theme='light'] .message-content-recalled {
+  background: #eef2f5 !important;
+  border: 1px dashed rgba(24, 32, 43, 0.14);
+  box-shadow: none;
+}
+
+html[data-theme='light'] .message-recalled-text {
+  color: #768291;
+}
+
+/* ---------- 消息悬浮操作按钮 ---------- */
+html[data-theme='light'] .message-action-btn {
+  color: #768291;
+}
+
+html[data-theme='light'] .message-action-btn:hover {
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .message-recall-btn:hover {
+  color: #d9363e;
+}
+
+/* ---------- 右键菜单 ---------- */
+html[data-theme='light'] .chat-message-context-menu {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+  box-shadow: 0 10px 28px rgba(24, 32, 43, 0.16);
+}
+
+html[data-theme='light'] .chat-message-context-item {
+  color: #18202b;
+}
+
+html[data-theme='light'] .chat-message-context-item svg,
+html[data-theme='light'] .chat-message-context-item .anticon {
+  color: #596574;
+}
+
+html[data-theme='light'] .chat-message-context-item:hover {
+  background: rgba(24, 32, 43, 0.055);
+}
+
+html[data-theme='light'] .chat-message-context-danger:hover {
+  color: #d9363e;
+  background: rgba(217, 54, 62, 0.08);
+}
+
+html[data-theme='light'] .chat-message-context-danger:hover svg,
+html[data-theme='light'] .chat-message-context-danger:hover .anticon {
+  color: #d9363e;
+}
+
+/* ---------- 新消息提示按钮（绿色实底，图标保持白色） ---------- */
+html[data-theme='light'] .new-message-indicator {
+  background: #52c41a;
+  box-shadow: 0 2px 10px rgba(82, 196, 26, 0.35);
+}
+
+html[data-theme='light'] .new-message-indicator:hover {
+  background: #45a814;
+  box-shadow: 0 4px 14px rgba(82, 196, 26, 0.45);
+}
+
+html[data-theme='light'] .new-message-indicator svg,
+html[data-theme='light'] .new-message-indicator .anticon {
+  color: #ffffff;
+}
+
+/* 红色徽标：实底保留，描边跟随亮色底 */
+html[data-theme='light'] .new-message-badge {
+  background: #ef4444;
+  border-color: #f4f6f8;
+}
+
+/* ---------- 图片消息卡片 ---------- */
+html[data-theme='light'] .chat-image {
+  background: #eef2f5;
+}
+
+html[data-theme='light'] .message-content-image .chat-image {
+  box-shadow: 0 1px 3px rgba(24, 32, 43, 0.12);
+}
+
+/* 图片上的下载按钮：叠在照片上，保持深色实底 + 白色图标 */
+html[data-theme='light'] .image-download-btn {
+  background: rgba(24, 32, 43, 0.55);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  backdrop-filter: none;
+}
+
+html[data-theme='light'] .image-download-btn:hover:not(:disabled) {
+  background: rgba(24, 32, 43, 0.72);
+  box-shadow: 0 4px 12px rgba(24, 32, 43, 0.28);
+}
+
+/* 下载成功提示：绿色实底，文字保持白色 */
+html[data-theme='light'] .download-success-tip {
+  background: #52c41a;
+  color: #ffffff;
+  box-shadow: 0 2px 12px rgba(82, 196, 26, 0.35);
+}
+
+/* ---------- 图片预览（灯箱保持暗底，内部按钮为白卡） ---------- */
+html[data-theme='light'] .image-preview-modal {
+  background: rgba(24, 32, 43, 0.78);
+}
+
+html[data-theme='light'] .image-preview-content img {
+  box-shadow: 0 8px 32px rgba(24, 32, 43, 0.38);
+}
+
+html[data-theme='light'] .image-preview-actions button {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+  color: #18202b;
+}
+
+html[data-theme='light'] .image-preview-actions button:hover {
+  background: #eef2f5;
+  color: #18202b;
+}
+
+html[data-theme='light'] .image-preview-close {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.18);
+  color: #18202b;
+  box-shadow: 0 4px 16px rgba(24, 32, 43, 0.18);
+}
+
+html[data-theme='light'] .image-preview-close:hover {
+  background: #d9363e;
+  color: #ffffff;
+}
+
+/* ---------- 输入区 ---------- */
+html[data-theme='light'] .chat-input-area {
+  background: #ffffff;
+  border-top-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .chat-input-area textarea.ant-input {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .chat-input-area textarea.ant-input::placeholder {
+  color: #768291 !important;
+}
+
+html[data-theme='light'] .chat-input-area textarea.ant-input:hover {
+  border-color: rgba(82, 196, 26, 0.55) !important;
+}
+
+html[data-theme='light'] .chat-input-area textarea.ant-input:focus {
+  border-color: #52c41a !important;
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.14) !important;
+}
+
+/* ---------- 表情面板入口 / 图片按钮 ---------- */
+html[data-theme='light'] .chat-input-wrapper .emoji-button,
+html[data-theme='light'] .chat-input-wrapper .image-button {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .chat-input-wrapper .emoji-button:hover:not(:disabled),
+html[data-theme='light'] .chat-input-wrapper .image-button:hover:not(:disabled) {
+  background: rgba(24, 32, 43, 0.055) !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .chat-input-wrapper .emoji-button svg,
+html[data-theme='light'] .chat-input-wrapper .image-button svg,
+html[data-theme='light'] .chat-input-wrapper .emoji-button .anticon,
+html[data-theme='light'] .chat-input-wrapper .image-button .anticon {
+  color: currentColor;
+}
+
+html[data-theme='light'] .chat-input-wrapper .emoji-button:disabled,
+html[data-theme='light'] .chat-input-wrapper .image-button:disabled {
+  color: #768291 !important;
+  background: #eef2f5 !important;
+  border-color: rgba(24, 32, 43, 0.1) !important;
+}
+
+/* ---------- 发送按钮（彩色实底，图标保持白色） ---------- */
+html[data-theme='light'] .send-button:not(:disabled) {
+  background: linear-gradient(135deg, #52c41a 0%, #45a814 100%) !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='light'] .send-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5ed124 0%, #4cb417 100%) !important;
+  box-shadow: 0 4px 12px rgba(82, 196, 26, 0.32);
+}
+
+html[data-theme='light'] .send-button:disabled {
+  background: linear-gradient(135deg, #c8ced6 0%, #dfe4e9 100%) !important;
+  border-color: transparent !important;
+  opacity: 1;
+}
+
+html[data-theme='light'] .send-button .anticon,
+html[data-theme='light'] .send-button svg {
+  color: #ffffff !important;
+}
+
+/* ---------- 表情面板容器 ---------- */
+html[data-theme='light'] .emoji-picker-container {
+  filter: none;
+}
+
+/* ---------- @提及候选下拉 ---------- */
+html[data-theme='light'] .mention-dropdown {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+  box-shadow: 0 8px 24px rgba(24, 32, 43, 0.16);
+}
+
+html[data-theme='light'] .mention-item {
+  color: #18202b;
+}
+
+html[data-theme='light'] .mention-item.active,
+html[data-theme='light'] .mention-item:hover {
+  background: #edf7e8;
+  color: #18202b;
+}
+
+html[data-theme='light'] .mention-at {
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .mention-name {
+  color: inherit;
+}
+
+html[data-theme='light'] .mention-tag {
+  color: #2f7d12;
+  background: #edf7e8;
+  border: 1px solid rgba(82, 196, 26, 0.28);
+}
+
+/* ---------- 引用回复预览条 ---------- */
+html[data-theme='light'] .reply-preview {
+  background: #eef2f5;
+  border: 1px solid rgba(24, 32, 43, 0.1);
+}
+
+html[data-theme='light'] .reply-preview-bar {
+  background: #52c41a;
+}
+
+html[data-theme='light'] .reply-preview-name {
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .reply-preview-text {
+  color: #596574;
+}
+
+/* 关闭按钮：亮色下必须清晰可见 */
+html[data-theme='light'] .reply-preview-close {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+  color: #596574;
+}
+
+html[data-theme='light'] .reply-preview-close:hover {
+  background: rgba(24, 32, 43, 0.055);
+  border-color: rgba(24, 32, 43, 0.14);
+  color: #18202b;
+}
+
+html[data-theme='light'] .reply-preview-close .anticon,
+html[data-theme='light'] .reply-preview-close svg {
+  color: currentColor;
 }

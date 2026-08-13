@@ -2,22 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Space, Typography, Modal } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { LobbyForm } from '../LobbyForm/LobbyForm';
 import { AboutWindow } from '../AboutWindow/AboutWindow';
 import { SettingsWindow } from '../SettingsWindow';
 import { OnboardingWizard, isOnboardingDone } from '../OnboardingWizard/OnboardingWizard';
-import { SettingsIcon } from '../icons';
+import { CloseIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
+import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
 import './MainWindow.css';
 
 const { Title, Paragraph } = Typography;
-
-// 软件版本号
-const APP_VERSION = '2.5.0';
 
 /**
  * 主窗口组件
@@ -31,9 +31,29 @@ export const MainWindow: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [enableGpuRendering, setEnableGpuRendering] = useState(true);
+  const [appVersion, setAppVersion] = useState('');
   
   const versionError = useAppStore((state) => state.versionError);
   const setVersionError = useAppStore((state) => state.setVersionError);
+
+  const handleMinimizeToTray = () => {
+    void invoke('minimize_main_window_to_tray');
+  };
+
+  const handleCloseMainWindow = async () => {
+    const currentWindow = getCurrentWindow();
+    try {
+      await currentWindow.hide();
+    } finally {
+      void currentWindow.close();
+    }
+  };
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch((error) => {
+      console.warn('读取应用版本失败:', error);
+    });
+  }, []);
 
   // 监听 GPU 渲染设置变化的全局事件
   useEffect(() => {
@@ -145,11 +165,7 @@ export const MainWindow: React.FC = () => {
         onOk: async () => {
           console.log('用户点击了"前往官网"按钮');
           try {
-            let url = versionError.downloadUrl;
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              url = `https://${url}`;
-            }
-            await open(url);
+            await open(DOWNLOAD_WEBSITE);
           } catch (error) {
             console.error('打开官网失败:', error);
           }
@@ -193,15 +209,6 @@ export const MainWindow: React.FC = () => {
     setShowSettings(false);
   };
 
-  const handleCloseApp = async () => {
-    try {
-      console.log('正在关闭应用...');
-      await invoke('exit_app');
-    } catch (error) {
-      console.error('关闭应用失败:', error);
-    }
-  };
-
   if (showAbout) {
     return (
       <AboutWindow onClose={handleCloseAbout} />
@@ -218,17 +225,16 @@ export const MainWindow: React.FC = () => {
     <div className={`main-window ${!enableGpuRendering ? 'gpu-rendering-disabled' : ''}`}>
       {/* 拖拽区域 - 只在顶部 */}
       <div className="main-window-drag-area" data-tauri-drag-region>
-        {/* 右上角设置按钮 */}
-        <motion.button
-          className="settings-button"
-          onClick={handleShowSettings}
-          whileHover={{ scale: 1.1, rotate: 30 }}
-          whileTap={{ scale: 0.9 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-          title={t('common.settings')}
-        >
-          <SettingsIcon size={20} color="rgba(255, 255, 255, 0.7)" />
-        </motion.button>
+        <div className="main-window-controls">
+          <button className="main-window-control-btn" onClick={handleMinimizeToTray} title={tl('最小化到系统托盘', 'Minimize to system tray')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button className="main-window-control-btn main-window-close-btn" onClick={handleCloseMainWindow} title={tl('关闭 MCTier', 'Close MCTier')}>
+            <CloseIcon size={16} />
+          </button>
+        </div>
       </div>
       
       <motion.div
@@ -273,11 +279,7 @@ export const MainWindow: React.FC = () => {
           style={{ marginBottom: '32px' }}
         >
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <motion.div
-              whileHover={{ scale: 1.008 }}
-              whileTap={{ scale: 0.96 }}
-              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
-            >
+            <div>
               <Button
                 type="primary"
                 size="large"
@@ -287,13 +289,9 @@ export const MainWindow: React.FC = () => {
               >
                 {t('lobby.create')}
               </Button>
-            </motion.div>
+            </div>
 
-            <motion.div
-              whileHover={{ scale: 1.008 }}
-              whileTap={{ scale: 0.96 }}
-              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
-            >
+            <div>
               <Button
                 size="large"
                 block
@@ -302,13 +300,20 @@ export const MainWindow: React.FC = () => {
               >
                 {t('lobby.join')}
               </Button>
-            </motion.div>
+            </div>
 
-            <motion.div
-              whileHover={{ scale: 1.008 }}
-              whileTap={{ scale: 0.96 }}
-              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
-            >
+            <div>
+              <Button
+                size="large"
+                block
+                onClick={handleShowSettings}
+                className="main-window-button settings-entry-button"
+              >
+                {tl('软件设置', 'Settings')}
+              </Button>
+            </div>
+
+            <div>
               <Button
                 size="large"
                 block
@@ -317,22 +322,7 @@ export const MainWindow: React.FC = () => {
               >
                 {t('lobby.about')}
               </Button>
-            </motion.div>
-
-            <motion.div
-              whileHover={{ scale: 1.008 }}
-              whileTap={{ scale: 0.96 }}
-              transition={{ duration: 0.08, ease: [0.4, 0, 0.2, 1] }}
-            >
-              <Button
-                size="large"
-                block
-                onClick={handleCloseApp}
-                className="main-window-button close-app-button"
-              >
-                {t('lobby.exit')}
-              </Button>
-            </motion.div>
+            </div>
           </Space>
         </motion.div>
 
@@ -342,7 +332,7 @@ export const MainWindow: React.FC = () => {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6, duration: 0.4 }}
         >
-          v{APP_VERSION}
+          {appVersion ? `v${appVersion}` : ''}
         </motion.div>
 
         <motion.div

@@ -14,7 +14,6 @@ import { recentService } from '../../services/recent/recentService';
 import { statsService } from '../../services/stats/statsService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
-import { versionCheckService } from '../../services/version/VersionCheckService';
 import { listen, emitTo } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
 import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon } from '../icons';
@@ -31,6 +30,7 @@ import { RemoteControl } from '../RemoteControl/RemoteControl';
 import { remoteControlService } from '../../services/remoteControl/RemoteControlService';
 import { danmakuService } from '../../services/danmaku/danmakuService';
 import { gameHudService } from '../../services/gamehud/gameHudService';
+import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
 import './MiniWindow.css';
 
 /**
@@ -331,8 +331,6 @@ export const MiniWindow: React.FC = () => {
   // 语音按钮提示中显示的快捷键：读取用户自定义键位，保证提示与实际配置一致
   const [micHotkeyLabel, setMicHotkeyLabel] = useState('Ctrl+M');
   const [muteHotkeyLabel, setMuteHotkeyLabel] = useState('Ctrl+T');
-  // 正在语音重连的玩家（用于按钮加载态与防重复点击）
-  const [reconnectingVoicePeers, setReconnectingVoicePeers] = useState<Set<string>>(new Set());
   const qrCanvasRef = React.useRef<HTMLCanvasElement>(null); // 弹窗内二维码画布
 
   // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
@@ -353,7 +351,7 @@ export const MiniWindow: React.FC = () => {
       const cv = await buildInvitePoster(lobby.name, lobby.password || '');
       const dataUrl = cv.toDataURL('image/png');
       const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
-      const path = await invoke<string | null>('select_save_location', { defaultName: `MCTier-邀请-${lobby.name}.png` });
+      const path = await invoke<string | null>('select_save_location', { defaultName: tl(`MCTier-邀请-${lobby.name}.png`, `MCTier-Invite-${lobby.name}.png`) });
       if (!path) return;
       await invoke('save_file', { path, data: Array.from(bytes) });
       message.success(tl('二维码已保存', 'QR code saved'));
@@ -449,36 +447,6 @@ export const MiniWindow: React.FC = () => {
   }, []); // 只在组件挂载时执行一次
 
   // 进入大厅：按配置开启弹幕覆盖窗；离开大厅：关闭弹幕窗
-  /**
-   * 语音重连：只重建与该玩家的语音链路，不影响大厅与其他人的语音。
-   * 用于「MC 联机正常，但听不到某一个人说话且长时间不恢复」的情况。
-   */
-  const handleReconnectVoice = useCallback(async (playerId: string, playerName: string) => {
-    if (reconnectingVoicePeers.has(playerId)) return;
-
-    setReconnectingVoicePeers(prev => new Set(prev).add(playerId));
-    try {
-      const ok = await webrtcClient.reconnectPeerVoice(playerId);
-      if (ok) {
-        message.success(tl(`正在重连与 ${playerName} 的语音…`, `Reconnecting voice with ${playerName}...`));
-      } else {
-        message.warning(tl('语音重连正在进行中，请稍候', 'A voice reconnect is already in progress'));
-      }
-    } catch (e) {
-      console.error('语音重连失败:', e);
-      message.error(tl('语音重连失败，请稍后再试', 'Voice reconnect failed, please try again later'));
-    } finally {
-      // 与服务层的并发闸门保持一致，给重连留出完成时间
-      setTimeout(() => {
-        setReconnectingVoicePeers(prev => {
-          const next = new Set(prev);
-          next.delete(playerId);
-          return next;
-        });
-      }, 3000);
-    }
-  }, [reconnectingVoicePeers, message]);
-
   // 读取用户自定义的语音快捷键，用于按钮提示文案
   useEffect(() => {
     const loadHotkeyLabels = async () => {
@@ -958,7 +926,7 @@ export const MiniWindow: React.FC = () => {
       console.log('🔌 [MiniWindow] 正在使用新配置重新加入大厅...');
       const serverNode = (settings.usePrivateServer && settings.privateEasytierServer)
         ? settings.privateEasytierServer 
-        : 'udp://us01.225284.xyz:11010';
+        : (settings.preferredServer || config.preferredServer || 'wss://mctiers.pmhs.top');
       const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
         ? settings.privateSignalingServer 
         : 'wss://mctier.pmhs.top/signaling';
@@ -969,7 +937,7 @@ export const MiniWindow: React.FC = () => {
       const newLobby = await invoke<any>('join_lobby', {
         name: lobby.name || '',
         password: lobby.password || '',
-        playerName: config.playerName || '玩家',
+        playerName: config.playerName || tl('玩家', 'Player'),
         playerId: currentPlayerId,
         serverNode,
         signalingServer,
@@ -987,7 +955,7 @@ export const MiniWindow: React.FC = () => {
       console.log('🔄 [MiniWindow] 正在重新初始化WebRTC...');
       await webrtcClient.initialize(
         currentPlayerId,
-        config.playerName || '玩家',
+        config.playerName || tl('玩家', 'Player'),
         lobby.name || '',
         lobby.password || '',
         virtualDomain,
@@ -1017,7 +985,7 @@ export const MiniWindow: React.FC = () => {
   };
 
   // 处理玩家音量变化
-  const handlePlayerVolumeChange = (playerId: string, volume: number) => {
+  const handlePlayerVolumeChange = useCallback((playerId: string, volume: number) => {
     setPlayerVolume(playerId, volume);
     // 按玩家名记忆音量，下次联机自动恢复
     const p = players.find((pl) => pl.id === playerId);
@@ -1025,7 +993,7 @@ export const MiniWindow: React.FC = () => {
       playerVolumeMemory.set(p.name, volume);
     }
     console.log(`玩家 ${playerId} 音量已设置为: ${Math.round(volume * 100)}%`);
-  };
+  }, [players, setPlayerVolume]);
 
   // 打开聊天室（从聊天室按钮）
   const handleOpenChatRoom = () => {
@@ -1109,59 +1077,12 @@ export const MiniWindow: React.FC = () => {
     if (!versionError) return;
     
     try {
-      // 确保URL以https://开头
-      let url = versionError.downloadUrl;
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = `https://${url}`;
-        console.log('自动添加https://前缀:', url);
-      }
-      
-      await open(url);
-      console.log('已打开官网:', url);
+      await open(DOWNLOAD_WEBSITE);
+      console.log('已打开官网:', DOWNLOAD_WEBSITE);
       message.success(tl('已在浏览器中打开官网', 'Opened the website in your browser'));
     } catch (error) {
       console.error('打开官网失败:', error);
       message.error(tl('打开官网失败，请手动复制链接', 'Failed to open the website, please copy the link manually'));
-    }
-  };
-
-  // 【#16】版本过低弹窗：客户端内一键更新
-  const [versionUpdating, setVersionUpdating] = useState(false);
-  const [versionUpdateProgress, setVersionUpdateProgress] = useState(0);
-  useEffect(() => {
-    if (!versionUpdating) return;
-    let unlisten: (() => void) | undefined;
-    listen<{ downloaded: number; total: number }>('update-download-progress', (e) => {
-      const { downloaded, total } = e.payload;
-      if (total > 0) setVersionUpdateProgress(Math.min(100, Math.round((downloaded / total) * 100)));
-    }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
-  }, [versionUpdating]);
-
-  const handleInAppUpdate = async () => {
-    if (versionUpdating) return;
-    try {
-      setVersionUpdating(true);
-      setVersionUpdateProgress(0);
-      message.loading({ content: tl('正在获取最新安装包…', 'Fetching the latest installer…'), key: 'mctier-update', duration: 0 });
-      const url = await versionCheckService.fetchLatestInstallerUrl();
-      if (!url) {
-        message.destroy('mctier-update');
-        message.warning(tl('未找到可下载的安装包，将打开下载页面', 'No installer found, opening the download page'));
-        await handleOpenWebsite();
-        setVersionUpdating(false);
-        return;
-      }
-      message.loading({ content: tl('正在下载并更新，请勿关闭软件…', 'Downloading and updating, please keep the app open…'), key: 'mctier-update', duration: 0 });
-      await invoke('download_and_run_installer', { url });
-      message.destroy('mctier-update');
-      message.success(tl('下载完成，即将启动安装程序…', 'Download complete, launching the installer…'));
-    } catch (error) {
-      console.error('客户端内更新失败:', error);
-      message.destroy('mctier-update');
-      message.error(tl('更新失败，将打开下载页面', 'Update failed, opening the download page'));
-      await handleOpenWebsite();
-      setVersionUpdating(false);
     }
   };
 
@@ -1170,9 +1091,9 @@ export const MiniWindow: React.FC = () => {
     if (!versionError) return;
     
     try {
-      await writeText(versionError.downloadUrl);
+      await writeText(DOWNLOAD_WEBSITE);
       message.success(tl('官网链接已复制到剪贴板', 'Website link copied to clipboard'));
-      console.log('已复制官网链接:', versionError.downloadUrl);
+      console.log('已复制官网链接:', DOWNLOAD_WEBSITE);
     } catch (error) {
       console.error('复制链接失败:', error);
       message.error(tl('复制失败，请手动复制', 'Copy failed, please copy manually'));
@@ -1291,7 +1212,7 @@ Password: ${lobby.password || ''}
             <div className="version-error-url">
               <div className="url-label">{tl('官网下载地址', 'Official download URL')}</div>
               <div className="url-box">
-                <span className="url-text">{versionError.downloadUrl}</span>
+                <span className="url-text">{DOWNLOAD_WEBSITE}</span>
                 <motion.button
                   className="url-copy-btn"
                   onClick={handleCopyWebsiteUrl}
@@ -1311,16 +1232,16 @@ Password: ${lobby.password || ''}
             <div className="version-error-actions">
               <motion.button
                 className="version-error-btn primary"
-                onClick={handleInAppUpdate}
-                whileHover={{ scale: versionUpdating ? 1 : 1.02 }}
-                whileTap={{ scale: versionUpdating ? 1 : 0.98 }}
+                onClick={handleOpenWebsite}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '10px' }}>
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                <span>{versionUpdating ? tl(`更新中 ${versionUpdateProgress}%`, `Updating ${versionUpdateProgress}%`) : tl('立即更新到最新版', 'Update to the latest version')}</span>
+                <span>{tl('前往官网下载最新版', 'Download the latest version from the website')}</span>
               </motion.button>
             </div>
           </motion.div>
@@ -1516,9 +1437,7 @@ Password: ${lobby.password || ''}
           <motion.div
             key="lobby"
             className={`mini-window ${collapsed ? 'collapsed' : ''}`}
-            style={{
-              background: `rgba(20, 20, 30, ${opacity})` // 动态设置背景透明度
-            }}
+            style={{ '--mini-window-opacity': opacity } as React.CSSProperties}
             initial={{ opacity: 1 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 1 }}
@@ -1581,8 +1500,12 @@ Password: ${lobby.password || ''}
                 className="mini-control-btn"
                 onClick={async () => {
                   try {
-                    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-                    await getCurrentWindow().hide();
+                    console.info('[MiniWindow] requesting tray minimize', {
+                      view: currentView,
+                      collapsed,
+                      lobby: lobby?.name,
+                    });
+                    await invoke('minimize_main_window_to_tray');
                     console.log('✅ 已最小化到系统托盘');
                   } catch (error) {
                     console.error('最小化到系统托盘失败:', error);
@@ -1615,6 +1538,7 @@ Password: ${lobby.password || ''}
                   content: tl('确定要退出当前大厅吗？退出后将断开与好友的组网。', 'Are you sure you want to leave this lobby? You will be disconnected from your friends.'),
                   okText: tl('退出', 'Leave'),
                   okType: 'danger',
+                  okButtonProps: { className: 'leave-lobby-confirm-btn' },
                   cancelText: tl('取消', 'Cancel'),
                   centered: true,
                   onOk: () => { void handleLeaveLobby(); },
@@ -1694,7 +1618,7 @@ Password: ${lobby.password || ''}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
-                      {lobby.useDomain && lobby.virtualDomain ? lobby.virtualDomain : lobby.virtualIp || '获取中...'}
+                      {lobby.useDomain && lobby.virtualDomain ? lobby.virtualDomain : lobby.virtualIp || tl('获取中...', 'Loading...')}
                     </motion.button>
                     <motion.button
                       className="connection-help-link"
@@ -1963,19 +1887,6 @@ Password: ${lobby.password || ''}
                               <SpeakerIcon muted={isPlayerMuted} size={16} />
                             </motion.button>
                             <motion.button
-                              className={`mini-action-btn ${reconnectingVoicePeers.has(player.id) ? 'reconnecting' : ''}`}
-                              onClick={() => { void handleReconnectVoice(player.id, player.name); }}
-                              disabled={reconnectingVoicePeers.has(player.id)}
-                              title={tl('语音重连（听不到他说话时点这里）', 'Reconnect voice (click if you cannot hear them)')}
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 12a9 9 0 1 1-3.5-7.1"></path>
-                                <polyline points="21 3 21 9 15 9"></polyline>
-                              </svg>
-                            </motion.button>
-                            <motion.button
                               className="mini-action-btn"
                               onClick={() => {
                                 try {
@@ -2039,6 +1950,7 @@ Password: ${lobby.password || ''}
                     value={opacity}
                     onChange={handleOpacityChange}
                     className="mini-opacity-slider"
+                    style={{ '--opacity-percent': `${((opacity - 0.3) / 0.7) * 100}%` } as React.CSSProperties}
                   />
                 </div>
                 <motion.button

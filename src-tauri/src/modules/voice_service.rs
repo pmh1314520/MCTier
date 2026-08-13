@@ -262,7 +262,7 @@ impl VoiceService {
         
         // 检查是否有选择的麦克风设备
         let selected_device = self.selected_mic_device.read().await;
-        if selected_device.is_none() {
+        if enabled && selected_device.is_none() {
             log::warn!("未选择麦克风设备");
             return Err(VoiceError::DeviceNotFound);
         }

@@ -42,3 +42,16 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+html[data-theme='light'] .mct-global-tip {
+  background: rgba(255, 255, 255, 0.98);
+  color: #18202b;
+  border-color: rgba(24, 32, 43, 0.16);
+  box-shadow: 0 6px 20px rgba(20, 30, 42, 0.18);
+}
+html[data-theme='light'] .mct-global-tip-top .mct-global-tip-arrow {
+  border-top-color: rgba(24, 32, 43, 0.16);
+}
+html[data-theme='light'] .mct-global-tip-bottom .mct-global-tip-arrow {
+  border-bottom-color: rgba(24, 32, 43, 0.16);
+}

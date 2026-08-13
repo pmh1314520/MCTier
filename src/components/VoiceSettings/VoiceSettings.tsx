@@ -15,6 +15,7 @@ import { Modal, Select, Button, Typography, Space, Progress, message } from 'ant
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { audioDevices } from '../../services/voice/audioDevices';
+import { localVqeService } from '../../services/voice/localVqeService';
 import { webrtcClient } from '../../services';
 
 const { Text } = Typography;
@@ -71,6 +72,11 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
       });
       setInputs(ins);
       setOutputs(outs);
+      const savedOutputId = audioDevices.getOutputDeviceId();
+      if (savedOutputId) {
+        const savedOutput = outs.find((option) => option.value === savedOutputId);
+        if (savedOutput) audioDevices.setOutputDeviceId(savedOutputId, savedOutput.label);
+      }
       setSupportsOutput(typeof (HTMLMediaElement.prototype as any).setSinkId === 'function');
     } catch (e) {
       message.error(`${tl('枚举音频设备失败', 'Failed to enumerate audio devices')}：${e}`);
@@ -119,9 +125,10 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
 
   const handleOutputChange = async (id: string) => {
     setOutputId(id);
-    audioDevices.setOutputDeviceId(id);
+    audioDevices.setOutputDeviceId(id, outputs.find((option) => option.value === id)?.label || '');
     try {
       await webrtcClient.applyOutputDeviceToAll(id);
+      await localVqeService.refreshOutputReference();
       message.success(tl('扬声器已切换并对当前通话生效', 'Speaker switched and applied to the current call'));
     } catch {
       message.success(tl('扬声器已切换', 'Speaker switched'));

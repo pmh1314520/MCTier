@@ -91,7 +91,12 @@ export const DanmakuSettings: React.FC = () => {
           <span
             key={`${cfg.fontSize}-${cfg.speed}-${sampleDuration}`}
             className={`danmaku-preview-bullet ${cfg.color === 'rainbow' ? 'rainbow' : ''}`}
-            style={{ fontSize: `${cfg.fontSize}px`, animationDuration: `${sampleDuration}s`, color: cfg.color === 'rainbow' ? undefined : cfg.color }}
+            style={{
+              fontSize: `${cfg.fontSize}px`,
+              animationDuration: `${sampleDuration}s`,
+              color: cfg.color === 'rainbow' ? undefined : cfg.color,
+              ['--danmaku-preview-color' as string]: cfg.color === 'rainbow' ? undefined : cfg.color,
+            }}
           >
             {tl('示例弹幕：开黑走起！🎮', 'Sample danmaku: Let\'s game! 🎮')}
           </span>

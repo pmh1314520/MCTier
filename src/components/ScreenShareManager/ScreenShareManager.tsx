@@ -179,6 +179,7 @@ export const ScreenShareManager: React.FC = () => {
   const handleStopSharingInternal = () => {
     if (myShareId) {
       console.log('🛑 [ScreenShareManager] 停止屏幕共享:', myShareId);
+      if (viewingShareId === myShareId) void handleStopViewing();
       screenShareService.stopSharing(myShareId);
       setMyShareId(null);
       message.success(tl('屏幕共享已停止', 'Screen sharing stopped'));
@@ -188,8 +189,8 @@ export const ScreenShareManager: React.FC = () => {
   // 查看屏幕 - 在当前窗口全屏显示
   const handleViewScreen = async (share: ScreenShare) => {
     try {
-      // 如果需要密码，弹出密码输入框（包括自己的共享）
-      if (share.requirePassword) {
+      // 自己查看自己直接使用本地采集流，不需要再次验证观看密码。
+      if (share.requirePassword && share.playerId !== currentPlayerId) {
         setSelectedShare(share);
         setShowPasswordModal(true);
         return;
@@ -220,9 +221,10 @@ export const ScreenShareManager: React.FC = () => {
         console.error('❌ [ScreenShareManager] 调整窗口大小失败:', error);
       }
 
-      // 先请求查看屏幕（建立WebRTC连接并获取流）
-      // 不需要密码的共享直接查看
-      const stream = await screenShareService.requestViewScreen(share.id);
+      const stream = share.playerId === currentPlayerId
+        ? screenShareService.getLocalStream(share.id)
+        : await screenShareService.requestViewScreen(share.id);
+      if (!stream) throw new Error(tl('本地屏幕采集尚未就绪，请稍后重试', 'Local screen capture is not ready yet'));
       
       console.log('✅ [ScreenShareManager] 已获取屏幕流');
       console.log('📺 [ScreenShareManager] 流信息:', {
@@ -269,11 +271,13 @@ export const ScreenShareManager: React.FC = () => {
         }, 30000);
       });
 
-      // 【关键修复】先请求查看屏幕（建立WebRTC连接并获取流），如果密码错误会抛出异常
-      const stream = await Promise.race([
-        screenShareService.requestViewScreen(selectedShare.id, passwordInput),
-        timeoutPromise
-      ]);
+      const stream = selectedShare.playerId === currentPlayerId
+        ? screenShareService.getLocalStream(selectedShare.id)
+        : await Promise.race([
+            screenShareService.requestViewScreen(selectedShare.id, passwordInput),
+            timeoutPromise,
+          ]);
+      if (!stream) throw new Error(tl('本地屏幕采集尚未就绪，请稍后重试', 'Local screen capture is not ready yet'));
       
       console.log('✅ [ScreenShareManager] 密码验证成功，已获取屏幕流');
       console.log('📺 [ScreenShareManager] 流信息:', {
@@ -385,7 +389,10 @@ export const ScreenShareManager: React.FC = () => {
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
                 <span>
-                  {activeShares.find(s => s.id === viewingShareId)?.playerName || '未知玩家'} 的屏幕
+                  {tl(
+                    `${activeShares.find(s => s.id === viewingShareId)?.playerName || '未知玩家'} 的屏幕`,
+                    `${activeShares.find(s => s.id === viewingShareId)?.playerName || 'Unknown Player'}'s screen`,
+                  )}
                 </span>
               </div>
               
@@ -418,7 +425,7 @@ export const ScreenShareManager: React.FC = () => {
         {/* 提示信息 */}
         <div className="screen-share-hint">
           <InfoIcon size={14} />
-          <span>{tl('每个屏幕同时仅支持被一名玩家查看', 'Each screen can be viewed by only one player at a time')}</span>
+          <span>{tl('同一个屏幕支持多人同时查看', 'The same screen can be viewed by multiple players')}</span>
         </div>
         
         {activeShares.length === 0 ? (
@@ -433,7 +440,8 @@ export const ScreenShareManager: React.FC = () => {
               const isMyShare = share.playerId === currentPlayerId;
               const isViewing = viewingShareId === share.id;
               const hasPassword = share.requirePassword && !isMyShare;
-              const isBeingViewed = !!share.viewerId; // 是否正在被查看
+              const viewerCount = share.viewerCount ?? (share.viewerId ? 1 : 0);
+              const isBeingViewed = viewerCount > 0;
 
               return (
                 <motion.div
@@ -447,17 +455,17 @@ export const ScreenShareManager: React.FC = () => {
                   <div className="share-item-content">
                     <div className="share-player-details">
                       <span className="share-player-name">
-                        {share.playerName || '未知玩家'}
-                        {isMyShare && ' (我)'}
+                        {share.playerName || tl('未知玩家', 'Unknown Player')}
+                        {isMyShare && ` (${tl('我', 'Me')})`}
                       </span>
                       <span className="share-start-time">
                         {tl('创建时间', 'Created')}: {new Date(share.startTime).toLocaleTimeString()}
                       </span>
-                      {isBeingViewed && (
-                        <span className="viewer-info">
-                          {tl(`正在被 ${share.viewerName} 查看`, `Being viewed by ${share.viewerName}`)}
-                        </span>
-                      )}
+                      <span className={`viewer-info ${isBeingViewed ? 'active' : 'waiting'}`}>
+                        {isBeingViewed
+                          ? tl(`正在被 ${viewerCount} 人查看`, `${viewerCount} viewer${viewerCount === 1 ? '' : 's'} watching`)
+                          : tl('等待玩家查看', 'Waiting for a viewer')}
+                      </span>
                     </div>
 
                     <div className="share-badges">
@@ -490,7 +498,6 @@ export const ScreenShareManager: React.FC = () => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     disabled={isViewing}
-                    style={{ display: isBeingViewed ? 'none' : 'flex' }}
                   >
                     {isViewing ? (
                       <>

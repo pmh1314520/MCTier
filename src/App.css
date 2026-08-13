@@ -123,13 +123,28 @@ select {
   background: linear-gradient(135deg, #4a7a20 0%, #3a6218 100%);
 }
 
+/* Selected options keep a stable fill on hover instead of flashing to the
+   command-button hover color. */
+.ant-btn.mct-choice-button {
+  transition: none !important;
+}
+
+.ant-btn-primary.mct-choice-button,
+.ant-btn-primary.mct-choice-button:hover:not(:disabled),
+.ant-btn-primary.mct-choice-button:active:not(:disabled) {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #5a9428 0%, #4a7a20 100%) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 /* Switch 开关样式 - 打开时为绿色 */
 .ant-switch-checked {
   background: #52c41a !important;
 }
 
 .ant-switch-checked:hover:not(.ant-switch-disabled) {
-  background: #73d13d !important;
+  background: #52c41a !important;
 }
 
 .ant-switch {
@@ -231,12 +246,12 @@ html::after {
 .app-container,
 #root,
 body {
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000px;
-  -webkit-perspective: 1000px;
+  transform: none;
+  -webkit-transform: none;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+  perspective: none;
+  -webkit-perspective: none;
 }
 
 /* 优化动画性能 */
@@ -249,10 +264,10 @@ body {
 .lobby-form-container,
 .mini-window,
 .about-window {
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  transform: none;
+  -webkit-transform: none;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
 }
 
 /* 优化滚动性能 */
@@ -269,9 +284,7 @@ body {
 .ant-modal-wrap,
 .ant-modal-mask,
 .ant-modal-content {
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  will-change: transform, opacity;
+  will-change: auto;
 }
 
 /* 优化输入框渲染 */
@@ -297,9 +310,20 @@ body {
 .main-window-content,
 .lobby-form-card,
 .mini-window-container {
-  will-change: transform;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
+  will-change: auto;
+}
+
+/* Buttons keep only color feedback; avoid spring/scale transforms injected by
+   scattered motion wrappers throughout the legacy desktop UI. */
+.main-window button,
+.lobby-form-container button,
+.mini-window button,
+.settings-window button {
+  transform: none !important;
+}
+
+.scroll-hint-floating {
+  transform: none !important;
 }
 
 /* ========================================
@@ -310,8 +334,12 @@ body {
   text-shadow: 0 0 1px rgba(126, 211, 33, 0.25);
 }
 
-.ant-tabs-tab:hover .ant-tabs-tab-btn {
+.ant-tabs-tab:not(.ant-tabs-tab-active):hover .ant-tabs-tab-btn {
   color: #a0e85b !important;
+}
+
+.ant-tabs-tab.ant-tabs-tab-active:hover .ant-tabs-tab-btn {
+  color: #7ed321 !important;
 }
 
 .ant-tabs-ink-bar {
@@ -335,6 +363,33 @@ body {
 
 .ant-notification {
   z-index: 100000 !important;
+}
+
+/* Keep recovery actions aligned in the compact desktop window. */
+.microphone-permission-modal .ant-modal-footer {
+  margin-top: 22px;
+}
+
+.microphone-permission-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.microphone-permission-actions .ant-btn {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding-inline: 12px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+@media (max-width: 440px) {
+  .microphone-permission-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 全局：鼠标悬停提示（Tooltip）统一为 MCTier 暗色主题样式 */
@@ -364,8 +419,8 @@ body {
 }
 
 .ant-checkbox-checked:not(.ant-checkbox-disabled):hover .ant-checkbox-inner {
-  background-color: #73d13d !important;
-  border-color: #73d13d !important;
+  background-color: #52c41a !important;
+  border-color: #52c41a !important;
 }
 
 .ant-checkbox-wrapper:hover .ant-checkbox-inner,
@@ -410,4 +465,850 @@ body {
 .ant-btn.mct-cancel-btn:not(:disabled):active {
   border-color: #d9363e !important;
   background: rgba(255, 77, 79, 0.26) !important;
+}
+
+/* Light theme compatibility layer. Green remains an accent; surfaces stay neutral. */
+html[data-theme='light'] {
+  --text-color: #18202b;
+  --bg-color: #f4f6f8;
+  --light-gray: #e5e9ee;
+  --shadow: rgba(20, 30, 42, 0.16);
+  --mct-surface: #ffffff;
+  --mct-surface-soft: #f4f6f8;
+  --mct-surface-muted: #e9edf2;
+  --mct-text: #18202b;
+  --mct-text-secondary: #596574;
+  --mct-text-tertiary: #768291;
+  --mct-border: rgba(24, 32, 43, 0.14);
+  --mct-hover: rgba(24, 32, 43, 0.055);
+}
+
+html[data-theme='light'] body { color: #18202b; }
+
+html[data-theme='light'] .main-window,
+html[data-theme='light'] .lobby-form-container {
+  background: #f4f6f8;
+}
+
+html[data-theme='light'] .main-window-content,
+html[data-theme='light'] .lobby-form-card,
+html[data-theme='light'] .lobby-form-title,
+html[data-theme='light'] .lobby-form .ant-form-item-label > label {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .main-window-subtitle,
+html[data-theme='light'] .main-window-hint,
+html[data-theme='light'] .main-window-version {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .join-button,
+html[data-theme='light'] .settings-entry-button,
+html[data-theme='light'] .about-button {
+  background: #ffffff !important;
+  border: 1px solid rgba(24, 32, 43, 0.16) !important;
+  color: #364151 !important;
+}
+
+html[data-theme='light'] .join-button:hover,
+html[data-theme='light'] .settings-entry-button:hover,
+html[data-theme='light'] .about-button:hover {
+  background: #f4f8f2 !important;
+  border-color: rgba(82, 196, 26, 0.45) !important;
+  color: #2f7d12 !important;
+}
+
+html[data-theme='light'] .lobby-form .ant-input,
+html[data-theme='light'] .lobby-form .ant-select-selector,
+html[data-theme='light'] .lobby-form .ant-input-password,
+html[data-theme='light'] .lobby-form .ant-input-password input {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+
+html[data-theme='light'] .lobby-form .ant-input::placeholder,
+html[data-theme='light'] .lobby-form .ant-input-password input::placeholder {
+  color: #85909d !important;
+}
+
+html[data-theme='light'] .lobby-form-actions .ant-btn:not(.ant-btn-primary):not(.force-stop-btn) {
+  background: #ffffff !important;
+  color: #364151 !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+
+html[data-theme='light'] .lobby-form-network-tip,
+html[data-theme='light'] .lobby-form-tip,
+html[data-theme='light'] .private-server-info {
+  color: #364151;
+}
+
+html[data-theme='light'] .network-tip-text,
+html[data-theme='light'] .lobby-form-tip p,
+html[data-theme='light'] .private-server-info-label,
+html[data-theme='light'] .private-server-info-value {
+  color: #596574;
+}
+
+html[data-theme='light'] .mini-window {
+  background: rgba(247, 249, 251, var(--mini-window-opacity, 0.94));
+  color: #18202b;
+}
+
+html[data-theme='light'] .mini-window .mini-window-title,
+html[data-theme='light'] .mini-window .lobby-card-title,
+html[data-theme='light'] .mini-window .mini-player-name {
+  color: #18202b !important;
+  text-shadow: none;
+}
+
+html[data-theme='light'] .settings-window {
+  background: linear-gradient(150deg, #f7f9fb 0%, #edf1f5 100%);
+}
+
+html[data-theme='light'] .settings-bg-orb { display: none; }
+
+html[data-theme='light'] .settings-card,
+html[data-theme='light'] .mini-lobby-card,
+html[data-theme='light'] .mini-player-item,
+html[data-theme='light'] .mini-opacity-control,
+html[data-theme='light'] .mini-voice-controls,
+html[data-theme='light'] .player-item,
+html[data-theme='light'] .screen-share-manager {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .mini-window-header,
+html[data-theme='light'] .settings-card-header {
+  background: rgba(24, 32, 43, 0.025);
+  border-color: rgba(24, 32, 43, 0.1);
+}
+
+html[data-theme='light'] .mini-window-content,
+html[data-theme='light'] .mini-players-section,
+html[data-theme='light'] .mini-player-list {
+  color: var(--mct-text);
+}
+
+html[data-theme='light'] .main-window-subtitle,
+html[data-theme='light'] .main-window-description,
+html[data-theme='light'] .main-window-version,
+html[data-theme='light'] .lobby-form-title,
+html[data-theme='light'] .lobby-form .ant-form-item-label > label,
+html[data-theme='light'] .mini-window-title,
+html[data-theme='light'] .mini-header-info,
+html[data-theme='light'] .lobby-card-title,
+html[data-theme='light'] .mini-player-name,
+html[data-theme='light'] .mini-section-title,
+html[data-theme='light'] .lobby-info-label,
+html[data-theme='light'] .mini-opacity-label,
+html[data-theme='light'] .player-volume-value,
+html[data-theme='light'] .game-tip-text,
+html[data-theme='light'] .mini-vg-label,
+html[data-theme='light'] .hotkey-desc,
+html[data-theme='light'] .settings-title-text,
+html[data-theme='light'] .settings-card-title,
+html[data-theme='light'] .settings-toggle-label,
+html[data-theme='light'] .settings-card-desc,
+html[data-theme='light'] .settings-toggle-desc {
+  color: #18202b !important;
+  text-shadow: none;
+}
+
+html[data-theme='light'] .settings-card-desc,
+html[data-theme='light'] .settings-toggle-desc,
+html[data-theme='light'] .main-window-description,
+html[data-theme='light'] .main-window-version,
+html[data-theme='light'] .mini-section-title,
+html[data-theme='light'] .lobby-info-label,
+html[data-theme='light'] .mini-opacity-label,
+html[data-theme='light'] .player-volume-value,
+html[data-theme='light'] .mini-vg-label,
+html[data-theme='light'] .hotkey-desc {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .settings-header,
+html[data-theme='light'] .settings-card-header,
+html[data-theme='light'] .mini-window-header,
+html[data-theme='light'] .mini-player-actions.host-grid {
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .settings-toggle-row:hover,
+html[data-theme='light'] .mini-player-item:hover {
+  background: var(--mct-hover);
+}
+
+html[data-theme='light'] .settings-toggle-row-sub,
+html[data-theme='light'] .settings-sub-form {
+  background: var(--mct-surface-soft);
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .ant-input,
+html[data-theme='light'] .ant-input-affix-wrapper,
+html[data-theme='light'] .ant-select-selector,
+html[data-theme='light'] .ant-input-number,
+html[data-theme='light'] textarea.ant-input {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+
+html[data-theme='light'] .ant-select-selection-item,
+html[data-theme='light'] .ant-input-number-input,
+html[data-theme='light'] .ant-form-item-label > label,
+html[data-theme='light'] .ant-radio-wrapper,
+html[data-theme='light'] .ant-checkbox-wrapper {
+  color: var(--mct-text) !important;
+}
+
+html[data-theme='light'] .ant-input::placeholder,
+html[data-theme='light'] textarea.ant-input::placeholder,
+html[data-theme='light'] .ant-select-selection-placeholder {
+  color: #85909d !important;
+}
+
+html[data-theme='light'] .ant-input-password input {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+
+html[data-theme='light'] .ant-input-password input::placeholder { color: #85909d !important; }
+html[data-theme='light'] .ant-input-password-icon,
+html[data-theme='light'] .ant-select-arrow,
+html[data-theme='light'] .anticon { color: #596574; }
+html[data-theme='light'] .ant-input-password-icon:hover { color: #18202b !important; }
+
+html[data-theme='light'] .ant-input:-webkit-autofill,
+html[data-theme='light'] .ant-input-password input:-webkit-autofill {
+  -webkit-text-fill-color: #18202b !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+}
+
+html[data-theme='light'] .ant-select-dropdown,
+html[data-theme='light'] .ant-dropdown-menu {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.12) !important;
+}
+
+html[data-theme='light'] .ant-select-item,
+html[data-theme='light'] .ant-dropdown-menu-item { color: #18202b !important; }
+html[data-theme='light'] .ant-select-item:hover,
+html[data-theme='light'] .ant-dropdown-menu-item:hover { background: #eef2f5 !important; }
+html[data-theme='light'] .ant-select-item-option-selected { background: rgba(82, 196, 26, 0.12) !important; }
+
+html[data-theme='light'] .ant-modal-content,
+html[data-theme='light'] .ant-modal-header,
+html[data-theme='light'] .ant-drawer-content,
+html[data-theme='light'] .ant-drawer-header,
+html[data-theme='light'] .ant-popover-inner,
+html[data-theme='light'] .version-update-modal .ant-modal-content {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.12) !important;
+}
+
+/* 深底控件豁免约定：按钮以及任何标记了 .mct-on-dark 的容器，自身带深色或彩色实底，
+   其内部文字与图标在亮色主题下必须保持浅色。下面所有"把文字压暗"的兜底规则都统一
+   排除这些元素，避免出现"深底 + 黑字"看不清的情况。新增深底控件时加 .mct-on-dark 即可。 */
+html[data-theme='light'] .ant-modal-title,
+html[data-theme='light'] .ant-modal-body,
+html[data-theme='light'] .ant-popover-inner,
+html[data-theme='light'] .ant-empty-description,
+html[data-theme='light'] .version-update-modal .ant-modal-title,
+html[data-theme='light'] .update-log-title,
+html[data-theme='light'] .update-log-text,
+html[data-theme='light'] .ant-modal-body
+  :is(p, div, label, span):not(.ant-btn-icon):not(.anticon):not(:is(button, .ant-btn, .mct-on-dark) *) {
+  color: #18202b !important;
+}
+html[data-theme='light'] .ant-modal-close,
+html[data-theme='light'] .version-update-modal .ant-modal-close { color: #596574; }
+html[data-theme='light'] .ant-modal-close:hover { background: #eef2f5; color: #18202b; }
+
+html[data-theme='light'] .version-info-section,
+html[data-theme='light'] .update-log-item:hover {
+  background: #f4f6f8;
+  border-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .version-number.current {
+  color: #596574;
+  background: #eef2f5;
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .ant-btn-default:not(.ant-btn-dangerous):not(:disabled) {
+  color: #364151 !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.2) !important;
+}
+html[data-theme='light'] .ant-btn-default:not(.ant-btn-dangerous):not(:disabled):hover {
+  color: #3f8f19 !important;
+  background: #f7faf5 !important;
+  border-color: #52c41a !important;
+}
+
+html[data-theme='light'] .ant-switch:not(.ant-switch-checked) { background: #aab2bd; }
+html[data-theme='light'] .ant-slider-rail { background: #d7dce2 !important; }
+html[data-theme='light'] .ant-slider-track { background: #52c41a !important; }
+
+html[data-theme='light'] input[type='range'] {
+  background-color: #d7dce2;
+}
+
+html[data-theme='light'] .mini-control-btn,
+html[data-theme='light'] .copy-lobby-btn,
+html[data-theme='light'] .lobby-card-action-btn,
+html[data-theme='light'] .mini-action-btn,
+html[data-theme='light'] .mini-lobby-settings-btn,
+html[data-theme='light'] .settings-close-btn {
+  color: #364151;
+  background: rgba(24, 32, 43, 0.07);
+}
+html[data-theme='light'] .mini-control-btn:hover,
+html[data-theme='light'] .copy-lobby-btn:hover,
+html[data-theme='light'] .lobby-card-action-btn:hover,
+html[data-theme='light'] .mini-action-btn:hover,
+html[data-theme='light'] .mini-lobby-settings-btn:hover {
+  background: rgba(24, 32, 43, 0.12);
+  color: #18202b;
+}
+
+html[data-theme='light'] .main-window-control-btn {
+  color: #4b5665;
+  background: rgba(24, 32, 43, 0.06);
+}
+
+html[data-theme='light'] .main-window-control-btn:hover {
+  color: #18202b;
+  background: rgba(24, 32, 43, 0.11);
+  border-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .main-window-close-btn:hover {
+  color: #ffffff;
+  background: #d9363e;
+  border-color: #d9363e;
+}
+
+html[data-theme='light'] .settings-overlay {
+  background: #f4f6f8;
+}
+
+html[data-theme='light'] .mini-player-initial {
+  background: #e7ebef;
+  color: #283342;
+}
+
+html[data-theme='light'] .player-virtual-ip-btn,
+html[data-theme='light'] .virtual-ip-btn {
+  background: #edf7e8;
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .mini-voice-btn:not(.muted):not(.has-unread) {
+  background: #e7ebef;
+  color: #283342;
+}
+
+html[data-theme='light'] .mini-announcement,
+html[data-theme='light'] .mini-game-tip,
+html[data-theme='light'] .mini-hotkey-hints,
+html[data-theme='light'] .private-server-info {
+  color: var(--mct-text);
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .mini-announce-marquee,
+html[data-theme='light'] .private-server-info-label,
+html[data-theme='light'] .private-server-info-value,
+html[data-theme='light'] .lobby-action-label {
+  color: var(--mct-text-secondary);
+}
+
+html[data-theme='light'] .lobby-action-btn {
+  background: #ffffff;
+  border-color: var(--mct-border);
+  color: var(--mct-text);
+}
+
+html[data-theme='light'] .lobby-action-btn:hover {
+  background: #f4f8f2;
+  border-color: rgba(82, 196, 26, 0.45);
+  box-shadow: none;
+}
+
+html[data-theme='light'] .lobby-action-btn:hover .lobby-action-label {
+  color: var(--mct-text);
+}
+
+html[data-theme='light'] .node-item,
+html[data-theme='light'] .snd-card {
+  background: #ffffff;
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .node-item:hover,
+html[data-theme='light'] .snd-card:hover {
+  background: var(--mct-surface-soft);
+  border-color: rgba(24, 32, 43, 0.2);
+}
+
+html[data-theme='light'] .node-name,
+html[data-theme='light'] .snd-block-title,
+html[data-theme='light'] .snd-block-title-text,
+html[data-theme='light'] .snd-card-name {
+  color: var(--mct-text);
+}
+
+html[data-theme='light'] .node-address,
+html[data-theme='light'] .snd-block-desc,
+html[data-theme='light'] .snd-card-tag,
+html[data-theme='light'] .snd-mute-label {
+  color: var(--mct-text-secondary);
+}
+
+html[data-theme='light'] .node-add-btn,
+html[data-theme='light'] .node-btn-cancel,
+html[data-theme='light'] .snd-text-btn {
+  background: #ffffff;
+  color: var(--mct-text-secondary);
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .reconnect-modal .ant-modal-content,
+html[data-theme='light'] .reconnect-modal .ant-modal-header {
+  background: #ffffff !important;
+  border-color: var(--mct-border);
+  backdrop-filter: none;
+}
+
+html[data-theme='light'] .reconnect-modal .ant-modal-title,
+html[data-theme='light'] .reconnect-modal .ant-modal-body {
+  color: var(--mct-text) !important;
+}
+
+html[data-theme='light'] :where(p, div, span, label)[style*='color: rgba(255']:not(:is(button, .ant-btn, .mct-on-dark) *) {
+  color: var(--mct-text-secondary) !important;
+}
+
+html[data-theme='light'] .ant-btn-primary,
+html[data-theme='light'] .ant-btn-primary span,
+html[data-theme='light'] .ant-btn-primary svg,
+html[data-theme='light'] .create-button,
+html[data-theme='light'] .node-btn-save,
+html[data-theme='light'] .settings-btn-save,
+html[data-theme='light'] .mct-on-dark,
+html[data-theme='light'] .mct-on-dark :is(span, p, div, label, svg, .anticon) {
+  color: #ffffff !important;
+}
+
+/* Filled danger buttons keep white text; outlined danger buttons keep a
+   readable red label on their white surface. */
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary),
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary) span,
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary) svg {
+  background: #ffffff !important;
+  border-color: #e5484d !important;
+  color: #c7353a !important;
+}
+
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary):hover,
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary):hover span,
+html[data-theme='light'] .ant-btn-dangerous:not(.ant-btn-primary):hover svg {
+  background: #fff3f3 !important;
+  border-color: #c7353a !important;
+  color: #a8282e !important;
+}
+
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous,
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous span,
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous svg {
+  background: #e5484d !important;
+  border-color: #e5484d !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous:hover,
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous:hover span,
+html[data-theme='light'] .ant-btn-primary.ant-btn-dangerous:hover svg {
+  background: #c7353a !important;
+  border-color: #c7353a !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .leave-lobby-confirm-btn,
+html[data-theme='light'] .leave-lobby-confirm-btn span {
+  background: #e5484d !important;
+  border-color: #e5484d !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .leave-lobby-confirm-btn:hover,
+html[data-theme='light'] .leave-lobby-confirm-btn:hover span {
+  background: #c7353a !important;
+  border-color: #c7353a !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .mct-on-dark svg[stroke='#fff'],
+html[data-theme='light'] .mct-on-dark svg[stroke='white'] {
+  stroke: #ffffff !important;
+}
+
+/* Continuous decorative motion is expensive in a transparent WebView. */
+.main-window::before,
+.main-window-logo::before,
+.main-window-title,
+.main-window-title::before,
+.settings-bg-orb,
+.mini-control-btn.new-message-btn,
+.mini-voice-btn.active,
+.mini-voice-btn.chat-btn.has-unread,
+.chat-badge,
+.mini-unread-dot,
+.mini-new-message-text,
+.game-tip-icon,
+.network-tip-icon,
+.lobby-form-tip.network-warning,
+.lobby-form-tip.network-warning .tip-icon {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 聊天室的亮色样式全部由 ChatRoom.css 单独负责，此处不再重复覆盖，避免绿色气泡被压成黑字。 */
+
+html[data-theme='light'] .ant-message-notice-content,
+html[data-theme='light'] .ant-notification-notice { color: #18202b; background: #ffffff; }
+
+html[data-theme='light'] .ant-tooltip .ant-tooltip-inner {
+  background: #ffffff !important;
+  color: #18202b !important;
+  border-color: rgba(24, 32, 43, 0.16) !important;
+  box-shadow: 0 6px 20px rgba(20, 30, 42, 0.18) !important;
+}
+html[data-theme='light'] .ant-tooltip .ant-tooltip-arrow::before,
+html[data-theme='light'] .ant-tooltip .ant-tooltip-arrow::after { background: #ffffff !important; }
+
+/* Component-level light theme fallbacks for legacy dark-first styles. Keep primary
+   and destructive buttons white-on-color, while all neutral surfaces use dark text. */
+html[data-theme='light'] .settings-window,
+html[data-theme='light'] .settings-overlay,
+html[data-theme='light'] .lobby-form-container,
+html[data-theme='light'] .main-window {
+  background: #f4f6f8 !important;
+}
+html[data-theme='light'] .settings-card,
+html[data-theme='light'] .settings-card-header,
+html[data-theme='light'] .settings-toggle-row-sub,
+html[data-theme='light'] .settings-sub-form {
+  color: #18202b;
+}
+html[data-theme='light'] .settings-title-text,
+html[data-theme='light'] .settings-card-title,
+html[data-theme='light'] .settings-toggle-label,
+html[data-theme='light'] .settings-card-desc,
+html[data-theme='light'] .settings-toggle-desc,
+html[data-theme='light'] .settings-info-icon svg,
+html[data-theme='light'] .settings-window label,
+html[data-theme='light'] .settings-window p,
+html[data-theme='light'] .settings-window span {
+  text-shadow: none !important;
+}
+html[data-theme='light'] :is(.settings-window, .lobby-settings-modal) .snd-block .danmaku-preview-bullet:not(.rainbow) {
+  color: var(--danmaku-preview-color) !important;
+}
+html[data-theme='light'] .settings-title-text,
+html[data-theme='light'] .settings-card-title,
+html[data-theme='light'] .settings-toggle-label,
+html[data-theme='light'] .settings-window label {
+  color: #18202b !important;
+}
+html[data-theme='light'] .settings-card-desc,
+html[data-theme='light'] .settings-toggle-desc,
+html[data-theme='light'] .settings-window p,
+html[data-theme='light'] .settings-window .snd-block-desc,
+html[data-theme='light'] .settings-window .snd-mute-label {
+  color: #596574 !important;
+}
+html[data-theme='light'] .settings-info-icon,
+html[data-theme='light'] .settings-close-btn,
+html[data-theme='light'] .settings-window .snd-card,
+html[data-theme='light'] .settings-window .snd-block,
+html[data-theme='light'] .settings-window .settings-toggle-row-sub {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+}
+html[data-theme='light'] .settings-info-icon svg,
+html[data-theme='light'] .settings-close-btn,
+html[data-theme='light'] .settings-window .snd-text-btn {
+  color: #596574 !important;
+}
+html[data-theme='light'] .main-window-subtitle,
+html[data-theme='light'] .main-window-version,
+html[data-theme='light'] .main-window-hint,
+html[data-theme='light'] .main-window-description {
+  color: #596574 !important;
+  text-shadow: none !important;
+}
+html[data-theme='light'] .main-window-title {
+  background: none !important;
+  -webkit-text-fill-color: #18202b !important;
+  color: #18202b !important;
+  filter: none !important;
+}
+html[data-theme='light'] .lobby-form-title,
+html[data-theme='light'] .lobby-form .ant-form-item-label > label,
+html[data-theme='light'] .lobby-form-container p,
+html[data-theme='light'] .lobby-form-container label,
+html[data-theme='light'] .lobby-form-container span {
+  text-shadow: none !important;
+}
+html[data-theme='light'] .lobby-form-title,
+html[data-theme='light'] .lobby-form .ant-form-item-label > label {
+  color: #18202b !important;
+}
+html[data-theme='light'] .lobby-form-container p,
+html[data-theme='light'] .lobby-form-container .lobby-form-tip,
+html[data-theme='light'] .lobby-form-container .network-tip-text,
+html[data-theme='light'] .lobby-form-container .private-server-info,
+html[data-theme='light'] .lobby-form-container span[style*='color: rgba(255'] {
+  color: #596574 !important;
+}
+html[data-theme='light'] .lobby-form .ant-input,
+html[data-theme='light'] .lobby-form .ant-input-password,
+html[data-theme='light'] .lobby-form .ant-input-password input,
+html[data-theme='light'] .lobby-form .ant-select-selector {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+html[data-theme='light'] .lobby-form .ant-input::placeholder,
+html[data-theme='light'] .lobby-form .ant-input-password input::placeholder {
+  color: #85909d !important;
+}
+html[data-theme='light'] .lobby-action-btn,
+html[data-theme='light'] .lobby-action-label {
+  color: #364151 !important;
+}
+html[data-theme='light'] .lobby-action-btn {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.16) !important;
+}
+html[data-theme='light'] .lobby-action-btn:hover {
+  background: #f4f8f2 !important;
+  border-color: rgba(82, 196, 26, 0.45) !important;
+}
+html[data-theme='light'] .lobby-action-btn svg {
+  color: #4b5665 !important;
+}
+
+/* Inline legacy white text in neutral light surfaces. 深底控件内部一律豁免。 */
+html[data-theme='light'] :where(.ant-modal, .ant-drawer, .settings-window, .lobby-form-container, .screen-share-manager)
+  [style*='color: rgba(255']:not(:is(button, .ant-btn, .mct-on-dark) *) {
+  color: #596574 !important;
+}
+html[data-theme='light'] :where(.ant-modal, .ant-drawer, .settings-window, .lobby-form-container, .screen-share-manager)
+  :is(svg[stroke='#fff'], svg[stroke='white']):not(:is(button, .ant-btn, .mct-on-dark) *) {
+  stroke: #596574 !important;
+}
+html[data-theme='light'] .settings-window
+  button:not(.ant-btn-primary):not(.settings-btn-save):not(.mct-on-dark):not(.snd-icon-btn) svg,
+html[data-theme='light'] .lobby-form-container .lobby-action-btn svg,
+html[data-theme='light'] .screen-share-manager .empty-state svg,
+html[data-theme='light'] .screen-share-manager .screen-share-hint svg,
+html[data-theme='light'] .ant-modal:not(.ant-modal-confirm) .ant-modal-body > svg {
+  color: #596574 !important;
+  stroke: #596574;
+}
+html[data-theme='light'] :is(.settings-window, .lobby-form-container, .screen-share-manager)
+  .anticon:not(:is(button, .ant-btn, .mct-on-dark) *) {
+  color: #596574 !important;
+}
+
+/* Remaining modal and lobby surfaces that historically shipped with dark-only CSS. */
+html[data-theme='light'] .file-share-container,
+html[data-theme='light'] .advanced-network-config,
+html[data-theme='light'] .stats-body {
+  color: #18202b;
+  background: #ffffff;
+}
+html[data-theme='light'] .stats-card,
+html[data-theme='light'] .config-section {
+  background: #f4f6f8 !important;
+  border-color: rgba(24, 32, 43, 0.12) !important;
+}
+html[data-theme='light'] .file-share-container :where(.file-name, .file-size, .file-share-title),
+html[data-theme='light'] .advanced-network-config :where(.section-title, .config-label),
+html[data-theme='light'] .stats-body :where(.stats-value, .stats-label) {
+  color: #18202b !important;
+  text-shadow: none !important;
+}
+html[data-theme='light'] .file-share-container :where(.file-meta, .file-share-empty),
+html[data-theme='light'] .advanced-network-config :where(.section-description, .config-description),
+html[data-theme='light'] .stats-body :where(.stats-unit, .stats-secondary) {
+  color: #596574 !important;
+}
+html[data-theme='light'] .lobby-advanced-config-modal .ant-modal-content,
+html[data-theme='light'] .lobby-settings-modal .ant-modal-content,
+html[data-theme='light'] .exit-node-advanced-modal .ant-modal-content,
+html[data-theme='light'] .favorite-lobby-modal .ant-modal-content,
+html[data-theme='light'] .version-update-modal .ant-modal-content {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+  box-shadow: 0 12px 36px rgba(20, 30, 42, 0.18) !important;
+  backdrop-filter: none !important;
+}
+html[data-theme='light'] .lobby-advanced-config-modal .ant-modal-header,
+html[data-theme='light'] .lobby-settings-modal .ant-modal-header,
+html[data-theme='light'] .exit-node-advanced-modal .ant-modal-header,
+html[data-theme='light'] .favorite-lobby-modal .ant-modal-header,
+html[data-theme='light'] .version-update-modal .ant-modal-header {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.1) !important;
+}
+html[data-theme='light'] .lobby-advanced-config-modal,
+html[data-theme='light'] .lobby-settings-modal,
+html[data-theme='light'] .exit-node-advanced-modal,
+html[data-theme='light'] .favorite-lobby-modal,
+html[data-theme='light'] .version-update-modal {
+  color: #18202b;
+}
+html[data-theme='light'] .lobby-advanced-config-modal :where(h1, h2, h3, p, label, span, .ant-form-item-label > label):not(:is(button, .ant-btn, .mct-on-dark) *),
+html[data-theme='light'] .lobby-settings-modal :where(h1, h2, h3, p, label, span, .ant-form-item-label > label):not(:is(button, .ant-btn, .mct-on-dark) *),
+html[data-theme='light'] .exit-node-advanced-modal :where(h1, h2, h3, p, label, span, .ant-form-item-label > label):not(:is(button, .ant-btn, .mct-on-dark) *),
+html[data-theme='light'] .favorite-lobby-modal :where(h1, h2, h3, p, label, span):not(:is(button, .ant-btn, .mct-on-dark) *),
+html[data-theme='light'] .version-update-modal :where(h1, h2, h3, p, label, span):not(:is(button, .ant-btn, .mct-on-dark) *) {
+  color: #18202b;
+  text-shadow: none !important;
+}
+html[data-theme='light'] .lobby-advanced-config-modal :where(.description, .hint, .secondary),
+html[data-theme='light'] .lobby-settings-modal :where(.description, .hint, .secondary),
+html[data-theme='light'] .exit-node-advanced-modal :where(.description, .hint, .secondary),
+html[data-theme='light'] .favorite-lobby-modal :where(.description, .hint, .secondary),
+html[data-theme='light'] .version-update-modal :where(.description, .hint, .secondary) {
+  color: #596574 !important;
+}
+html[data-theme='light'] .voice-controls .voice-control-button:not(.ant-btn-primary) {
+  color: #364151 !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.16) !important;
+}
+
+/* Final light-theme contrast pass for legacy controls and portal modals. */
+.ant-switch,
+.ant-switch::before,
+.ant-switch .ant-switch-inner,
+.ant-switch .ant-switch-handle,
+.ant-switch .ant-switch-handle::before {
+  transition: none !important;
+}
+
+.ant-switch:hover:not(.ant-switch-disabled) { box-shadow: none !important; }
+
+html[data-theme='light'] .ant-switch:not(.ant-switch-checked),
+html[data-theme='light'] .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled) {
+  background: #9ca7b3 !important;
+}
+
+html[data-theme='light'] .ant-switch.ant-switch-checked,
+html[data-theme='light'] .ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background: #52c41a !important;
+}
+
+html[data-theme='light'] :is(.ant-btn-primary, .start-share-btn, .stop-share-btn, .quick-rejoin-btn, .create-button, .add-button),
+html[data-theme='light'] :is(.ant-btn-primary, .start-share-btn, .stop-share-btn, .quick-rejoin-btn, .create-button, .add-button) :is(span, svg, .anticon) {
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .ant-modal-content,
+html[data-theme='light'] .recent-manager-modal .ant-modal-header {
+  background: #ffffff !important;
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .ant-modal-title,
+html[data-theme='light'] .recent-manager-modal .ant-tabs-tab,
+html[data-theme='light'] .recent-manager-modal .recent-lobby-item,
+html[data-theme='light'] .recent-manager-modal .recent-player-item {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .recent-lobby-item,
+html[data-theme='light'] .recent-manager-modal .recent-player-item {
+  background: #f7f9fb;
+  border-color: rgba(24, 32, 43, 0.16) !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .recent-item-meta { color: #596574 !important; }
+
+html[data-theme='light'] .recent-manager-modal .ant-modal-footer .ant-btn-dangerous:not(.ant-btn-primary) {
+  background: #ffffff !important;
+  border-color: #e5484d !important;
+  color: #c7353a !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .ant-modal-footer .ant-btn-dangerous:not(.ant-btn-primary) span {
+  color: #c7353a !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .recent-danger-button,
+html[data-theme='light'] .recent-manager-modal .recent-danger-button span {
+  background: #ffffff !important;
+  border-color: #e5484d !important;
+  color: #c7353a !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .recent-danger-button:hover,
+html[data-theme='light'] .recent-manager-modal .recent-danger-button:hover span {
+  background: #fff3f3 !important;
+  border-color: #c7353a !important;
+  color: #a8282e !important;
+}
+
+html[data-theme='light'] .recent-manager-modal .ant-modal-close { color: #596574 !important; }
+
+html[data-theme='light'] .file-share-container :is(.file-share-title, .ant-typography, h1, h2, h3) {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .screen-share-manager .stop-viewing-btn,
+html[data-theme='light'] .screen-share-manager .stop-viewing-btn svg,
+html[data-theme='light'] .screen-viewer .close-viewer-btn,
+html[data-theme='light'] .screen-viewer .close-viewer-btn svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+html[data-theme='light'] .screen-share-view :is(.screen-share-list, .share-item-content, .share-player-details, .share-badges) {
+  color: #18202b;
+}
+
+html[data-theme='light'] .screen-share-view .viewer-info.active {
+  color: #c7353a !important;
+}
+
+html[data-theme='light'] .screen-share-view .share-start-time,
+html[data-theme='light'] .screen-share-view .empty-hint {
+  color: #687585 !important;
+}
+
+/* The selected danmaku color is user content, not neutral theme text. */
+html[data-theme='light'] .lobby-settings-modal .snd-manager .snd-block .danmaku-preview-bullet:not(.rainbow),
+html[data-theme='light'] .settings-window .snd-manager .snd-block .danmaku-preview-bullet:not(.rainbow) {
+  color: var(--danmaku-preview-color) !important;
+  -webkit-text-fill-color: var(--danmaku-preview-color) !important;
 }

@@ -62,6 +62,7 @@ STORE_TEST_REPORT.md
 VOICE_DEBUG_GUIDE.md
 
 # Editor directories and files
+**/.*/
 .vscode/*
 !.vscode/extensions.json
 .idea

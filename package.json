@@ -1,12 +1,13 @@
 {
   "name": "mctier",
   "private": true,
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "MCTier - Minecraft 虚拟局域网联机工具",
   "author": "MCTier Team",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test tests/*.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -23,7 +24,6 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "@tauri-apps/plugin-updater": "^2.10.1",
     "@types/qrcode": "^1.5.6",
     "antd": "^5.22.6",
     "dayjs": "^1.11.19",

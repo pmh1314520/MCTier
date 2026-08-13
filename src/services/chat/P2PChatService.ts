@@ -7,13 +7,14 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage } from '../../types';
+import { isWithinRecallWindow } from './recallPolicy';
 
 interface BackendChatMessage {
   id: string;
   player_id: string;
   player_name: string;
   content: string;
-  message_type: 'text' | 'image';
+  message_type: string;
   timestamp: number;
   image_data?: number[]; // Uint8Array转换为number[]
 }
@@ -32,6 +33,7 @@ class P2PChatService {
   private myVirtualIp: string = ''; // 本机虚拟IP，用于连接本机聊天服务器
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
+  private pendingRecalls: Map<string, string> = new Map();
 
   /**
    * 初始化服务
@@ -59,6 +61,7 @@ class P2PChatService {
     this.onMessageCallback = undefined;
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
+    this.pendingRecalls.clear();
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -169,7 +172,8 @@ class P2PChatService {
     if (
       mtype === 'announce' ||
       mtype === 'voicegroup' ||
-      mtype === 'todo'
+      mtype === 'todo' ||
+      mtype === 'recall'
     ) {
       if (msg.player_id === this.currentPlayerId) return;
       // 按消息 ID 去重：避免对账/SSE 重复投递导致控制消息反复触发（如剪贴板反复弹窗、白板重复笔画）
@@ -215,9 +219,16 @@ class P2PChatService {
       playerName: msg.player_name,
       content: msg.content,
       timestamp: msg.timestamp * 1000, // 转换为毫秒
-      type: msg.message_type,
+      type: msg.message_type === 'image' ? 'image' : 'text',
       imageData: msg.image_data ? this.arrayToBase64(msg.image_data) : undefined,
     };
+    if (this.pendingRecalls.get(msg.id) === msg.player_id && isWithinRecallWindow(chatMessage.timestamp)) {
+      chatMessage.content = '';
+      chatMessage.imageData = undefined;
+      chatMessage.type = 'text';
+      chatMessage.recalled = true;
+      this.pendingRecalls.delete(msg.id);
+    }
 
     // 回调通知新消息
     if (this.onMessageCallback) {
@@ -254,6 +265,11 @@ class P2PChatService {
           }
         } catch (e) {
           console.warn('⚠️ [P2PChatService] 解析待办同步内容失败:', e);
+        }
+      } else if (type === 'recall') {
+        const targetExists = store.chatMessages.some((message) => message.id === msg.content);
+        if (!store.recallChatMessage(msg.content, msg.player_id) && !targetExists) {
+          this.pendingRecalls.set(msg.content, msg.player_id);
         }
       }
     } catch (error) {
@@ -327,7 +343,7 @@ class P2PChatService {
   /**
    * 发送文本消息，返回送达统计 {delivered, total}
    */
-  async sendTextMessage(content: string): Promise<{ delivered: number; total: number }> {
+  async sendTextMessage(content: string, messageId?: string): Promise<{ delivered: number; total: number }> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
@@ -339,6 +355,7 @@ class P2PChatService {
         content,
         messageType: 'text',
         imageData: null,
+        messageId,
         peerIps: this.peerIps,
       });
       console.log('✅ [P2PChatService] 文本消息已发送', res);
@@ -353,7 +370,7 @@ class P2PChatService {
    * 发送图片消息（Base64格式）
    * 【优化】使用更高效的数据转换方式
    */
-  async sendImageMessage(imageDataUrl: string, content = '[图片]'): Promise<void> {
+  async sendImageMessage(imageDataUrl: string, content = '[图片]', messageId?: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
@@ -383,6 +400,7 @@ class P2PChatService {
         content,
         messageType: 'image',
         imageData: Array.from(bytes),
+        messageId,
         peerIps: this.peerIps,
       });
       
@@ -392,6 +410,20 @@ class P2PChatService {
       console.error('❌ [P2PChatService] 发送图片消息失败:', error);
       throw error;
     }
+  }
+
+  /** 广播撤回控制消息。接收方会校验撤回者是否为原发送者。 */
+  async recallMessage(messageId: string): Promise<void> {
+    if (!this.currentPlayerId) throw new Error('未初始化：缺少玩家ID');
+    await invoke('send_p2p_chat_message', {
+      playerId: this.currentPlayerId,
+      playerName: '',
+      content: messageId,
+      messageType: 'recall',
+      imageData: null,
+      messageId: 'recall-' + this.currentPlayerId + '-' + Date.now(),
+      peerIps: this.peerIps,
+    });
   }
 
   /**

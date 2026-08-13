@@ -203,7 +203,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ visible, onC
         checks.security,
         checks.security === 'ok'
           ? tl('未检测到常见安全软件拦截。', 'No common security software interference detected.')
-          : `${tl('检测到：', 'Detected: ')}${checks.securityList.join('、') || tl('未知安全软件', 'unknown security software')}${tl('。请将 MCTier 加入信任/白名单。', '. Please add MCTier to your trust/whitelist.')}`
+          : tl(
+              `检测到：${checks.securityList.join('、') || '未知安全软件'}。请将 MCTier 加入信任/白名单。`,
+              `Detected: ${checks.securityList.join(', ') || 'unknown security software'}. Please add MCTier to your trust/whitelist.`,
+            )
       )}
 
       <Space wrap style={{ marginTop: 4 }}>

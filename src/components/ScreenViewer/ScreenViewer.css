@@ -121,23 +121,28 @@
   height: 40px;
   border-radius: 8px;
   border: none;
-  background: rgba(255, 255, 255, 0.1);
+  background: #ef4444;
   color: white;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
 }
 
 .close-viewer-btn:hover {
-  background: rgba(239, 68, 68, 0.8);
-  transform: scale(1.05);
+  background: #dc2626;
+  transform: none;
 }
 
 .close-viewer-btn:active {
-  transform: scale(0.95);
+  transform: none;
+}
+
+.close-viewer-btn svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }
 
 .retry-btn {

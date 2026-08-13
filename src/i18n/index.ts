@@ -12,11 +12,21 @@ import { en } from './en';
 
 const LANG_KEY = 'mctier_language';
 
-function detectDefault(): 'zh' | 'en' {
-  const saved = localStorage.getItem(LANG_KEY);
-  if (saved === 'zh' || saved === 'en') return saved;
+export type AppLanguage = 'zh' | 'en';
+export type LanguagePreference = 'system' | AppLanguage;
+
+function detectSystemLanguage(): AppLanguage {
   const sys = (navigator.language || 'zh').toLowerCase();
   return sys.startsWith('zh') ? 'zh' : 'en';
+}
+
+function readStoredPreference(): LanguagePreference {
+  const saved = localStorage.getItem(LANG_KEY);
+  return saved === 'zh' || saved === 'en' || saved === 'system' ? saved : 'system';
+}
+
+export function resolveLanguagePreference(preference: LanguagePreference): AppLanguage {
+  return preference === 'system' ? detectSystemLanguage() : preference;
 }
 
 void i18n.use(initReactI18next).init({
@@ -24,21 +34,30 @@ void i18n.use(initReactI18next).init({
     zh: { translation: zh },
     en: { translation: en },
   },
-  lng: detectDefault(),
+  lng: resolveLanguagePreference(readStoredPreference()),
   fallbackLng: 'zh',
   interpolation: { escapeValue: false },
 });
 
 /** 仅在本窗口应用语言（不广播事件），供覆盖窗口收到同步事件时调用 */
 export function applyLanguageLocal(lang: 'zh' | 'en'): void {
-  localStorage.setItem(LANG_KEY, lang);
   void i18n.changeLanguage(lang);
 }
 
 export function setLanguage(lang: 'zh' | 'en'): void {
+  setLanguagePreference(lang);
+}
+
+export function setLanguagePreference(preference: LanguagePreference): void {
+  localStorage.setItem(LANG_KEY, preference);
+  const lang = resolveLanguagePreference(preference);
   applyLanguageLocal(lang);
   // 通知其它窗口（弹幕/HUD 等独立窗口）同步语言
   void import('@tauri-apps/api/event').then(({ emit }) => { void emit('mctier-lang-changed', lang); }).catch(() => {});
+}
+
+export function getLanguagePreference(): LanguagePreference {
+  return readStoredPreference();
 }
 
 export function getLanguage(): 'zh' | 'en' {

@@ -8,7 +8,6 @@ import com.easytier.jni.EasyTierJNI
 import com.easytier.jni.EasyTierVpnService
 import kotlinx.coroutines.delay
 import top.pmh13.mctier.data.DefaultEasyTierNode
-import top.pmh13.mctier.data.BuiltinNodes
 import kotlin.math.absoluteValue
 
 data class NetworkSession(
@@ -47,10 +46,8 @@ class NetworkController(private val context: Context) {
         val networkName = "MCTier-$lobbyName"
         val instanceName = "mctier_${lobbyName.hashCode().absoluteValue}_${playerName.hashCode().absoluteValue}"
         val normalizedNode = normalizeNode(node)
-        // 【可靠性关键修复】与桌面端一致：使用内置公共节点时启用多节点冗余 peer，
-        // 单个节点连不上时自动尝试其它内置节点，并保证与桌面端有共同可达中继以便互相发现。
-        // 私有/自定义节点保持隔离，仅连接该节点。
-        val peerList = buildPeerList(normalizedNode)
+        // 只连接用户当前选择的节点，确保节点选择和实际网络连接保持一致。
+        val peerList = listOf(normalizedNode)
         val virtualIp = allocateVirtualIp(lobbyName, playerName)
         Log.i(TAG, "Starting EasyTier instance=$instanceName ip=$virtualIp peers=$peerList lobby=$lobbyName")
         if (!EasyTierJNI.available) {
@@ -95,7 +92,8 @@ class NetworkController(private val context: Context) {
 
         val reportedIp = waitForVirtualIp(instanceName)
         if (reportedIp.isNullOrBlank()) {
-            Log.w(TAG, "EasyTier did not report virtual IP yet; continuing with assigned IP $virtualIp")
+            stopEasyTier()
+            error("EasyTier did not report a virtual IP")
         }
         return NetworkSession(networkName, password, normalizedNode, virtualIp)
     }
@@ -163,7 +161,7 @@ class NetworkController(private val context: Context) {
         sb.append("\n[network_identity]\n")
         sb.append("network_name = \"").append(esc(networkName)).append("\"\n")
         sb.append("network_secret = \"").append(esc(networkSecret)).append("\"\n")
-        // —— 对端中继节点（多节点冗余，任意一个可达即可与桌面端在同一中继上相遇）——
+        // —— 用户选择的对端中继节点 ——
         peers.forEach { p ->
             sb.append("\n[[peer]]\nuri = \"").append(p).append("\"\n")
         }
@@ -276,35 +274,16 @@ class NetworkController(private val context: Context) {
     private fun normalizeNode(node: String): String {
         val trimmed = node.trim()
         return when (trimmed) {
-            "tcp://mctiers.pmhs.top:11010",
-            "udp://mctiers.pmhs.top:11010",
-            "ws://mctiers.pmhs.top:11011",
-            "wss://mctiers.pmhs.top",
             "tcp://mctier.pmhs.top:11010",
             "udp://mctier.pmhs.top:11010",
             "ws://mctier.pmhs.top/signaling",
             "wss://mctier.pmhs.top/signaling",
             -> DefaultEasyTierNode
+            "tcp://mctiers.pmhs.top" -> "tcp://mctiers.pmhs.top:11010"
+            "udp://mctiers.pmhs.top" -> "udp://mctiers.pmhs.top:11010"
+            "ws://mctiers.pmhs.top" -> "ws://mctiers.pmhs.top:11011"
             else -> trimmed.ifBlank { DefaultEasyTierNode }
         }
-    }
-
-    /**
-     * 构建冗余 peer 列表（与桌面端策略一致）。
-     * 当主节点属于内置公共节点时，追加其余内置节点作为备用，
-     * 任意一个可达即可成功组网，并保证与桌面端有共同可达中继；
-     * 私有/自定义节点则保持隔离，仅返回该节点。
-     */
-    private fun buildPeerList(primary: String): List<String> {
-        val builtinAddrs = BuiltinNodes.map { it.address }
-        fun norm(s: String) = s.trim().trimEnd('/').lowercase()
-        val isBuiltin = builtinAddrs.any { norm(it) == norm(primary) }
-        if (!isBuiltin) return listOf(primary)
-        val result = mutableListOf(primary)
-        for (addr in builtinAddrs) {
-            if (result.none { norm(it) == norm(addr) }) result.add(addr)
-        }
-        return result
     }
 
     /**

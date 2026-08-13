@@ -19,10 +19,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.pmh13.mctier.data.AppConnectionState
 import top.pmh13.mctier.data.ChatMessage
 import top.pmh13.mctier.data.ChatWireMessage
 import top.pmh13.mctier.data.AppClientVersion
+import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.data.DefaultSignalingServer
 import top.pmh13.mctier.data.MctierJson
 import top.pmh13.mctier.data.MctierWireJson
@@ -61,6 +63,8 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
+private const val MCTIER_DOWNLOAD_WEBSITE = "https://mctier.pmhs.top"
+
 data class MctierUiState(
     val state: AppConnectionState = AppConnectionState.Idle,
     val error: String? = null,
@@ -98,7 +102,7 @@ data class MctierUiState(
     val playerLossRates: Map<String, Int> = emptyMap(), // playerId -> 丢包率(%)
     val playerConnTypes: Map<String, String> = emptyMap(), // playerId -> "p2p"|"relay"
     val versionError: top.pmh13.mctier.data.VersionAlert? = null, // 服务器要求最低版本不满足，强制更新并禁止建/进大厅
-    val updateAvailable: String? = null, // Gitee 检测到的新版本号（可选更新）
+    val updateAvailable: AvailableUpdate? = null, // Gitee 检测到的新版本号和更新日志（可选更新）
     val reconnecting: Boolean = false, // 信令断线重连中（顶部显示"重连中…"）
     val announcement: String = "", // 大厅公告（房主设置，新人进入即见）
     val myVoiceGroup: Int = 0, // 我的语音小队（0=大厅公共，1~4=小队）
@@ -110,10 +114,13 @@ data class MctierUiState(
     val remoteControllingPeer: String? = null, // 本机正在远程控制的对方设备名（控制端视角）
 )
 
+enum class RecallChatResult { Success, Expired, Unavailable }
+
 class MctierRepository(private val context: Context) {
     companion object {
         private const val TAG = "MctierRepository"
         private const val MaxPlayerNameLength = 8
+        private const val RecallWindowMs = 2 * 60 * 1000L
 
         private fun normalizePlayerName(name: String): String =
             name.replace(Regex("\\s+"), "").take(MaxPlayerNameLength)
@@ -136,6 +143,7 @@ class MctierRepository(private val context: Context) {
     private val rtcController = AndroidRtcController(context)
     private var fileServer: FileShareHttpServer? = null
     private var chatClient: ChatP2PClient? = null
+    private val pendingChatRecalls = mutableMapOf<String, String>()
     private val remoteFileClient = RemoteFileClient(context)
     private val downloadJobs = ConcurrentHashMap<String, Job>()
     private val downloadCancelers = ConcurrentHashMap<String, () -> Unit>()
@@ -150,6 +158,23 @@ class MctierRepository(private val context: Context) {
     @Volatile
     private var inChatRoom = false
     fun setInChatRoom(value: Boolean) { inChatRoom = value }
+
+    /** 返回当前进程最近的 Logcat 内容，供用户反馈问题时查看或分享。 */
+    suspend fun readApplicationLogs(): String = withContext(Dispatchers.IO) {
+        val command = arrayOf(
+            "logcat", "-d", "-t", "2000", "--pid", android.os.Process.myPid().toString(),
+        )
+        runCatching {
+            val process = Runtime.getRuntime().exec(command)
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+            output.takeLast(512 * 1024).ifBlank {
+                L("暂时没有可用的应用日志", "No application logs are available yet")
+            }
+        }.getOrElse { error ->
+            L("读取日志失败：${error.message ?: "未知错误"}", "Failed to read logs: ${error.message ?: "Unknown error"}")
+        }
+    }
 
     /** App 是否处于前台：用于弹幕判定——挂后台(玩游戏)时即使在聊天室界面也应显示弹幕 */
     @Volatile
@@ -392,7 +417,15 @@ class MctierRepository(private val context: Context) {
                 fileServer = FileShareHttpServer(context, current.playerId).also { it.start(5_000, false) }
                 // 启动 P2P 聊天（与桌面端 14540 互通）
                 chatClient = ChatP2PClient(current.playerId, ioScope) { wire -> onIncomingChat(wire) }.also { it.start() }
-                screenController = ScreenShareController(appContext, current.playerId) { signalingClient.send(it) }
+                screenController = ScreenShareController(appContext, current.playerId) { signalingClient.send(it) }.also { controller ->
+                    controller.onViewerCountChanged = { shareId, count ->
+                        _state.update { state ->
+                            state.copy(screenShares = state.screenShares.map { share ->
+                                if (share.id == shareId) share.copy(viewerCount = count) else share
+                            })
+                        }
+                    }
+                }
                 remoteControlController = top.pmh13.mctier.network.RemoteControlController(appContext, current.playerId) { signalingClient.send(it) }.also { rc ->
                     rc.onRequest = { sid, fromId, fromName ->
                         _state.update { it.copy(remoteControlRequest = top.pmh13.mctier.data.RemoteControlRequest(sid, fromId, fromName)) }
@@ -411,9 +444,15 @@ class MctierRepository(private val context: Context) {
                     }
                 }
                 rtcController.initialize(current.playerId) { signalingClient.send(it) }
-                // 启动麦克风前台服务：保证挂后台时系统不切断麦克风采集（此时处于前台且已持有
-                // RECORD_AUDIO 权限，满足 Android 14 启动 microphone 前台服务的要求）
-                top.pmh13.mctier.service.VoiceForegroundService.start(appContext)
+                // 仅在确实持有 RECORD_AUDIO 时启动麦克风前台服务。用户拒绝权限后仍可先加入大厅，
+                // 稍后通过大厅里的“重新申请麦克风权限”入口恢复语音。
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        appContext,
+                        android.Manifest.permission.RECORD_AUDIO,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    top.pmh13.mctier.service.VoiceForegroundService.start(appContext)
+                }
                 signalingClient.connect(
                     ConnectArgs(
                         url = lobby.signalingServer,
@@ -449,42 +488,44 @@ class MctierRepository(private val context: Context) {
         }
     }
 
-    fun leaveLobby() {        scope.launch {
-            statsEndSession(_state.value.hostId == _state.value.playerId)
-            signalingClient.send(SignalingEnvelope(type = "leave", clientId = _state.value.playerId))
-            signalingClient.close()
-            rtcController.cleanup()
-            top.pmh13.mctier.service.VoiceForegroundService.stop(appContext)
-            top.pmh13.mctier.ui.MicKeepAliveOverlay.hide()
-            chatClient?.stop()
+    fun leaveLobby() {
+        val leaving = _state.value
+        runCatching { signalingClient.send(SignalingEnvelope(type = "leave", clientId = leaving.playerId)) }
+        _state.update {
+            it.copy(
+                state = AppConnectionState.Idle,
+                lobby = null,
+                players = emptyList(),
+                chatMessages = emptyList(),
+                sharedFolders = emptyList(),
+                remoteShares = emptyList(),
+                screenShares = emptyList(),
+                viewingShareId = null,
+                micEnabled = false,
+                hostId = null,
+                maxPlayers = null,
+                isPublicLobby = false,
+                announcement = "",
+                myVoiceGroup = 0,
+                playerVoiceGroups = emptyMap(),
+            )
+        }
+        scope.launch {
+            runCatching { statsEndSession(leaving.hostId == leaving.playerId) }
+            runCatching { signalingClient.close() }
+            runCatching { rtcController.cleanup() }
+            runCatching { top.pmh13.mctier.service.VoiceForegroundService.stop(appContext) }
+            runCatching { top.pmh13.mctier.ui.MicKeepAliveOverlay.hide() }
+            runCatching { chatClient?.stop() }
             chatClient = null
-            screenController?.release()
+            runCatching { screenController?.release() }
             screenController = null
-            remoteControlController?.release()
+            runCatching { remoteControlController?.release() }
             remoteControlController = null
-            ScreenCaptureService.stop(appContext)
-            fileServer?.stop()
+            runCatching { ScreenCaptureService.stop(appContext) }
+            runCatching { fileServer?.stop() }
             fileServer = null
-            networkController.stopEasyTier()
-            _state.update {
-                it.copy(
-                    state = AppConnectionState.Idle,
-                    lobby = null,
-                    players = emptyList(),
-                    chatMessages = emptyList(),
-                    sharedFolders = emptyList(),
-                    remoteShares = emptyList(),
-                    screenShares = emptyList(),
-                    viewingShareId = null,
-                    micEnabled = false,
-                    hostId = null,
-                    maxPlayers = null,
-                    isPublicLobby = false,
-                    announcement = "",
-                    myVoiceGroup = 0,
-                    playerVoiceGroups = emptyMap(),
-                )
-            }
+            runCatching { networkController.stopEasyTier() }
         }
     }
 
@@ -604,6 +645,27 @@ class MctierRepository(private val context: Context) {
         _state.update { it.copy(chatMessages = (it.chatMessages + message).takeLast(500)) }
     }
 
+    fun recallChat(messageId: String): RecallChatResult {
+        val current = _state.value
+        val target = current.chatMessages.firstOrNull { it.id == messageId } ?: return RecallChatResult.Unavailable
+        if (!target.mine || target.recalled) return RecallChatResult.Unavailable
+        if (System.currentTimeMillis() - target.timestamp > RecallWindowMs) return RecallChatResult.Expired
+        chatClient?.sendRecall(current.settings.playerName, messageId) ?: return RecallChatResult.Unavailable
+        _state.update { state ->
+            state.copy(chatMessages = state.chatMessages.map { message ->
+                if (message.id == messageId) message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
+                else message
+            })
+        }
+        return RecallChatResult.Success
+    }
+
+    fun deleteChat(messageId: String) {
+        _state.update { state ->
+            state.copy(chatMessages = state.chatMessages.filterNot { it.id == messageId })
+        }
+    }
+
     /** 发送图片消息（与桌面端互通，统一压成 JPEG 后以字节数组传输） */
     fun sendImageChat(uri: Uri) {
         val current = _state.value
@@ -647,6 +709,25 @@ class MctierRepository(private val context: Context) {
             }
             return
         }
+        if (wire.messageType == "recall") {
+            val targetId = wire.content
+            var applied = false
+            var targetExists = false
+            _state.update { state ->
+                val target = state.chatMessages.firstOrNull { it.id == targetId }
+                targetExists = target != null
+                if (target == null || target.playerId != wire.playerId || target.recalled || System.currentTimeMillis() - target.timestamp > RecallWindowMs) state
+                else {
+                    applied = true
+                    state.copy(chatMessages = state.chatMessages.map { message ->
+                        if (message.id == targetId) message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
+                        else message
+                    })
+                }
+            }
+            if (!applied && !targetExists) pendingChatRecalls[targetId] = wire.playerId
+            return
+        }
         val base64 = wire.imageData?.let { data ->
             val bytes = ByteArray(data.size) { i -> data[i].toByte() }
             "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
@@ -666,9 +747,12 @@ class MctierRepository(private val context: Context) {
             type = wire.messageType,
             imageBase64 = base64,
         )
+        val finalMessage = if (pendingChatRecalls.remove(message.id) == message.playerId && System.currentTimeMillis() - message.timestamp <= RecallWindowMs) {
+            message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
+        } else message
         _state.update {
-            if (it.chatMessages.any { m -> m.id == message.id }) it
-            else it.copy(chatMessages = (it.chatMessages + message).takeLast(500))
+            if (it.chatMessages.any { m -> m.id == finalMessage.id }) it
+            else it.copy(chatMessages = (it.chatMessages + finalMessage).takeLast(500))
         }
         // 弹幕：他人消息以弹幕飘过屏幕（含游戏中）。
         // 仅当(不在聊天室界面) 或 (App 挂在后台)时才弹幕——已在聊天室且在前台能直接看到消息，无需再弹幕
@@ -677,8 +761,9 @@ class MctierRepository(private val context: Context) {
                 if (wire.messageType == "image" && base64 != null) {
                     top.pmh13.mctier.ui.DanmakuOverlay.pushImage("$resolvedName:", base64)
                 } else {
-                    val dm = "$resolvedName: ${wire.content}"
-                    top.pmh13.mctier.ui.DanmakuOverlay.push(dm, copyText = wire.content)
+                    val visibleContent = wire.content.replaceFirst(Regex("^> \\[reply:[^]]+]\\s*"), "> ")
+                    val dm = "$resolvedName: $visibleContent"
+                    top.pmh13.mctier.ui.DanmakuOverlay.push(dm, copyText = visibleContent)
                 }
             }
         }
@@ -873,8 +958,8 @@ class MctierRepository(private val context: Context) {
 
     // ==================== 版本检测与客户端内更新 ====================
     private fun checkUpdateOnStart() {
-        updateChecker.check { hasUpdate, latest ->
-            if (hasUpdate) scope.launch { _state.update { it.copy(updateAvailable = latest) } }
+        updateChecker.check { update ->
+            if (update != null) scope.launch { _state.update { it.copy(updateAvailable = update) } }
         }
     }
 
@@ -882,17 +967,10 @@ class MctierRepository(private val context: Context) {
 
     fun clearVersionError() { _state.update { it.copy(versionError = null) } }
 
-    /** 客户端内一键更新：下载最新 APK 并调起系统安装器（回调切回主线程） */
-    fun startInAppUpdate(onProgress: (Int) -> Unit, onError: (String) -> Unit) {
-        updateChecker.downloadAndInstall(
-            onProgress = { p -> scope.launch { onProgress(p) } },
-            onError = { e -> scope.launch { onError(e) } },
-        )
-    }
-
-    private fun defaultApkUrl(version: String): String {
-        val v = version.removePrefix("v").ifBlank { AppClientVersion }
-        return "https://gitee.com/peng-minghang/mctier/releases/download/v$v/MCTier-Android.apk"
+    /** 打开官网下载页，由用户从夸克网盘手动下载安装包。 */
+    fun openUpdateWebsite(onError: (String) -> Unit = {}) {
+        updateChecker.openDownloadWebsite { e -> scope.launch { onError(e) } }
+        dismissUpdateAvailable()
     }
 
     fun downloadRemoteFile(
@@ -968,8 +1046,14 @@ class MctierRepository(private val context: Context) {
         "${entry.ownerId}:${entry.shareId}:${file.path}"
 
     fun startViewingScreen(share: ScreenShareInfo, password: String?) {
-        screenController?.startViewing(share.id, share.playerId, _state.value.settings.playerName, password)
-        _state.update { it.copy(viewingShareId = share.id) }
+        val current = _state.value
+        val started = if (share.playerId == current.playerId) {
+            screenController?.startViewingLocal(share.id) == true
+        } else {
+            screenController?.startViewing(share.id, share.playerId, current.settings.playerName, password)
+            true
+        }
+        if (started) _state.update { it.copy(viewingShareId = share.id) }
     }
 
     fun stopViewingScreen() {
@@ -1006,10 +1090,18 @@ class MctierRepository(private val context: Context) {
     fun stopScreenCapture() {
         val playerId = _state.value.playerId
         val myShare = _state.value.screenShares.firstOrNull { it.playerId == playerId }
+        if (myShare != null && _state.value.viewingShareId == myShare.id) {
+            screenController?.stopViewing(notify = false)
+        }
         screenController?.stopSharing()
         ScreenCaptureService.stop(appContext)
         if (myShare != null) signalingClient.send(SignalingEnvelope(type = "screen-share-stop", from = playerId, shareId = myShare.id))
-        _state.update { it.copy(screenShares = it.screenShares.filterNot { it.playerId == playerId }) }
+        _state.update {
+            it.copy(
+                screenShares = it.screenShares.filterNot { share -> share.playerId == playerId },
+                viewingShareId = it.viewingShareId?.takeUnless { id -> id == myShare?.id },
+            )
+        }
     }
 
     // ========================= 远程控制（被控端） =========================
@@ -1068,6 +1160,24 @@ class MctierRepository(private val context: Context) {
         )
     }
 
+    private fun sendMyScreenShareTo(targetId: String) {
+        val current = _state.value
+        val share = current.screenShares.firstOrNull { it.playerId == current.playerId } ?: return
+        signalingClient.send(
+            SignalingEnvelope(
+                type = "screen-share-list-response",
+                from = current.playerId,
+                to = targetId,
+                shareId = share.id,
+                playerName = share.playerName,
+                hasPassword = share.requirePassword,
+                viewerId = share.viewerId,
+                viewerName = share.viewerName,
+                viewerCount = share.viewerCount,
+            ),
+        )
+    }
+
     private fun handleSignal(message: SignalingEnvelope) {
         rtcController.handleSignal(message)
         when (message.type) {
@@ -1076,7 +1186,7 @@ class MctierRepository(private val context: Context) {
                 val alert = top.pmh13.mctier.data.VersionAlert(
                     current = message.currentVersion ?: AppClientVersion,
                     minimum = message.minimumVersion ?: "",
-                    downloadUrl = message.downloadUrl ?: defaultApkUrl(message.minimumVersion ?: ""),
+                    downloadUrl = MCTIER_DOWNLOAD_WEBSITE,
                 )
                 _state.update { it.copy(versionError = alert, state = AppConnectionState.Error, error = L("客户端版本过低，请更新后再使用", "Client version too low, please update")) }
                 scope.launch { runCatching { leaveLobby() } }
@@ -1085,6 +1195,7 @@ class MctierRepository(private val context: Context) {
                 _state.update { it.copy(hostId = message.hostId, maxPlayers = message.maxPlayers, isPublicLobby = message.isPublic ?: false, mutedPlayers = message.mutedPlayers?.toSet() ?: it.mutedPlayers) }
                 // 请求大厅内其他玩家的文件共享列表
                 refreshRemoteSharesByHttp()
+                signalingClient.send(SignalingEnvelope(type = "screen-share-list-request", from = _state.value.playerId))
             }
             "players-list" -> {
                 val remotes = message.players.orEmpty().map {
@@ -1126,6 +1237,7 @@ class MctierRepository(private val context: Context) {
                     soundManager.playerJoin()
                     // 有新玩家加入时，把自己的文件共享列表推送给对方，确保对方能看到我的共享
                     if (_state.value.sharedFolders.isNotEmpty()) broadcastMyShares()
+                    sendMyScreenShareTo(id)
                     // 房主把当前公告补发给新加入者，确保新人进来即见
                     if (isHost && _state.value.announcement.isNotBlank()) {
                         scope.launch {
@@ -1154,7 +1266,15 @@ class MctierRepository(private val context: Context) {
             }
             "player-left" -> {
                 val id = message.playerId ?: return
-                _state.update { it.copy(players = it.players.filterNot { player -> player.id == id }) }
+                screenController?.handlePlayerLeft(id)
+                _state.update { state ->
+                    val removedShareIds = state.screenShares.filter { it.playerId == id }.mapTo(mutableSetOf()) { it.id }
+                    state.copy(
+                        players = state.players.filterNot { player -> player.id == id },
+                        screenShares = state.screenShares.filterNot { it.playerId == id },
+                        viewingShareId = state.viewingShareId?.takeUnless { it in removedShareIds },
+                    )
+                }
                 soundManager.playerLeave()
             }
             "status-update" -> {
@@ -1188,6 +1308,26 @@ class MctierRepository(private val context: Context) {
                 val share = ScreenShareInfo(message.shareId ?: return, from, message.playerName ?: L("未知玩家", "Unknown player"), message.hasPassword ?: false)
                 _state.update { it.copy(screenShares = it.screenShares.filterNot { s -> s.id == share.id } + share) }
             }
+            "screen-share-list-request" -> {
+                val requesterId = message.from ?: return
+                if (requesterId != _state.value.playerId) sendMyScreenShareTo(requesterId)
+            }
+            "screen-share-list-response" -> {
+                val ownerId = message.from ?: return
+                if (ownerId == _state.value.playerId) return
+                val share = ScreenShareInfo(
+                    id = message.shareId ?: return,
+                    playerId = ownerId,
+                    playerName = message.playerName ?: L("未知玩家", "Unknown player"),
+                    requirePassword = message.hasPassword ?: false,
+                    viewerId = message.viewerId,
+                    viewerName = message.viewerName,
+                    viewerCount = message.viewerCount ?: 0,
+                )
+                _state.update { state ->
+                    state.copy(screenShares = state.screenShares.filterNot { it.id == share.id || it.playerId == ownerId } + share)
+                }
+            }
             "screen-share-stop" -> {
                 _state.update { it.copy(screenShares = it.screenShares.filterNot { share -> share.id == message.shareId }) }
                 if (_state.value.viewingShareId == message.shareId) {
@@ -1195,7 +1335,21 @@ class MctierRepository(private val context: Context) {
                     _state.update { it.copy(viewingShareId = null) }
                 }
             }
-            "screen-share-answer", "screen-share-ice-candidate", "screen-share-offer", "screen-share-viewer-left" -> screenController?.handleSignal(message)
+            "screen-share-answer", "screen-share-ice-candidate", "screen-share-offer", "screen-share-viewer-left", "screen-share-relay" -> screenController?.handleSignal(message)
+            "screen-share-update" -> {
+                val shareId = message.shareId ?: return
+                _state.update { state ->
+                    state.copy(screenShares = state.screenShares.map { share ->
+                        if (share.id == shareId && share.playerId == message.from) {
+                            share.copy(
+                                viewerId = message.viewerId,
+                                viewerName = message.viewerName,
+                                viewerCount = message.viewerCount ?: if (message.viewerId != null) 1 else 0,
+                            )
+                        } else share
+                    })
+                }
+            }
             "remote-control-request", "remote-control-offer", "remote-control-ice", "remote-control-stop", "remote-control-accept", "remote-control-answer", "remote-control-reject" -> remoteControlController?.handleSignal(message)
             "screen-share-error" -> {
                 if (message.shareId != null && _state.value.viewingShareId == message.shareId) {

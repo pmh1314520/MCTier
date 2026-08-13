@@ -800,35 +800,10 @@ impl NetworkService {
         log::info!("  - 延迟优先: {}", final_config.latency_first);
         log::info!("========================================");
 
-        // 【可靠性关键修复】构建冗余 peer 列表，显著提升创建/加入大厅成功率：
-        // 1) 单节点连不上时（节点宕机/被墙/UDP 被运营商限制），不会再 60 秒超时失败，
-        //    EasyTier 会自动尝试其它内置公共节点，只要任意一个可达即可成功组网；
-        // 2) 解决“房主选官方节点、加入者选海波节点”导致连到不同中继而互相找不到的问题——
-        //    双方都带上全部内置公共节点后，必定存在共同可达的中继，从而能够互相发现。
-        // 仅当主节点属于内置公共节点时才追加冗余节点；私有服务器/自定义节点保持隔离，原样使用。
-        const BUILTIN_PUBLIC_NODES: &[&str] = &[
-            "udp://us01.225284.xyz:11010",        // MCTier 官方
-            "tcp://225284.xyz:11010",             // 海波
-            "tcp://easytier.weiai.org.cn:11010",  // 唯爱
-            "wss://public.456469.xyz",            // 明月清风
-        ];
-        let primary_node = server_node.trim().to_string();
-        let mut peer_nodes: Vec<String> = vec![primary_node.clone()];
-        let is_builtin_public = BUILTIN_PUBLIC_NODES
-            .iter()
-            .any(|n| n.eq_ignore_ascii_case(primary_node.trim_end_matches('/')));
-        if is_builtin_public {
-            for n in BUILTIN_PUBLIC_NODES {
-                if !n.eq_ignore_ascii_case(primary_node.trim_end_matches('/'))
-                    && !peer_nodes.iter().any(|p| p.eq_ignore_ascii_case(n))
-                {
-                    peer_nodes.push(n.to_string());
-                }
-            }
-            log::info!("✅ 使用内置公共节点，启用多节点冗余以提升成功率，共 {} 个 peer", peer_nodes.len());
-        } else {
-            log::info!("使用私有/自定义节点，按隔离策略仅连接该节点: {}", primary_node);
-        }
+        // 只连接用户当前选择的节点。节点选择必须具有确定性，不能在节点离线时
+        // 偷换到其它内置节点，否则用户会误以为已连接到所选服务器。
+        let peer_node = server_node.trim().to_string();
+        log::info!("使用指定 EasyTier 节点: {}", peer_node);
 
         // 构建命令行参数
         let mut cmd = Command::new(&easytier_path);
@@ -836,10 +811,7 @@ impl NetworkService {
             .arg(&network_name)
             .arg("--network-secret")
             .arg(&network_key);
-        // 依次加入所有 peer（主节点优先，其余为冗余备用）
-        for peer in &peer_nodes {
-            cmd.arg("--peers").arg(peer);
-        }
+        cmd.arg("--peers").arg(&peer_node);
         cmd.arg("--hostname")
             .arg(&sanitized_hostname) // 设置主机名用于Magic DNS
             .arg("--instance-name")
@@ -1031,8 +1003,7 @@ impl NetworkService {
             sleep(Duration::from_millis(100)).await;
         }
     }
-    
-    
+
     /// 检测端口是否可用
     /// 
     /// # 参数
@@ -1323,12 +1294,19 @@ impl NetworkService {
                 continue;
             }
 
-            // WebSocket 节点升级失败（通常是反向代理/上游配置问题）
-            if line.contains("DidNotSwitchProtocols(502)") {
-                log::error!("检测到官方 WebSocket 节点返回 502: {}", line);
-                *status.lock().await = ConnectionStatus::Error(
-                    "官方 WebSocket 节点连接失败（HTTP 502）：请检查服务器反向代理与 EasyTier WS 上游".to_string(),
-                );
+            // WebSocket 节点升级失败。HTTP 200 通常表示域名仍指向网站，
+            // 502 表示反代上游不可用；两种情况都不应继续等待虚拟 IP 超时。
+            if line.contains("DidNotSwitchProtocols(") {
+                log::error!("检测到 WebSocket 节点握手失败: {}", line);
+                let message = if line.contains("DidNotSwitchProtocols(200)") {
+                    "EasyTier WebSocket 反向代理配置错误：域名返回了普通 HTTP 页面。若由 Nginx 终止 TLS，请将 WSS 代理到 EasyTier 的 WS 端口 11011 并开启 WebSocket 升级；若直通 TLS，请使用 WSS 端口 11012".to_string()
+                } else if line.contains("DidNotSwitchProtocols(502)") {
+                    "EasyTier WebSocket 节点连接失败（HTTP 502）：请检查反向代理与 EasyTier WS 上游".to_string()
+                } else {
+                    "EasyTier WebSocket 握手失败：请检查反向代理是否开启 WebSocket，并将上游指向 WS 端口 11011（TLS 直通则使用 WSS 端口 11012）".to_string()
+                };
+                *is_running.lock().await = false;
+                *status.lock().await = ConnectionStatus::Error(message);
                 continue;
             }
 

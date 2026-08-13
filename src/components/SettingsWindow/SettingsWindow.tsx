@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Switch, message, Tooltip, App, Slider, Button } from 'antd';
+import { Form, Input, Switch, message, Tooltip, App, Slider, Button, Modal } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
 import { GlobalAdvancedConfigPanel } from '../GlobalAdvancedConfigPanel/GlobalAdvancedConfigPanel';
 import { StatsPanel } from '../StatsPanel/StatsPanel';
 import { useTranslation } from 'react-i18next';
-import { setLanguage, getLanguage, tl } from '../../i18n';
+import { getLanguagePreference, setLanguagePreference, tl, type LanguagePreference } from '../../i18n';
 import { audioService, type SoundType } from '../../services/audio/AudioService';
 import { DanmakuSettings } from '../Danmaku/DanmakuSettings';
 import { GameHudSettings } from '../GameHud/GameHudSettings';
 import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import { HotkeyInput } from '../HotkeyInput/HotkeyInput';
+import { persistThemePreference, readThemePreference, type ThemePreference } from '../../theme/themePreference';
 import './SettingsWindow.css';
 
 /** 可自定义的全局快捷键项 */
@@ -66,8 +67,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [hotkeys, setHotkeys] = useState<Record<HotkeyKey, string>>({ ...DEFAULT_HOTKEYS });
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
   const { t } = useTranslation();
-  const [lang, setLang] = useState<'zh' | 'en'>(getLanguage());
+  const [lang, setLang] = useState<LanguagePreference>(getLanguagePreference());
   const [pendingGpuValue, setPendingGpuValue] = useState(true);
   // 用ref保存完整设置，避免Switch切换时丢失输入框的已填数据
   const settingsRef = useRef<Record<string, any>>({});
@@ -99,6 +101,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       const ctt = settings.closeToTray ?? false;
       const sm = settings.startMinimized ?? false;
       const egr = settings.enableGpuRendering ?? true;
+      const language: LanguagePreference = settings.language === 'zh' || settings.language === 'en' || settings.language === 'system'
+        ? settings.language
+        : getLanguagePreference();
       setAutoStartup(as_);
       setAutoLobbyEnabled(al);
       setUseDomain(ud);
@@ -108,6 +113,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       setCloseToTray(ctt);
       setStartMinimized(sm);
       setEnableGpuRendering(egr);
+      setLang(language);
+      setLanguagePreference(language);
       // 读取自定义快捷键（后端缺省会回落到默认键位）
       const hk: Record<HotkeyKey, string> = {
         micHotkey: settings.micHotkey ?? DEFAULT_HOTKEYS.micHotkey,
@@ -118,6 +125,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       setHotkeys(hk);
       settingsRef.current = {
         autoStartup: as_,
+        language,
         autoLobbyEnabled: al,
         lobbyName: settings.lobbyName || '',
         lobbyPassword: settings.lobbyPassword || '',
@@ -152,6 +160,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       // 使用默认配置
       const defaultSettings = {
         autoStartup: false,
+        language: 'system' as LanguagePreference,
         autoLobbyEnabled: false,
         lobbyName: '',
         lobbyPassword: '',
@@ -224,6 +233,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
     try {
       await invoke('save_settings', {
         autoStartup: merged.autoStartup ?? false,
+        language: merged.language ?? 'system',
         autoLobbyEnabled: merged.autoLobbyEnabled ?? false,
         lobbyName: merged.lobbyName || null,
         lobbyPassword: merged.lobbyPassword || null,
@@ -393,6 +403,37 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-green">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.91-.1-1.35A7 7 0 0 1 12 3z" />
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('界面主题', 'Appearance')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('绿色仅作为强调色，界面背景与文本会根据亮色或暗色模式自动调整。', 'Green is used as an accent; surfaces and text adapt to light or dark mode.')}
+              </div>
+              <div className="settings-centered-control">
+                <Button.Group className="mct-choice-group">
+                  {(['system', 'light', 'dark'] as ThemePreference[]).map((preference) => (
+                    <Button
+                      key={preference}
+                      className="mct-choice-button"
+                      type={themePreference === preference ? 'primary' : 'default'}
+                      onClick={() => {
+                        setThemePreference(preference);
+                        persistThemePreference(preference);
+                      }}
+                    >
+                      {preference === 'system' ? tl('跟随系统', 'System') : preference === 'light' ? tl('亮色', 'Light') : tl('暗色', 'Dark')}
+                    </Button>
+                  ))}
+                </Button.Group>
+              </div>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-green">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/>
                   </svg>
@@ -528,7 +569,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                         />
                       </div>
                       <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '4px', lineHeight: 1.7 }}>
-                        {tl('说明：自动大厅会沿用与手动创建大厅相同的服务器。若已开启「使用私有服务器」，则使用你在私有服务器中配置的 EasyTier 节点与信令服务器；否则使用上次成功进入大厅的节点（默认为 MCTier 官方服务器）。', 'Note: Auto lobby uses the same server as manual lobby creation. If "Use private server" is enabled, it uses the EasyTier node and signaling server you configured; otherwise it uses the node from the last successful lobby (default: MCTier official server).')}
+                        {tl('说明：自动大厅会沿用与手动创建大厅相同的服务器。若已开启「使用私有服务器」，则使用你在私有服务器中配置的 EasyTier 节点与信令服务器；否则使用用户上次选择的节点（默认为青云香港节点）。', 'Note: Auto lobby uses the same server as manual lobby creation. If "Use private server" is enabled, it uses the configured EasyTier and signaling servers; otherwise it uses the last selected node (default: Qingyun Hong Kong Node).')}
                       </div>
                     </div>
                   </motion.div>
@@ -688,7 +729,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                   </div>
                 </div>
               ))}
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16, marginBottom: 6 }}>
+              <div className="hotkey-reset-row">
                 <button
                   type="button"
                   className="settings-action-btn settings-action-btn-reset"
@@ -746,6 +787,25 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-green">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('麦克风权限', 'Microphone Permission')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('首次拒绝后，若 WebView2 不再弹出授权窗口，可一键重置 MCTier 的权限缓存并自动重启。', 'If WebView2 no longer shows the permission prompt after access was denied, reset MCTier permission data and restart automatically.')}
+              </div>
+              <div className="settings-centered-control microphone-reset-control">
+                <Button className="microphone-reset-button" type="primary" onClick={() => void invoke('reset_microphone_permission')}>
+                  {tl('一键重置并重启', 'Reset and Restart')}
+                </Button>
+              </div>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-pink">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
@@ -772,9 +832,10 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 {t('settings.languageDesc')}
               </div>
               <div className="settings-centered-control">
-                <Button.Group>
-                  <Button type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguage('zh'); setLang('zh'); }}>简体中文</Button>
-                  <Button type={lang === 'en' ? 'primary' : 'default'} onClick={() => { setLanguage('en'); setLang('en'); }}>English</Button>
+                <Button.Group className="mct-choice-group">
+                  <Button className="mct-choice-button" type={lang === 'system' ? 'primary' : 'default'} onClick={() => { setLanguagePreference('system'); setLang('system'); void saveAll({ language: 'system' }); }}>{tl('自动', 'Auto')}</Button>
+                  <Button className="mct-choice-button" type={lang === 'zh' ? 'primary' : 'default'} onClick={() => { setLanguagePreference('zh'); setLang('zh'); void saveAll({ language: 'zh' }); }}>简体中文</Button>
+                  <Button className="mct-choice-button" type={lang === 'en' ? 'primary' : 'default'} onClick={() => { setLanguagePreference('en'); setLang('en'); void saveAll({ language: 'en' }); }}>English</Button>
                 </Button.Group>
               </div>
             </motion.div>
@@ -848,20 +909,20 @@ interface EasyTierNode {
 // 默认内置节点（不可删除）
 const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
   {
-    name: 'MCTier 官方服务器',
+    name: '青云香港节点',
+    address: 'wss://mctiers.pmhs.top'
+  },
+  {
+    name: '海波美国节点',
     address: 'udp://us01.225284.xyz:11010'
   },
   {
-    name: '海波节点',
+    name: '海波中国大陆节点',
     address: 'tcp://225284.xyz:11010'
   },
   {
-    name: '唯爱节点',
+    name: '唯爱厦门节点',
     address: 'tcp://easytier.weiai.org.cn:11010'
-  },
-  {
-    name: '明月清风节点',
-    address: 'wss://public.456469.xyz'
   }
 ];
 
@@ -870,10 +931,10 @@ const BUILTIN_NODE_ADDRESSES = DEFAULT_BUILTIN_NODES.map(node => node.address);
 
 // 内置节点名称的英文显示映射（数据层保持中文作为稳定标识，仅渲染时翻译）
 const BUILTIN_NODE_NAME_EN: Record<string, string> = {
-  'MCTier 官方服务器': 'MCTier Official Server',
-  '海波节点': 'Haibo Node',
-  '唯爱节点': 'Weiai Node',
-  '明月清风节点': 'Mingyue Qingfeng Node',
+  '海波美国节点': 'Haibo US Node',
+  '海波中国大陆节点': 'Haibo Mainland China Node',
+  '唯爱厦门节点': 'Weiai Xiamen Node',
+  '青云香港节点': 'Qingyun Hong Kong Node',
 };
 const displayNodeName = (name: string) =>
   BUILTIN_NODE_NAME_EN[name] ? tl(name, BUILTIN_NODE_NAME_EN[name]) : name;
@@ -918,7 +979,7 @@ const SoundThemeManager: React.FC = () => {
       const dataUrl = reader.result as string;
       audioService.setCustomSound(target, dataUrl);
       setCustom({ ...audioService.getSettings().custom });
-      antdMessage.success(`${tl('已设置', 'Set custom sound for')}「${labels[target]}」${tl('自定义提示音', '')}`);
+      antdMessage.success(tl(`已设置「${labels[target]}」自定义提示音`, `Custom sound set for "${labels[target]}"`));
     };
     reader.readAsDataURL(file);
   };
@@ -1049,6 +1110,7 @@ const CustomNodeManager: React.FC = () => {
       const cur = await invoke<any>('get_settings').catch(() => ({} as any));
 
       await invoke('save_settings', {
+        language: cur.language ?? 'system',
         autoStartup: cur.autoStartup ?? false,
         autoLobbyEnabled: cur.autoLobbyEnabled ?? false,
         lobbyName: cur.lobbyName ?? null,
@@ -1324,6 +1386,35 @@ const ConfigManager: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [logs, setLogs] = useState('');
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const loadLogs = async () => {
+    try {
+      setLoadingLogs(true);
+      const content = await invoke<string>('read_log_file');
+      setLogs(content);
+    } catch (error) {
+      setLogs(`${tl('读取日志失败', 'Failed to read logs')}: ${error}`);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleShowLogs = async () => {
+    setShowLogs(true);
+    await loadLogs();
+  };
+
+  const handleCopyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(logs);
+      message.success(tl('日志已复制', 'Logs copied'));
+    } catch (error) {
+      message.error(`${tl('复制日志失败', 'Failed to copy logs')}: ${error}`);
+    }
+  };
 
   // 导出配置
   const handleExport = async () => {
@@ -1489,7 +1580,39 @@ const ConfigManager: React.FC = () => {
             </>
           )}
         </motion.button>
+        <motion.button
+          className="config-btn config-btn-import"
+          onClick={handleShowLogs}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          title={tl('查看最近运行日志，方便定位问题', 'View recent runtime logs for troubleshooting')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 4h16v16H4z" />
+            <path d="M8 8h8M8 12h8M8 16h5" />
+          </svg>
+          <span>{tl('查看日志', 'View Logs')}</span>
+        </motion.button>
       </div>
+      <Modal
+        open={showLogs}
+        onCancel={() => setShowLogs(false)}
+        title={tl('软件运行日志', 'Application Logs')}
+        width={820}
+        footer={[
+          <Button key="refresh" onClick={() => void loadLogs()} loading={loadingLogs}>{tl('刷新', 'Refresh')}</Button>,
+          <Button key="copy" onClick={() => void handleCopyLogs()} disabled={!logs}>{tl('复制日志', 'Copy Logs')}</Button>,
+          <Button key="export" type="primary" onClick={() => void handleExportLogs()} loading={exportingLogs}>{tl('导出日志', 'Export Logs')}</Button>,
+          <Button key="close" onClick={() => setShowLogs(false)}>{tl('关闭', 'Close')}</Button>,
+        ]}
+      >
+        <Input.TextArea
+          value={loadingLogs ? tl('正在读取日志…', 'Loading logs...') : logs}
+          readOnly
+          autoSize={{ minRows: 18, maxRows: 28 }}
+          className="settings-log-viewer"
+        />
+      </Modal>
     </div>
   );
 };

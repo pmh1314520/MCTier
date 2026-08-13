@@ -193,8 +193,10 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import top.pmh13.mctier.MctierRepository
 import top.pmh13.mctier.MctierUiState
+import top.pmh13.mctier.RecallChatResult
 import top.pmh13.mctier.data.AppConnectionState
 import top.pmh13.mctier.data.AppClientVersion
+import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.data.BuiltinNodes
 import top.pmh13.mctier.data.ChatMessage
 import top.pmh13.mctier.data.RemoteFileInfo
@@ -220,6 +222,8 @@ internal var TextPrimary by mutableStateOf(Color(0xFFFFFFFF))
 
 // —— 界面语言：顶层 var，切换后所有读取 L(...) 的组合实时重组 ——
 internal var appLang by mutableStateOf("zh")
+
+private const val ChatRecallWindowMs = 2 * 60 * 1000L
 
 /** 双语取词：根据当前语言返回中文或英文 */
 internal fun L(zh: String, en: String): String = if (appLang == "en") en else zh
@@ -638,25 +642,38 @@ private fun VersionErrorDialog(alert: top.pmh13.mctier.data.VersionAlert, reposi
             TextButton(
                 enabled = progress !in 0..100,
                 onClick = {
-                    err = null; progress = 0
-                    repository.startInAppUpdate(onProgress = { progress = it }, onError = { err = it; progress = -1 })
+                    err = null
+                    repository.openUpdateWebsite(onError = { err = it })
                 },
-            ) { Text(if (progress in 0..100) L("更新中…", "Updating...") else L("一键更新到最新版", "Update to latest"), color = GrassGreen, fontWeight = FontWeight.Bold) }
+            ) { Text(L("前往官网下载", "Open download website"), color = GrassGreen, fontWeight = FontWeight.Bold) }
         },
     )
 }
 
 @Composable
-private fun UpdateAvailableDialog(latest: String, repository: MctierRepository) {
+private fun UpdateAvailableDialog(update: AvailableUpdate, repository: MctierRepository) {
     var progress by remember { mutableIntStateOf(-1) }
     var err by remember { mutableStateOf<String?>(null) }
+    val releaseNotes = update.releaseNotes.ifEmpty {
+        listOf(L("该版本未提供更新日志，请前往官网查看详情。", "No release notes were provided for this version. Visit the website for details."))
+    }
     AlertDialog(
         onDismissRequest = { repository.dismissUpdateAvailable() },
         containerColor = Panel,
-        title = { Text(L("发现新版本 v", "New version v") + latest, color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(L("发现新版本 v", "New version v") + update.version, color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 Text(L("检测到 MCTier 有新版本，建议更新以获得最新功能与互通修复。", "A new version of MCTier is available. Update for the latest features and fixes."), color = TextPrimary.copy(alpha = 0.85f), fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                Text(L("更新内容", "What's New"), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                releaseNotes.forEach { note ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+                        Text("•", color = GrassGreen, fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(note, color = TextPrimary.copy(alpha = 0.78f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    }
+                }
                 if (progress in 0..100) {
                     Spacer(Modifier.height(10.dp))
                     Text(L("下载中 ", "Downloading ") + "$progress%", color = GrassGreen, fontSize = 13.sp)
@@ -671,10 +688,10 @@ private fun UpdateAvailableDialog(latest: String, repository: MctierRepository) 
             TextButton(
                 enabled = progress !in 0..100,
                 onClick = {
-                    err = null; progress = 0
-                    repository.startInAppUpdate(onProgress = { progress = it }, onError = { err = it; progress = -1 })
+                    err = null
+                    repository.openUpdateWebsite(onError = { err = it })
                 },
-            ) { Text(if (progress in 0..100) L("更新中…", "Updating...") else L("立即更新", "Update now"), color = GrassGreen, fontWeight = FontWeight.Bold) }
+            ) { Text(L("前往官网下载", "Open download website"), color = GrassGreen, fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
             TextButton(enabled = progress !in 0..100, onClick = { repository.dismissUpdateAvailable() }) { Text(L("稍后", "Later"), color = TextPrimary.copy(alpha = 0.6f)) }
@@ -1150,6 +1167,104 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     var showQuickConnect by remember { mutableStateOf(false) }
     var showDiagnostic by remember { mutableStateOf(false) }
     var hudOn by remember { mutableStateOf(GameHudOverlay.enabled) }
+    var showMicPermissionHelp by remember { mutableStateOf(false) }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            showMicPermissionHelp = false
+            top.pmh13.mctier.service.VoiceForegroundService.start(ctx)
+            repository.toggleMic()
+            android.widget.Toast.makeText(ctx, L("麦克风权限已授予，语音已开启", "Microphone permission granted; voice is on"), android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            showMicPermissionHelp = true
+            android.widget.Toast.makeText(ctx, L("麦克风权限仍未授予，请按提示重新检测或打开应用权限设置", "Microphone permission is still denied. Check again or open app permissions"), android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    val toggleMicWithPermission = {
+        if (state.micEnabled) {
+            repository.toggleMic()
+        } else {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx,
+                android.Manifest.permission.RECORD_AUDIO,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                top.pmh13.mctier.service.VoiceForegroundService.start(ctx)
+                repository.toggleMic()
+            } else {
+                micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
+    if (showMicPermissionHelp) {
+        AlertDialog(
+            onDismissRequest = { showMicPermissionHelp = false },
+            containerColor = Panel,
+            title = { Text(L("需要麦克风权限", "Microphone permission required"), color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    L(
+                        "如果是不小心点了拒绝，可以重新申请。若系统不再弹出授权窗口，请前往 MCTier 的应用权限页，将麦克风权限改为允许，再返回重试。",
+                        "You can request the permission again. If Android no longer shows the prompt, open MCTier's app permissions, allow microphone access, then return and retry.",
+                    ),
+                    color = TextPrimary.copy(alpha = 0.82f),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        ctx,
+                        android.Manifest.permission.RECORD_AUDIO,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        showMicPermissionHelp = false
+                        top.pmh13.mctier.service.VoiceForegroundService.start(ctx)
+                        if (!state.micEnabled) repository.toggleMic()
+                        android.widget.Toast.makeText(ctx, L("已检测到麦克风权限，语音已开启", "Microphone permission detected; voice is on"), android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        var currentContext: android.content.Context = ctx
+                        var activity: android.app.Activity? = null
+                        while (currentContext is android.content.ContextWrapper) {
+                            if (currentContext is android.app.Activity) {
+                                activity = currentContext
+                                break
+                            }
+                            currentContext = currentContext.baseContext
+                        }
+                        val canRequestAgain = activity != null && androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                            activity,
+                            android.Manifest.permission.RECORD_AUDIO,
+                        )
+                        if (canRequestAgain) {
+                            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:" + ctx.packageName)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            runCatching { ctx.startActivity(intent) }
+                            android.widget.Toast.makeText(ctx, L("系统已记住拒绝，请在权限页允许麦克风；返回后再点“重新检测权限”", "Android remembered the denial. Allow microphone access, return, then check again"), android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }) {
+                    Text(L("重新检测权限", "Check permission again"), color = GrassGreen, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${ctx.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { ctx.startActivity(intent) }
+                }) {
+                    Text(L("打开应用权限设置", "Open app permissions"), color = TextPrimary.copy(alpha = 0.78f))
+                }
+            },
+        )
+    }
 
     // 游戏内 HUD：开启时显示悬浮层。说话状态高频刷新（实时绿点），延迟探测开销大单独低频，
     // 仅展示队友（不含自己）。透明度跟随用户设置。
@@ -1250,6 +1365,7 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
                     hasUnread = hasUnread,
                     onTools = { showTools = true },
                     onSettings = { currentView = "settings" },
+                    onToggleMic = toggleMicWithPermission,
                     onOpen = { currentView = it },
                 )
             }
@@ -1294,6 +1410,7 @@ private fun LobbyMainView(
     hasUnread: Boolean,
     onTools: () -> Unit,
     onSettings: () -> Unit,
+    onToggleMic: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
     var showLeaveConfirm by remember { mutableStateOf(false) }
@@ -1326,7 +1443,7 @@ private fun LobbyMainView(
         AnnouncementBar(state, repository)
         Box(Modifier.weight(1f)) { PlayersTab(state, repository) }
         Spacer(Modifier.height(10.dp))
-        LobbyActionBar(state, repository, hasUnread, onOpen)
+        LobbyActionBar(state, repository, hasUnread, onToggleMic, onOpen)
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -1570,7 +1687,13 @@ private fun WorldTag(text: String, color: Color) {
 }
 
 @Composable
-private fun LobbyActionBar(state: MctierUiState, repository: MctierRepository, hasUnread: Boolean, onOpen: (String) -> Unit) {
+private fun LobbyActionBar(
+    state: MctierUiState,
+    repository: MctierRepository,
+    hasUnread: Boolean,
+    onToggleMic: () -> Unit,
+    onOpen: (String) -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1581,7 +1704,7 @@ private fun LobbyActionBar(state: MctierUiState, repository: MctierRepository, h
             desc = L("麦克风", "Microphone"),
             active = state.micEnabled,
             danger = !state.micEnabled,
-        ) { repository.toggleMic() }
+        ) { onToggleMic() }
         LobbyActionButton(
             icon = if (state.globalMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
             desc = L("扬声器", "Speaker"),
@@ -2204,34 +2327,50 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                     // 一键禁音该玩家（仅对他人）
                     if (!isMe) {
                         val fav = state.favoritePlayers.contains(player.name)
-                        CircleIconButton(if (fav) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (fav) L("取消收藏队友", "Unfavorite") else L("收藏队友", "Favorite"), tint = if (fav) Color(0xFFFFD24A) else TextPrimary.copy(alpha = 0.85f)) {
-                            repository.toggleFavoritePlayer(player.name)
-                            android.widget.Toast.makeText(ctx, if (fav) L("已取消收藏 ${player.name}", "Unfavorited ${player.name}") else L("已收藏队友 ${player.name}", "Favorited ${player.name}"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        val muted = (state.playerVolumes[player.id] ?: 0.5f) <= 0f
-                        CircleIconButton(if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp, if (muted) L("取消禁音", "Unmute") else L("禁音该玩家", "Mute player")) {
-                            repository.setPlayerVolume(player.id, if (muted) 1f else 0f)
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        // 语音重连：只重建与该玩家的语音链路，无需整个大厅退出重进
-                        CircleIconButton(Icons.Rounded.Refresh, L("语音重连", "Reconnect voice")) {
-                            repository.reconnectPlayerVoice(player.id)
-                            android.widget.Toast.makeText(ctx, L("正在重连与 ${player.name} 的语音…", "Reconnecting voice with ${player.name}..."), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        // 远程控制对方设备
-                        CircleIconButton(Icons.Rounded.SettingsRemote, L("远程控制对方设备", "Remote control this device")) {
-                            if (state.remoteControllingPeer != null || state.remoteControlActiveBy != null) {
-                                android.widget.Toast.makeText(ctx, L("已有进行中的远程控制会话", "A remote control session is already active"), android.widget.Toast.LENGTH_SHORT).show()
-                            } else {
-                                FeatureGate.run(ctx, "remote", L("远程控制须知", "Remote Control Notice")) {
-                                    repository.requestRemoteControl(player.id, player.name)
-                                    android.widget.Toast.makeText(ctx, L("已发送远程控制请求，等待对方接受…", "Request sent, waiting for the other side to accept..."), android.widget.Toast.LENGTH_SHORT).show()
+                        Column(
+                            modifier = Modifier.width(90.dp),
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                CircleIconButton(
+                                    if (fav) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                    if (fav) L("取消收藏队友", "Unfavorite") else L("收藏队友", "Favorite"),
+                                    tint = if (fav) Color(0xFFFFD24A) else TextPrimary.copy(alpha = 0.85f),
+                                ) {
+                                    repository.toggleFavoritePlayer(player.name)
+                                    android.widget.Toast.makeText(ctx, if (fav) L("已取消收藏 ${player.name}", "Unfavorited ${player.name}") else L("已收藏队友 ${player.name}", "Favorited ${player.name}"), android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                val muted = (state.playerVolumes[player.id] ?: 0.5f) <= 0f
+                                CircleIconButton(if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp, if (muted) L("取消禁音", "Unmute") else L("禁音该玩家", "Mute player")) {
+                                    repository.setPlayerVolume(player.id, if (muted) 1f else 0f)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // 语音重连：只重建与该玩家的语音链路，无需整个大厅退出重进
+                                CircleIconButton(Icons.Rounded.Refresh, L("语音重连", "Reconnect voice")) {
+                                    repository.reconnectPlayerVoice(player.id)
+                                    android.widget.Toast.makeText(ctx, L("正在重连与 ${player.name} 的语音…", "Reconnecting voice with ${player.name}..."), android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                // 远程控制对方设备
+                                CircleIconButton(Icons.Rounded.SettingsRemote, L("远程控制对方设备", "Remote control this device")) {
+                                    if (state.remoteControllingPeer != null || state.remoteControlActiveBy != null) {
+                                        android.widget.Toast.makeText(ctx, L("已有进行中的远程控制会话", "A remote control session is already active"), android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        FeatureGate.run(ctx, "remote", L("远程控制须知", "Remote Control Notice")) {
+                                            repository.requestRemoteControl(player.id, player.name)
+                                            android.widget.Toast.makeText(ctx, L("已发送远程控制请求，等待对方接受…", "Request sent, waiting for the other side to accept..."), android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             }
                         }
-                        Spacer(Modifier.width(6.dp))
                     }
                 }
                 if (!isMe) {
@@ -2270,12 +2409,32 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
 }
 
 // ============================ 聊天 ============================
+private data class ParsedChatReply(val targetId: String?, val quoteLine: String, val body: String)
+
+private fun parseChatReply(content: String): ParsedChatReply? {
+    if (!content.startsWith("> ")) return null
+    val rawQuote = content.substringBefore('\n').removePrefix("> ").trim()
+    val marker = Regex("^\\[reply:([^]]+)]\\s*").find(rawQuote)
+    return ParsedChatReply(
+        targetId = marker?.groupValues?.getOrNull(1)?.let(Uri::decode),
+        quoteLine = rawQuote.replaceFirst(Regex("^\\[reply:[^]]+]\\s*"), "").trim(),
+        body = content.substringAfter('\n', ""),
+    )
+}
+
+private fun visibleChatContent(content: String): String {
+    val parsed = parseChatReply(content) ?: return content
+    return "> ${parsed.quoteLine}\n${parsed.body}"
+}
+
 @Composable
 private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
+    val context = LocalContext.current
     var input by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     var showEmoji by remember { mutableStateOf(false) }
     var emojiCat by remember { mutableStateOf(0) }
     var replyTo by remember { mutableStateOf<ChatMessage?>(null) }
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) repository.sendImageChat(uri)
@@ -2310,8 +2469,8 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
         if (text.isEmpty()) return
         val r = replyTo
         val content = if (r != null) {
-            val quoted = if (r.type == "image") L("[图片]", "[Image]") else (r.content.lineSequence().firstOrNull()?.take(40) ?: "")
-            "> @${r.playerName} $quoted\n$text"
+            val quoted = if (r.type == "image") L("[图片]", "[Image]") else (parseChatReply(r.content)?.body ?: r.content).lineSequence().firstOrNull()?.take(40).orEmpty()
+            "> [reply:${Uri.encode(r.id)}] @${r.playerName} $quoted\n$text"
         } else text
         repository.sendChat(content)
         input = androidx.compose.ui.text.input.TextFieldValue("")
@@ -2327,6 +2486,39 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     var hasNew by remember { mutableStateOf(false) }
     var prevCount by remember { mutableStateOf(0) }
     val chatScope = rememberCoroutineScope()
+    fun jumpToReply(source: ChatMessage) {
+        val parsed = parseChatReply(source.content) ?: return
+        var targetIndex = parsed.targetId?.let { id -> state.chatMessages.indexOfFirst { it.id == id } } ?: -1
+        if (targetIndex < 0) {
+            val legacy = Regex("^@([^\\s]+)\\s*(.*)$").find(parsed.quoteLine)
+            val sourceIndex = state.chatMessages.indexOfFirst { it.id == source.id }
+            if (legacy != null && sourceIndex > 0) {
+                val playerName = legacy.groupValues[1]
+                val summary = legacy.groupValues[2]
+                for (index in sourceIndex - 1 downTo 0) {
+                    val candidate = state.chatMessages[index]
+                    val candidateSummary = if (candidate.type == "image") L("[图片]", "[Image]")
+                    else (parseChatReply(candidate.content)?.body ?: candidate.content).lineSequence().firstOrNull()?.take(40).orEmpty()
+                    if (candidate.playerName == playerName && candidateSummary == summary) {
+                        targetIndex = index
+                        break
+                    }
+                }
+            }
+        }
+        if (targetIndex < 0) {
+            android.widget.Toast.makeText(context, L("原消息已不在聊天记录中", "The original message is no longer available"), android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val targetId = state.chatMessages[targetIndex].id
+        chatScope.launch {
+            highlightedMessageId = null
+            runCatching { listState.animateScrollToItem(targetIndex) }
+            highlightedMessageId = targetId
+            kotlinx.coroutines.delay(1300)
+            if (highlightedMessageId == targetId) highlightedMessageId = null
+        }
+    }
     // 标记进入/离开聊天室界面：在聊天室内收到消息不播放提示音
     DisposableEffect(Unit) {
         repository.setInChatRoom(true)
@@ -2353,7 +2545,16 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     Column(Modifier.fillMaxSize().imePadding()) {
         Box(Modifier.weight(1f)) {
         LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.chatMessages, key = { it.id }) { ChatBubble(it, repository, Modifier.animateItem(), onQuote = { m -> replyTo = m }) }
+            items(state.chatMessages, key = { it.id }) {
+                ChatBubble(
+                    it,
+                    repository,
+                    Modifier.animateItem(),
+                    highlighted = highlightedMessageId == it.id,
+                    onQuote = { message -> replyTo = message },
+                    onJumpToQuote = { message -> jumpToReply(message) },
+                )
+            }
         }
         // 悬浮"回到底部/新消息"按钮：仅当不在底部时显示，不打断查看历史
         if (!isAtBottom) {
@@ -2514,10 +2715,52 @@ private fun BubbleTail(mine: Boolean) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modifier: Modifier = Modifier, onQuote: (ChatMessage) -> Unit = {}) {
+private fun ChatBubble(
+    message: ChatMessage,
+    repository: MctierRepository,
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
+    onQuote: (ChatMessage) -> Unit = {},
+    onJumpToQuote: (ChatMessage) -> Unit = {},
+) {
     // 名字与时间戳与气泡左/右边缘对齐：需避开头像占用的宽度（头像 34dp + 间距 8dp = 42dp，再留 4dp 视觉内缩）
     val labelStart = if (message.mine) 4.dp else 46.dp
     val labelEnd = if (message.mine) 46.dp else 4.dp
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    var showActions by remember(message.id) { mutableStateOf(false) }
+    var recallClock by remember(message.id) { mutableStateOf(System.currentTimeMillis()) }
+    val canRecall = message.mine && !message.recalled && recallClock - message.timestamp <= ChatRecallWindowMs
+    fun openActions() {
+        recallClock = System.currentTimeMillis()
+        showActions = true
+    }
+    fun recallMessage() {
+        when (repository.recallChat(message.id)) {
+            RecallChatResult.Success -> Unit
+            RecallChatResult.Expired -> android.widget.Toast.makeText(context, L("撤回时间已超过，无法撤回", "The recall window has expired"), android.widget.Toast.LENGTH_SHORT).show()
+            RecallChatResult.Unavailable -> android.widget.Toast.makeText(context, L("消息无法撤回", "The message cannot be recalled"), android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(showActions, message.timestamp, message.mine, message.recalled) {
+        if (!showActions || !message.mine || message.recalled) return@LaunchedEffect
+        val remaining = ChatRecallWindowMs - (System.currentTimeMillis() - message.timestamp)
+        if (remaining >= 0L) {
+            kotlinx.coroutines.delay(remaining + 1L)
+            recallClock = System.currentTimeMillis()
+        }
+    }
+    val highlightAlpha = remember(message.id) { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(highlighted) {
+        if (!highlighted) {
+            highlightAlpha.snapTo(1f)
+            return@LaunchedEffect
+        }
+        repeat(3) {
+            highlightAlpha.animateTo(0.22f, animationSpec = androidx.compose.animation.core.tween(200))
+            highlightAlpha.animateTo(1f, animationSpec = androidx.compose.animation.core.tween(200))
+        }
+    }
     Column(
         horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
         modifier = modifier.fillMaxWidth(),
@@ -2537,9 +2780,25 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (!message.mine) { ChatAvatar(message); Spacer(Modifier.width(6.dp)); BubbleTail(mine = false) }
-            Box(modifier = Modifier.weight(1f, fill = false)) {
+            Box(
+                modifier = Modifier
+                    .weight(1f, fill = false),
+            ) {
                 val shape = RoundedCornerShape(14.dp)
-                if (message.type == "image" && message.imageBase64 != null) {
+                if (message.recalled) {
+                    Box(
+                        Modifier.clip(shape).background(PanelHigh)
+                            .combinedClickable(onClick = {}, onLongClick = { openActions() })
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            L("此消息已撤回", "This message was recalled"),
+                            color = TextPrimary.copy(alpha = 0.8f), fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.graphicsLayer { alpha = highlightAlpha.value },
+                        )
+                    }
+                } else if (message.type == "image" && message.imageBase64 != null) {
                     val bitmap = remember(message.id) {
                         runCatching {
                             val raw = message.imageBase64.substringAfter("base64,", message.imageBase64)
@@ -2553,7 +2812,8 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = L("图片", "Image"),
                             modifier = Modifier.clip(shape).heightIn(max = 240.dp)
-                                .combinedClickable(onClick = { showZoom = true }, onLongClick = { onQuote(message) }),
+                                .graphicsLayer { alpha = highlightAlpha.value }
+                                .combinedClickable(onClick = { showZoom = true }, onLongClick = { openActions() }),
                         )
                         if (showZoom) {
                             Dialog(
@@ -2604,24 +2864,30 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
                     }
                 } else {
                     // 解析引用回复：内容以 "> @名字 摘要\n实际内容" 开头
-                    val isQuote = message.content.startsWith("> ")
-                    val quoteLine = if (isQuote) message.content.substringBefore('\n').removePrefix("> ") else ""
-                    val bodyText = if (isQuote) message.content.substringAfter('\n', "") else message.content
+                    val parsedReply = parseChatReply(message.content)
+                    val bodyText = parsedReply?.body ?: message.content
                     Box(
                         Modifier.clip(shape).background(if (message.mine) GrassGreen else PanelHigh)
-                            .combinedClickable(onClick = {}, onLongClick = { onQuote(message) })
+                            .combinedClickable(onClick = {}, onLongClick = { openActions() })
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                     ) {
                         Column {
-                            if (isQuote && quoteLine.isNotBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                            if (parsedReply != null && parsedReply.quoteLine.isNotBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onJumpToQuote(message) }.padding(bottom = 6.dp),
+                                ) {
                                     Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(if (message.mine) Color(0xFF06210A) else GrassGreen))
                                     Spacer(Modifier.width(6.dp))
-                                    Text(quoteLine, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    Text(parsedReply.quoteLine, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                         color = if (message.mine) Color(0xFF06210A).copy(alpha = 0.7f) else TextPrimary.copy(alpha = 0.6f))
                                 }
                             }
-                            Text(buildMentionText(bodyText, if (message.mine) Color(0xFF06210A) else TextPrimary.copy(alpha = 0.92f)), fontSize = 15.sp)
+                            Text(
+                                buildMentionText(bodyText, if (message.mine) Color(0xFF06210A) else TextPrimary.copy(alpha = 0.92f)),
+                                fontSize = 15.sp,
+                                modifier = Modifier.graphicsLayer { alpha = highlightAlpha.value },
+                            )
                         }
                     }
                 }
@@ -2629,8 +2895,39 @@ private fun ChatBubble(message: ChatMessage, repository: MctierRepository, modif
             if (message.mine) { BubbleTail(mine = true); Spacer(Modifier.width(6.dp)); ChatAvatar(message) }
         }
         // 发送时间（气泡底部）
-        Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f),
-            modifier = Modifier.padding(start = labelStart, end = labelEnd, top = 2.dp))
+        Row(
+            modifier = Modifier.padding(start = labelStart, end = labelEnd, top = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(formatChatClock(message.timestamp), fontSize = 10.sp, color = TextPrimary.copy(alpha = 0.32f))
+        }
+        DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
+            if (!message.recalled) {
+                DropdownMenuItem(
+                    text = { Text(L("引用消息", "Quote message")) },
+                    onClick = { showActions = false; onQuote(message) },
+                )
+                DropdownMenuItem(
+                    text = { Text(L("复制消息", "Copy message")) },
+                    onClick = {
+                        clipboard.setText(AnnotatedString(if (message.type == "image") L("[图片]", "[Image]") else visibleChatContent(message.content)))
+                        android.widget.Toast.makeText(context, L("消息已复制", "Message copied"), android.widget.Toast.LENGTH_SHORT).show()
+                        showActions = false
+                    },
+                )
+            }
+            if (canRecall) {
+                DropdownMenuItem(
+                    text = { Text(L("撤回消息", "Recall message")) },
+                    onClick = { showActions = false; recallMessage() },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(L("删除消息", "Delete message"), color = Color(0xFFE5484D)) },
+                onClick = { showActions = false; repository.deleteChat(message.id) },
+            )
+        }
     }
 }
 
@@ -2905,6 +3202,11 @@ private fun ScreenTab(state: MctierUiState, repository: MctierRepository) {
                 if (iAmSharing) {
                     Text(L("你正在共享自己的屏幕", "You are sharing your screen"), color = GrassGreen)
                     Spacer(Modifier.height(12.dp))
+                    val myShare = state.screenShares.first { it.playerId == state.playerId }
+                    PrimaryButton(L("查看本地预览", "View local preview")) {
+                        repository.startViewingScreen(myShare, null)
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = { repository.stopScreenCapture() },
                         modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp),
@@ -2940,6 +3242,14 @@ private fun ScreenTab(state: MctierUiState, repository: MctierRepository) {
                     Icon(Icons.Rounded.ScreenShare, null, tint = GrassGreen)
                     Spacer(Modifier.width(10.dp))
                     Text("${share.playerName} 的屏幕${if (share.requirePassword) "（需密码）" else ""}", color = TextPrimary.copy(alpha = 0.9f), modifier = Modifier.weight(1f))
+                }
+                if (share.viewerCount > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        L("当前 ${share.viewerCount} 人正在观看", "${share.viewerCount} viewer${if (share.viewerCount == 1) "" else "s"} watching"),
+                        fontSize = 12.sp,
+                        color = GrassGreen,
+                    )
                 }
                 if (share.requirePassword) {
                     Spacer(Modifier.height(8.dp))
@@ -3776,6 +4086,7 @@ private fun UpdateSection() {
     var status by remember { mutableStateOf("") }
     var checking by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(-1) }
+    var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
     val main = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     Text(L("版本与更新", "Version & Updates"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
@@ -3784,22 +4095,19 @@ private fun UpdateSection() {
         text = when {
             progress in 0..100 -> "下载中 $progress%"
             checking -> L("检查中…", "Checking...")
-            else -> L("检查更新（客户端内升级）", "Check for updates")
+            else -> L("检查更新", "Check for updates")
         },
         enabled = !checking && progress !in 0..100,
     ) {
         checking = true
         status = ""
-        updater.check { hasUpdate, latest ->
+        availableUpdate = null
+        updater.check { update ->
             main.post {
                 checking = false
-                if (hasUpdate) {
-                    status = L("发现新版本 $latest，开始下载…", "New version $latest found, downloading...")
-                    progress = 0
-                    updater.downloadAndInstall(
-                        onProgress = { p -> main.post { progress = p } },
-                        onError = { e -> main.post { progress = -1; status = L("更新失败：$e", "Update failed: $e") } },
-                    )
+                if (update != null) {
+                    availableUpdate = update
+                    status = L("发现新版本 ${update.version}", "New version ${update.version} found")
                 } else {
                     status = L("已是最新版本", "Up to date")
                 }
@@ -3809,6 +4117,22 @@ private fun UpdateSection() {
     if (status.isNotBlank()) {
         Spacer(Modifier.height(6.dp))
         Text(status, fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f))
+    }
+    availableUpdate?.let { update ->
+        val notes = update.releaseNotes.ifEmpty {
+            listOf(L("该版本未提供更新日志，请前往官网查看详情。", "No release notes were provided for this version. Visit the website for details."))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(L("更新内容", "What's New"), fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+        notes.forEach { note ->
+            Text("• $note", fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.68f), modifier = Modifier.padding(top = 4.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        PrimaryButton(text = L("前往官网下载", "Open download website")) {
+            updater.openDownloadWebsite { error ->
+                main.post { status = L("无法打开官网：$error", "Could not open website: $error") }
+            }
+        }
     }
 }
 
@@ -3890,6 +4214,7 @@ private fun PrimaryButton(text: String, enabled: Boolean = true, icon: ImageVect
 private fun SettingsScreen(state: MctierUiState, repository: MctierRepository, onBack: () -> Unit) {
     var showAbout by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+    var showLogs by remember { mutableStateOf(false) }
     if (showAbout) {
         BackHandler { showAbout = false }
         AboutScreen { showAbout = false }
@@ -3898,6 +4223,11 @@ private fun SettingsScreen(state: MctierUiState, repository: MctierRepository, o
     if (showStats) {
         BackHandler { showStats = false }
         StatsScreen(repository) { showStats = false }
+        return
+    }
+    if (showLogs) {
+        BackHandler { showLogs = false }
+        LogsScreen(repository) { showLogs = false }
         return
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp)) {
@@ -3944,7 +4274,86 @@ private fun SettingsScreen(state: MctierUiState, repository: MctierRepository, o
                     }
                 }
             }
+            item {
+                SectionCard {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showLogs = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(GrassGreen.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Description, null, tint = GrassGreen, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(L("软件日志", "Application Logs"), color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(L("查看最近运行日志，复制或分享给开发者定位问题", "View, copy, or share recent logs for troubleshooting"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f))
+                        }
+                        Text(L("查看", "View"), color = GrassGreen, fontSize = 13.sp)
+                    }
+                }
+            }
             item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun LogsScreen(repository: MctierRepository, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var logs by remember { mutableStateOf(L("正在读取日志…", "Loading logs...")) }
+    var loading by remember { mutableStateOf(true) }
+
+    fun refresh() {
+        loading = true
+        scope.launch {
+            logs = repository.readApplicationLogs()
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) { refresh() }
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp)) {
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircleIconButton(Icons.AutoMirrored.Rounded.ArrowBack, L("返回", "Back"), onClick = onBack)
+            Spacer(Modifier.width(12.dp))
+            Text(L("软件日志", "Application Logs"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.weight(1f))
+            TextButton(onClick = ::refresh, enabled = !loading) { Text(L("刷新", "Refresh"), color = GrassGreen) }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    clipboard.setText(AnnotatedString(logs))
+                    android.widget.Toast.makeText(context, L("日志已复制", "Logs copied"), android.widget.Toast.LENGTH_SHORT).show()
+                },
+                enabled = !loading,
+                modifier = Modifier.weight(1f),
+            ) { Text(L("复制日志", "Copy Logs")) }
+            Button(
+                onClick = {
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "MCTier logs")
+                        putExtra(Intent.EXTRA_TEXT, logs)
+                    }
+                    context.startActivity(Intent.createChooser(share, L("分享日志", "Share Logs")))
+                },
+                enabled = !loading,
+                modifier = Modifier.weight(1f),
+            ) { Text(L("分享日志", "Share Logs")) }
+        }
+        Spacer(Modifier.height(10.dp))
+        SectionCard(padding = 10.dp, modifier = Modifier.weight(1f)) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = logs,
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary.copy(alpha = 0.88f), fontSize = 11.sp),
+            )
         }
     }
 }
@@ -4268,10 +4677,10 @@ private fun randomLobbyName(): String =
 
 // 内置节点名英文显示映射（数据层保持中文标识，仅渲染时翻译）
 private fun nodeDisplayName(name: String): String = if (appLang == "en") when (name) {
-    "MCTier 官方服务器" -> "MCTier Official Server"
-    "海波节点" -> "Haibo Node"
-    "唯爱节点" -> "Weiai Node"
-    "明月清风节点" -> "Mingyue Qingfeng Node"
+    "海波美国节点" -> "Haibo US Node"
+    "海波中国大陆节点" -> "Haibo Mainland China Node"
+    "唯爱厦门节点" -> "Weiai Xiamen Node"
+    "青云香港节点" -> "Qingyun Hong Kong Node"
     else -> name
 } else name
 

@@ -1,6 +1,6 @@
 [package]
 name = "mctier"
-version = "2.5.0"
+version = "2.6.0"
 description = "MCTier - Minecraft 虚拟局域网联机工具"
 authors = ["MCTier Team"]
 edition = "2021"
@@ -54,8 +54,10 @@ tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
 async-stream = "0.3"
 # ZIP 压缩
 zip = "2"
+sonora = "0.2.0"
 
 [target.'cfg(windows)'.dependencies]
+wasapi = "0.23"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
@@ -64,6 +66,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Security",
     "Win32_System_Threading",
+    "Win32_System_Performance",
 ] }
 
 [dev-dependencies]

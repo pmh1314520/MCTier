@@ -153,3 +153,51 @@
 .global-advanced-config-panel::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+/* Light theme: keep this dense configuration surface neutral and readable. */
+html[data-theme='light'] .global-advanced-config-panel {
+  color: #18202b;
+}
+html[data-theme='light'] .global-advanced-config-header h3 {
+  color: #18202b !important;
+}
+html[data-theme='light'] .global-advanced-config-header p,
+html[data-theme='light'] .global-advanced-config-panel [style*='color: rgba(255'] {
+  color: #596574 !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-item {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-header {
+  color: #18202b !important;
+  background: #f4f6f8;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-content {
+  background: #ffffff;
+  border-top-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-label > label,
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-control,
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-control-input {
+  color: #364151 !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-input,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number-input,
+html[data-theme='light'] .advanced-config-collapse textarea.ant-input {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-input::placeholder,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number input::placeholder {
+  color: #85909d !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-arrow,
+html[data-theme='light'] .advanced-config-collapse .anticon {
+  color: #596574 !important;
+}
+html[data-theme='light'] .global-advanced-config-panel .global-advanced-config-footer {
+  border-top-color: rgba(24, 32, 43, 0.12);
+}

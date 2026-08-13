@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ConfigProvider, theme, App as AntdApp } from 'antd';
+import { ConfigProvider, theme, App as AntdApp, Button, Modal } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTranslation } from 'react-i18next';
-import { tl, getLanguage } from './i18n';
+import { getLanguagePreference, tl, getLanguage, setLanguagePreference, type LanguagePreference } from './i18n';
 import { ErrorBoundary, MainWindow, MiniWindow } from './components';
 import { GlobalTooltip } from './components/GlobalTooltip/GlobalTooltip';
 import { GlobalButtonTheme } from './components/GlobalTooltip/GlobalButtonTheme';
@@ -19,7 +19,15 @@ import { hotkeyManager, webrtcClient, audioService, fileShareService } from './s
 import { screenShareService } from './services/screenShare/ScreenShareService';
 import { speakingDetector } from './services/voice/SpeakingDetector';
 import { versionCheckService } from './services/version/VersionCheckService';
+import { DOWNLOAD_WEBSITE } from './services/version/versionPolicy';
 import type { UserConfig } from './types';
+import {
+  THEME_CHANGED_EVENT,
+  isThemePreference,
+  readThemePreference,
+  resolveTheme,
+  type ThemePreference,
+} from './theme/themePreference';
 import './App.css';
 
 function App() {
@@ -34,6 +42,10 @@ function App() {
   const currentPlayerId = useAppStore((state) => state.currentPlayerId);
   const addChatMessage = useAppStore((state) => state.addChatMessage);
   const setPlayerSpeaking = useAppStore((state) => state.setPlayerSpeaking);
+  const [showMicrophonePermissionHelp, setShowMicrophonePermissionHelp] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const effectiveTheme = resolveTheme(themePreference, systemDark);
 
   // 版本更新状态
   const [showVersionModal, setShowVersionModal] = useState(false);
@@ -42,6 +54,38 @@ function App() {
     currentVersion: string;
     updateMessage: string[];
   } | null>(null);
+
+  useEffect(() => {
+    void invoke<{ language?: LanguagePreference }>('get_settings')
+      .then((settings) => setLanguagePreference(settings.language ?? getLanguagePreference()))
+      .catch((error) => console.error('读取语言设置失败:', error));
+  }, []);
+
+  useEffect(() => {
+    const showHelp = () => setShowMicrophonePermissionHelp(true);
+    window.addEventListener('mctier-microphone-permission-required', showHelp);
+    return () => window.removeEventListener('mctier-microphone-permission-required', showHelp);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemTheme = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    const handlePreference = (event: Event) => {
+      const preference = (event as CustomEvent<unknown>).detail;
+      if (isThemePreference(preference)) setThemePreference(preference);
+    };
+    media.addEventListener('change', handleSystemTheme);
+    window.addEventListener(THEME_CHANGED_EVENT, handlePreference);
+    return () => {
+      media.removeEventListener('change', handleSystemTheme);
+      window.removeEventListener(THEME_CHANGED_EVENT, handlePreference);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = effectiveTheme;
+    document.documentElement.style.colorScheme = effectiveTheme;
+  }, [effectiveTheme]);
 
   // 检测是否是屏幕查看窗口
   const isScreenViewerWindow = window.location.search.includes('screen-viewer=true');
@@ -70,17 +114,17 @@ function App() {
         <ConfigProvider
           locale={getLanguage() === 'en' ? enUS : zhCN}
           theme={{
-            algorithm: theme.darkAlgorithm,
+            algorithm: effectiveTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
             token: {
               colorPrimary: '#52c41a',
               colorSuccess: '#52c41a',
               colorWarning: '#f59e0b',
               colorError: '#ef4444',
               borderRadius: 8,
-              colorBgContainer: 'rgba(30, 30, 45, 0.95)',
-              colorBorder: 'rgba(255, 255, 255, 0.1)',
-              colorText: 'rgba(255, 255, 255, 0.9)',
-              colorTextSecondary: 'rgba(255, 255, 255, 0.6)',
+              colorBgContainer: effectiveTheme === 'dark' ? 'rgba(30, 30, 45, 0.95)' : '#ffffff',
+              colorBorder: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(24, 32, 43, 0.16)',
+              colorText: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.9)' : '#18202b',
+              colorTextSecondary: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : '#596574',
               fontFamily:
                 '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
             },
@@ -101,6 +145,11 @@ function App() {
         await invoke('set_tray_menu_texts', {
           showText: tl('显示 MCTier', 'Show MCTier'),
           exitText: tl('退出 MCTier', 'Exit MCTier'),
+          notificationTitle: tl('MCTier 正在后台运行', 'MCTier is running in the background'),
+          notificationBody: tl(
+            'MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。',
+            'MCTier has been minimized to the system tray. Click the tray icon or press {shortcut} to restore it.'
+          ),
         });
       } catch (error) {
         console.error('同步托盘菜单语言失败:', error);
@@ -114,6 +163,9 @@ function App() {
     const showWindow = async () => {
       try {
         const appWindow = getCurrentWindow();
+        if (!(await appWindow.isVisible())) {
+          return;
+        }
         // 读取「启动后自动隐藏到系统托盘」配置：为真则保持隐藏，不再显示窗口
         let startMinimized = false;
         try {
@@ -121,6 +173,9 @@ function App() {
           startMinimized = settings?.startMinimized ?? false;
         } catch (e) {
           console.error('读取启动隐藏配置失败:', e);
+        }
+        if (!startMinimized && !(await appWindow.isVisible())) {
+          return;
         }
         if (startMinimized) {
           await appWindow.hide();
@@ -162,17 +217,22 @@ function App() {
           return;
         }
 
-        if (info.hasUpdate && info.updateMessage) {
+        if (info.hasUpdate) {
           console.log('🎉 [VersionCheck] 发现新版本:', info.latestVersion);
           
           // 格式化更新日志
-          const formattedMessage = versionCheckService.formatUpdateMessage(info.updateMessage);
+          const formattedMessage = info.updateMessage
+            ? versionCheckService.formatUpdateMessage(info.updateMessage)
+            : [];
+          const updateMessage = formattedMessage.length > 0
+            ? formattedMessage
+            : [tl('该版本未提供更新日志，请前往官网查看详情。', 'No release notes were provided for this version. Visit the website for details.')];
           
           // 设置版本信息并显示弹窗
           setVersionInfo({
             latestVersion: info.latestVersion,
             currentVersion: info.currentVersion,
-            updateMessage: formattedMessage,
+            updateMessage,
           });
           setShowVersionModal(true);
           
@@ -303,6 +363,16 @@ function App() {
         // 监听窗口关闭事件
         const appWindow = getCurrentWindow();
         const unlistenClose = await appWindow.onCloseRequested(async () => {
+          try {
+            const settings = await invoke<{ closeToTray?: boolean }>('get_settings');
+            if (settings.closeToTray) {
+              console.log('主窗口关闭请求将由后端隐藏到系统托盘，保留通话与前端资源');
+              return;
+            }
+          } catch (error) {
+            console.warn('读取关闭到托盘设置失败，按正常退出流程清理资源:', error);
+          }
+
           // 防止重复执行清理
           if (isCleaningUp) {
             console.log('⚠️ 清理已在进行中，跳过重复执行');
@@ -328,15 +398,7 @@ function App() {
             console.error('❌ 清理快捷键失败:', error);
           }
           
-          console.log('✅ 资源清理完成，允许窗口关闭');
-          
-          // 尝试销毁窗口，如果失败则忽略错误
-          try {
-            await appWindow.destroy();
-          } catch (error) {
-            // 忽略ACL权限错误，窗口会自动关闭
-            console.log('⚠️ 窗口销毁命令被ACL拒绝，但窗口会自动关闭');
-          }
+          console.log('✅ 前端资源清理完成，等待后端完成退出');
         });
 
         // 从后端加载用户配置
@@ -402,7 +464,6 @@ function App() {
       if (cleanup) {
         cleanup();
       }
-      hotkeyManager.cleanup();
       webrtcClient.cleanup();
     };
   }, [setMicEnabled]);
@@ -423,7 +484,7 @@ function App() {
           console.log('使用已存在的玩家ID初始化WebRTC:', playerId);
 
           // 获取玩家名称
-          const playerName = useAppStore.getState().config.playerName || '未知玩家';
+          const playerName = useAppStore.getState().config.playerName || tl('未知玩家', 'Unknown Player');
           console.log('使用玩家名称:', playerName);
 
           // 添加当前玩家到玩家列表
@@ -436,12 +497,12 @@ function App() {
           });
 
           // 在初始化之前先设置版本错误回调
-          webrtcClient.onVersionError((currentVersion, minimumVersion, downloadUrl) => {
+          webrtcClient.onVersionError((currentVersion, minimumVersion) => {
             console.log(`WebRTC: 版本错误 - 当前版本: ${currentVersion}, 最低要求: ${minimumVersion}`);
             
             // 设置版本错误信息到store，MiniWindow会检测并显示弹窗
             const { setVersionError } = useAppStore.getState();
-            setVersionError({ currentVersion, minimumVersion, downloadUrl });
+            setVersionError({ currentVersion, minimumVersion, downloadUrl: DOWNLOAD_WEBSITE });
           });
 
           // 初始化WebRTC客户端
@@ -555,7 +616,7 @@ function App() {
           webrtcClient.onHostChanged((hostId) => {
             useAppStore.getState().setHostId(hostId);
             if (hostId === useAppStore.getState().currentPlayerId) {
-              try { (window as any).__antdMessage?.success?.('你已成为房主'); } catch { /* ignore */ }
+              try { (window as any).__antdMessage?.success?.(tl('你已成为房主', 'You are now the host')); } catch { /* ignore */ }
             }
           });
 
@@ -658,17 +719,17 @@ function App() {
       <ConfigProvider
         locale={getLanguage() === 'en' ? enUS : zhCN}
         theme={{
-          algorithm: theme.darkAlgorithm,
+          algorithm: effectiveTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
           token: {
             colorPrimary: '#52c41a',
             colorSuccess: '#52c41a',
             colorWarning: '#f59e0b',
             colorError: '#ef4444',
             borderRadius: 8,
-            colorBgContainer: 'rgba(30, 30, 45, 0.95)',
-            colorBorder: 'rgba(255, 255, 255, 0.1)',
-            colorText: 'rgba(255, 255, 255, 0.9)',
-            colorTextSecondary: 'rgba(255, 255, 255, 0.6)',
+            colorBgContainer: effectiveTheme === 'dark' ? 'rgba(30, 30, 45, 0.95)' : '#ffffff',
+            colorBorder: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(24, 32, 43, 0.16)',
+            colorText: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.9)' : '#18202b',
+            colorTextSecondary: effectiveTheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : '#596574',
             fontFamily:
               '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
           },
@@ -692,6 +753,34 @@ function App() {
               onClose={() => setShowVersionModal(false)}
             />
           )}
+
+          <Modal
+            className="microphone-permission-modal"
+            open={showMicrophonePermissionHelp}
+            title={tl('麦克风权限未授予', 'Microphone permission is not granted')}
+            onCancel={() => setShowMicrophonePermissionHelp(false)}
+            footer={
+              <div className="microphone-permission-actions">
+                <Button onClick={() => void invoke('open_microphone_privacy_settings')}>
+                  {tl('打开 Windows 麦克风设置', 'Open Windows microphone settings')}
+                </Button>
+                <Button type="primary" onClick={() => void invoke('reset_microphone_permission')}>
+                  {tl('一键重置并重启', 'Reset and restart')}
+                </Button>
+              </div>
+            }
+            centered
+            width={460}
+          >
+            <p>{tl(
+              '如果首次申请时选择了拒绝，WebView2 可能不会再次弹出授权窗口。可先检查 Windows 麦克风隐私设置；仍无法授权时，点击“一键重置并重启”，MCTier 会清理自身的 EBWebView 权限缓存并重新申请。',
+              'If access was denied the first time, WebView2 may not show the prompt again. Check Windows microphone privacy settings first. If that does not help, reset and restart MCTier to clear its EBWebView permission cache and request access again.'
+            )}</p>
+            <p style={{ opacity: 0.68, marginBottom: 0 }}>{tl(
+              '重置只会清理 MCTier 的 WebView2 浏览数据，不会删除大厅配置。',
+              'The reset only clears MCTier WebView2 browsing data. Lobby settings are preserved.'
+            )}</p>
+          </Modal>
         </AntdApp>
       </ConfigProvider>
     </ErrorBoundary>

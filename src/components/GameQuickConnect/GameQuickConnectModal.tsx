@@ -81,13 +81,14 @@ export const GameQuickConnectModal: React.FC<GameQuickConnectModalProps> = ({ vi
           <Button
             key={p.id}
             size="small"
+            className="mct-choice-button"
             type={selected === p.id ? 'primary' : 'default'}
             onClick={() => setSelected(p.id)}
           >
             {tl(p.name, p.enName)}
           </Button>
         ))}
-        <Button size="small" type={selected === 'custom' ? 'primary' : 'default'} onClick={() => setSelected('custom')}>
+        <Button className="mct-choice-button" size="small" type={selected === 'custom' ? 'primary' : 'default'} onClick={() => setSelected('custom')}>
           {tl('自定义', 'Custom')}
         </Button>
         {selected === 'custom' && (

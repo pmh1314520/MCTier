@@ -101,6 +101,8 @@ export interface ExitNodeConfig {
  * 用户配置
  */
 export interface UserConfig {
+  /** 界面语言偏好，system 表示跟随操作系统 */
+  language?: 'system' | 'zh' | 'en';
   /** 玩家名称 */
   playerName?: string;
   /** 首选服务器节点 */
@@ -170,6 +172,8 @@ export interface ChatMessage {
   type?: 'text' | 'image';
   /** 图片数据（Base64） */
   imageData?: string;
+  /** 消息是否已由原发送者撤回 */
+  recalled?: boolean;
 }
 
 /**
@@ -203,8 +207,10 @@ export interface ScreenShare {
   startTime: number;
   /** 共享状态 */
   status: 'active' | 'paused' | 'stopped';
-  /** 正在查看的玩家ID（单人查看限制） */
+  /** 中继链首位观看者ID（兼容旧版状态展示） */
   viewerId?: string;
-  /** 正在查看的玩家名称 */
+  /** 中继链首位观看者名称（兼容旧版状态展示） */
   viewerName?: string;
+  /** 当前观看人数（链式中继，不代表共享者的直连数） */
+  viewerCount?: number;
 }

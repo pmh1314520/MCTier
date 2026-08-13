@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input, Button, message as antdMessage } from 'antd';
-import { CloseOutlined, SendOutlined } from '@ant-design/icons';
+import { CloseOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, RollbackOutlined, SendOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { isWithinRecallWindow, RECALL_WINDOW_MS } from '../../services/chat/recallPolicy';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
 import { EmojiIcon, ImageIcon } from '../icons';
 import { useTranslation } from 'react-i18next';
@@ -14,10 +15,32 @@ import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
 const { TextArea } = Input;
+const replyMarkerPattern = /^\[reply:([^\]]+)]\s*/;
+
+const parseReplyContent = (content: string) => {
+  if (!content.startsWith('> ')) return null;
+  const newlineIndex = content.indexOf('\n');
+  const rawQuote = (newlineIndex >= 0 ? content.slice(2, newlineIndex) : content.slice(2)).trim();
+  const marker = rawQuote.match(replyMarkerPattern);
+  let targetId: string | null = null;
+  if (marker) {
+    try { targetId = decodeURIComponent(marker[1]); } catch { targetId = marker[1]; }
+  }
+  return {
+    targetId,
+    quoteLine: rawQuote.replace(replyMarkerPattern, '').trim(),
+    body: newlineIndex >= 0 ? content.slice(newlineIndex + 1) : '',
+  };
+};
+
+const getVisibleMessageContent = (content: string) => {
+  const parsed = parseReplyContent(content);
+  return parsed ? `> ${parsed.quoteLine}\n${parsed.body}` : content;
+};
 
 export const ChatRoom: React.FC = () => {
   useTranslation();
-  const { currentPlayerId, chatMessages, addChatMessage, config } = useAppStore();
+  const { currentPlayerId, chatMessages, addChatMessage, deleteChatMessage, recallChatMessage, config } = useAppStore();
   const players = useAppStore((state) => state.players);
   const [inputValue, setInputValue] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -30,6 +53,7 @@ export const ChatRoom: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
   const [downloadingImageId, setDownloadingImageId] = useState<string | null>(null);
   const [downloadedImages, setDownloadedImages] = useState<Map<string, string>>(new Map());
 
@@ -40,14 +64,59 @@ export const ChatRoom: React.FC = () => {
   const [mentionCursor, setMentionCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<{
+    message: ChatMessage;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [recallClock, setRecallClock] = useState(() => Date.now());
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   const textAreaRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isShooting, setIsShooting] = useState(false);
+  const previewDragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const highlightTimerRef = useRef<number | null>(null);
+  const highlightStartTimerRef = useRef<number | null>(null);
   const initializedScrollRef = useRef(false);
+
+  useEffect(() => {
+    if (!messageContextMenu) return;
+    const closeMenu = (event?: MouseEvent) => {
+      const target = event?.target;
+      if (target instanceof Element && target.closest('.chat-message-context-menu')) return;
+      setMessageContextMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('mousedown', closeMenu, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('mousedown', closeMenu, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [messageContextMenu]);
+
+  useEffect(() => {
+    const now = Date.now();
+    const nextExpiry = chatMessages.reduce<number | null>((nearest, message) => {
+      if (message.playerId !== currentPlayerId || message.recalled) return nearest;
+      const expiry = message.timestamp + RECALL_WINDOW_MS;
+      if (expiry < now) return nearest;
+      return nearest === null || expiry < nearest ? expiry : nearest;
+    }, null);
+    if (nextExpiry === null) return;
+    const timeout = window.setTimeout(() => setRecallClock(Date.now()), Math.max(0, nextExpiry - now + 1));
+    return () => window.clearTimeout(timeout);
+  }, [chatMessages, currentPlayerId, recallClock]);
+
+  useEffect(() => {
+    if (previewZoom <= 1) setPreviewPan({ x: 0, y: 0 });
+  }, [previewZoom]);
 
   // 计算未读消息数量（只计算其他人发送的消息）
   const unreadMessages = chatMessages.filter((msg, index) => 
@@ -175,8 +244,8 @@ export const ChatRoom: React.FC = () => {
     if (!replyTo) return body;
     const summary = replyTo.type === 'image'
       ? tl('[图片]', '[Image]')
-      : (replyTo.content.split('\n')[0] || '').slice(0, 40);
-    return `> @${replyTo.playerName} ${summary}\n${body}`;
+      : (parseReplyContent(replyTo.content)?.body || replyTo.content).split('\n')[0].slice(0, 40);
+    return `> [reply:${encodeURIComponent(replyTo.id)}] @${replyTo.playerName} ${summary}\n${body}`;
   };
 
   const focusInputSoon = useCallback(() => {
@@ -186,9 +255,80 @@ export const ChatRoom: React.FC = () => {
   }, []);
 
   const handleQuoteMessage = useCallback((message: ChatMessage) => {
+    if (message.recalled) return;
     setReplyTo(message);
     focusInputSoon();
   }, [focusInputSoon]);
+
+  const handleRecallMessage = useCallback(async (message: ChatMessage) => {
+    if (message.playerId !== currentPlayerId || message.recalled) return;
+    if (!isWithinRecallWindow(message.timestamp)) {
+      antdMessage.warning(tl('撤回时间已超过，无法撤回', 'The recall window has expired'));
+      return;
+    }
+    try {
+      await p2pChatService.recallMessage(message.id);
+      recallChatMessage(message.id, currentPlayerId);
+      if (replyTo?.id === message.id) setReplyTo(null);
+      antdMessage.success(tl('消息已撤回', 'Message recalled'));
+    } catch (error) {
+      console.error('撤回消息失败:', error);
+      antdMessage.error(tl('撤回失败，请检查网络后重试', 'Recall failed. Check the network and try again.'));
+    }
+  }, [currentPlayerId, recallChatMessage, replyTo]);
+
+  const handleJumpToReply = useCallback((sourceMessage: ChatMessage) => {
+    const parsed = parseReplyContent(sourceMessage.content);
+    if (!parsed) return;
+    let targetIndex = parsed.targetId
+      ? chatMessages.findIndex((message) => message.id === parsed.targetId)
+      : -1;
+    if (targetIndex < 0) {
+      const legacyMatch = parsed.quoteLine.match(/^@([^\s]+)\s*(.*)$/);
+      const sourceIndex = chatMessages.findIndex((message) => message.id === sourceMessage.id);
+      if (legacyMatch && sourceIndex > 0) {
+        const [, playerName, summary] = legacyMatch;
+        for (let index = sourceIndex - 1; index >= 0; index -= 1) {
+          const candidate = chatMessages[index];
+          const candidateSummary = candidate.type === 'image'
+            ? tl('[图片]', '[Image]')
+            : (parseReplyContent(candidate.content)?.body || candidate.content).split('\n')[0].slice(0, 40);
+          if (candidate.playerName === playerName && candidateSummary === summary) {
+            targetIndex = index;
+            break;
+          }
+        }
+      }
+    }
+    if (targetIndex < 0) {
+      antdMessage.info(tl('原消息已不在聊天记录中', 'The original message is no longer available'));
+      return;
+    }
+    const target = chatMessages[targetIndex];
+    if (highlightStartTimerRef.current) window.clearTimeout(highlightStartTimerRef.current);
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    setHighlightedMessageId(null);
+    setDisplayedMessageCount((count) => Math.max(count, chatMessages.length - targetIndex));
+    window.setTimeout(() => {
+      const element = messageRefs.current.get(target.id);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      highlightStartTimerRef.current = window.setTimeout(() => {
+        setHighlightedMessageId(target.id);
+        highlightTimerRef.current = window.setTimeout(() => setHighlightedMessageId(null), 1250);
+      }, 360);
+    }, 50);
+  }, [chatMessages]);
+
+  const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+    if (message.recalled) return;
+    try {
+      await navigator.clipboard.writeText(message.type === 'image' ? tl('[图片]', '[Image]') : getVisibleMessageContent(message.content));
+      antdMessage.success(tl('消息已复制', 'Message copied'));
+    } catch (error) {
+      console.error('复制消息失败:', error);
+      antdMessage.error(tl('复制失败，请重试', 'Copy failed, please retry'));
+    }
+  }, []);
 
   // 发送文本消息
   const handleSendMessage = async () => {
@@ -221,7 +361,7 @@ export const ChatRoom: React.FC = () => {
       scrollToBottom(false);
       
       // 发送到P2P网络
-      const res = await p2pChatService.sendTextMessage(messageContent);
+      const res = await p2pChatService.sendTextMessage(messageContent, optimisticMessage.id);
       console.log('✅ [ChatRoom] 文本消息已发送到P2P网络', res);
       // 回执：有其他玩家但一个都没送达时，提示可能未送达
       if (res && res.total > 0 && res.delivered === 0) {
@@ -411,7 +551,7 @@ export const ChatRoom: React.FC = () => {
           console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
           
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
           setReplyTo(null);
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
@@ -478,7 +618,7 @@ export const ChatRoom: React.FC = () => {
           console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
 
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
           setReplyTo(null);
 
           antdMessage.success(tl('图片发送成功', 'Image sent'));
@@ -546,7 +686,7 @@ export const ChatRoom: React.FC = () => {
       console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
 
       // 发送图片消息到P2P网络
-      await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent);
+      await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
       setReplyTo(null);
 
       antdMessage.success(tl('图片发送成功', 'Image sent'));
@@ -610,50 +750,6 @@ export const ChatRoom: React.FC = () => {
     // 聚焦输入框
     if (textAreaRef.current) {
       textAreaRef.current.focus();
-    }
-  };
-
-  // 截图并发送：抓取一帧屏幕画面直接发到聊天室（游戏中可快速分享高光/进度）
-  const handleScreenshot = async () => {
-    if (isShooting || isUploading) return;
-    setIsShooting(true);
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 } as any, audio: false } as any);
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.muted = true;
-      await video.play();
-      await new Promise((r) => setTimeout(r, 280)); // 等首帧稳定
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 1280;
-      canvas.height = video.videoHeight || 720;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('no canvas ctx');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const messageContent = buildReplyContent(tl('[图片]', '[Image]'));
-      const optimisticMessage: ChatMessage = {
-        id: `msg-${currentPlayerId}-${Date.now()}`,
-        playerId: currentPlayerId!,
-        playerName: config.playerName || tl('我', 'Me'),
-        content: messageContent,
-        timestamp: Date.now(),
-        type: 'image',
-        imageData: dataUrl,
-      };
-      addChatMessage(optimisticMessage);
-      await p2pChatService.sendImageMessage(dataUrl, messageContent);
-      setReplyTo(null);
-      antdMessage.success(tl('截图已发送', 'Screenshot sent'));
-      isAtBottomRef.current = true;
-      scrollToBottom(false);
-    } catch (error) {
-      console.error('截图失败:', error);
-      antdMessage.error(tl('截图失败或已取消', 'Screenshot failed or cancelled'));
-    } finally {
-      stream?.getTracks().forEach((t) => t.stop());
-      setIsShooting(false);
     }
   };
 
@@ -729,12 +825,12 @@ export const ChatRoom: React.FC = () => {
         return (
           <React.Fragment key={`u-${i}`}>
             <a
+              className="chat-link"
               href={trimmed}
               onClick={(e) => {
                 e.preventDefault();
                 void openExternal(trimmed).catch(() => {});
               }}
-              style={{ color: '#69b1ff', textDecoration: 'underline', wordBreak: 'break-all', cursor: 'pointer' }}
             >
               {trimmed}
             </a>
@@ -755,7 +851,7 @@ export const ChatRoom: React.FC = () => {
             return (
               <span
                 key={`m-${i}-${j}`}
-                style={{ color: 'inherit', fontWeight: 600, margin: '0 1px' }}
+                className="chat-mention"
               >
                 {part}
               </span>
@@ -793,33 +889,34 @@ export const ChatRoom: React.FC = () => {
         <AnimatePresence mode="popLayout">
           {displayedMessages.map((message) => {
             const isOwnMessage = message.playerId === currentPlayerId;
+            const canRecallMessage = isOwnMessage && !message.recalled && isWithinRecallWindow(message.timestamp, recallClock);
             const showUnreadDivider = firstUnreadId && message.id === firstUnreadId;
             
             return (
               <React.Fragment key={message.id}>
                 {showUnreadDivider && (
-                  <div
-                    className="chat-unread-divider"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      margin: '8px 0',
-                      color: '#ff7875',
-                      fontSize: 12,
-                    }}
-                  >
-                    <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
+                  <div className="chat-unread-divider">
+                    <span className="chat-unread-divider-line" />
                     {tl('以下为新消息', 'New messages below')}
-                    <div style={{ flex: 1, height: 1, background: 'rgba(255,120,117,0.4)' }} />
+                    <span className="chat-unread-divider-line" />
                   </div>
                 )}
                 <motion.div
-                  className={`chat-message ${isOwnMessage ? 'own' : 'other'}`}
+                  ref={(element) => {
+                    if (element) messageRefs.current.set(message.id, element);
+                    else messageRefs.current.delete(message.id);
+                  }}
+                  className={`chat-message ${isOwnMessage ? 'own' : 'other'}${highlightedMessageId === message.id ? ' message-highlighted' : ''}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.2 }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setRecallClock(Date.now());
+                    setMessageContextMenu({ message, x: event.clientX, y: event.clientY });
+                  }}
                 >
                 {/* 头像 */}
                 <div className="message-avatar">
@@ -828,18 +925,20 @@ export const ChatRoom: React.FC = () => {
                 
                 <span className="message-author-outside">
                   {message.playerName}
-                  {isOwnMessage && ' (我)'}
+                  {isOwnMessage && ` (${tl('我', 'Me')})`}
                 </span>
                 
                 <div className="message-bubble-stack">
-                <div className={`message-content${message.type === 'image' && message.imageData ? ' message-content-image' : ''}`}>
-                  {message.type === 'image' && message.imageData ? (
+                <div className={`message-content${message.type === 'image' && message.imageData ? ' message-content-image' : ''}${message.recalled ? ' message-content-recalled' : ''}`}>
+                  {message.recalled ? (
+                    <span className="message-recalled-text message-text-body">{tl('此消息已撤回', 'This message was recalled')}</span>
+                  ) : message.type === 'image' && message.imageData ? (
                     <div className="chat-image-wrapper">
                       <img 
                         src={message.imageData} 
                         alt={tl('聊天图片', 'Chat image')} 
                         className="chat-image"
-                        onClick={() => { setPreviewZoom(1); setPreviewImage(message.imageData!); }}
+                        onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setPreviewImage(message.imageData!); }}
                         onLoad={() => { if (isAtBottom) { try { scrollToBottom(); } catch { /* ignore */ } } }}
                       />
                       <button
@@ -872,32 +971,49 @@ export const ChatRoom: React.FC = () => {
                     </div>
                   ) : (
                     (() => {
-                      const c = message.content;
-                      if (c.startsWith('> ')) {
-                        const nl = c.indexOf('\n');
-                        const quoteLine = (nl >= 0 ? c.slice(2, nl) : c.slice(2)).trim();
-                        const body = nl >= 0 ? c.slice(nl + 1) : '';
+                      const parsed = parseReplyContent(message.content);
+                      if (parsed) {
                         return (
                           <>
-                            {quoteLine && <div className="chat-quote">{quoteLine}</div>}
-                            {renderMessageText(body)}
+                            {parsed.quoteLine && (
+                              <button type="button" className="chat-quote" onClick={() => handleJumpToReply(message)}>
+                                {parsed.quoteLine}
+                              </button>
+                            )}
+                            <span className="message-text-body">{renderMessageText(parsed.body)}</span>
                           </>
                         );
                       }
-                      return renderMessageText(c);
+                      return <span className="message-text-body">{renderMessageText(message.content)}</span>;
                     })()
                   )}
                 </div>
-                <button
-                  className="message-reply-btn"
-                  title={tl('引用回复', 'Reply')}
-                  onClick={() => handleQuoteMessage(message)}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="9 17 4 12 9 7"></polyline>
-                    <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
-                  </svg>
-                </button>
+                {!message.recalled && (
+                  <div className="message-hover-actions">
+                    <button
+                      className="message-action-btn"
+                      title={tl('引用回复', 'Reply')}
+                      onClick={() => handleQuoteMessage(message)}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="9 17 4 12 9 7"></polyline>
+                        <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                      </svg>
+                    </button>
+                    {canRecallMessage && (
+                      <button
+                        className="message-action-btn message-recall-btn"
+                        title={tl('撤回消息', 'Recall message')}
+                        onClick={() => void handleRecallMessage(message)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M9 14 4 9l5-5" />
+                          <path d="M4 9h9a7 7 0 0 1 7 7v4" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
                 
                 <span className="message-time-below">
                   {formatTime(message.timestamp)}
@@ -911,6 +1027,56 @@ export const ChatRoom: React.FC = () => {
         
         <div ref={messagesEndRef} />
       </div>
+
+      {messageContextMenu && (
+        <div
+          className="chat-message-context-menu"
+          style={{
+            left: Math.min(messageContextMenu.x, Math.max(8, window.innerWidth - 196)),
+            top: Math.min(messageContextMenu.y, Math.max(8, window.innerHeight - 196)),
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          {!messageContextMenu.message.recalled && (
+            <button type="button" className="chat-message-context-item" onClick={() => {
+              handleQuoteMessage(messageContextMenu.message);
+              setMessageContextMenu(null);
+            }}>
+              <MessageOutlined />
+              <span>{tl('引用消息', 'Quote message')}</span>
+            </button>
+          )}
+          {!messageContextMenu.message.recalled && (
+            <button type="button" className="chat-message-context-item" onClick={() => {
+              void handleCopyMessage(messageContextMenu.message);
+              setMessageContextMenu(null);
+            }}>
+              <CopyOutlined />
+              <span>{tl('复制消息', 'Copy message')}</span>
+            </button>
+          )}
+          {messageContextMenu.message.playerId === currentPlayerId
+            && !messageContextMenu.message.recalled
+            && isWithinRecallWindow(messageContextMenu.message.timestamp, recallClock) && (
+            <button type="button" className="chat-message-context-item" onClick={() => {
+              void handleRecallMessage(messageContextMenu.message);
+              setMessageContextMenu(null);
+            }}>
+              <RollbackOutlined />
+              <span>{tl('撤回消息', 'Recall message')}</span>
+            </button>
+          )}
+          <button type="button" className="chat-message-context-item chat-message-context-danger" onClick={() => {
+            deleteChatMessage(messageContextMenu.message.id);
+            if (replyTo?.id === messageContextMenu.message.id) setReplyTo(null);
+            setMessageContextMenu(null);
+          }}>
+            <DeleteOutlined />
+            <span>{tl('删除消息', 'Delete message')}</span>
+          </button>
+        </div>
+      )}
       
       {/* 新消息提示 */}
       <AnimatePresence>
@@ -940,21 +1106,51 @@ export const ChatRoom: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setPreviewImage(null)}
-            onWheel={(e) => {
-              e.preventDefault();
-              setPreviewZoom((z) => Math.min(4, Math.max(0.5, z + (e.deltaY < 0 ? 0.15 : -0.15))));
-            }}
           >
+            <button
+              type="button"
+              className="image-preview-close"
+              title={tl('关闭图片预览', 'Close image preview')}
+              aria-label={tl('关闭图片预览', 'Close image preview')}
+              onClick={(event) => { event.stopPropagation(); setPreviewImage(null); }}
+            >
+              <CloseOutlined />
+            </button>
             <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
-              <img
-                src={previewImage}
-                alt={tl('??', 'Preview')}
-                onDoubleClick={() => setPreviewZoom(1)}
-                style={{ transform: `scale(${previewZoom})` }}
-              />
+              <div
+                className="image-preview-stage"
+                onWheel={(e) => {
+                  e.preventDefault();
+                  setPreviewZoom((z) => Math.min(4, Math.max(0.5, z + (e.deltaY < 0 ? 0.15 : -0.15))));
+                }}
+                onPointerDown={(e) => {
+                  if (previewZoom <= 1) return;
+                  previewDragRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  const drag = previewDragRef.current;
+                  if (!drag || drag.pointerId !== e.pointerId) return;
+                  setPreviewPan((pan) => ({ x: pan.x + e.clientX - drag.x, y: pan.y + e.clientY - drag.y }));
+                  previewDragRef.current = { ...drag, x: e.clientX, y: e.clientY };
+                }}
+                onPointerUp={(e) => {
+                  if (previewDragRef.current?.pointerId === e.pointerId) previewDragRef.current = null;
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+                onPointerCancel={() => { previewDragRef.current = null; }}
+              >
+                <img
+                  src={previewImage}
+                  alt={tl('预览', 'Preview')}
+                  onDoubleClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); }}
+                  draggable={false}
+                  style={{ transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})` }}
+                />
+              </div>
               <div className="image-preview-actions">
                 <button type="button" onClick={() => setPreviewZoom((z) => Math.max(0.5, z - 0.25))}>-</button>
-                <button type="button" onClick={() => setPreviewZoom(1)}>{Math.round(previewZoom * 100)}%</button>
+                <button type="button" onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); }}>{Math.round(previewZoom * 100)}%</button>
                 <button type="button" onClick={() => setPreviewZoom((z) => Math.min(4, z + 0.25))}>+</button>
               </div>
             </div>
@@ -1019,7 +1215,7 @@ export const ChatRoom: React.FC = () => {
                 >
                   <span className="mention-at">@</span>
                   <span className="mention-name">{name}</span>
-                  {name === '所有人' && <span className="mention-tag">{tl('全体提醒', 'Everyone')}</span>}
+                  {name === tl('所有人', 'all') && <span className="mention-tag">{tl('全体提醒', 'Everyone')}</span>}
                 </div>
               ))}
             </motion.div>
@@ -1044,20 +1240,6 @@ export const ChatRoom: React.FC = () => {
             className="image-button"
           />
 
-          <Button
-            type="text"
-            onClick={handleScreenshot}
-            loading={isShooting}
-            title={tl('截图发送（选择要分享的屏幕/窗口）', 'Screenshot to chat (pick a screen/window)')}
-            className="image-button"
-            icon={(
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            )}
-          />
-          
           <TextArea
             ref={textAreaRef}
             value={inputValue}

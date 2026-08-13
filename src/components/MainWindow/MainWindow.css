@@ -57,7 +57,7 @@ a,
   background-image:
     radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
     radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.02) 0%, transparent 50%);
-  animation: particleFloat 30s ease-in-out infinite;
+  animation: none;
   will-change: auto;
 }
 
@@ -115,9 +115,9 @@ a,
     rgba(90, 148, 40, 0.15) 60%,
     transparent 80%
   );
-  filter: blur(20px);
-  opacity: 0.5;
-  animation: glowPulse 6s ease-in-out infinite;
+  filter: blur(12px);
+  opacity: 0.34;
+  animation: none;
   z-index: -1;
   will-change: auto;
 }
@@ -170,10 +170,8 @@ a,
   -webkit-text-fill-color: transparent;
   background-clip: text;
   /* 简化阴影效果 */
-  filter: drop-shadow(0 0 12px rgba(126, 211, 33, 0.5))
-          drop-shadow(0 0 20px rgba(212, 165, 116, 0.3))
-          drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-  animation: titleShine 6s ease-in-out infinite;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  animation: none;
   will-change: auto;
 }
 
@@ -210,6 +208,7 @@ a,
 
 /* 为标题添加像素化边框效果，体现 Minecraft 风格 */
 .main-window-title::before {
+  display: none;
   content: 'MCTier';
   position: absolute;
   top: 0;
@@ -255,8 +254,8 @@ a,
   height: 48px !important;
   font-size: 15px !important;
   font-weight: 700 !important;
-  border-radius: 12px !important;
-  transition: all 0.08s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 7px !important;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease !important;
   border: none !important;
   position: relative;
   overflow: hidden;
@@ -267,6 +266,7 @@ a,
 }
 
 .main-window-button::before {
+  display: none;
   content: '';
   position: absolute;
   top: 0;
@@ -282,7 +282,7 @@ a,
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.15),
     0 2px 4px rgba(0, 0, 0, 0.1);
-  filter: brightness(1.05);
+  filter: none;
 }
 
 .main-window-button:hover::before {
@@ -301,14 +301,14 @@ a,
 }
 
 .create-button {
-  background: linear-gradient(135deg, #73d13d 0%, #52c41a 100%) !important;
+  background: #52c41a !important;
   color: white !important;
   box-shadow: 0 2px 10px rgba(82, 196, 26, 0.3);
 }
 
 .create-button:hover {
-  background: linear-gradient(135deg, #85e84a 0%, #5fd424 100%) !important;
-  box-shadow: 0 4px 16px rgba(82, 196, 26, 0.42);
+  background: #49b117 !important;
+  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.3);
 }
 
 .create-button:active {
@@ -334,41 +334,27 @@ a,
   border-color: rgba(82, 196, 26, 0.55) !important;
 }
 
+.settings-entry-button,
 .about-button {
   background: rgba(139, 111, 71, 0.12) !important;
   color: rgba(200, 170, 130, 0.95) !important;
   border: 1.5px solid rgba(139, 111, 71, 0.3) !important;
-  height: 40px !important;
-  font-size: 13px !important;
+  height: 48px !important;
+  font-size: 15px !important;
   backdrop-filter: blur(10px);
 }
 
+.settings-entry-button:hover,
 .about-button:hover {
   background: rgba(139, 111, 71, 0.16) !important;
   border-color: rgba(139, 111, 71, 0.4) !important;
   color: rgba(220, 190, 150, 1) !important;
 }
 
+.settings-entry-button:active,
 .about-button:active {
   background: rgba(139, 111, 71, 0.22) !important;
   border-color: rgba(139, 111, 71, 0.5) !important;
-}
-
-.close-app-button {
-  background: linear-gradient(135deg, #d9534f 0%, #b73a36 100%) !important;
-  color: #ffffff !important;
-  border: none !important;
-  height: 40px !important;
-  font-size: 13px !important;
-}
-
-.close-app-button:hover {
-  background: linear-gradient(135deg, #e25c58 0%, #c34440 100%) !important;
-  color: #ffffff !important;
-}
-
-.close-app-button:active {
-  background: linear-gradient(135deg, #b73a36 0%, #9c302c 100%) !important;
 }
 
 /* 响应式设计 */
@@ -425,13 +411,22 @@ a,
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
 }
 
-/* 设置按钮样式 */
-.settings-button {
+/* 主窗口控制区 */
+.main-window-controls {
   position: absolute;
   top: 12px;
   right: 12px;
-  width: 40px;
-  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.main-window-control-btn {
+  width: 32px;
+  height: 32px;
   border: none;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -439,17 +434,23 @@ a,
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
-  z-index: 20;
+  color: rgba(255, 255, 255, 0.68);
+  transition: background-color 0.14s ease, color 0.14s ease;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
-.settings-button:hover {
+.main-window-control-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.settings-button:active {
+.main-window-control-btn:active {
   background: rgba(255, 255, 255, 0.15);
+}
+
+.main-window-close-btn:hover {
+  color: #ffffff;
+  background: #d9363e;
+  border-color: #d9363e;
 }

@@ -226,9 +226,11 @@
 
 .viewer-info {
   font-size: 11px;
-  color: rgba(239, 68, 68, 0.9);
   font-weight: 500;
 }
+
+.viewer-info.active { color: rgba(239, 68, 68, 0.9); }
+.viewer-info.waiting { color: rgba(255, 255, 255, 0.45); }
 
 .share-badges {
   display: flex;
@@ -469,6 +471,8 @@
 .stop-viewing-btn svg {
   width: 16px;
   height: 16px;
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }
 
 .fullscreen-video {
@@ -477,4 +481,65 @@
   object-fit: contain;
   background: #000;
   display: block;
+}
+
+/* Light theme applies to the manager surface only. The full-screen viewer stays black. */
+html[data-theme='light'] .screen-share-manager {
+  color: #18202b;
+  background: #ffffff;
+}
+html[data-theme='light'] .screen-share-controls-bar,
+html[data-theme='light'] .screen-share-actions,
+html[data-theme='light'] .screen-share-bottom-bar {
+  background: #f4f6f8;
+  border-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .screen-share-hint {
+  color: #364151;
+  background: #edf5ff;
+  border-color: #bddcff;
+}
+html[data-theme='light'] .empty-state,
+html[data-theme='light'] .share-player-name,
+html[data-theme='light'] .modal-hint,
+html[data-theme='light'] .password-modal-content p {
+  color: #364151;
+}
+html[data-theme='light'] .empty-hint,
+html[data-theme='light'] .share-start-time {
+  color: #768291;
+}
+html[data-theme='light'] .viewer-info.active { color: #c7353a; }
+html[data-theme='light'] .viewer-info.waiting { color: #687585; }
+html[data-theme='light'] .share-item,
+html[data-theme='light'] .share-item.my-share {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+}
+html[data-theme='light'] .share-item:hover {
+  background: #f7f9fb;
+  border-color: rgba(24, 32, 43, 0.22);
+  box-shadow: none;
+}
+html[data-theme='light'] .share-item.viewing,
+html[data-theme='light'] .share-item.has-password {
+  background: #f3faef;
+}
+html[data-theme='light'] .view-screen-btn {
+  background: #edf7e8;
+  color: #2f7d12;
+  border: 1px solid rgba(82, 196, 26, 0.25);
+}
+html[data-theme='light'] .view-screen-btn:hover:not(:disabled) {
+  background: #e1f2d9;
+  box-shadow: none;
+}
+html[data-theme='light'] .modal-option {
+  background: #f4f6f8;
+}
+html[data-theme='light'] .screen-share-list::-webkit-scrollbar-track {
+  background: #eef1f4;
+}
+html[data-theme='light'] .screen-share-list::-webkit-scrollbar-thumb {
+  background: #c3cbd4;
 }

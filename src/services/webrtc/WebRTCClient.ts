@@ -10,6 +10,7 @@ import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
 import { tl } from '../../i18n';
 import { voiceChangerService } from '../voice/voiceChangerService';
+import { localVqeService } from '../voice/localVqeService';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -60,6 +61,9 @@ export class WebRTCClient {
   private isIntentionalDisconnect: boolean = false;
   private reconnectingPeers: Set<string> = new Set();
   private reconnectTimers: Map<string, number> = new Map();
+  private voiceHealthInterval: number | null = null;
+  private voiceHealthCheckRunning = false;
+  private voiceHealth: Map<string, { packets: number; noProgressSince: number }> = new Map();
   /** 正在进行「手动语音重连」的玩家，用于防止重复点击并驱动 UI 的加载态 */
   private manualReconnectingPeers: Set<string> = new Set();
   /** 麦克风的期望状态（界面/后端要求的状态） */
@@ -160,6 +164,7 @@ export class WebRTCClient {
       this.reconnectingPeers.clear();
       this.reconnectTimers.forEach(timer => clearTimeout(timer));
       this.reconnectTimers.clear();
+      this.startVoiceHealthMonitor();
       
       // 【优化】只在首次初始化时清空已知玩家列表
       // 信令服务器重连时不应该清空，避免重复建立连接
@@ -187,6 +192,11 @@ export class WebRTCClient {
 
       // 不再在初始化时获取麦克风，只有在用户开启麦克风时才获取
       console.log('⏭️ 跳过麦克风初始化，等待用户手动开启');
+      // Warm LocalVQE after joining without requesting microphone permission.
+      // The first open-mic action can then attach a track immediately.
+      void localVqeService.preload().catch((error) => {
+        console.warn('LocalVQE preload failed; WebRTC capture AEC/NS remains active:', error);
+      });
       this.localStream = null;
 
       // 连接到WebSocket信令服务器（带重试，缓解二次加入时的瞬时 DNS 解析失败）
@@ -293,7 +303,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '2.5.0',
+              clientVersion: '2.6.0',
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
@@ -572,7 +582,9 @@ export class WebRTCClient {
               this.onPlayerJoinedCallback(player.playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
             }
             
-            // 【优化】如果已经是已知玩家，检查WebRTC连接状态
+            // 已知玩家仍在权威列表中时，只修复他的连接，不能触发“玩家离开”回调。
+            // EasyTier 路由重算期间 connectionState 可能短暂变为 disconnected/failed，
+            // 旧逻辑会把仍在线玩家从 UI 移除并重建连接，放大为多人语音短暂无声。
             if (isKnownPlayer) {
               const existingPeer = this.peerConnections.get(player.playerId);
               if (existingPeer) {
@@ -582,14 +594,18 @@ export class WebRTCClient {
                   continue;
                 } else {
                   console.log(`⚠️ 玩家 ${player.playerId} 的WebRTC连接状态异常 (${state})，将重新建立连接`);
-                  // 清理旧连接
-                  this.removePeer(player.playerId);
-                  this.knownPlayers.delete(player.playerId);
+                  this.clearPeerReconnectState(player.playerId);
+                  this.removePeerConnection(player.playerId);
+                  this.schedulePeerReconnect(player.playerId, 'players-list发现异常连接', 500);
                 }
               } else {
                 console.log(`⚠️ 玩家 ${player.playerId} 在已知列表中但WebRTC连接不存在，将重新建立连接`);
-                this.knownPlayers.delete(player.playerId);
+                this.schedulePeerReconnect(player.playerId, 'players-list发现缺失连接', 500);
               }
+
+              // 已知玩家的连接修复交给统一重连状态机。不能在这里删除连接后
+              // 再按字典序等待，否则较小 ID 一方可能永久等不到新的 Offer。
+              continue;
             }
             
             // 使用字符串比较决定谁主动发起连接，避免双方同时发送Offer
@@ -796,6 +812,12 @@ export class WebRTCClient {
 
             this.knownPlayers.delete(message.playerId);
             this.removePeer(message.playerId);
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              screenShareService.handlePlayerLeft(message.playerId);
+            } catch (error) {
+              console.error('清理离线玩家的屏幕共享中继失败:', error);
+            }
           }, this.transientLeaveConfirmMs);
 
           this.pendingPlayerLeaveTimers.set(message.playerId, leaveTimer);
@@ -1030,6 +1052,7 @@ export class WebRTCClient {
               requirePassword: false,
               password: message.password, // 【修复】传递密码字段
               sdp: message.offer.sdp,
+              routeVersion: message.routeVersion,
             });
             console.log(`✅ 屏幕共享Offer已处理`);
           } catch (error) {
@@ -1045,6 +1068,7 @@ export class WebRTCClient {
             await screenShareService.handleAnswer({
               shareId: message.shareId,
               sdp: message.answer.sdp,
+              routeVersion: message.routeVersion,
             }, message.from);
             console.log(`✅ 屏幕共享Answer已处理`);
           } catch (error) {
@@ -1057,10 +1081,19 @@ export class WebRTCClient {
           console.log(`🖥️ 收到屏幕共享ICE候选 from ${message.from}`);
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
-            await screenShareService.handleIceCandidate(message.shareId, message.candidate);
+            await screenShareService.handleIceCandidate(message.shareId, message.candidate, message.from, message.connectionRole, message.routeVersion);
             console.log(`✅ 屏幕共享ICE候选已处理`);
           } catch (error) {
             console.error('❌ 处理屏幕共享ICE候选失败:', error);
+          }
+          break;
+
+        case 'screen-share-relay':
+          try {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            await screenShareService.handleRelayControl(message);
+          } catch (error) {
+            console.error('❌ 处理屏幕共享中继控制消息失败:', error);
           }
           break;
           
@@ -1095,6 +1128,9 @@ export class WebRTCClient {
                   shareId: share.id,
                   playerName: share.playerName,
                   hasPassword: share.requirePassword,
+                  viewerId: share.viewerId,
+                  viewerName: share.viewerName,
+                  viewerCount: share.viewerCount ?? 0,
                 });
               });
             } else {
@@ -1119,6 +1155,9 @@ export class WebRTCClient {
               requirePassword: message.hasPassword,
               startTime: Date.now(),
               status: 'active' as const,
+              viewerId: message.viewerId,
+              viewerName: message.viewerName,
+              viewerCount: message.viewerCount ?? 0,
             };
             // 直接添加到activeShares
             (screenShareService as any).activeShares.set(share.id, share);
@@ -1131,6 +1170,9 @@ export class WebRTCClient {
                 playerId: share.playerId,
                 playerName: share.playerName,
                 hasPassword: share.requirePassword,
+                viewerId: share.viewerId,
+                viewerName: share.viewerName,
+                viewerCount: share.viewerCount,
               }
             }));
           } catch (error) {
@@ -1145,10 +1187,12 @@ export class WebRTCClient {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
             // 更新本地共享列表中的查看者信息
             const share = (screenShareService as any).activeShares.get(message.shareId);
-            if (share) {
+            if (share && share.playerId === message.from) {
               share.viewerId = message.viewerId;
               share.viewerName = message.viewerName;
+              share.viewerCount = message.viewerCount ?? (message.viewerId ? 1 : 0);
               (screenShareService as any).activeShares.set(message.shareId, share);
+              screenShareService.handleShareUpdate(message.shareId, message.viewerId, message.viewerName, message.viewerCount);
               console.log(`✅ 共享状态已更新:`, { viewerId: message.viewerId, viewerName: message.viewerName });
               
               // 【事件驱动】触发自定义事件通知UI更新
@@ -1157,6 +1201,7 @@ export class WebRTCClient {
                   shareId: message.shareId,
                   viewerId: message.viewerId,
                   viewerName: message.viewerName,
+                  viewerCount: message.viewerCount,
                 }
               }));
             }
@@ -1688,6 +1733,10 @@ export class WebRTCClient {
 
     const timer = window.setTimeout(async () => {
       this.reconnectTimers.delete(peerId);
+      if (!this.knownPlayers.has(peerId)) {
+        console.log(`[WebRTC] ${peerId} 已离开大厅，取消过期重连任务`);
+        return;
+      }
 
       const currentPc = this.peerConnections.get(peerId);
       if (currentPc && (currentPc.connection.connectionState === 'connected' || currentPc.connection.connectionState === 'connecting')) {
@@ -1708,6 +1757,7 @@ export class WebRTCClient {
         const fallbackTimer = window.setTimeout(async () => {
           this.reconnectTimers.delete(peerId);
           if (this.isIntentionalDisconnect) return;
+          if (!this.knownPlayers.has(peerId)) return;
           const pc = this.peerConnections.get(peerId);
           if (pc && (pc.connection.connectionState === 'connected' || pc.connection.connectionState === 'connecting')) {
             return; // 已恢复
@@ -1745,6 +1795,57 @@ export class WebRTCClient {
     }
     this.reconnectingPeers.delete(peerId);
   }
+
+  private startVoiceHealthMonitor(): void {
+    if (this.voiceHealthInterval !== null) return;
+    this.voiceHealthInterval = window.setInterval(() => {
+      void this.checkVoiceHealth();
+    }, 10000);
+  }
+
+  private async checkVoiceHealth(): Promise<void> {
+    if (this.voiceHealthCheckRunning || this.isIntentionalDisconnect) return;
+    this.voiceHealthCheckRunning = true;
+    try {
+      const { useAppStore } = await import('../../stores');
+      const state = useAppStore.getState();
+      const now = Date.now();
+      for (const [peerId, peer] of this.peerConnections) {
+        if (peer.connection.connectionState !== 'connected' || !peer.audioElement) continue;
+        const remotePlayer = state.players.find((player) => player.id === peerId);
+        if (!remotePlayer?.micEnabled) {
+          this.voiceHealth.delete(peerId);
+          continue;
+        }
+
+        const stats = await peer.connection.getStats();
+        let packets = 0;
+        stats.forEach((report) => {
+          if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+            packets += Number(report.packetsReceived ?? 0);
+          }
+        });
+
+        const previous = this.voiceHealth.get(peerId);
+        if (!previous || packets > previous.packets) {
+          this.voiceHealth.set(peerId, { packets, noProgressSince: 0 });
+          continue;
+        }
+        const noProgressSince = previous.noProgressSince || now;
+        this.voiceHealth.set(peerId, { packets, noProgressSince });
+        if (now - noProgressSince >= 30000 && !this.reconnectingPeers.has(peerId)) {
+          console.warn(`⚠️ ${peerId} 远端麦克风已开启但音频包 30 秒未增长，调度语音重建`);
+          this.schedulePeerReconnect(peerId, '远端音频无数据', 500);
+          this.voiceHealth.set(peerId, { packets, noProgressSince: now });
+        }
+      }
+    } catch (error) {
+      console.warn('语音健康检查失败:', error);
+    } finally {
+      this.voiceHealthCheckRunning = false;
+    }
+  }
+
   private removePeerConnection(peerId: string): void {
     const pc = this.peerConnections.get(peerId);
     if (pc) {
@@ -1819,6 +1920,7 @@ export class WebRTCClient {
         }
         
         this.peerConnections.delete(peerId);
+        this.voiceHealth.delete(peerId);
         console.log(`✅ 已移除 peer connection: ${peerId}`);
       } catch (error) {
         console.error(`❌ 移除 peer connection 失败 (${peerId}):`, error);
@@ -1832,6 +1934,7 @@ export class WebRTCClient {
    * 移除对等连接（公开方法，触发回调）
    */
   private removePeer(peerId: string): void {
+    this.clearPeerReconnectState(peerId);
     this.removePeerConnection(peerId);
     
     // 触发回调
@@ -1993,6 +2096,7 @@ export class WebRTCClient {
         
         if (pc.connectionState === 'connected') {
           console.log(`✅ 与 ${peerId} 的连接已建立`);
+          this.clearPeerReconnectState(peerId);
           
           // 清除连接超时定时器
           if (peer.connectionTimeout) {
@@ -2011,26 +2115,19 @@ export class WebRTCClient {
           // 清除旧的重连定时器
           this.clearPeerReconnectState(peerId);
           
-          // 只有ID字典序较大的一方才主动重连，避免双方同时重连
-          if (this.localPlayerId > peerId) {
-            console.log(`🔄 连接失败，调度重连 ${peerId}...`);
-            this.schedulePeerReconnect(peerId, '连接失败', 2000);
-          } else {
-            console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
-          }
+          // 双方都进入独立重连状态机。调度器负责去重，并为较小 ID
+          // 提供延迟兜底发起，避免一方故障时双方永久互等。
+          console.log(`🔄 连接失败，调度重连 ${peerId}...`);
+          this.schedulePeerReconnect(peerId, '连接失败', 4000);
         } else if (pc.connectionState === 'disconnected') {
           console.warn(`⚠️ 与 ${peerId} 的连接断开`);
           
           // 清除旧的重连定时器
           this.clearPeerReconnectState(peerId);
           
-          // 等待8秒看是否能自动恢复（给ICE更多时间尝试重连）
-          if (this.localPlayerId > peerId) {
-            console.log(`🔄 连接断开，调度重连 ${peerId}...`);
-            this.schedulePeerReconnect(peerId, '连接断开', 8000);
-          } else {
-            console.log(`⏳ 等待 ${peerId} 主动重连（ID字典序较小）`);
-          }
+          // 给 ICE 留出恢复窗口，恢复失败后由双方状态机协同重建。
+          console.log(`🔄 连接断开，调度重连 ${peerId}...`);
+          this.schedulePeerReconnect(peerId, '连接断开', 6000);
         } else if (pc.connectionState === 'closed') {
           console.log(`🔒 与 ${peerId} 的连接已关闭`);
           this.removePeerConnection(peerId);
@@ -2042,6 +2139,9 @@ export class WebRTCClient {
         console.log(`❄️ ICE 连接状态 (${peerId}): ${pc.iceConnectionState}`);
         if (pc.iceConnectionState === 'failed') {
           console.error(`❌ ICE 连接失败 with ${peerId}`);
+          this.schedulePeerReconnect(peerId, 'ICE连接失败', 4000);
+        } else if (pc.iceConnectionState === 'disconnected') {
+          this.schedulePeerReconnect(peerId, 'ICE连接断开', 5000);
         } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
           console.log(`✅ ICE 连接成功 with ${peerId}`);
         }
@@ -2081,6 +2181,11 @@ export class WebRTCClient {
               peerConn.audioStream = event.streams[0];
               peerConn.audioElement = audioElement;
               console.log(`✅ 音频元素已保存 for ${peerId}`);
+              localVqeService.setReferenceStreams(
+                Array.from(this.peerConnections.values())
+                  .map((peer) => peer.audioStream)
+                  .filter((stream): stream is MediaStream => Boolean(stream)),
+              );
             }
 
             // 【修复】对新建立 / 重连的对端应用当前已有的静音和音量设置，
@@ -2242,11 +2347,8 @@ export class WebRTCClient {
         if (currentPc && currentPc.connection.connectionState !== 'connected') {
           console.warn(`⏰ 连接超时 (${peerId})，状态: ${currentPc.connection.connectionState}`);
           
-          // 如果是ID字典序较大的一方，调度重连（避免立即重连导致频繁失败）
-          if (this.localPlayerId > peerId) {
-            console.log(`🔄 连接超时，调度重连 ${peerId}...`);
-            this.schedulePeerReconnect(peerId, '连接超时', 2000);
-          }
+          console.log(`🔄 连接超时，调度重连 ${peerId}...`);
+          this.schedulePeerReconnect(peerId, '连接超时', 2000);
         }
       }, 30000);
 
@@ -2257,58 +2359,43 @@ export class WebRTCClient {
     }
   }
 
-  /**
-   * 请求麦克风权限（带重试机制）
-   * 如果用户拒绝，会重复弹出请求直到授予权限
-   */
-  private async requestMicrophonePermission(): Promise<MediaStream> {
-    let attempts = 0;
-    const maxAttempts = 10; // 最多尝试10次
-    
-    while (attempts < maxAttempts) {
-      try {
-        console.log(`🎤 正在请求麦克风权限... (尝试 ${attempts + 1}/${maxAttempts})`);
-        
-        // 读取用户选定的输入设备（若有）
-        const preferredInput = audioDevices.getInputDeviceId();
-        const audioConstraints: MediaTrackConstraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        };
-        if (preferredInput) {
-          // 用 ideal 而非 exact，设备不可用时自动回退默认设备，避免获取失败
-          (audioConstraints as any).deviceId = { ideal: preferredInput };
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: audioConstraints,
-          video: false,
-        });
-        
-        console.log('✅ 麦克风权限已获取');
-        return stream;
-      } catch (error: any) {
-        attempts++;
-        
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          console.warn(`⚠️ 麦克风权限被拒绝 (尝试 ${attempts}/${maxAttempts})`);
-          
-          if (attempts < maxAttempts) {
-            // 等待1秒后重试
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            console.log('🔄 重新请求麦克风权限...');
-            continue;
-          } else {
-            throw new Error(tl('麦克风权限被拒绝次数过多，请在浏览器设置中手动授予权限', 'Microphone permission denied too many times. Please grant it manually in your browser settings.'));
-          }
-        } else {
-          // 其他错误直接抛出
-          throw error;
-        }
+  /** 请求麦克风权限。拒绝后交给全局权限恢复界面处理，不做无意义的循环请求。 */
+  private async requestMicrophonePermission(notifyPermissionRequired = true): Promise<MediaStream> {
+    try {
+      console.log('🎤 正在请求麦克风权限...');
+      const preferredInput = audioDevices.getInputDeviceId();
+      const audioConstraints: MediaTrackConstraints = {
+        // Sonora owns AEC and noise suppression on the desktop path. Keeping
+        // Chromium AEC enabled here would process the same speech twice and
+        // is audible as clipped consonants and swallowed word endings.
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      };
+      if (preferredInput) {
+        (audioConstraints as any).deviceId = { ideal: preferredInput };
       }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
+      console.log('✅ 麦克风权限已获取');
+      return stream;
+    } catch (error: any) {
+      if (notifyPermissionRequired && (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError')) {
+        console.warn('⚠️ 麦克风权限被拒绝，显示权限恢复入口');
+        window.dispatchEvent(new CustomEvent('mctier-microphone-permission-required', {
+          detail: { resumeMic: this.desiredMicEnabled },
+        }));
+      }
+      throw error;
     }
-    
-    throw new Error(tl('无法获取麦克风权限', 'Unable to obtain microphone permission'));
+  }
+
+  /** 供设置页和权限恢复弹窗主动重新触发系统授权。 */
+  async requestMicrophoneAccess(notifyPermissionRequired = true): Promise<void> {
+    const stream = await this.requestMicrophonePermission(notifyPermissionRequired);
+    stream.getTracks().forEach(track => track.stop());
   }
 
   /**
@@ -2367,29 +2454,28 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
         }
         this.rawMicStream = rawStream;
-        const newStream = voiceChangerService.process(rawStream);
+        // AEC must see the original microphone waveform. Applying pitch/time
+        // effects first breaks the relationship with the render reference.
+        const cleanStream = await localVqeService.processStream(rawStream);
+        const newStream = voiceChangerService.process(cleanStream);
+        localVqeService.setReferenceStreams(
+          Array.from(this.peerConnections.values())
+            .map((peer) => peer.audioStream)
+            .filter((stream): stream is MediaStream => Boolean(stream)),
+        );
         const newAudioTrack = newStream.getAudioTracks()[0];
 
         for (const [peerId, pc] of this.peerConnections) {
-          if (pc.isNegotiating) {
-            console.log('⏳ 等待 ' + peerId + ' 的协商完成...');
-            let waitCount = 0;
-            while (pc.isNegotiating && waitCount < 30) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-              waitCount++;
-            }
-          }
-
           const transceivers = pc.connection.getTransceivers();
           const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
 
           if (audioTransceiver && audioTransceiver.sender) {
             await audioTransceiver.sender.replaceTrack(newAudioTrack);
             console.log('✅ 已替换 peer ' + peerId + ' 的音频轨道');
-            await this.renegotiatePeer(peerId, pc);
           } else {
             pc.connection.addTrack(newAudioTrack, newStream);
             console.log('✅ 已添加 peer ' + peerId + ' 的音频轨道');
+            // 只有旧客户端没有预建 audio transceiver 时才需要协商。
             await this.renegotiatePeer(peerId, pc);
           }
         }
@@ -2416,22 +2502,11 @@ export class WebRTCClient {
         // 旧实现把这段放在 if (this.localStream) 内部，一旦状态出现漂移（localStream 已为空
         // 但 sender 上仍挂着轨道），关麦就会「看起来成功、实际仍在传声」。
         for (const [peerId, pc] of this.peerConnections) {
-          if (pc.isNegotiating) {
-            console.log('⏳ 等待 ' + peerId + ' 的协商完成...');
-            let waitCount = 0;
-            while (pc.isNegotiating && waitCount < 30) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-              waitCount++;
-            }
-          }
+          const audioTransceiver = pc.connection.getTransceivers().find(t => t.receiver.track.kind === 'audio');
 
-          const senders = pc.connection.getSenders();
-          const audioSender = senders.find(sender => sender.track?.kind === 'audio');
-
-          if (audioSender) {
-            await audioSender.replaceTrack(null);
+          if (audioTransceiver?.sender) {
+            await audioTransceiver.sender.replaceTrack(null);
             console.log('✅ 已移除 peer ' + peerId + ' 的音频轨道');
-            await this.renegotiatePeer(peerId, pc);
           }
         }
 
@@ -2441,6 +2516,8 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
           this.rawMicStream = null;
         }
+        // Keep the warmed model alive while the user is still in the lobby.
+        await localVqeService.deactivate();
         voiceChangerService.dispose();
         try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
         console.log('✅ 麦克风已关闭，资源已释放');
@@ -2907,6 +2984,11 @@ export class WebRTCClient {
       // 清理所有peer重连状态
       this.reconnectTimers.forEach(timer => clearTimeout(timer));
       this.reconnectTimers.clear();
+      if (this.voiceHealthInterval !== null) {
+        clearInterval(this.voiceHealthInterval);
+        this.voiceHealthInterval = null;
+      }
+      this.voiceHealth.clear();
       this.reconnectingPeers.clear();
       this.manualReconnectingPeers.clear();
       this.knownPlayers.clear();
@@ -2968,6 +3050,7 @@ export class WebRTCClient {
         this.rawMicStream.getTracks().forEach((t) => t.stop());
         this.rawMicStream = null;
       }
+      try { await localVqeService.dispose(); } catch { /* ignore */ }
       try { voiceChangerService.dispose(); } catch { /* ignore */ }
       try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
 
@@ -3032,16 +3115,6 @@ export class WebRTCClient {
 
 // 导出单例实例
 export const webrtcClient = new WebRTCClient();
-
-
-
-
-
-
-
-
-
-
 
 
 

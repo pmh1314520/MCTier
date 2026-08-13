@@ -70,8 +70,8 @@
 }
 
 .voice-control-button.mic-button.active:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0d8074 0%, #2dd46b 100%) !important;
-  box-shadow: 0 6px 24px rgba(17, 153, 142, 0.5);
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+  box-shadow: 0 4px 16px rgba(17, 153, 142, 0.4);
 }
 
 /* 静音按钮 */
@@ -97,8 +97,8 @@
 }
 
 .voice-control-button.mute-button.active:hover:not(:disabled) {
-  background: linear-gradient(135deg, #d9363e 0%, #ff4d4f 100%) !important;
-  box-shadow: 0 6px 24px rgba(255, 77, 79, 0.5);
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%) !important;
+  box-shadow: 0 4px 16px rgba(255, 77, 79, 0.4);
 }
 
 /* 按钮按下效果 */

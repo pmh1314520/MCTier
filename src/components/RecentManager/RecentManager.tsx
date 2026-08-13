@@ -76,6 +76,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
           {lobbies.map((l) => (
             <div
               key={`${l.name}|${l.password}`}
+              className="recent-lobby-item"
               onClick={() => handleSelect(l)}
               style={{
                 border: '1px solid rgba(255,255,255,0.12)',
@@ -89,13 +90,13 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>{l.name}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+                <div className="recent-item-meta" style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
                   {l.playerName ? tl(`玩家：${l.playerName} · `, `Player: ${l.playerName} · `) : ''}{formatTime(l.lastJoined)}
                 </div>
               </div>
               <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Button type="primary" size="small" onClick={() => handleSelect(l)}>{tl('快速重进', 'Rejoin')}</Button>
-                <Button size="small" danger onClick={() => handleRemoveLobby(l)}>{tl('删除', 'Delete')}</Button>
+                <Button className="recent-danger-button" size="small" danger onClick={() => handleRemoveLobby(l)}>{tl('删除', 'Delete')}</Button>
               </div>
             </div>
           ))}
@@ -113,7 +114,8 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
           {players.map((p) => (
             <div
               key={p.name}
-              title={`${formatTime(p.lastSeen)} · 共 ${p.count} 次`}
+              className="recent-player-item"
+              title={`${formatTime(p.lastSeen)} · ${tl(`共 ${p.count} 次`, `${p.count} sessions`)}`}
               style={{
                 border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: 16,
@@ -122,7 +124,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
               }}
             >
               {p.name}
-              <span style={{ color: 'rgba(255,255,255,0.45)', marginLeft: 6, fontSize: 11 }}>
+              <span className="recent-item-meta" style={{ color: 'rgba(255,255,255,0.45)', marginLeft: 6, fontSize: 11 }}>
                 {formatTime(p.lastSeen)}
               </span>
             </div>
@@ -157,10 +159,11 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
   return (
     <Modal
       title={tl('最近联机', 'Recent')}
+      className="recent-manager-modal"
       open={visible}
       onCancel={onClose}
       footer={[
-        <Button key="clear" danger style={{ float: 'left' }} onClick={handleClear}>{tl('清空', 'Clear')}</Button>,
+        <Button key="clear" className="recent-danger-button" danger style={{ float: 'left' }} onClick={handleClear}>{tl('清空', 'Clear')}</Button>,
         <Button key="close" type="primary" onClick={onClose}>{tl('关闭', 'Close')}</Button>,
       ]}
       width={500}

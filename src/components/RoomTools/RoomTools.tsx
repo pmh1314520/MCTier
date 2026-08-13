@@ -42,7 +42,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
   const todos = useAppStore((s) => s.todos);
   const setTodos = useAppStore((s) => s.setTodos);
 
-  const myName = config.playerName || '我';
+  const myName = config.playerName || tl('我', 'Me');
 
   // ===== 掷骰子 =====
   const [diceCount, setDiceCount] = useState(1);
@@ -58,18 +58,24 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
       rolls.push(Math.floor(Math.random() * sides) + 1);
     }
     const sum = rolls.reduce((a, b) => a + b, 0);
-    const localText =
-      count > 1 ? `${count}d${sides}：${rolls.join(' + ')} = ${sum}` : `d${sides}：${rolls[0]} 点`;
+    const localText = count > 1
+      ? `${count}d${sides}: ${rolls.join(' + ')} = ${sum}`
+      : tl(`d${sides}：${rolls[0]} 点`, `d${sides}: ${rolls[0]} points`);
     setLastRoll(localText);
 
     if (broadcast) {
       setRolling(true);
       try {
         const playerName = myName;
-        const content =
-          count > 1
-            ? `🎲 ${playerName} 掷出 ${count}d${sides}：${rolls.join(' + ')} = ${sum}`
-            : `🎲 ${playerName} 掷出了 ${rolls[0]} 点（d${sides}）`;
+        const content = count > 1
+          ? tl(
+              `🎲 ${playerName} 掷出 ${count}d${sides}：${rolls.join(' + ')} = ${sum}`,
+              `🎲 ${playerName} rolled ${count}d${sides}: ${rolls.join(' + ')} = ${sum}`,
+            )
+          : tl(
+              `🎲 ${playerName} 掷出了 ${rolls[0]} 点（d${sides}）`,
+              `🎲 ${playerName} rolled ${rolls[0]} points (d${sides})`,
+            );
         if (currentPlayerId) {
           const optimistic: ChatMessage = {
             id: `msg-${currentPlayerId}-${Date.now()}`,
@@ -157,7 +163,7 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
   const diceTab = (
     <div style={{ padding: '8px 4px' }}>
       <Space wrap align="center">
-        <InputNumber min={1} max={10} value={diceCount} onChange={(v) => setDiceCount(v ?? 1)} addonBefore="数量" />
+        <InputNumber min={1} max={10} value={diceCount} onChange={(v) => setDiceCount(v ?? 1)} addonBefore={tl('数量', 'Count')} />
         <Select
           value={diceSides}
           onChange={(v) => setDiceSides(v)}
@@ -181,8 +187,8 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
       {remaining === null ? (
         <>
           <Space align="center">
-            <InputNumber min={0} max={180} value={minutes} onChange={(v) => setMinutes(v ?? 0)} addonAfter="分" />
-            <InputNumber min={0} max={59} value={seconds} onChange={(v) => setSeconds(v ?? 0)} addonAfter="秒" />
+            <InputNumber min={0} max={180} value={minutes} onChange={(v) => setMinutes(v ?? 0)} addonAfter={tl('分', 'min')} />
+            <InputNumber min={0} max={59} value={seconds} onChange={(v) => setSeconds(v ?? 0)} addonAfter={tl('秒', 'sec')} />
           </Space>
           <div style={{ marginTop: 14 }}>
             <Button type="primary" onClick={startCountdown}>{t('roomTools.startTimer')}</Button>

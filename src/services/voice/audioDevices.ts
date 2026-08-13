@@ -6,6 +6,7 @@
 
 const INPUT_KEY = 'mctier_audio_input_device';
 const OUTPUT_KEY = 'mctier_audio_output_device';
+const OUTPUT_NAME_KEY = 'mctier_audio_output_device_name';
 
 export const audioDevices = {
   getInputDeviceId(): string {
@@ -28,10 +29,19 @@ export const audioDevices = {
       return '';
     }
   },
-  setOutputDeviceId(id: string): void {
+  getOutputDeviceName(): string {
+    try {
+      return localStorage.getItem(OUTPUT_NAME_KEY) || '';
+    } catch {
+      return '';
+    }
+  },
+  setOutputDeviceId(id: string, name = ''): void {
     try {
       if (id) localStorage.setItem(OUTPUT_KEY, id);
       else localStorage.removeItem(OUTPUT_KEY);
+      if (name) localStorage.setItem(OUTPUT_NAME_KEY, name);
+      else localStorage.removeItem(OUTPUT_NAME_KEY);
     } catch { /* ignore */ }
   },
 };

@@ -28,6 +28,7 @@ import org.webrtc.SessionDescription
 import top.pmh13.mctier.data.IcePayload
 import top.pmh13.mctier.data.SdpPayload
 import top.pmh13.mctier.data.SignalingEnvelope
+import top.pmh13.mctier.audio.LocalVqePcmProcessor
 
 /**
  * Android 语音控制器（WebRTC 网状连接）
@@ -167,6 +168,7 @@ class AndroidRtcController(private val context: Context) {
                 // 不忽略任何网卡（含 VPN/TUN/loopback），保证采集到虚拟网卡候选
                 networkIgnoreMask = 0
             }
+            LocalVqePcmProcessor.init(context)
             // 显式配置音频设备模块：必须用语音通话采集 + 通话模式，才能真正启用硬件回声消除/降噪，
             // 否则会出现严重声学回声(对方扬声器→对方麦克风→无限循环啸叫)与嘈杂底噪。
             val adm = JavaAudioDeviceModule.builder(context)
@@ -181,9 +183,13 @@ class AndroidRtcController(private val context: Context) {
                 .setUseHardwareNoiseSuppressor(true)
                 // 不可开启低延迟通道：低延迟(FAST)路径会绕过系统 AEC/NS，导致回声
                 .setUseLowLatency(false)
+                .setPlaybackSamplesReadyCallback { samples ->
+                    LocalVqePcmProcessor.onPlaybackSamplesReady(samples)
+                }
                 // 变声器：在录音 PCM 进入 WebRTC 前原地处理
                 .setAudioBufferCallback { buffer, audioFormat, channelCount, sampleRate, bytesRead, captureTimestampNs ->
                     runCatching { VoiceProcessor.process(audioFormat, channelCount, sampleRate, buffer, bytesRead) }
+                    runCatching { LocalVqePcmProcessor.processCapture(buffer, audioFormat, channelCount, sampleRate, bytesRead) }
                     captureTimestampNs
                 }
                 .createAudioDeviceModule()
@@ -240,7 +246,13 @@ class AndroidRtcController(private val context: Context) {
      */
     fun connectToPlayer(remotePlayerId: String) {
         if (remotePlayerId == localPlayerId) return
-        if (peerConnections.containsKey(remotePlayerId)) return
+        peerConnections[remotePlayerId]?.let { existing ->
+            val state = runCatching { existing.connectionState() }.getOrNull()
+            if (state == PeerConnection.PeerConnectionState.CONNECTED ||
+                state == PeerConnection.PeerConnectionState.CONNECTING
+            ) return
+            removePeer(remotePlayerId)
+        }
         if (localPlayerId > remotePlayerId) {
             val pc = ensurePeer(remotePlayerId) ?: return
             pc.createOffer(object : SimpleSdpObserver() {
@@ -333,10 +345,10 @@ class AndroidRtcController(private val context: Context) {
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
                     Log.i(TAG, "ICE 连接状态[$remotePlayerId]: $newState")
                     when (newState) {
-                        // DISCONNECTED 多为短暂网络抖动，给 4s 自愈窗口；超时仍未恢复则发起 ICE 重启
-                        PeerConnection.IceConnectionState.DISCONNECTED -> scheduleIceRestart(remotePlayerId, 4000)
-                        // FAILED 不会自行恢复，立即发起 ICE 重启
-                        PeerConnection.IceConnectionState.FAILED -> scheduleIceRestart(remotePlayerId, 0)
+                        // EasyTier 成员退出时可能短暂重算虚拟路由，多个仍在线连接会同时进入
+                        // DISCONNECTED/FAILED。统一留出自愈窗口，避免立即让所有 peer 同时重协商。
+                        PeerConnection.IceConnectionState.DISCONNECTED -> scheduleIceRestart(remotePlayerId, 6000)
+                        PeerConnection.IceConnectionState.FAILED -> scheduleIceRestart(remotePlayerId, 6000)
                         // 已恢复连接：取消尚未执行的重启任务
                         PeerConnection.IceConnectionState.CONNECTED,
                         PeerConnection.IceConnectionState.COMPLETED -> iceRestartJobs.remove(remotePlayerId)?.cancel()
@@ -349,6 +361,12 @@ class AndroidRtcController(private val context: Context) {
                 }
                 override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
                     Log.i(TAG, "PeerConnection 状态[$remotePlayerId]: $newState")
+                    when (newState) {
+                        PeerConnection.PeerConnectionState.DISCONNECTED,
+                        PeerConnection.PeerConnectionState.FAILED -> scheduleIceRestart(remotePlayerId, 5000)
+                        PeerConnection.PeerConnectionState.CONNECTED -> iceRestartJobs.remove(remotePlayerId)?.cancel()
+                        else -> Unit
+                    }
                 }
                 override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
                 override fun onAddStream(stream: org.webrtc.MediaStream) = Unit
@@ -432,6 +450,7 @@ class AndroidRtcController(private val context: Context) {
         audioSource?.dispose()
         localAudioTrack = null
         audioSource = null
+        LocalVqePcmProcessor.dispose()
         _micEnabled.value = false
         globalMuted = false
         restoreNormalAudio()
@@ -500,10 +519,12 @@ class AndroidRtcController(private val context: Context) {
      * 且不再恢复”的问题（网络抖动 / NAT 绑定超时 / 隧道瞬断导致媒体通道失效）。
      */
     private fun scheduleIceRestart(remotePlayerId: String, delayMs: Long) {
-        if (localPlayerId <= remotePlayerId) return
         iceRestartJobs[remotePlayerId]?.cancel()
         iceRestartJobs[remotePlayerId] = rtcScope.launch {
-            if (delayMs > 0) delay(delayMs)
+            // ID 较大的一方优先发起；较小的一方延迟兜底，避免两端都等待
+            // 或主发起端故障后连接永久停在 disconnected/failed。
+            val effectiveDelay = if (localPlayerId > remotePlayerId) delayMs else delayMs + 6000L
+            if (effectiveDelay > 0) delay(effectiveDelay)
             if (!isActive) return@launch
             val pc = peerConnections[remotePlayerId] ?: return@launch
             val st = runCatching { pc.iceConnectionState() }.getOrNull()

@@ -14,6 +14,7 @@ import type {
   WindowPosition,
   ChatMessage,
 } from '../types';
+import { applyMessageRecall } from '../services/chat/recallPolicy';
 
 /** 共享待办项（双端字段名一致） */
 export interface TodoItem {
@@ -159,6 +160,9 @@ interface AppStore {
   chatMessages: ChatMessage[];
   /** 添加聊天消息 */
   addChatMessage: (message: ChatMessage) => void;
+  deleteChatMessage: (messageId: string) => void;
+  /** 仅允许原发送者撤回自己的消息 */
+  recallChatMessage: (messageId: string, requesterId: string) => boolean;
   /** 清除聊天消息 */
   clearChatMessages: () => void;
   /** 获取最近N条消息 */
@@ -645,6 +649,25 @@ export const useAppStore = create<AppStore>()(
           false,
           'addChatMessage'
         );
+      },
+
+      deleteChatMessage: (messageId: string) => {
+        set(
+          (state) => ({ chatMessages: state.chatMessages.filter((message) => message.id !== messageId) }),
+          false,
+          'deleteChatMessage'
+        );
+      },
+
+      recallChatMessage: (messageId: string, requesterId: string) => {
+        const result = applyMessageRecall(get().chatMessages, messageId, requesterId);
+        if (!result.changed) return false;
+        set(
+          { chatMessages: [...result.messages] },
+          false,
+          'recallChatMessage'
+        );
+        return true;
       },
 
       clearChatMessages: () => {

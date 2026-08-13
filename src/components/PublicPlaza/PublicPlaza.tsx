@@ -80,7 +80,7 @@ export const PublicPlaza: React.FC<PublicPlazaProps> = ({ visible, onClose, onJo
                   <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                     {l.lobbyName}
                     <Tag color={full ? 'red' : 'green'}>
-                      {l.playerCount}{l.maxPlayers ? `/${l.maxPlayers}` : ''} 人
+                      {l.playerCount}{l.maxPlayers ? `/${l.maxPlayers}` : ''} {tl('人', 'players')}
                     </Tag>
                   </div>
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
