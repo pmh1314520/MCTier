@@ -11,6 +11,8 @@ export interface FavoriteLobby {
   password: string;
   playerName?: string;
   useDomain?: boolean;
+  serverNode?: string;
+  signalingServer?: string;
   createdAt: number;
   /** 使用次数（每次一键填入/加入 +1） */
   useCount?: number;
@@ -22,6 +24,8 @@ interface FavoriteLobbyManagerProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (lobby: FavoriteLobby) => void;
+  defaultServerNode?: string;
+  defaultSignalingServer?: string;
 }
 
 const STORAGE_KEY = 'mctier_favorite_lobbies';
@@ -33,6 +37,8 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
   visible,
   onClose,
   onSelect,
+  defaultServerNode,
+  defaultSignalingServer,
 }) => {
   useTranslation();
   // hook 版 message/modal：确认弹层置顶可点击，避免内嵌 Popconfirm 在 Modal 内被遮挡而点击无反应。
@@ -101,6 +107,8 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
           password: values.password,
           playerName: values.playerName,
           useDomain: values.useDomain ?? false,
+          serverNode: defaultServerNode,
+          signalingServer: defaultSignalingServer,
           createdAt: Date.now(),
         };
         saveFavorites([...favorites, newFavorite]);

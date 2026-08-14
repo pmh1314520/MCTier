@@ -293,7 +293,7 @@ impl NetworkService {
         
         // ========== 网络设备 ==========
         if config.bind_device {
-            cmd.arg("--bind-device");
+            cmd.arg("--bind-device").arg("true");
             log::info!("  ✅ 绑定到物理设备");
         }
         
@@ -2033,6 +2033,33 @@ mod tests {
         let config = NetworkConfig::default();
         assert_eq!(config.easytier_path, PathBuf::from("easytier-core.exe"));
         assert_eq!(config.config_dir, PathBuf::from("./config"));
+    }
+
+    #[test]
+    fn test_bind_device_argument_includes_required_boolean_value() {
+        let mut config = crate::modules::config_manager::EasyTierAdvancedConfig::default();
+        config.bind_device = true;
+        config.dev_name = Some("MCTier_Net".to_string());
+
+        let mut command = Command::new("easytier-core.exe");
+        NetworkService::apply_advanced_config(&mut command, &config);
+        let args: Vec<String> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        let bind_device_index = args
+            .iter()
+            .position(|arg| arg == "--bind-device")
+            .expect("bind-device argument should be present");
+        assert_eq!(args.get(bind_device_index + 1).map(String::as_str), Some("true"));
+
+        let dev_name_index = args
+            .iter()
+            .position(|arg| arg == "--dev-name")
+            .expect("dev-name argument should be present");
+        assert_eq!(args.get(dev_name_index + 1).map(String::as_str), Some("MCTier_Net"));
     }
 
     // ========== 创建大厅流程 - EasyTier 启动测试 ==========

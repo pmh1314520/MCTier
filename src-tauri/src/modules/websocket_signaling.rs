@@ -351,7 +351,25 @@ impl WebSocketSignalingServer {
         // 客户端断开连接，清理资源
         if let Some(cid) = client_id {
             log::info!("客户端断开: {}", cid);
-            clients.write().await.remove(&cid);
+            let removed_current_connection = {
+                let mut clients_write = clients.write().await;
+                let is_current_connection = clients_write
+                    .get(&cid)
+                    .map(|client| Arc::ptr_eq(&client.sender, &write))
+                    .unwrap_or(false);
+
+                if is_current_connection {
+                    clients_write.remove(&cid);
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if !removed_current_connection {
+                log::info!("Ignoring stale signaling session close for {}", cid);
+                return Ok(());
+            }
             
             // 通知其他客户端
             Self::broadcast_except(

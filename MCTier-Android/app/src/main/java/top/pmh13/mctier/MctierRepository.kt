@@ -153,6 +153,8 @@ class MctierRepository(private val context: Context) {
     private val soundManager = top.pmh13.mctier.network.SoundManager(context)
     private var reconnectNoticeJob: Job? = null
     private var lastShareSignalRequestAt: Long = 0L
+    private val pendingPlayerLeaveJobs = mutableMapOf<String, Job>()
+    private var playersSnapshotVersion = 0L
 
     /** 是否正处于聊天室界面：在聊天室内收到消息不再播放提示音(对齐桌面端 __isInChatRoom__) */
     @Volatile
@@ -379,10 +381,16 @@ class MctierRepository(private val context: Context) {
         }
     }
 
-    fun createOrJoinLobby(lobbyName: String, password: String, nodeOverride: String? = null) {
+    fun createOrJoinLobby(
+        lobbyName: String,
+        password: String,
+        nodeOverride: String? = null,
+        signalingOverride: String? = null,
+    ) {
         val current = _state.value
         val settings = current.settings
         val effectiveNode = nodeOverride?.takeIf { it.isNotBlank() } ?: settings.preferredServer
+        val effectiveSignaling = signalingOverride?.takeIf { it.isNotBlank() } ?: settings.signalingServer.ifBlank { DefaultSignalingServer }
         scope.launch {
             _state.update { it.copy(state = AppConnectionState.Connecting, error = null) }
             runCatching {
@@ -412,7 +420,8 @@ class MctierRepository(private val context: Context) {
                     virtualIp = session.virtualIp,
                     virtualDomain = settings.virtualDomain.ifBlank { "${settings.playerName}.mct.net" },
                     useDomain = settings.useDomain,
-                    signalingServer = settings.signalingServer.ifBlank { DefaultSignalingServer },
+                    signalingServer = effectiveSignaling,
+                    serverNode = effectiveNode,
                 )
                 fileServer = FileShareHttpServer(context, current.playerId).also { it.start(5_000, false) }
                 // 启动 P2P 聊天（与桌面端 14540 互通）
@@ -480,7 +489,7 @@ class MctierRepository(private val context: Context) {
                         ),
                     )
                 }
-                recordRecentLobby(lobby.name, lobby.password)
+                recordRecentLobby(lobby.name, lobby.password, effectiveNode, effectiveSignaling)
                 statsStartSession()
             }.onFailure { e ->
                 _state.update { it.copy(state = AppConnectionState.Error, error = e.message ?: L("加入大厅失败", "Failed to join lobby")) }
@@ -490,6 +499,9 @@ class MctierRepository(private val context: Context) {
 
     fun leaveLobby() {
         val leaving = _state.value
+        pendingPlayerLeaveJobs.values.forEach { it.cancel() }
+        pendingPlayerLeaveJobs.clear()
+        playersSnapshotVersion = 0L
         runCatching { signalingClient.send(SignalingEnvelope(type = "leave", clientId = leaving.playerId)) }
         _state.update {
             it.copy(
@@ -537,7 +549,7 @@ class MctierRepository(private val context: Context) {
         leaveLobby()
         scope.launch {
             kotlinx.coroutines.delay(1200)
-            createOrJoinLobby(name, pw)
+            createOrJoinLobby(name, pw, lobby.serverNode, lobby.signalingServer)
         }
     }
 
@@ -1178,8 +1190,39 @@ class MctierRepository(private val context: Context) {
         )
     }
 
+    private fun schedulePlayerLeaveConfirmation(playerId: String): Boolean {
+        pendingPlayerLeaveJobs.remove(playerId)?.cancel()
+        pendingPlayerLeaveJobs[playerId] = scope.launch {
+            delay(3_000)
+            if (_state.value.state != AppConnectionState.InLobby || _state.value.players.none { it.id == playerId }) {
+                pendingPlayerLeaveJobs.remove(playerId)
+                return@launch
+            }
+
+            val snapshotBefore = playersSnapshotVersion
+            if (!signalingClient.refreshRegistration()) {
+                pendingPlayerLeaveJobs.remove(playerId)
+                schedulePlayerLeaveConfirmation(playerId)
+                return@launch
+            }
+
+            repeat(60) {
+                if (playersSnapshotVersion > snapshotBefore) {
+                    pendingPlayerLeaveJobs.remove(playerId)
+                    return@launch
+                }
+                delay(100)
+            }
+
+            pendingPlayerLeaveJobs.remove(playerId)
+            schedulePlayerLeaveConfirmation(playerId)
+        }
+        return true
+    }
+
     private fun handleSignal(message: SignalingEnvelope) {
-        rtcController.handleSignal(message)
+        // player-left 必须先由权威成员快照确认，避免旧信令连接的延迟事件拆掉已恢复的语音链路。
+        if (message.type != "player-left") rtcController.handleSignal(message)
         when (message.type) {
             "version-too-old" -> {
                 // 服务器判定客户端版本过低：拦截、退出大厅并要求强制更新
@@ -1201,17 +1244,32 @@ class MctierRepository(private val context: Context) {
                 val remotes = message.players.orEmpty().map {
                     Player(it.playerId, it.playerName, it.virtualIp, it.virtualDomain, it.useDomain ?: false)
                 }
+                playersSnapshotVersion += 1
+                remotes.forEach { pendingPlayerLeaveJobs.remove(it.id)?.cancel() }
                 val selfId = _state.value.playerId
                 // 【幽灵玩家清理】players-list 是服务器在持有大厅读锁时构建的权威全量列表（不含自己），
                 // 与 player-joined 广播互斥一致。断线重连期间已离开的成员不会出现在其中，
                 // 据此移除本地残留，避免"幽灵玩家"永久停留在列表里。始终保留自己。
                 val allowedIds = remotes.map { it.id }.toSet() + selfId
                 val ghosts = _state.value.players.map { it.id }.filter { it !in allowedIds }
-                ghosts.forEach { rtcController.removePeer(it) }
+                val ghostSet = ghosts.toSet()
+                ghosts.forEach {
+                    pendingPlayerLeaveJobs.remove(it)?.cancel()
+                    rtcController.removePeer(it)
+                    screenController?.handlePlayerLeft(it)
+                }
                 _state.update { st ->
                     val merged = mergePlayers(st.players, remotes)
-                    st.copy(players = merged.filter { it.id in allowedIds })
+                    val removedShareIds = st.screenShares
+                        .filter { it.playerId in ghostSet }
+                        .mapTo(mutableSetOf()) { it.id }
+                    st.copy(
+                        players = merged.filter { it.id in allowedIds },
+                        screenShares = st.screenShares.filterNot { it.playerId in ghostSet },
+                        viewingShareId = st.viewingShareId?.takeUnless { it in removedShareIds },
+                    )
                 }
+                if (ghosts.isNotEmpty()) soundManager.playerLeave()
                 recordRecentPlayers(remotes.map { it.name })
                 backfillRemoteShareIps()
                 // 与所有其他玩家建立语音连接（发起规则由 RtcController 内部按 ID 字典序决定）
@@ -1224,8 +1282,16 @@ class MctierRepository(private val context: Context) {
             }
             "player-joined" -> {
                 val id = message.playerId ?: return
+                val alreadyKnown = _state.value.players.any { it.id == id }
+                pendingPlayerLeaveJobs.remove(id)?.cancel()
                 val name = message.playerName ?: L("未知玩家", "Unknown player")
                 _state.update { it.copy(players = mergePlayers(it.players, listOf(Player(id, name, message.virtualIp, message.virtualDomain, message.useDomain ?: false)))) }
+                if (alreadyKnown) {
+                    if (id != _state.value.playerId) rtcController.connectToPlayer(id)
+                    backfillRemoteShareIps()
+                    chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                    return
+                }
                 if (id != _state.value.playerId) {
                     // 该玩家可能是断线重连后“重新加入”，先移除可能存在的旧连接再重建，避免悬空连接导致语音失效
                     rtcController.removePeer(id)
@@ -1266,16 +1332,9 @@ class MctierRepository(private val context: Context) {
             }
             "player-left" -> {
                 val id = message.playerId ?: return
-                screenController?.handlePlayerLeft(id)
-                _state.update { state ->
-                    val removedShareIds = state.screenShares.filter { it.playerId == id }.mapTo(mutableSetOf()) { it.id }
-                    state.copy(
-                        players = state.players.filterNot { player -> player.id == id },
-                        screenShares = state.screenShares.filterNot { it.playerId == id },
-                        viewingShareId = state.viewingShareId?.takeUnless { it in removedShareIds },
-                    )
+                if (id != _state.value.playerId && _state.value.players.any { it.id == id }) {
+                    schedulePlayerLeaveConfirmation(id)
                 }
-                soundManager.playerLeave()
             }
             "status-update" -> {
                 val id = message.clientId ?: message.playerId ?: message.from ?: return
@@ -1482,15 +1541,15 @@ class MctierRepository(private val context: Context) {
                 description = description.ifBlank { null },
                 password = publicPassword?.takeIf { it.isNotBlank() },
                 // 公开时附带房主使用的节点地址，供广场加入者自动同步
-                serverNode = if (isPublic) _state.value.settings.preferredServer.takeIf { it.isNotBlank() } else null,
+                serverNode = if (isPublic) _state.value.lobby?.serverNode?.takeIf { it.isNotBlank() } else null,
             ),
         )
         _state.update { it.copy(maxPlayers = maxPlayers, isPublicLobby = isPublic) }
     }
 
-    fun addFavorite(name: String, password: String, note: String = "") {
+    fun addFavorite(name: String, password: String, note: String = "", serverNode: String? = null, signalingServer: String? = null) {
         if (name.isBlank()) return
-        val fav = FavoriteLobby(name.trim(), password, note)
+        val fav = FavoriteLobby(name.trim(), password, note, serverNode = serverNode, signalingServer = signalingServer)
         val list = (_state.value.favorites.filterNot { it.name == fav.name && it.password == fav.password } + fav)
         saveFavorites(list)
         _state.update { it.copy(favorites = list) }
@@ -1522,8 +1581,8 @@ class MctierRepository(private val context: Context) {
         _state.update { it.copy(recentPlayers = emptyList()) }
     }
 
-    private fun recordRecentLobby(name: String, password: String) {
-        val entry = RecentLobby(name, password, System.currentTimeMillis())
+    private fun recordRecentLobby(name: String, password: String, serverNode: String?, signalingServer: String?) {
+        val entry = RecentLobby(name, password, System.currentTimeMillis(), serverNode, signalingServer)
         val list = (listOf(entry) + _state.value.recentLobbies.filterNot { it.name == name && it.password == password }).take(20)
         saveRecentLobbies(list)
         _state.update { it.copy(recentLobbies = list) }
@@ -1621,9 +1680,18 @@ class MctierRepository(private val context: Context) {
     // ==================== 房间工具：共享剪贴板 ====================
     // ==================== 邀请 Deep Link ====================
     /** 解析 deep link 并预填加入信息（仅填表，不自动连接） */
-    fun applyDeepLink(name: String, pwd: String) {
+    fun applyDeepLink(name: String, pwd: String, serverNode: String? = null, signalingServer: String? = null) {
         if (name.isBlank()) return
-        _state.update { it.copy(pendingJoin = top.pmh13.mctier.data.DeepLinkJoin(name.trim(), pwd)) }
+        _state.update {
+            it.copy(
+                pendingJoin = top.pmh13.mctier.data.DeepLinkJoin(
+                    name.trim(),
+                    pwd,
+                    serverNode?.trim()?.takeIf { value -> value.isNotEmpty() },
+                    signalingServer?.trim()?.takeIf { value -> value.isNotEmpty() },
+                )
+            )
+        }
     }
 
     /** 消费预填加入信息（UI 填好后调用，避免重复预填） */

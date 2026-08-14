@@ -51,6 +51,11 @@ class SignalingClient {
         return webSocket?.send(json) == true
     }
 
+    fun refreshRegistration(): Boolean {
+        val args = connectArgs ?: return false
+        return sendRegistration(args)
+    }
+
     fun close() {
         connectArgs = null
         _connected.value = false
@@ -70,19 +75,7 @@ class SignalingClient {
             override fun onOpen(ws: WebSocket, response: Response) {
                 if (ws !== webSocket) return
                 _connected.value = true
-                send(
-                    SignalingEnvelope(
-                        type = "register",
-                        clientId = args.playerId,
-                        playerName = args.playerName,
-                        virtualIp = args.virtualIp,
-                        virtualDomain = args.virtualDomain,
-                        useDomain = args.useDomain,
-                        lobbyName = args.lobbyName,
-                        lobbyPassword = args.lobbyPassword,
-                        clientVersion = AppClientVersion,
-                    ),
-                )
+                sendRegistration(args)
                 startHeartbeat()
                 // 连接稳定 6 秒后才认为重连成功并清零退避；6 秒内被关闭则继续指数退避
                 stableJob?.cancel()
@@ -90,6 +83,7 @@ class SignalingClient {
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
+                if (ws !== webSocket) return
                 runCatching {
                     MctierJson.decodeFromString(SignalingEnvelope.serializer(), text)
                 }.onSuccess { _events.tryEmit(it) }
@@ -97,17 +91,20 @@ class SignalingClient {
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 if (ws !== webSocket) return // 旧连接的回调，忽略，避免触发重连风暴
+                webSocket = null
                 _connected.value = false
                 android.util.Log.w("SignalingClient", "WS onClosed code=$code reason=$reason")
                 scheduleReconnect()
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                if (ws !== webSocket) return
                 android.util.Log.w("SignalingClient", "WS onClosing code=$code reason=$reason")
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 if (ws !== webSocket) return // 旧连接被主动取消触发的失败，忽略
+                webSocket = null
                 _connected.value = false
                 android.util.Log.e("SignalingClient", "WS onFailure: ${t.message} resp=${response?.code}")
                 scheduleReconnect()
@@ -115,6 +112,20 @@ class SignalingClient {
         })
         webSocket = ws
     }
+
+    private fun sendRegistration(args: ConnectArgs): Boolean = send(
+        SignalingEnvelope(
+            type = "register",
+            clientId = args.playerId,
+            playerName = args.playerName,
+            virtualIp = args.virtualIp,
+            virtualDomain = args.virtualDomain,
+            useDomain = args.useDomain,
+            lobbyName = args.lobbyName,
+            lobbyPassword = args.lobbyPassword,
+            clientVersion = AppClientVersion,
+        ),
+    )
 
     private fun scheduleReconnect() {
         val args = connectArgs ?: return

@@ -3,7 +3,6 @@ package top.pmh13.mctier
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
@@ -13,6 +12,7 @@ import androidx.core.view.WindowCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import com.easytier.jni.EasyTierJNI
 import androidx.compose.runtime.remember
+import top.pmh13.mctier.network.LobbyInviteCodec
 import top.pmh13.mctier.ui.MctierApp
 
 class MainActivity : ComponentActivity() {
@@ -67,26 +67,18 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
     }
 
-    /** 解析 mctier://join?name=&pwd= 并预填加入表单（仅填表，不自动连接；非法参数安全忽略） */
+    /** 解析邀请链接并预填加入表单（仅填表，不自动连接；非法参数安全忽略） */
     private fun handleDeepLink(intent: Intent?) {
-        val data: Uri = intent?.data ?: return
+        val data = intent?.data ?: return
         if (data.scheme != "mctier") return
         runCatching {
-            // 从原始 query 自行解析并正确还原空格：
-            // - 安卓端 URLEncoder 生成的链接把空格编成裸 '+'（真正的 '+' 会编成 %2B）；
-            // - 桌面端 encodeURIComponent 生成的链接空格是 %20、'+' 是 %2B，绝不产生裸 '+'。
-            // 因此查询串中任何裸 '+' 都代表空格，可对 name/pwd 统一把 '+'→%20 后再做标准 %XX 解码，
-            // 既修复带空格大厅名被读成 "My+Lobby" 进错大厅，又不会破坏含 '+'(%2B) 的密码。
-            val raw = data.encodedQuery.orEmpty()
-            val params = raw.split("&").mapNotNull { part ->
-                val idx = part.indexOf('=')
-                if (idx <= 0) return@mapNotNull null
-                part.substring(0, idx) to part.substring(idx + 1)
-            }.toMap()
-            val name = params["name"]?.let { Uri.decode(it.replace("+", "%20")) }.orEmpty()
-            val pwd = params["pwd"]?.let { Uri.decode(it.replace("+", "%20")) }.orEmpty()
-            if (name.isNotBlank()) {
-                MctierRepository.get(applicationContext).applyDeepLink(name, pwd)
+            LobbyInviteCodec.parse(data.toString())?.let { invite ->
+                MctierRepository.get(applicationContext).applyDeepLink(
+                    invite.name,
+                    invite.password,
+                    invite.serverNode,
+                    invite.signalingServer,
+                )
             }
         }
     }

@@ -6,13 +6,13 @@
   **虚拟局域网通用组网工具**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.6.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.7.0-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
   </p>
 
-  **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。当前版本：2.6.0。**
+  **支持 Windows 10/11 与 Android。电脑端和手机端可加入同一个大厅，快速组成跨网络虚拟局域网。当前版本：2.7.0。**
 
   [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [快速开始](#快速开始) · [运行预览](#运行预览) · [赞助支持](#赞助支持)
 
@@ -112,6 +112,8 @@ MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组�
 - **公开大厅广场**：房主可把大厅公开到广场，陌生人也能在广场看到并一键加入一起玩。
 - **自定义节点与虚拟域名**：支持添加自定义 EasyTier 节点，并为虚拟网络配置自定义域名。
 - **内置 EasyTier 节点**：默认使用青云香港节点 `wss://mctiers.pmhs.top`，也可切换海波美国、海波中国大陆或唯爱厦门节点；客户端会记住上次选择。
+- **邀请信息同步节点**：二维码、邀请链接、最近大厅和收藏大厅会同步并恢复对应的 EasyTier 节点与信令服务器配置，避免跨节点导致组网失败。
+- **连接自动自愈**：桌面端和 Android 端均支持信令断线重连、成员状态二次确认与语音连接自动恢复，降低短暂网络波动造成的离线或听不到声音问题。
 - **连接 / 网络诊断**：聚合成员直连、中继、延迟、丢包，给出整体评分与优化建议；网络诊断还能检测虚拟网卡、防火墙、UDP 端口与安全软件拦截，并支持一键放行防火墙。
 - **私有化部署**：支持自建信令服务，便于掌控连接入口。
 
@@ -147,6 +149,7 @@ MCTier 基于 EasyTier 与 WebRTC，用来把不同网络环境下的设备组�
 ### 进阶与其他
 
 - **EasyTier 高级网络配置**：提供全局与单大厅级高级参数（KCP/QUIC 代理、延迟优先、P2P/打洞开关等），以及 SOCKS5、端口转发等出口节点设置。
+- **物理设备绑定**：EasyTier 高级配置支持绑定指定物理网络设备，并在启动网络时使用正确的绑定参数。
 - **本地数据统计**：纯本地统计联机时长、加入/房主次数、活跃时段与常玩伙伴排行，绝不上报网络。
 - **新手引导向导**：首次启动逐步检测运行环境（权限、防火墙、安全软件）并一键修复。
 - **版本更新检测**：启动时检测新版本并提示更新。

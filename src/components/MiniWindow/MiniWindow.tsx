@@ -13,7 +13,7 @@ import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
 import { recentService } from '../../services/recent/recentService';
 import { statsService } from '../../services/stats/statsService';
 import { useTranslation } from 'react-i18next';
-import { tl } from '../../i18n';
+import { getLanguage, tl } from '../../i18n';
 import { listen, emitTo } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
 import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon } from '../icons';
@@ -31,6 +31,11 @@ import { remoteControlService } from '../../services/remoteControl/RemoteControl
 import { danmakuService } from '../../services/danmaku/danmakuService';
 import { gameHudService } from '../../services/gamehud/gameHudService';
 import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
+import {
+  buildLobbyInviteLink,
+  formatLobbyInviteText,
+  type LobbyInvite,
+} from '../../services/lobby/lobbyInvite';
 import './MiniWindow.css';
 
 /**
@@ -38,10 +43,6 @@ import './MiniWindow.css';
  * 显示精简的大厅信息和语音控制
  */
 // ==================== 二维码工具 ====================
-/** 二维码内容：用 deep link 编码，扫码端解析参数无歧义 */
-const buildInviteLink = (name: string, pwd: string) =>
-  `mctier://join?name=${encodeURIComponent(name)}&pwd=${encodeURIComponent(pwd)}`;
-
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
     const img = new Image();
@@ -89,7 +90,7 @@ async function drawQrWithLogo(canvas: HTMLCanvasElement, text: string, size: num
 }
 
 /** 合成 MCTier 主题邀请图（名片比例的竖向长方形，绿色主题） */
-async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasElement> {
+async function buildInvitePoster(invite: LobbyInvite): Promise<HTMLCanvasElement> {
   const W = 600, H = 880;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -123,15 +124,15 @@ async function buildInvitePoster(name: string, pwd: string): Promise<HTMLCanvasE
   roundRectPath(ctx, qx - 24, qy - 24, qrSize + 48, qrSize + 48, 22); ctx.fill();
   ctx.restore();
   const qc = document.createElement('canvas');
-  await drawQrWithLogo(qc, buildInviteLink(name, pwd), qrSize);
+  await drawQrWithLogo(qc, buildLobbyInviteLink(invite), qrSize);
   ctx.drawImage(qc, qx, qy);
 
   // 大厅名
   ctx.fillStyle = '#ffffff'; ctx.font = 'bold 34px "Microsoft YaHei", sans-serif';
-  ctx.fillText(name, W / 2, qy + qrSize + 96);
+  ctx.fillText(invite.name, W / 2, qy + qrSize + 96);
 
   // 密码药丸
-  const pwdText = tl(`密码  ${pwd || '（无）'}`, `Password  ${pwd || '(none)'}`);
+  const pwdText = tl(`密码  ${invite.password || '（无）'}`, `Password  ${invite.password || '(none)'}`);
   ctx.font = '22px "Microsoft YaHei", sans-serif';
   const pw = ctx.measureText(pwdText).width + 56;
   const px = (W - pw) / 2, py = qy + qrSize + 120;
@@ -324,7 +325,7 @@ export const MiniWindow: React.FC = () => {
   const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
   const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
   const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
-  const [peerLatencies, setPeerLatencies] = useState<Record<string, { latencyMs: number | null; lossRate: number }>>({});
+  const [peerLatencies, setPeerLatencies] = useState<Record<string, { latencyMs: number | null; lossRate: number; status: 'online' | 'checking' | 'offline' }>>({});
   const [peerConnTypes, setPeerConnTypes] = useState<Record<string, string>>({}); // 虚拟IP -> p2p/relay // 各玩家虚拟IP->延迟ms
   const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
   const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
@@ -332,13 +333,19 @@ export const MiniWindow: React.FC = () => {
   const [micHotkeyLabel, setMicHotkeyLabel] = useState('Ctrl+M');
   const [muteHotkeyLabel, setMuteHotkeyLabel] = useState('Ctrl+T');
   const qrCanvasRef = React.useRef<HTMLCanvasElement>(null); // 弹窗内二维码画布
+  const lobbyInvite: LobbyInvite | undefined = lobby ? {
+    name: lobby.name,
+    password: lobby.password || '',
+    serverNode: lobby.serverNode || localStorage.getItem('mctier_current_node') || undefined,
+    signalingServer: lobby.signalingServer || localStorage.getItem('mctier_current_signaling_server') || undefined,
+  } : undefined;
 
   // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
   useEffect(() => {
-    if (showQrModal && lobby && qrCanvasRef.current) {
-      void drawQrWithLogo(qrCanvasRef.current, buildInviteLink(lobby.name, lobby.password || ''), 240, 180);
+    if (showQrModal && lobbyInvite && qrCanvasRef.current) {
+      void drawQrWithLogo(qrCanvasRef.current, buildLobbyInviteLink(lobbyInvite), 240, 180);
     }
-  }, [showQrModal, lobby?.name, lobby?.password]);
+  }, [showQrModal, lobbyInvite?.name, lobbyInvite?.password, lobbyInvite?.serverNode, lobbyInvite?.signalingServer]);
 
   useEffect(() => {
     setShowQrModal(false);
@@ -346,9 +353,9 @@ export const MiniWindow: React.FC = () => {
 
   // 下载二维码：合成 MCTier 主题邀请图，弹出系统保存对话框让用户选择位置
   const downloadQrPoster = async () => {
-    if (!lobby) return;
+    if (!lobby || !lobbyInvite) return;
     try {
-      const cv = await buildInvitePoster(lobby.name, lobby.password || '');
+      const cv = await buildInvitePoster(lobbyInvite);
       const dataUrl = cv.toDataURL('image/png');
       const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
       const path = await invoke<string | null>('select_save_location', { defaultName: tl(`MCTier-邀请-${lobby.name}.png`, `MCTier-Invite-${lobby.name}.png`) });
@@ -609,6 +616,7 @@ export const MiniWindow: React.FC = () => {
       return;
     }
     let cancelled = false;
+    const failedRounds = new Map<string, number>();
     const measure = async () => {
       const ips = players.map(p => p.virtualIp).filter(Boolean) as string[];
       if (ips.length === 0) return;
@@ -618,8 +626,21 @@ export const MiniWindow: React.FC = () => {
           { peerIps: ips }
         );
         if (cancelled) return;
-        const map: Record<string, { latencyMs: number | null; lossRate: number }> = {};
-        results.forEach(r => { map[r.ip] = { latencyMs: r.latencyMs, lossRate: r.lossRate ?? 0 }; });
+        const map: Record<string, { latencyMs: number | null; lossRate: number; status: 'online' | 'checking' | 'offline' }> = {};
+        results.forEach(r => {
+          if (r.latencyMs !== null) {
+            failedRounds.set(r.ip, 0);
+            map[r.ip] = { latencyMs: r.latencyMs, lossRate: r.lossRate ?? 0, status: 'online' };
+            return;
+          }
+          const failures = (failedRounds.get(r.ip) ?? 0) + 1;
+          failedRounds.set(r.ip, failures);
+          map[r.ip] = {
+            latencyMs: null,
+            lossRate: r.lossRate ?? 0,
+            status: failures >= 3 ? 'offline' : 'checking',
+          };
+        });
         setPeerLatencies(map);
         // 连接类型(P2P/中继)：通过 easytier-cli 查询 RPC 路由
         try {
@@ -1124,27 +1145,10 @@ export const MiniWindow: React.FC = () => {
 
   // 复制大厅信息
   const handleCopyLobbyInfo = async () => {
-    if (!lobby) return;
+    if (!lobbyInvite) return;
     
     try {
-      // 新格式：
-      // ———————— 邀请您加入大厅 ————————
-      // 完整复制后打开 MCTier-加入大厅 界面（自动识别）
-      // 大厅名称：XXX
-      // 密码：XXX
-      // —————— (https://mctier.pmhs.top) ——————
-      const lobbyInfo = tl(
-        `——————— 邀请您加入大厅 ———————
-完整复制后打开 MCTier-加入大厅 界面（自动识别）
-大厅名称：${lobby.name}
-密码：${lobby.password || ''}
-————— https://mctier.pmhs.top —————`,
-        `——————— Invitation to Join Lobby ———————
-Copy everything, then open MCTier - Join Lobby (auto-detected)
-Lobby Name: ${lobby.name}
-Password: ${lobby.password || ''}
-————— https://mctier.pmhs.top —————`
-      );
+      const lobbyInfo = formatLobbyInviteText(lobbyInvite, getLanguage() === 'en' ? 'en' : 'zh');
       
       await writeText(lobbyInfo);
       
@@ -1789,6 +1793,18 @@ Password: ${lobby.password || ''}
                                   const q = player.virtualIp ? peerLatencies[player.virtualIp] : undefined;
                                   if (q === undefined) return null;
                                   const lat = q.latencyMs;
+                                  if (q.status === 'checking') {
+                                    const checkingColor = '#faad14';
+                                    return (
+                                      <span
+                                        title={tl('正在确认连接状态', 'Checking connection status')}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: checkingColor, flexShrink: 0 }}
+                                      >
+                                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: checkingColor, display: 'inline-block' }} />
+                                        {tl('检测中', 'Checking')}
+                                      </span>
+                                    );
+                                  }
                                   // 优先显示延迟（探测成功即说明可达）；仅当延迟探测超时(null)且有丢包时显示丢包
                                   if (lat === null && q.lossRate > 0 && q.lossRate < 100) {
                                     const lossColor = '#ff4d4f';
@@ -2124,7 +2140,7 @@ Password: ${lobby.password || ''}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '4px 0' }}>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>{tl('手机用 MCTier 扫码即可加入本大厅', 'Scan with MCTier on your phone to join')}</div>
           <div className="mini-qr-card">
-            <canvas key={`${lobby?.name ?? ''}:${lobby?.password || ''}`} ref={qrCanvasRef} width={240} height={240} className="mini-qr-canvas" />
+            <canvas key={`${lobbyInvite?.name ?? ''}:${lobbyInvite?.password || ''}:${lobbyInvite?.serverNode || ''}:${lobbyInvite?.signalingServer || ''}`} ref={qrCanvasRef} width={240} height={240} className="mini-qr-canvas" />
           </div>
           <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{lobby?.name}</div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -2140,8 +2156,8 @@ Password: ${lobby.password || ''}
               className="qr-download-btn"
               title={tl('复制可一键加入的邀请链接，发给好友在浏览器打开即可加入', 'Copy a one-click invite link; send it to a friend to open in a browser and join')}
               onClick={async () => {
-                if (!lobby) return;
-                const dl = `mctier://join?name=${encodeURIComponent(lobby.name)}&pwd=${encodeURIComponent(lobby.password || '')}`;
+                if (!lobbyInvite) return;
+                const dl = buildLobbyInviteLink(lobbyInvite);
                 try { await writeText(dl); message.success(tl('邀请链接已复制，发给好友在浏览器打开即可加入', 'Invite link copied. Send it to a friend to open in a browser and join')); }
                 catch { message.error(tl('复制失败', 'Copy failed')); }
               }}

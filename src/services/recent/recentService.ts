@@ -10,6 +10,7 @@ export interface RecentLobby {
   playerName?: string;
   useDomain?: boolean;
   serverNode?: string;
+  signalingServer?: string;
   lastJoined: number;
 }
 

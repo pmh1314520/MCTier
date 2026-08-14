@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Button, Select, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
+import { Form, Input, Button, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
 import type { Lobby, UserConfig } from '../../types';
-import { WarningIcon, StarIcon, DiceIcon } from '../icons';
+import { WarningIcon, StarIcon, DiceIcon, ChevronIcon, CheckIcon } from '../icons';
 import { useEscapeKey } from '../../hooks';
 import { FavoriteLobbyManager, type FavoriteLobby } from '../FavoriteLobbyManager/FavoriteLobbyManager';
 import { RecentManager } from '../RecentManager/RecentManager';
@@ -13,12 +13,12 @@ import { recentService, type RecentLobby } from '../../services/recent/recentSer
 import { statsService } from '../../services/stats/statsService';
 import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
 import type { PublicLobby } from '../../services/lobby/publicLobbies';
+import { parseLobbyInviteText, type LobbyInvite } from '../../services/lobby/lobbyInvite';
 import { useTranslation } from 'react-i18next';
 import { tl, getLanguage } from '../../i18n';
 import './LobbyForm.css';
 
 const { Title } = Typography;
-const { Option } = Select;
 
 interface LobbyFormProps {
   mode: 'create' | 'join';
@@ -34,6 +34,165 @@ interface LobbyFormValues {
   customSignalingServer?: string;
   useDomain: boolean;
 }
+
+interface ServerNodeOption {
+  value: string;
+  label: string;
+}
+
+interface ServerNodeSelectProps {
+  value?: string;
+  options: ServerNodeOption[];
+  disabled?: boolean;
+  ariaLabel: string;
+  onChange?: (value: string) => void;
+}
+
+const ServerNodeSelect: React.FC<ServerNodeSelectProps> = ({
+  value,
+  options,
+  disabled = false,
+  ariaLabel,
+  onChange,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listboxId = React.useId();
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options[selectedIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnWindowBlur = () => setOpen(false);
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    window.addEventListener('blur', closeOnWindowBlur);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      window.removeEventListener('blur', closeOnWindowBlur);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const openMenu = () => {
+    if (disabled || options.length === 0) return;
+    const triggerRect = triggerRef.current?.getBoundingClientRect();
+    const cardRect = rootRef.current?.closest('.lobby-form-card')?.getBoundingClientRect();
+    if (triggerRect && cardRect) {
+      const estimatedMenuHeight = Math.min(options.length * 42 + 12, 276);
+      const spaceBelow = cardRect.bottom - triggerRect.bottom;
+      const spaceAbove = triggerRect.top - cardRect.top;
+      setPlacement(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom');
+    }
+    setActiveIndex(selectedIndex);
+    setOpen(true);
+  };
+
+  const selectOption = (index: number) => {
+    const option = options[index];
+    if (!option) return;
+    onChange?.(option.value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const moveActive = (direction: 1 | -1) => {
+    if (!open) {
+      openMenu();
+      return;
+    }
+    setActiveIndex((current) => (current + direction + options.length) % options.length);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveActive(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveActive(-1);
+    } else if (event.key === 'Home' && open) {
+      event.preventDefault();
+      setActiveIndex(0);
+    } else if (event.key === 'End' && open) {
+      event.preventDefault();
+      setActiveIndex(options.length - 1);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (open) selectOption(activeIndex);
+      else openMenu();
+    } else if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    } else if (event.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div ref={rootRef} className={`mct-node-select${open ? ' is-open' : ''}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="mct-node-select-trigger"
+        disabled={disabled}
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-activedescendant={open ? `${listboxId}-option-${activeIndex}` : undefined}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={handleKeyDown}
+      >
+        <span className="mct-node-select-value">{selectedOption?.label || ariaLabel}</span>
+        <ChevronIcon direction={open ? 'up' : 'down'} size={16} className="mct-node-select-chevron" />
+      </button>
+
+      {open && (
+        <div
+          id={listboxId}
+          className={`mct-node-select-menu is-${placement}`}
+          role="listbox"
+          aria-label={ariaLabel}
+        >
+          {options.map((option, index) => {
+            const selected = option.value === value;
+            const active = index === activeIndex;
+            return (
+              <button
+                id={`${listboxId}-option-${index}`}
+                key={option.value}
+                type="button"
+                className={`mct-node-select-option${selected ? ' is-selected' : ''}${active ? ' is-active' : ''}`}
+                role="option"
+                aria-selected={selected}
+                tabIndex={-1}
+                onPointerEnter={() => setActiveIndex(index)}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => selectOption(index)}
+              >
+                <span>{option.label}</span>
+                <span className="mct-node-select-check" aria-hidden="true">
+                  {selected && <CheckIcon size={16} />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 内置 EasyTier 公共节点
 const HAIBO_US_EASYTIER_SERVER = 'udp://us01.225284.xyz:11010';
@@ -52,7 +211,8 @@ const isLegacyOfficialServer = (server?: string) => {
     server === 'tcp://mctier.pmhs.top:11010' ||
     server === 'udp://mctier.pmhs.top:11010' ||
     server === 'wss://mctier.pmhs.top/signaling' ||
-    server === 'ws://mctier.pmhs.top/signaling'
+    server === 'ws://mctier.pmhs.top/signaling' ||
+    server === 'wss://public.456469.xyz'
   );
 };
 
@@ -70,12 +230,17 @@ const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
     { value: 'tcp://225284.xyz:11010', label: tl('海波中国大陆节点', 'Haibo Mainland China Node') },
     { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱厦门节点', 'Weiai Xiamen Node') },
   ];
+  const knownAddresses = new Set(nodes.map((node) => node.value));
   
   // 添加自定义节点
   customNodes.forEach((node) => {
+    const name = typeof node?.name === 'string' ? node.name.trim() : '';
+    const address = typeof node?.address === 'string' ? node.address.trim() : '';
+    if (!name || !address || knownAddresses.has(address) || address === 'custom') return;
+    knownAddresses.add(address);
     nodes.push({
-      value: node.address,
-      label: `${node.name} ${tl('(自定义)', '(custom)')}`,
+      value: address,
+      label: `${name} ${tl('(自定义)', '(custom)')}`,
     });
   });
   
@@ -182,6 +347,40 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   // @ts-ignore - customNodes is used in useEffect to load custom nodes
   const [customNodes, setCustomNodes] = useState<CustomEasyTierNode[]>([]);
   const [serverNodes, setServerNodes] = useState(getServerNodes([]));
+  const [temporaryServerNode, setTemporaryServerNode] = useState<string>();
+  const [temporarySignalingServer, setTemporarySignalingServer] = useState<string>();
+  const selectedServerNode = Form.useWatch('serverNode', form);
+  const selectedCustomServer = Form.useWatch('customEasytierServer', form);
+  const selectedCustomSignaling = Form.useWatch('customSignalingServer', form);
+  const unlistedSelectedNode = selectedServerNode
+    && selectedServerNode !== 'custom'
+    && !serverNodes.some((node) => node.value === selectedServerNode)
+    ? selectedServerNode
+    : undefined;
+  const extraServerNode = temporaryServerNode || unlistedSelectedNode;
+  const availableServerNodes = extraServerNode
+    ? [
+        {
+          value: extraServerNode,
+          label: temporaryServerNode
+            ? tl('本大厅指定节点（临时）', 'Lobby-specified node (temporary)')
+            : tl('上次选择的节点（临时保留）', 'Previously selected node (temporarily kept)'),
+        },
+        ...serverNodes,
+      ]
+    : serverNodes;
+  const favoriteServerNode = temporaryServerNode
+    || (privateServerConfig.usePrivateServer
+      ? privateServerConfig.privateEasytierServer
+      : selectedServerNode === 'custom'
+        ? selectedCustomServer
+        : selectedServerNode);
+  const favoriteSignalingServer = temporarySignalingServer
+    || (privateServerConfig.usePrivateServer
+      ? privateServerConfig.privateSignalingServer
+      : selectedServerNode === 'custom'
+        ? selectedCustomSignaling
+        : undefined);
   // 节点延迟测试结果：value -> 延迟(ms) | null(不可达) | 'testing'(测速中)
   const [nodeLatencies, setNodeLatencies] = useState<Record<string, number | null | 'testing'>>({});
   const [testingNodes, setTestingNodes] = useState(false);
@@ -261,54 +460,58 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     message.success(tl('已随机生成大厅名称和密码', 'Random lobby name and password generated'));
   };
 
+  const applyImportedLobby = (invite: LobbyInvite & { playerName?: string; useDomain?: boolean }) => {
+    const rawServerNode = invite.serverNode?.trim() || undefined;
+    const legacyCustomSentinel = rawServerNode === 'custom';
+    const serverNode = legacyCustomSentinel ? undefined : rawServerNode;
+    const signalingServer = invite.signalingServer?.trim() || undefined;
+    setTemporaryServerNode(serverNode);
+    setTemporarySignalingServer(serverNode ? signalingServer : undefined);
+    setShowCustomServer(legacyCustomSentinel ? true : false);
+    form.setFieldsValue({
+      lobbyName: invite.name,
+      password: invite.password,
+      playerName: invite.playerName || config.playerName || '',
+      useDomain: invite.useDomain ?? false,
+      ...(legacyCustomSentinel ? { serverNode: 'custom' } : serverNode ? { serverNode } : {}),
+    });
+  };
+
   // 处理选择常用大厅
   const handleSelectFavorite = (lobby: FavoriteLobby) => {
-    form.setFieldsValue({
-      lobbyName: lobby.name,
+    applyImportedLobby({
+      name: lobby.name,
       password: lobby.password,
-      playerName: lobby.playerName || config.playerName || '',
-      useDomain: lobby.useDomain ?? false,
+      playerName: lobby.playerName,
+      useDomain: lobby.useDomain,
+      serverNode: lobby.serverNode,
+      signalingServer: lobby.signalingServer,
     });
   };
 
   // 处理选择最近大厅（快速重进）
   const handleSelectRecent = (lobby: RecentLobby) => {
-    form.setFieldsValue({
-      lobbyName: lobby.name,
+    applyImportedLobby({
+      name: lobby.name,
       password: lobby.password,
-      playerName: lobby.playerName || config.playerName || '',
-      useDomain: lobby.useDomain ?? false,
-      ...(lobby.serverNode ? { serverNode: lobby.serverNode } : {}),
+      playerName: lobby.playerName,
+      useDomain: lobby.useDomain,
+      serverNode: lobby.serverNode,
+      signalingServer: lobby.signalingServer,
     });
-    if (lobby.serverNode) setShowCustomServer(lobby.serverNode === 'custom');
   };
 
   // 从公开广场加入：填入大厅名与密码（公开大厅自带密码），并自动同步房主使用的节点
   const handleSelectPublic = (lobby: PublicLobby) => {
-    const fields: Partial<LobbyFormValues> = {
-      lobbyName: lobby.lobbyName,
-      password: lobby.password,
-      playerName: config.playerName || '',
-    };
     const hostNode = (lobby.serverNode || '').trim();
-    let nodeSynced = false;
-    if (hostNode && !privateServerConfig.usePrivateServer) {
-      const known = serverNodes.some((n) => n.value === hostNode);
-      if (known) {
-        fields.serverNode = hostNode;
-        setShowCustomServer(false);
-      } else {
-        // 房主使用了非内置节点：以临时自定义节点同步（信令仍用官方，广场本身就在官方信令上）
-        fields.serverNode = 'custom';
-        fields.customEasytierServer = hostNode;
-        fields.customSignalingServer = 'wss://mctier.pmhs.top/signaling';
-        setShowCustomServer(true);
-      }
-      nodeSynced = true;
-    }
-    form.setFieldsValue(fields);
+    applyImportedLobby({
+      name: lobby.lobbyName,
+      password: lobby.password,
+      serverNode: hostNode || undefined,
+      signalingServer: hostNode ? 'wss://mctier.pmhs.top/signaling' : undefined,
+    });
     message.info(
-      nodeSynced
+      hostNode
         ? tl('已填入公开大厅信息并同步房主节点，点击加入即可', 'Public lobby info filled and host node synced, click Join')
         : tl('已填入公开大厅信息，点击加入即可', 'Public lobby info filled, click Join')
     );
@@ -332,6 +535,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   };
 
   const handleServerNodeChange = (value: string) => {
+    setTemporaryServerNode(undefined);
+    setTemporarySignalingServer(undefined);
     setShowCustomServer(value === 'custom');
     useAppStore.getState().updateConfig({ preferredServer: value });
 
@@ -374,7 +579,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         });
         
         // 加载自定义节点
-        const nodes = settings.customEasytierNodes || [];
+        const nodes = Array.isArray(settings.customEasytierNodes)
+          ? settings.customEasytierNodes.filter((node: unknown): node is CustomEasyTierNode => {
+              if (!node || typeof node !== 'object') return false;
+              const candidate = node as Partial<CustomEasyTierNode>;
+              return typeof candidate.name === 'string' && typeof candidate.address === 'string';
+            })
+          : [];
         setCustomNodes(nodes);
         setServerNodes(getServerNodes(nodes));
         
@@ -408,16 +619,17 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }, 300);
   }, [form, mode, config.preferredServer]);
   
-  // 检测邀请 deep link 预填（仅填表，不自动提交）：mctier://join?name=&pwd=
+  // 检测邀请 deep link 预填（仅填表，不自动提交）
   useEffect(() => {
     const apply = () => {
       const dl = (window as any).__deepLinkConfig;
       if (!dl) return;
       delete (window as any).__deepLinkConfig;
-      form.setFieldsValue({
-        lobbyName: dl.lobbyName ?? '',
+      applyImportedLobby({
+        name: dl.lobbyName ?? '',
         password: dl.password ?? '',
-        playerName: config.playerName || '',
+        serverNode: dl.serverNode,
+        signalingServer: dl.signalingServer,
       });
     };
     apply();
@@ -438,60 +650,15 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         return;
       }
 
-      console.log('读取到剪贴板内容:', clipboardText);
-
-      // 新格式：
-      // ———————— 邀请您加入大厅 ————————
-      // 完整复制后打开 MCTier-加入大厅 界面（自动识别）
-      // 大厅名称：XXX
-      // 密码：XXX
-      // —————— (https://mctier.pmhs.top) ——————
-      
-      // 尝试匹配新格式（使用[\s\S]匹配包括换行符在内的所有字符）
-      // 修改正则表达式，允许密码为空
-      const lobbyNameMatch = clipboardText.match(/大厅名称：([^\r\n]+)/);
-      const passwordMatch = clipboardText.match(/密码：([^\r\n]*)/); // 改为 * 允许0个或多个字符
-      
-      if (lobbyNameMatch && passwordMatch) {
-        const lobbyName = lobbyNameMatch[1].trim();
-        const password = passwordMatch[1].trim();
-        
-        console.log('匹配到大厅信息:', { lobbyName, password: password ? '***' : '(空)' });
-        
-        // 验证格式是否合理（大厅名称至少4个字符，密码至少8个字符）
-        if (lobbyName.length >= 4 && password.length >= 8) {
-          form.setFieldsValue({
-            lobbyName,
-            password,
-          });
-          message.success(tl('已自动识别并填写大厅信息', 'Lobby info auto-detected and filled'));
-          console.log('自动填写大厅信息成功');
-          return;
-        } else {
-          console.log('大厅信息格式不符合要求:', { 
-            lobbyNameLength: lobbyName.length, 
-            passwordLength: password.length 
-          });
-        }
-      } else {
-        console.log('未匹配到新格式的大厅信息');
-      }
-      
-      // 兼容旧格式：大厅名称|密码
-      const parts = clipboardText.split('|');
-      if (parts.length === 2) {
-        const [lobbyName, password] = parts;
-        
-        // 验证格式是否合理（简单验证）
-        if (lobbyName.trim().length >= 4 && password.trim().length >= 8) {
-          form.setFieldsValue({
-            lobbyName: lobbyName.trim(),
-            password: password.trim(),
-          });
-          message.success(tl('已自动识别并填写大厅信息', 'Lobby info auto-detected and filled'));
-          console.log('自动填写大厅信息（旧格式）成功');
-          return;
-        }
+      const invite = parseLobbyInviteText(clipboardText);
+      if (invite && invite.name.length >= 4 && invite.password.length >= 8) {
+        applyImportedLobby(invite);
+        message.success(
+          invite.serverNode
+            ? tl('已识别大厅信息并同步本次连接节点', 'Lobby info and its connection node were detected')
+            : tl('已自动识别并填写大厅信息', 'Lobby info auto-detected and filled')
+        );
+        return;
       }
       
       // 如果没有匹配到任何格式，只在手动识别时提示
@@ -549,7 +716,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (reachable.length > 0) {
         const best = reachable[0];
         form.setFieldsValue({ serverNode: best.value });
-        setShowCustomServer(false);
+        handleServerNodeChange(best.value);
         const bestLabel = candidates.find((n) => n.value === best.value)?.label ?? best.value;
         message.success(tl(`已自动选择延迟最低的节点：${bestLabel}（${best.latency}ms）`, `Auto-selected the lowest-latency node: ${bestLabel} (${best.latency}ms)`));
       } else {
@@ -584,6 +751,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       // 确定实际使用的服务器地址
       let serverNode = values.serverNode;
       let signalingServer = 'wss://mctier.pmhs.top/signaling'; // 默认官方信令服务器
+      const usingImportedEndpoint = Boolean(
+        temporaryServerNode && values.serverNode === temporaryServerNode && !overrideNode
+      );
       
       if (overrideNode) {
         // 一键换节点重试：强制使用指定的内置节点（官方信令服务器）
@@ -592,6 +762,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.log('========================================');
         console.log('🔁 一键换节点重试，使用节点:', serverNode);
         console.log('========================================');
+      } else if (usingImportedEndpoint && temporaryServerNode) {
+        serverNode = temporaryServerNode;
+        signalingServer = temporarySignalingServer || 'wss://mctier.pmhs.top/signaling';
+        console.log('使用大厅邀请指定的临时连接节点:', serverNode);
       } else if (privateServerConfig.usePrivateServer) {
         // 如果启用了私有服务器，使用私有服务器配置（不添加默认备用节点）
         serverNode = privateServerConfig.privateEasytierServer;
@@ -631,7 +805,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
 
       // 记录本次实际使用的节点地址，供公开广场发布时同步给加入者
-      try { localStorage.setItem('mctier_current_node', serverNode); } catch { /* ignore */ }
+      try {
+        localStorage.setItem('mctier_current_node', serverNode);
+        localStorage.setItem('mctier_current_signaling_server', signalingServer);
+      } catch { /* ignore */ }
 
       // 获取当前玩家ID，如果不存在则生成一个新的
       let { currentPlayerId } = useAppStore.getState();
@@ -700,7 +877,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       // 仅在非私有服务器场景下记录（私有服务器是独立设置，不覆盖）
       // - 临时自定义节点记为 'custom' 哨兵值，保持与现有逻辑一致
       // - 其它情况记录实际节点地址（含一键换节点重试时使用的节点）
-      const preferredToSave: string | undefined = privateServerConfig.usePrivateServer
+      const preferredToSave: string | undefined = privateServerConfig.usePrivateServer || usingImportedEndpoint
         ? undefined
         : (overrideNode ?? values.serverNode);
       if (preferredToSave) {
@@ -727,7 +904,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       console.log('✅ 大厅创建/加入成功，HTTP文件服务器将在添加共享时按需启动');
 
       // 更新状态
-      setLobby(lobby);
+      setLobby({ ...lobby, serverNode, signalingServer });
       setAppState('in-lobby');
 
       // 记录到"最近大厅"，便于下次快速重进
@@ -737,7 +914,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
           password: values.password.trim(),
           playerName: values.playerName.trim(),
           useDomain: values.useDomain === true,
-          serverNode: privateServerConfig.usePrivateServer ? undefined : (overrideNode ?? values.serverNode),
+          serverNode,
+          signalingServer,
         });
       } catch (e) {
         console.warn('记录最近大厅失败（忽略）:', e);
@@ -870,7 +1048,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                         Modal.destroyAll();
                         // 同步下拉框显示，并以该节点重试
                         form.setFieldsValue({ serverNode: node.value });
-                        setShowCustomServer(false);
+                        handleServerNodeChange(node.value);
                         const latestValues = {
                           ...form.getFieldsValue(),
                           serverNode: node.value,
@@ -938,10 +1116,19 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     }
   };
 
+  const serverNodeOptions = availableServerNodes.map((node) => {
+    const latency = nodeLatencies[node.value];
+    let suffix = '';
+    if (node.value !== 'custom') {
+      if (latency === 'testing') suffix = tl(' · 测速中…', ' · testing…');
+      else if (typeof latency === 'number') suffix = ` · ${latency}ms`;
+      else if (latency === null) suffix = tl(' · 不可达', ' · unreachable');
+    }
+    return { value: node.value, label: `${node.label}${suffix}` };
+  });
+
   return (
-    <div className="lobby-form-container">
-      {/* 顶部拖拽区域 */}
-      <div className="lobby-form-drag-area" data-tauri-drag-region />
+    <div className="lobby-form-container" data-tauri-drag-region>
       
       <motion.div
         ref={scrollContainerRef}
@@ -1083,6 +1270,10 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 disabled={loading}
                 autoComplete="off"
                 spellCheck={false}
+                onChange={() => {
+                  setTemporaryServerNode(undefined);
+                  setTemporarySignalingServer(undefined);
+                }}
               />
             </Form.Item>
 
@@ -1140,35 +1331,24 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             {!privateServerConfig.usePrivateServer && (
               <>
                 <Form.Item
+                  className="server-node-form-item"
                   label={tl('服务器节点', 'Server Node')}
                   name="serverNode"
                   rules={[{ required: true, message: tl('请选择服务器节点', 'Please select a server node') }]}
                   extra={
                     <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
-                      {tl('双方需选同一节点', 'Both must pick the same node')}
+                      {temporaryServerNode
+                        ? tl('此节点仅用于本次加入，不会修改默认节点', 'Used for this join only; your default node is unchanged')
+                        : tl('双方需选同一节点', 'Both must pick the same node')}
                     </span>
                   }
                 >
-                  <Select 
-                    size="large" 
+                  <ServerNodeSelect
+                    options={serverNodeOptions}
                     disabled={loading}
+                    ariaLabel={tl('服务器节点', 'Server Node')}
                     onChange={handleServerNodeChange}
-                  >
-                    {serverNodes.map((node) => {
-                      const lat = nodeLatencies[node.value];
-                      let suffix = '';
-                      if (node.value !== 'custom') {
-                        if (lat === 'testing') suffix = tl(' · 测速中…', ' · testing…');
-                        else if (typeof lat === 'number') suffix = ` · ${lat}ms`;
-                        else if (lat === null) suffix = tl(' · 不可达', ' · unreachable');
-                      }
-                      return (
-                        <Option key={node.value} value={node.value}>
-                          {node.label}{suffix}
-                        </Option>
-                      );
-                    })}
-                  </Select>
+                  />
                 </Form.Item>
 
                 <div style={{ marginTop: '-8px', marginBottom: '12px', textAlign: 'right' }}>
@@ -1346,6 +1526,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         visible={showFavoritesModal}
         onClose={() => setShowFavoritesModal(false)}
         onSelect={handleSelectFavorite}
+        defaultServerNode={favoriteServerNode}
+        defaultSignalingServer={favoriteSignalingServer}
       />
 
       {/* 最近联机弹窗 */}

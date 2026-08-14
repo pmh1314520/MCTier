@@ -7,7 +7,7 @@ const val DefaultEasyTierNode = "wss://mctiers.pmhs.top"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
-const val AppClientVersion = "2.6.0"
+const val AppClientVersion = "2.7.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 
@@ -34,6 +34,7 @@ data class Lobby(
     val virtualDomain: String? = null,
     val useDomain: Boolean = false,
     val signalingServer: String = DefaultSignalingServer,
+    val serverNode: String = DefaultEasyTierNode,
 )
 
 @Serializable
@@ -297,7 +298,15 @@ data class PublicLobbyWire(
 
 /** 收藏大厅（本地存储） */
 @Serializable
-data class FavoriteLobby(val name: String, val password: String, val note: String = "", val useCount: Int = 0, val lastUsedAt: Long = 0)
+data class FavoriteLobby(
+    val name: String,
+    val password: String,
+    val note: String = "",
+    val useCount: Int = 0,
+    val lastUsedAt: Long = 0,
+    val serverNode: String? = null,
+    val signalingServer: String? = null,
+)
 
 /** 用户自定义 EasyTier 节点（本地存储，可增删改） */
 @Serializable
@@ -315,11 +324,22 @@ data class TodoItem(
 )
 
 /** 邀请 deep link 解析结果（mctier://join?name=&pwd=），用于预填加入表单 */
-data class DeepLinkJoin(val name: String, val pwd: String)
+data class DeepLinkJoin(
+    val name: String,
+    val pwd: String,
+    val serverNode: String? = null,
+    val signalingServer: String? = null,
+)
 
 /** 最近进入的大厅（本地存储） */
 @Serializable
-data class RecentLobby(val name: String, val password: String, val lastJoined: Long)
+data class RecentLobby(
+    val name: String,
+    val password: String,
+    val lastJoined: Long,
+    val serverNode: String? = null,
+    val signalingServer: String? = null,
+)
 
 /** 最近一起联机的玩家（本地存储） */
 @Serializable

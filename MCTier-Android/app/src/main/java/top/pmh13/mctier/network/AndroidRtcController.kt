@@ -257,15 +257,7 @@ class AndroidRtcController(private val context: Context) {
             val pc = ensurePeer(remotePlayerId) ?: return
             pc.createOffer(object : SimpleSdpObserver() {
                 override fun onCreateSuccess(desc: SessionDescription) {
-                    pc.setLocalDescription(SimpleSdpObserver(), desc)
-                    sendSignal?.invoke(
-                        SignalingEnvelope(
-                            type = "offer",
-                            from = localPlayerId,
-                            to = remotePlayerId,
-                            offer = SdpPayload(desc.type.canonicalForm(), desc.description),
-                        ),
-                    )
+                    setLocalOfferAndSend(remotePlayerId, pc, desc)
                 }
             }, MediaConstraints())
         }
@@ -300,15 +292,7 @@ class AndroidRtcController(private val context: Context) {
         val pc = ensurePeer(remotePlayerId) ?: return
         pc.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(desc: SessionDescription) {
-                pc.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal?.invoke(
-                    SignalingEnvelope(
-                        type = "offer",
-                        from = localPlayerId,
-                        to = remotePlayerId,
-                        offer = SdpPayload(desc.type.canonicalForm(), desc.description),
-                    ),
-                )
+                setLocalOfferAndSend(remotePlayerId, pc, desc)
             }
         }, MediaConstraints())
     }
@@ -463,21 +447,24 @@ class AndroidRtcController(private val context: Context) {
         pc.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
                 flushPendingIce(from, pc)
+                pc.createAnswer(object : SimpleSdpObserver() {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        pc.setLocalDescription(object : SimpleSdpObserver() {
+                            override fun onSetSuccess() {
+                                sendSignal?.invoke(
+                                    SignalingEnvelope(
+                                        type = "answer",
+                                        from = localPlayerId,
+                                        to = from,
+                                        answer = SdpPayload(desc.type.canonicalForm(), desc.description),
+                                    ),
+                                )
+                            }
+                        }, desc)
+                    }
+                }, MediaConstraints())
             }
         }, SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
-        pc.createAnswer(object : SimpleSdpObserver() {
-            override fun onCreateSuccess(desc: SessionDescription) {
-                pc.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal?.invoke(
-                    SignalingEnvelope(
-                        type = "answer",
-                        from = localPlayerId,
-                        to = from,
-                        answer = SdpPayload(desc.type.canonicalForm(), desc.description),
-                    ),
-                )
-            }
-        }, MediaConstraints())
     }
 
     private fun handleAnswer(message: SignalingEnvelope) {
@@ -519,21 +506,58 @@ class AndroidRtcController(private val context: Context) {
      * 且不再恢复”的问题（网络抖动 / NAT 绑定超时 / 隧道瞬断导致媒体通道失效）。
      */
     private fun scheduleIceRestart(remotePlayerId: String, delayMs: Long) {
-        iceRestartJobs[remotePlayerId]?.cancel()
+        if (iceRestartJobs[remotePlayerId]?.isActive == true) return
         iceRestartJobs[remotePlayerId] = rtcScope.launch {
             // ID 较大的一方优先发起；较小的一方延迟兜底，避免两端都等待
             // 或主发起端故障后连接永久停在 disconnected/failed。
             val effectiveDelay = if (localPlayerId > remotePlayerId) delayMs else delayMs + 6000L
             if (effectiveDelay > 0) delay(effectiveDelay)
-            if (!isActive) return@launch
-            val pc = peerConnections[remotePlayerId] ?: return@launch
-            val st = runCatching { pc.iceConnectionState() }.getOrNull()
-            // 等待期间已自行恢复则不再重启
-            if (st == PeerConnection.IceConnectionState.CONNECTED ||
-                st == PeerConnection.IceConnectionState.COMPLETED
-            ) return@launch
-            restartIce(remotePlayerId, pc)
+            var attempt = 0
+            while (isActive) {
+                val pc = peerConnections[remotePlayerId] ?: return@launch
+                val state = runCatching { pc.iceConnectionState() }.getOrNull()
+                if (state == PeerConnection.IceConnectionState.CONNECTED ||
+                    state == PeerConnection.IceConnectionState.COMPLETED
+                ) return@launch
+
+                attempt += 1
+                if (attempt >= 3) {
+                    Log.w(TAG, "ICE 重启多次未恢复[$remotePlayerId]，重建整条语音连接")
+                    sendSignal?.invoke(
+                        SignalingEnvelope(
+                            type = "voice-reconnect",
+                            from = localPlayerId,
+                            to = remotePlayerId,
+                        ),
+                    )
+                    reconnectPeer(remotePlayerId)
+                    scheduleIceRestart(remotePlayerId, 15_000)
+                    return@launch
+                }
+                Log.w(TAG, "ICE 自愈重试[$remotePlayerId] 第 $attempt 次，当前状态=$state")
+                restartIce(remotePlayerId, pc)
+                delay((8_000L + attempt * 2_000L).coerceAtMost(20_000L))
+            }
         }
+    }
+
+    private fun setLocalOfferAndSend(remotePlayerId: String, pc: PeerConnection, desc: SessionDescription) {
+        pc.setLocalDescription(object : SimpleSdpObserver() {
+            override fun onSetSuccess() {
+                sendSignal?.invoke(
+                    SignalingEnvelope(
+                        type = "offer",
+                        from = localPlayerId,
+                        to = remotePlayerId,
+                        offer = SdpPayload(desc.type.canonicalForm(), desc.description),
+                    ),
+                )
+            }
+
+            override fun onSetFailure(error: String) {
+                Log.e(TAG, "设置本地 Offer 失败[$remotePlayerId]: $error")
+            }
+        }, desc)
     }
 
     private fun restartIce(remotePlayerId: String, pc: PeerConnection) {
@@ -543,15 +567,11 @@ class AndroidRtcController(private val context: Context) {
         }
         pc.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(desc: SessionDescription) {
-                pc.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal?.invoke(
-                    SignalingEnvelope(
-                        type = "offer",
-                        from = localPlayerId,
-                        to = remotePlayerId,
-                        offer = SdpPayload(desc.type.canonicalForm(), desc.description),
-                    ),
-                )
+                setLocalOfferAndSend(remotePlayerId, pc, desc)
+            }
+
+            override fun onCreateFailure(error: String) {
+                Log.e(TAG, "创建 ICE 重启 Offer 失败[$remotePlayerId]: $error")
             }
         }, constraints)
     }

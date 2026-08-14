@@ -29,6 +29,8 @@ export interface Lobby {
   useDomain?: boolean;
   /** 信令服务器地址 */
   signalingServer?: string;
+  /** 本次大厅实际使用的 EasyTier 节点 */
+  serverNode?: string;
 }
 
 /**

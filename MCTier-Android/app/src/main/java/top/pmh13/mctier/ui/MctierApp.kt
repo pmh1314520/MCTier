@@ -18,6 +18,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import top.pmh13.mctier.R
+import top.pmh13.mctier.network.LobbyInviteCodec
+import top.pmh13.mctier.network.LobbyInviteData
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -766,7 +768,8 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
     var lobbyName by remember { mutableStateOf(state.settings.autoLobbyName) }
     var password by remember { mutableStateOf(state.settings.autoLobbyPassword) }
     // 从公开广场选择大厅时同步到的房主节点（手动改大厅名会清空，避免误用）
-    var plazaNode by remember { mutableStateOf<String?>(null) }
+    var joinNodeOverride by remember { mutableStateOf<String?>(null) }
+    var joinSignalingOverride by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showPlaza by remember { mutableStateOf(false) }
     var showFavorites by remember { mutableStateOf(false) }
@@ -780,6 +783,8 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
         state.pendingJoin?.let { pj ->
             lobbyName = pj.name
             password = pj.pwd
+            joinNodeOverride = pj.serverNode
+            joinSignalingOverride = pj.signalingServer
             mode = "join"
             repository.consumePendingJoin()
         }
@@ -789,31 +794,10 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
     val scanLauncher = rememberLauncherForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
         val contents = result.contents
         if (contents != null) {
-            // 优先解析 deep link（mctier://join?name=&pwd=），参数 URL 编码无歧义；否则回退中文文本解析
-            val dl = Regex("mctier://join/?\\?([^\\s]+)").find(contents)
-            var ok = false
-            if (dl != null) {
-                val params = dl.groupValues[1].split("&").mapNotNull {
-                    val kv = it.split("=", limit = 2)
-                    if (kv.size == 2) kv[0] to runCatching { java.net.URLDecoder.decode(kv[1], "UTF-8") }.getOrDefault(kv[1]) else null
-                }.toMap()
-                val nm = params["name"].orEmpty()
-                if (nm.isNotBlank()) {
-                    // 通过 pendingJoin 走与 deep link 相同的预填路径：经仓库单例下发，
-                    // 即使扫码 Activity 触发了本 Activity 重建也不会丢失，且会无条件覆盖输入框
-                    // （始终以二维码中的密码为准，包括空密码，避免残留旧密码进错大厅）
-                    repository.applyDeepLink(nm, params["pwd"].orEmpty())
-                    mode = "join"; ok = true
-                }
-            }
-            if (!ok) {
-                val nameM = Regex("大厅名称[:：]([^\\r\\n]+)").find(contents)
-                val pwdM = Regex("密码[:：]([^\\r\\n]*)").find(contents)
-                if (nameM != null) {
-                    repository.applyDeepLink(nameM.groupValues[1].trim(), pwdM?.groupValues?.getOrNull(1)?.trim().orEmpty())
-                    mode = "join"; ok = true
-                }
-            }
+            val invite = LobbyInviteCodec.parse(contents)
+            val ok = invite != null
+            invite?.let { repository.applyDeepLink(it.name, it.password, it.serverNode, it.signalingServer) }
+            if (ok) mode = "join"
             android.widget.Toast.makeText(ctx, if (ok) L("已扫码识别大厅信息", "Lobby info recognized from QR") else L("二维码不是有效的大厅信息", "QR code is not a valid lobby"), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
@@ -834,21 +818,12 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
         if (lobbyName.isBlank()) {
             val text = runCatching { clipboard.getText()?.text }.getOrNull().orEmpty()
             if (text.isNotBlank()) {
-                val nameM = Regex("大厅名称[:：]([^\\r\\n]+)").find(text)
-                val pwdM = Regex("密码[:：]([^\\r\\n]*)").find(text)
-                if (nameM != null) {
-                    val n = nameM.groupValues[1].trim()
-                    val p = pwdM?.groupValues?.getOrNull(1)?.trim().orEmpty()
-                    if (n.length >= 4) {
-                        lobbyName = n
-                        if (p.isNotEmpty()) password = p
-                    }
-                } else {
-                    // 兼容旧格式：大厅名称|密码
-                    val parts = text.trim().split('|')
-                    if (parts.size == 2 && parts[0].length >= 4) {
-                        lobbyName = parts[0].trim()
-                        password = parts[1].trim()
+                LobbyInviteCodec.parse(text)?.let { invite ->
+                    if (invite.name.length >= 4) {
+                        lobbyName = invite.name
+                        password = invite.password
+                        joinNodeOverride = invite.serverNode
+                        joinSignalingOverride = invite.signalingServer
                     }
                 }
             }
@@ -859,18 +834,18 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
     LaunchedEffect(mode) {
         if (mode == "join") {
             val text = runCatching { clipboard.getText()?.text }.getOrNull().orEmpty()
-            val nameM = Regex("大厅名称[:：]([^\\r\\n]+)").find(text)
-            val pwdM = Regex("密码[:：]([^\\r\\n]*)").find(text)
-            if (nameM != null) {
-                lobbyName = nameM.groupValues[1].trim()
-                pwdM?.groupValues?.getOrNull(1)?.trim()?.let { if (it.isNotEmpty()) password = it }
+            LobbyInviteCodec.parse(text)?.let { invite ->
+                lobbyName = invite.name
+                password = invite.password
+                joinNodeOverride = invite.serverNode
+                joinSignalingOverride = invite.signalingServer
             }
         }
     }
 
-    if (showPlaza) PublicPlazaDialog(state, repository, onFill = { n, p, node -> lobbyName = n; password = p; plazaNode = node.ifBlank { null } }, onDismiss = { showPlaza = false })
-    if (showFavorites) FavoritesDialog(state, repository, lobbyName, password, onFill = { n, p -> lobbyName = n; password = p; plazaNode = null }, onDismiss = { showFavorites = false })
-    if (showRecent) RecentDialog(state, repository, onFill = { n, p -> lobbyName = n; password = p; plazaNode = null }, onDismiss = { showRecent = false })
+    if (showPlaza) PublicPlazaDialog(state, repository, onFill = { n, p, node -> lobbyName = n; password = p; joinNodeOverride = node.ifBlank { null }; joinSignalingOverride = null }, onDismiss = { showPlaza = false })
+    if (showFavorites) FavoritesDialog(state, repository, lobbyName, password, joinNodeOverride ?: state.settings.preferredServer, joinSignalingOverride ?: state.settings.signalingServer, onFill = { n, p, node, signal -> lobbyName = n; password = p; joinNodeOverride = node; joinSignalingOverride = signal }, onDismiss = { showFavorites = false })
+    if (showRecent) RecentDialog(state, repository, onFill = { n, p, node, signal -> lobbyName = n; password = p; joinNodeOverride = node; joinSignalingOverride = signal }, onDismiss = { showRecent = false })
 
     if (showSettings) {
         BackHandler { showSettings = false }
@@ -914,7 +889,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     Spacer(Modifier.height(12.dp))
                     // 创建 / 加入 模式切换
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ToggleChip(L("创建大厅", "Create"), mode == "create", Icons.Rounded.Add, Modifier.weight(1f)) { mode = "create" }
+                        ToggleChip(L("创建大厅", "Create"), mode == "create", Icons.Rounded.Add, Modifier.weight(1f)) { mode = "create"; joinNodeOverride = null; joinSignalingOverride = null }
                         ToggleChip(L("加入大厅", "Join"), mode == "join", Icons.AutoMirrored.Rounded.Login, Modifier.weight(1f)) { mode = "join" }
                     }
                     Spacer(Modifier.height(14.dp))
@@ -927,16 +902,19 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                             HomeActionButton(L("随机", "Random"), Icons.Rounded.Casino, Modifier.weight(1f)) {
                                 lobbyName = randomLobbyName()
                                 password = randomPassword()
+                                joinNodeOverride = null
+                                joinSignalingOverride = null
                                 android.widget.Toast.makeText(ctx, L("已随机生成大厅名称和密码", "Random lobby name and password generated"), android.widget.Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             HomeActionButton(L("\u8bc6\u522b", "Detect"), Icons.Rounded.QrCodeScanner, Modifier.weight(1f)) {
                                 val text = runCatching { clipboard.getText()?.text }.getOrNull().orEmpty()
-                                val nameM = Regex("\u5927\u5385\u540d\u79f0[:\uff1a]([^\\r\\n]+)").find(text)
-                                val pwdM = Regex("\u5bc6\u7801[:\uff1a]([^\\r\\n]*)").find(text)
-                                if (nameM != null) {
-                                    lobbyName = nameM.groupValues[1].trim()
-                                    pwdM?.groupValues?.getOrNull(1)?.trim()?.let { if (it.isNotEmpty()) password = it }
+                                val invite = LobbyInviteCodec.parse(text)
+                                if (invite != null) {
+                                    lobbyName = invite.name
+                                    password = invite.password
+                                    joinNodeOverride = invite.serverNode
+                                    joinSignalingOverride = invite.signalingServer
                                     android.widget.Toast.makeText(ctx, L("\u5df2\u8bc6\u522b\u526a\u8d34\u677f\u5927\u5385\u4fe1\u606f", "Lobby info detected from clipboard"), android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
                                     android.widget.Toast.makeText(ctx, L("\u526a\u8d34\u677f\u6ca1\u6709\u8bc6\u522b\u5230\u5927\u5385\u4fe1\u606f", "No lobby info found in clipboard"), android.widget.Toast.LENGTH_SHORT).show()
@@ -945,7 +923,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    MctierField(lobbyName, { lobbyName = it; plazaNode = null }, L("大厅名称（4-32位）", "Lobby Name (4-32 chars)"), enabled = !connecting)
+                    MctierField(lobbyName, { lobbyName = it; joinNodeOverride = null; joinSignalingOverride = null }, L("大厅名称（4-32位）", "Lobby Name (4-32 chars)"), enabled = !connecting)
                     Spacer(Modifier.height(12.dp))
                     MctierField(password, { password = it }, L("大厅密码（8-32位，含字母和数字）", "Password (8-32, letters & digits)"), enabled = !connecting, isPassword = true)
                     Spacer(Modifier.height(12.dp))
@@ -954,12 +932,18 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                         if (name.length <= 8) repository.updateSettings(state.settings.copy(playerName = name))
                     }, L("玩家名称（最多8字）", "Player Name (max 8)"), enabled = !connecting)
                     Spacer(Modifier.height(12.dp))
-                    NodeSelector(state, repository, enabled = !connecting)
+                    NodeSelector(
+                        state,
+                        repository,
+                        enabled = !connecting,
+                        overrideNode = joinNodeOverride,
+                        onManualSelect = { joinNodeOverride = null; joinSignalingOverride = null },
+                    )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         L(
-                            "双方需选同一节点",
-                            "Both must pick the same node",
+                            if (joinNodeOverride != null) "此节点仅用于本次加入，不会修改默认节点" else "双方需选同一节点",
+                            if (joinNodeOverride != null) "Used for this join only; your default node is unchanged" else "Both must pick the same node",
                         ),
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
@@ -970,7 +954,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     PrimaryButton(
                         text = if (connecting) L("正在组网…", "Connecting…") else if (mode == "create") L("创建大厅", "Create Lobby") else L("加入大厅", "Join Lobby"),
                         enabled = isValidLobbyName(lobbyName) && isValidLobbyPassword(password) && !connecting && state.versionError == null,
-                    ) { repository.createOrJoinLobby(lobbyName, password, plazaNode) }
+                    ) { repository.createOrJoinLobby(lobbyName, password, joinNodeOverride, joinSignalingOverride) }
                 }
             }
             item {
@@ -1047,7 +1031,7 @@ private fun PublicPlazaDialog(state: MctierUiState, repository: MctierRepository
 }
 
 @Composable
-private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, currentName: String, currentPassword: String, onFill: (String, String) -> Unit, onDismiss: () -> Unit) {
+private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, currentName: String, currentPassword: String, currentServerNode: String, currentSignalingServer: String, onFill: (String, String, String?, String?) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Panel,
@@ -1055,7 +1039,7 @@ private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, 
         text = {
             Column {
                 if (currentName.isNotBlank() && currentPassword.isNotBlank()) {
-                    TextButton(onClick = { repository.addFavorite(currentName, currentPassword) }) {
+                    TextButton(onClick = { repository.addFavorite(currentName, currentPassword, serverNode = currentServerNode, signalingServer = currentSignalingServer) }) {
                         Icon(Icons.Rounded.StarBorder, null, tint = GrassGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(L("收藏当前填写的大厅", "Save current lobby"), color = GrassGreen)
@@ -1068,7 +1052,7 @@ private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, 
                         items(sortedFavs, key = { it.name + it.password }) { fav ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                    .clickable { repository.touchFavorite(fav.name, fav.password); onFill(fav.name, fav.password); onDismiss() }.padding(12.dp),
+                                    .clickable { repository.touchFavorite(fav.name, fav.password); onFill(fav.name, fav.password, fav.serverNode, fav.signalingServer); onDismiss() }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Rounded.Star, null, tint = DirtBrown, modifier = Modifier.size(18.dp))
@@ -1091,7 +1075,7 @@ private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, 
 }
 
 @Composable
-private fun RecentDialog(state: MctierUiState, repository: MctierRepository, onFill: (String, String) -> Unit, onDismiss: () -> Unit) {
+private fun RecentDialog(state: MctierUiState, repository: MctierRepository, onFill: (String, String, String?, String?) -> Unit, onDismiss: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1116,7 +1100,7 @@ private fun RecentDialog(state: MctierUiState, repository: MctierRepository, onF
                             items(state.recentLobbies, key = { it.name + it.password }) { r ->
                                 Row(
                                     Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                        .clickable { onFill(r.name, r.password); onDismiss() }.padding(12.dp),
+                                        .clickable { onFill(r.name, r.password, r.serverNode, r.signalingServer); onDismiss() }.padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(r.name, color = TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1467,7 +1451,10 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
             Spacer(Modifier.width(6.dp))
             CircleIconButton(Icons.Rounded.ContentCopy, L("复制大厅信息", "Copy Lobby Info")) {
                 if (lobby != null) {
-                    val info = L("——————— 邀请您加入大厅 ———————\n完整复制后打开 MCTier-加入大厅 界面（自动识别）\n大厅名称：${lobby.name}\n密码：${lobby.password}\n————— https://mctier.pmhs.top —————", "——————— Invitation to Join Lobby ———————\nCopy everything, then open MCTier - Join Lobby (auto-detected)\nLobby Name: ${lobby.name}\nPassword: ${lobby.password}\n————— https://mctier.pmhs.top —————")
+                    val info = LobbyInviteCodec.formatText(
+                        LobbyInviteData(lobby.name, lobby.password, lobby.serverNode, lobby.signalingServer),
+                        appLang == "en",
+                    )
                     clipboard.setText(AnnotatedString(info))
                     android.widget.Toast.makeText(ctx, L("大厅信息已复制，发给好友粘贴即可自动识别", "Lobby info copied; paste to a friend to auto-detect"), android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -1487,7 +1474,7 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
         }
     }
     if (showQr && lobby != null) {
-        val qrText = "mctier://join?name=${java.net.URLEncoder.encode(lobby.name, "UTF-8")}&pwd=${java.net.URLEncoder.encode(lobby.password, "UTF-8")}"
+        val qrText = LobbyInviteCodec.buildLink(LobbyInviteData(lobby.name, lobby.password, lobby.serverNode, lobby.signalingServer))
         val logoBmp = remember {
             runCatching {
                 val opts = android.graphics.BitmapFactory.Options().apply { inScaled = false }
@@ -1537,7 +1524,7 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
                     Box(
                         Modifier.clip(RoundedCornerShape(12.dp)).background(PanelHigh)
                             .clickable {
-                                val dl = "mctier://join?name=${java.net.URLEncoder.encode(lobby.name, "UTF-8")}&pwd=${java.net.URLEncoder.encode(lobby.password, "UTF-8")}"
+                                val dl = LobbyInviteCodec.buildLink(LobbyInviteData(lobby.name, lobby.password, lobby.serverNode, lobby.signalingServer))
                                 clipboard.setText(AnnotatedString(dl))
                                 android.widget.Toast.makeText(ctx, L("邀请链接已复制，发给电脑端好友在浏览器打开即可加入", "Invite link copied; send to a desktop friend to open in a browser and join"), android.widget.Toast.LENGTH_LONG).show()
                             }
@@ -1777,7 +1764,7 @@ private fun LobbyHeader(state: MctierUiState, repository: MctierRepository, onTo
             Spacer(Modifier.width(8.dp))
             CircleIconButton(Icons.Rounded.ContentCopy, L("复制大厅信息", "Copy Lobby Info")) {
                 val lobby = state.lobby ?: return@CircleIconButton
-                clipboard.setText(AnnotatedString("邀请您加入大厅\n大厅名称：${lobby.name}\n密码：${lobby.password}\nhttps://mctier.pmhs.top"))
+                clipboard.setText(AnnotatedString(LobbyInviteCodec.formatText(LobbyInviteData(lobby.name, lobby.password, lobby.serverNode, lobby.signalingServer), appLang == "en")))
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -4716,10 +4703,24 @@ private fun randomPassword(): String {
 }
 
 @Composable
-private fun NodeSelector(state: MctierUiState, repository: MctierRepository, enabled: Boolean) {
-    val all = BuiltinNodes.map { it.name to it.address } + state.customNodes.map { it.name to it.address }
-    val current = state.settings.preferredServer
-    val currentName = all.firstOrNull { it.second == current }?.first?.let { nodeDisplayName(it) } ?: L("自定义节点", "Custom node")
+private fun NodeSelector(
+    state: MctierUiState,
+    repository: MctierRepository,
+    enabled: Boolean,
+    overrideNode: String?,
+    onManualSelect: () -> Unit,
+) {
+    val configured = BuiltinNodes.map { it.name to it.address } + state.customNodes.map { it.name to it.address }
+    val temporary = overrideNode?.takeIf { node -> configured.none { it.second == node } }
+        ?.let { L("本大厅指定节点（临时）", "Lobby-specified node (temporary)") to it }
+    val all = listOfNotNull(temporary) + configured
+    val current = overrideNode ?: state.settings.preferredServer
+    val currentName = if (overrideNode != null) {
+        all.firstOrNull { it.second == current }?.first?.let { nodeDisplayName(it) }
+            ?: L("本大厅指定节点（临时）", "Lobby-specified node (temporary)")
+    } else {
+        all.firstOrNull { it.second == current }?.first?.let { nodeDisplayName(it) } ?: L("自定义节点", "Custom node")
+    }
     var expanded by remember { mutableStateOf(false) }
     Box {
         Row(
@@ -4744,6 +4745,7 @@ private fun NodeSelector(state: MctierUiState, repository: MctierRepository, ena
                         }
                     },
                     onClick = {
+                        onManualSelect()
                         repository.updateSettings(state.settings.copy(preferredServer = addr))
                         expanded = false
                     },

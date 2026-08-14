@@ -11,19 +11,6 @@
   -webkit-user-select: none;
 }
 
-/* 顶部拖拽区域 */
-.lobby-form-drag-area {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 60px;
-  z-index: 10;
-  -webkit-app-region: drag;
-  app-region: drag;
-  pointer-events: auto;
-}
-
 /* 确保交互元素不受拖拽影响 */
 .lobby-form-container button,
 .lobby-form-container input,
@@ -151,14 +138,161 @@
   height: auto;
 }
 
-.lobby-form .ant-input,
-.lobby-form .ant-select-selector {
+.lobby-form .ant-input {
   border-radius: 8px !important;
   transition: border-color 0.14s ease, background-color 0.14s ease;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
   height: 40px !important;
   background: rgba(255, 255, 255, 0.05) !important;
   color: #ffffff !important;
+}
+
+.mct-node-select {
+  position: relative;
+  width: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.server-node-form-item {
+  position: relative;
+}
+
+.server-node-form-item:focus-within {
+  z-index: 80;
+}
+
+.mct-node-select.is-open {
+  z-index: 40;
+}
+
+.mct-node-select-trigger {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.mct-node-select-trigger:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mct-node-select-trigger:focus-visible,
+.mct-node-select.is-open .mct-node-select-trigger {
+  outline: none;
+  border-color: rgba(90, 148, 40, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15);
+}
+
+.mct-node-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.mct-node-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mct-node-select-chevron {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.mct-node-select-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: 276px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(26, 26, 42, 0.98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: mct-node-menu-in 0.12s ease-out;
+}
+
+.mct-node-select-menu.is-bottom {
+  top: calc(100% + 6px);
+  transform-origin: top center;
+}
+
+.mct-node-select-menu.is-top {
+  bottom: calc(100% + 6px);
+  transform-origin: bottom center;
+}
+
+@keyframes mct-node-menu-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.mct-node-select-option {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mct-node-select-option > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mct-node-select-option.is-active,
+.mct-node-select-option:hover {
+  background: rgba(126, 211, 33, 0.11);
+  color: #ffffff;
+}
+
+.mct-node-select-option.is-selected {
+  background: rgba(126, 211, 33, 0.17);
+  color: #b9ed88;
+}
+
+.mct-node-select-option.is-selected.is-active,
+.mct-node-select-option.is-selected:hover {
+  background: rgba(126, 211, 33, 0.23);
+}
+
+.mct-node-select-check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8ed64d;
 }
 
 /* 密码输入框容器 */
@@ -203,8 +337,7 @@
 }
 
 .lobby-form .ant-input:focus,
-.lobby-form .ant-input-focused,
-.lobby-form .ant-select-focused .ant-select-selector {
+.lobby-form .ant-input-focused {
   border-color: rgba(90, 148, 40, 0.6) !important;
   box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15) !important;
   transform: translateY(-1px);
@@ -218,8 +351,7 @@
   transform: translateY(-1px);
 }
 
-.lobby-form .ant-input:hover,
-.lobby-form .ant-select:hover .ant-select-selector {
+.lobby-form .ant-input:hover {
   border-color: rgba(255, 255, 255, 0.35) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }

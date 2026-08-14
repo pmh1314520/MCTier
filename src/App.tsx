@@ -20,6 +20,7 @@ import { screenShareService } from './services/screenShare/ScreenShareService';
 import { speakingDetector } from './services/voice/SpeakingDetector';
 import { versionCheckService } from './services/version/VersionCheckService';
 import { DOWNLOAD_WEBSITE } from './services/version/versionPolicy';
+import { parseLobbyInviteLink } from './services/lobby/lobbyInvite';
 import type { UserConfig } from './types';
 import {
   THEME_CHANGED_EVENT,
@@ -266,14 +267,14 @@ function App() {
     const setup = async () => {
       unlisten = await listen<string>('deep-link-join', (event) => {
         try {
-          const raw = String(event.payload || '');
-          const m = raw.match(/^mctier:\/\/join\/?\?(.*)$/i);
-          if (!m) return;
-          const params = new URLSearchParams(m[1]);
-          const name = params.get('name') || '';
-          const pwd = params.get('pwd') || '';
-          if (!name) return;
-          (window as any).__deepLinkConfig = { lobbyName: name, password: pwd };
+          const invite = parseLobbyInviteLink(String(event.payload || ''));
+          if (!invite) return;
+          (window as any).__deepLinkConfig = {
+            lobbyName: invite.name,
+            password: invite.password,
+            serverNode: invite.serverNode,
+            signalingServer: invite.signalingServer,
+          };
           window.dispatchEvent(new CustomEvent('mctier-open-join'));
         } catch (e) {
           console.warn('解析 deep link 失败（忽略）:', e);
