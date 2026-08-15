@@ -196,13 +196,8 @@ const ServerNodeSelect: React.FC<ServerNodeSelectProps> = ({
 
 // 内置 EasyTier 公共节点
 const HAIBO_US_EASYTIER_SERVER = 'udp://us01.225284.xyz:11010';
-
-// 香港 WebSocket 节点（与 SettingsWindow 中的定义保持一致）
-const QINGYUN_HONG_KONG_NODE = {
-  name: '青云香港节点',
-  address: 'wss://mctiers.pmhs.top'
-};
-const DEFAULT_EASYTIER_SERVER = QINGYUN_HONG_KONG_NODE.address;
+const DEFAULT_EASYTIER_SERVER = HAIBO_US_EASYTIER_SERVER;
+const REMOVED_QINGYUN_NODE = 'wss://mctiers.pmhs.top';
 
 // 旧版官方节点（用于兼容历史配置，自动迁移到 WebSockets 节点）
 const isLegacyOfficialServer = (server?: string) => {
@@ -225,7 +220,6 @@ interface CustomEasyTierNode {
 // 获取服务器节点列表（包含官方节点、默认备用节点和自定义节点）
 const getServerNodes = (customNodes: CustomEasyTierNode[]) => {
   const nodes = [
-    { value: QINGYUN_HONG_KONG_NODE.address, label: tl('青云香港节点', 'Qingyun Hong Kong Node') },
     { value: HAIBO_US_EASYTIER_SERVER, label: tl('海波美国节点', 'Haibo US Node') },
     { value: 'tcp://225284.xyz:11010', label: tl('海波中国大陆节点', 'Haibo Mainland China Node') },
     { value: 'tcp://easytier.weiai.org.cn:11010', label: tl('唯爱厦门节点', 'Weiai Xiamen Node') },
@@ -523,7 +517,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     if (!pref) return DEFAULT_EASYTIER_SERVER;
     if (pref === 'custom') return 'custom';
     // 旧版官方节点地址自动迁移到当前官方节点
-    if (isLegacyOfficialServer(pref)) return DEFAULT_EASYTIER_SERVER;
+    if (isLegacyOfficialServer(pref) || pref === REMOVED_QINGYUN_NODE) return DEFAULT_EASYTIER_SERVER;
     // 直接使用上次成功连上的节点地址（官方/备用/自定义节点）
     return pref;
   })();

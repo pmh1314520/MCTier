@@ -945,9 +945,12 @@ export const MiniWindow: React.FC = () => {
 
       // 3. 使用新配置重新加入大厅
       console.log('🔌 [MiniWindow] 正在使用新配置重新加入大厅...');
+      const savedServerNode = settings.preferredServer || config.preferredServer;
       const serverNode = (settings.usePrivateServer && settings.privateEasytierServer)
         ? settings.privateEasytierServer 
-        : (settings.preferredServer || config.preferredServer || 'wss://mctiers.pmhs.top');
+        : (savedServerNode === 'wss://mctiers.pmhs.top' || !savedServerNode
+          ? 'udp://us01.225284.xyz:11010'
+          : savedServerNode);
       const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
         ? settings.privateSignalingServer 
         : 'wss://mctier.pmhs.top/signaling';

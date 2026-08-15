@@ -4667,7 +4667,6 @@ private fun nodeDisplayName(name: String): String = if (appLang == "en") when (n
     "海波美国节点" -> "Haibo US Node"
     "海波中国大陆节点" -> "Haibo Mainland China Node"
     "唯爱厦门节点" -> "Weiai Xiamen Node"
-    "青云香港节点" -> "Qingyun Hong Kong Node"
     else -> name
 } else name
 

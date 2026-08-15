@@ -26,6 +26,7 @@ import top.pmh13.mctier.data.ChatWireMessage
 import top.pmh13.mctier.data.AppClientVersion
 import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.data.DefaultSignalingServer
+import top.pmh13.mctier.data.RemovedQingyunNode
 import top.pmh13.mctier.data.MctierJson
 import top.pmh13.mctier.data.MctierWireJson
 import top.pmh13.mctier.data.Lobby
@@ -1857,7 +1858,9 @@ class MctierRepository(private val context: Context) {
 
     private fun loadSettings(): UserSettings = UserSettings(
         playerName = storedPlayerNameOrDeviceName(),
-        preferredServer = prefs.getString("preferredServer", null) ?: UserSettings().preferredServer,
+        preferredServer = prefs.getString("preferredServer", null)
+            ?.takeUnless { it == RemovedQingyunNode }
+            ?: UserSettings().preferredServer,
         signalingServer = prefs.getString("signalingServer", null) ?: UserSettings().signalingServer,
         useDomain = prefs.getBoolean("useDomain", false),
         virtualDomain = prefs.getString("virtualDomain", null).orEmpty(),

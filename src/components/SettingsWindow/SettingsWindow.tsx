@@ -569,7 +569,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                         />
                       </div>
                       <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '4px', lineHeight: 1.7 }}>
-                        {tl('说明：自动大厅会沿用与手动创建大厅相同的服务器。若已开启「使用私有服务器」，则使用你在私有服务器中配置的 EasyTier 节点与信令服务器；否则使用用户上次选择的节点（默认为青云香港节点）。', 'Note: Auto lobby uses the same server as manual lobby creation. If "Use private server" is enabled, it uses the configured EasyTier and signaling servers; otherwise it uses the last selected node (default: Qingyun Hong Kong Node).')}
+                        {tl('说明：自动大厅会沿用与手动创建大厅相同的服务器。若已开启「使用私有服务器」，则使用你在私有服务器中配置的 EasyTier 节点与信令服务器；否则使用用户上次选择的节点（默认为海波美国节点）。', 'Note: Auto lobby uses the same server as manual lobby creation. If "Use private server" is enabled, it uses the configured EasyTier and signaling servers; otherwise it uses the last selected node (default: Haibo US Node).')}
                       </div>
                     </div>
                   </motion.div>
@@ -909,10 +909,6 @@ interface EasyTierNode {
 // 默认内置节点（不可删除）
 const DEFAULT_BUILTIN_NODES: EasyTierNode[] = [
   {
-    name: '青云香港节点',
-    address: 'wss://mctiers.pmhs.top'
-  },
-  {
     name: '海波美国节点',
     address: 'udp://us01.225284.xyz:11010'
   },
@@ -934,7 +930,6 @@ const BUILTIN_NODE_NAME_EN: Record<string, string> = {
   '海波美国节点': 'Haibo US Node',
   '海波中国大陆节点': 'Haibo Mainland China Node',
   '唯爱厦门节点': 'Weiai Xiamen Node',
-  '青云香港节点': 'Qingyun Hong Kong Node',
 };
 const displayNodeName = (name: string) =>
   BUILTIN_NODE_NAME_EN[name] ? tl(name, BUILTIN_NODE_NAME_EN[name]) : name;

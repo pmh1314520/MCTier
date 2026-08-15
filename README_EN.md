@@ -6,14 +6,14 @@
   **A universal virtual-LAN networking tool**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.7.0-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.7.5-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
   </p>
 
 
-  **Supports Windows 10/11 and Android. Desktop and mobile can join the same lobby to quickly form a cross-network virtual LAN. Current version: 2.7.0.**
+  **Supports Windows 10/11 and Android. Desktop and mobile can join the same lobby to quickly form a cross-network virtual LAN. Current version: 2.7.5.**
 
   [GitHub](https://github.com/pmh1314520/MCTier) · [Gitee](https://gitee.com/peng-minghang/mctier) · [Quick Start](#quick-start) · [Screenshots](#screenshots) · [Sponsor](#sponsor)
 
@@ -112,7 +112,7 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 - **Cross-platform lobbies**: Phones and PCs can join the same lobby, with handy QR-code invites.
 - **Public lobby plaza**: Hosts can publish a lobby to the plaza, so strangers can find it and join with one click.
 - **Custom nodes & virtual domains**: Add your own EasyTier nodes and configure a custom domain for the virtual network.
-- **Built-in EasyTier nodes**: The default is the Qingyun Hong Kong node, `wss://mctiers.pmhs.top`; Haibo US, Haibo Mainland China and Weiai Xiamen nodes are also available, and the last selection is remembered.
+- **Built-in EasyTier nodes**: The default is the Haibo US node, `udp://us01.225284.xyz:11010`; Haibo Mainland China and Weiai Xiamen nodes are also available, and the last selection is remembered.
 - **Node settings in invites**: QR codes, invite links, recent lobbies and favorite lobbies carry and restore the matching EasyTier node and signaling-server settings, preventing cross-node join failures.
 - **Self-healing connections**: Both desktop and Android support signaling reconnects, secondary member-state confirmation and automatic voice-connection recovery to tolerate short network interruptions.
 - **Connection / network diagnostics**: Aggregate members' direct/relay status, latency and packet loss into a score with tuning tips; network diagnostics can also check the virtual adapter, firewall, UDP ports and security-software blocking, with one-click firewall allow.
