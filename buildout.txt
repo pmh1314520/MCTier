@@ -1,7 +1,0 @@
-
-> mctier@2.0.0 build
-> tsc && vite build
-
-[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
-transforming...
-ÖÕÖ¹Åú´¦Àí²Ù×÷Âğ(Y/N)? ÖÕÖ¹Åú´¦Àí²Ù×÷Âğ(Y/N)? ÖÕÖ¹Åú´¦Àí²Ù×÷Âğ(Y/N)? 

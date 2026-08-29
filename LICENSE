@@ -1,15 +1,23 @@
-MCTier 自定义开源协议
-======================
+MCTier 自定义源码可得（Source-Available）非商业许可
+====================================================
 
-版权所有 (c) 2026 MCTier Team
+版权所有 (c) 2024-2026 青云制作_彭明航（MCTier Team）
 
-本软件采用自定义开源协议，使用本软件即表示您同意遵守以下协议条款：
+使用本软件即表示您同意遵守以下协议条款：
+
+> **关于用词的说明**：本许可禁止商业用途，因此**不符合** OSI（开放源代码促进会）
+> 对“开源许可证”的定义（该定义要求不得歧视使用领域）。为避免误导，本项目
+> 对自有代码统一采用“**源码可得（source-available）/ 非商业许可**”这一表述，
+> 而不称其为“开源许可证”。项目源代码仍然完整公开、可自由查阅与二次开发。
+>
+> 需要说明的是，本项目中包含的第三方组件（见第 5 条）多为**真正的开源许可证**
+> （LGPL-3.0、Apache-2.0、MIT、BSD-3-Clause 等），其权利不受本许可限制。
 
 ## 📜 协议条款
 
 ### 1. 🚫 禁止商业用途
 
-本软件及其源代码仅供个人学习和非商业用途使用。未经原作者明确书面许可，禁止将本软件或其衍生作品用于任何商业目的，包括但不限于：
+本软件**自有代码**及其源代码仅供个人学习和非商业用途使用（本条不适用于第 5 条所述 EasyTier 等第三方 LGPL-3.0 组件）。未经原作者明确书面许可，禁止将本软件或其衍生作品用于任何商业目的，包括但不限于：
 
 - 销售本软件或其衍生作品
 - 将本软件集成到商业产品中
@@ -43,14 +51,67 @@ MCTier 自定义开源协议
 
 ### 4. 🔓 二次开发必须开源
 
-所有基于本项目的二次开发作品必须：
+所有基于本项目**自有代码**的二次开发作品必须（本条不适用于第 5 条所述 EasyTier 等第三方 LGPL-3.0 组件）：
 
 - 以相同的协议条款开源
 - 公开完整的源代码
 - 不得对源代码进行混淆或加密
 - 保持开源协议的传递性
 
-### 5. 📋 免责声明
+### 5. 📦 第三方组件与许可证边界（重要）
+
+**本协议仅适用于 MCTier 项目自身的原创代码。**
+
+本项目中包含的**全部第三方组件**，连同 MCTier 对它们所作的任何衍生或修改部分，
+**均不适用本协议**，而继续按照各自的许可证条款授权：
+
+| 第三方组件 | 适用许可证 |
+| --- | --- |
+| EasyTier（`easytier-core.exe`、`easytier-cli.exe`、`libeasytier_ffi.so`、`libeasytier_android_jni.so` 及其源码/修改） | LGPL-3.0 |
+| WinDivert（`WinDivert64.sys`） | LGPL-3.0（双许可中所选分支） |
+| Wintun（`wintun.dll`） | Wintun Prebuilt Binaries License |
+| Npcap（`Packet.dll`、`Packet.lib`） | Npcap 专有许可条款 |
+| Javassist（内嵌于 `minecraft-offline-agent.jar`） | Apache-2.0（三重许可中所选分支） |
+| LocalVQE（`liblocalvqe.so`、`localvqe.wasm` 等） | Apache-2.0 |
+| GGML（内嵌于 LocalVQE） | MIT |
+| GTCRN 模型权重（`*.gguf`） | 训练数据含 CC BY 4.0 素材 |
+| WebRTC | BSD-3-Clause |
+| 其余 npm / Rust crate / Gradle 依赖 | 见 `THIRD_PARTY_NOTICES.md` §11 |
+
+为避免歧义，特别说明：
+
+- 本协议第 1 条“禁止商业用途”**不适用于**上述任何第三方组件；
+- 本协议第 4 条“二次开发必须开源（以相同协议）”**不适用于**上述任何第三方组件；
+- 本协议任何条款**均不得**被解释为限制、削减或附加条件于上述任何许可证
+  （LGPL-3.0、GPL-2.0、Apache-2.0、MIT、BSD-3-Clause、CC BY 4.0 等）
+  授予使用者的任何权利，包括但不限于对这些组件进行商业使用、修改、
+  逆向工程调试以及再分发的权利；
+- 使用者依法享有上述许可证所赋予的全部权利，并可自行替换 EasyTier 等动态库版本
+  （替换与重新构建说明见 `docs/android/rebuild-with-modified-easytier.md`）。
+
+EasyTier 版权与许可证声明：
+
+```
+本软件使用 EasyTier 项目。
+EasyTier Copyright (c) EasyTier contributors.
+EasyTier is licensed under the GNU Lesser General Public License version 3.0 (LGPL-3.0).
+Source: https://github.com/EasyTier/EasyTier
+```
+
+许可证全文与组件详情见：
+
+- `THIRD_PARTY_NOTICES.md`（各组件版本、commit、SHA-256、修改状态、源码获取方式）
+- `licenses/`（各许可证全文：LGPL-3.0、GPL-3.0、GPL-2.0、Apache-2.0、MIT、
+  BSD-3-Clause、Wintun Prebuilt Binaries License）
+- `LICENSE-LGPL-3.0.txt` / `LICENSE-GPL-3.0.txt`（仓库根目录保留副本）
+
+### 商标与非官方声明
+
+本项目不是官方 Minecraft 产品，未获 Mojang Studios 或 Microsoft 批准、认可、关联或背书。
+Minecraft 是 Mojang Synergies AB 及其关联主体的商标。
+
+WireGuard LLC、WireGuard 项目与 Wintun 项目均未对本项目作任何背书。
+### 6. 📋 免责声明
 
 本软件按"原样"提供，不提供任何明示或暗示的保证，包括但不限于：
 
@@ -60,11 +121,17 @@ MCTier 自定义开源协议
 
 在任何情况下，原作者或版权持有人均不对因使用本软件而产生的任何索赔、损害或其他责任负责，无论是在合同诉讼、侵权诉讼或其他诉讼中。
 
-### 6. 🔄 协议变更
+### 7. 🔄 协议变更
 
-原作者保留随时修改本协议的权利。协议变更后，继续使用本软件即表示接受新的协议条款。
+原作者可以修改本协议，但**协议变更仅适用于变更后发布的版本**。
 
-### 7. ⚖️ 法律适用
+既有版本仍按其发布时所附带的许可证条款授权，不因后续协议变更而被追溯改变，
+除非适用法律另有强制规定或双方另有书面约定。
+
+这意味着：你可以依据获取某一版本时随附的协议条款长期使用该版本，
+无需担心条款被追溯收紧。
+
+### 8. ⚖️ 法律适用
 
 本协议受中华人民共和国法律管辖。因本协议引起的任何争议，应通过友好协商解决；协商不成的，应提交至原作者所在地人民法院诉讼解决。
 
@@ -84,17 +151,28 @@ MCTier 自定义开源协议
 
 ---
 
-# MCTier Custom Open Source License (English Version)
+# MCTier Custom Source-Available Non-Commercial License (English Version)
 
-Copyright (c) 2026 MCTier Team
+Copyright (c) 2024-2026 QingYun Studio_PengMingHang (MCTier Team)
 
-This software is licensed under a custom open source license. By using this software, you agree to comply with the following terms:
+By using this software, you agree to comply with the following terms:
+
+> **A note on wording**: this license prohibits commercial use and therefore does **not**
+> meet the OSI (Open Source Initiative) definition of an "open source license", which
+> forbids discrimination against fields of endeavour. To avoid misleading anyone, this
+> project describes its own code as **source-available / non-commercial**, not as
+> "open source". The source code remains fully public and available for study and
+> modification.
+>
+> Note that the third-party components bundled with this project (see Section 5) are
+> largely licensed under **genuine open source licenses** (LGPL-3.0, Apache-2.0, MIT,
+> BSD-3-Clause, etc.), and their rights are not restricted by this license.
 
 ## 📜 License Terms
 
 ### 1. 🚫 No Commercial Use
 
-This software and its source code are for personal learning and non-commercial use only. Without explicit written permission from the original author, it is prohibited to use this software or its derivatives for any commercial purposes, including but not limited to:
+MCTier's **own code** and its source code are for personal learning and non-commercial use only (this section does not apply to the third-party LGPL-3.0 components described in Section 5, such as EasyTier). Without explicit written permission from the original author, it is prohibited to use this software or its derivatives for any commercial purposes, including but not limited to:
 
 - Selling this software or its derivatives
 - Integrating this software into commercial products
@@ -128,14 +206,72 @@ Original Project: https://github.com/pmh1314520/MCTier
 
 ### 4. 🔓 Derivatives Must Be Open Source
 
-All derivative works based on this project must:
+All derivative works based on MCTier's **own code** must (this section does not apply to the third-party LGPL-3.0 components described in Section 5, such as EasyTier):
 
 - Be open sourced under the same license terms
 - Make complete source code publicly available
 - Not obfuscate or encrypt the source code
 - Maintain the transitivity of the open source license
 
-### 5. 📋 Disclaimer
+### 5. 📦 Third-Party Components and License Boundary (Important)
+
+**This license applies only to MCTier's own original code.**
+
+**All third-party components** included in this project, together with any derivative or
+modified portions of them made by MCTier, are **not** covered by this license. They remain
+licensed under their own respective terms:
+
+| Third-party component | Applicable license |
+| --- | --- |
+| EasyTier (`easytier-core.exe`, `easytier-cli.exe`, `libeasytier_ffi.so`, `libeasytier_android_jni.so`, and its source/modifications) | LGPL-3.0 |
+| WinDivert (`WinDivert64.sys`) | LGPL-3.0 (branch chosen from its dual license) |
+| Wintun (`wintun.dll`) | Wintun Prebuilt Binaries License |
+| Npcap (`Packet.dll`, `Packet.lib`) | Npcap proprietary terms |
+| Javassist (bundled in `minecraft-offline-agent.jar`) | Apache-2.0 (branch chosen from its triple license) |
+| LocalVQE (`liblocalvqe.so`, `localvqe.wasm`, etc.) | Apache-2.0 |
+| GGML (bundled in LocalVQE) | MIT |
+| GTCRN model weights (`*.gguf`) | training data includes CC BY 4.0 material |
+| WebRTC | BSD-3-Clause |
+| Other npm / Rust crate / Gradle dependencies | see `THIRD_PARTY_NOTICES.md` §11 |
+
+For the avoidance of doubt:
+
+- Section 1 ("No Commercial Use") of this license **does not apply** to any of the
+  third-party components above;
+- Section 4 ("Derivatives Must Be Open Source" under the same license) **does not apply**
+  to any of the third-party components above;
+- **No** provision of this license shall be construed to limit, reduce, or impose further
+  conditions on any right granted to users by those licenses (LGPL-3.0, GPL-2.0,
+  Apache-2.0, MIT, BSD-3-Clause, CC BY 4.0, etc.), including but not limited to
+  commercial use, modification, reverse engineering for debugging, and redistribution
+  of those components;
+- Users retain all rights granted by those licenses, including the right to replace the
+  EasyTier shared libraries with their own builds (see
+  `docs/android/rebuild-with-modified-easytier.md`).
+
+EasyTier copyright and license notice:
+
+```
+This software uses the EasyTier project.
+EasyTier Copyright (c) EasyTier contributors.
+EasyTier is licensed under the GNU Lesser General Public License version 3.0 (LGPL-3.0).
+Source: https://github.com/EasyTier/EasyTier
+```
+
+Full license texts and component details:
+
+- `THIRD_PARTY_NOTICES.md` (versions, commits, SHA-256, modification status, how to obtain source)
+- `licenses/` (full texts: LGPL-3.0, GPL-3.0, GPL-2.0, Apache-2.0, MIT, BSD-3-Clause,
+  Wintun Prebuilt Binaries License)
+- `LICENSE-LGPL-3.0.txt` / `LICENSE-GPL-3.0.txt` (copies kept at the repository root)
+
+### Trademarks and Non-Affiliation
+
+This project is not an official Minecraft product. It is not approved by or associated
+with Mojang Studios or Microsoft. Minecraft is a trademark of Mojang Synergies AB.
+
+Neither WireGuard LLC, the WireGuard project, nor the Wintun project endorses this project.
+### 6. 📋 Disclaimer
 
 This software is provided "as is", without warranty of any kind, express or implied, including but not limited to:
 
@@ -145,11 +281,19 @@ This software is provided "as is", without warranty of any kind, express or impl
 
 In no event shall the authors or copyright holders be liable for any claim, damages, or other liability arising from the use of this software, whether in an action of contract, tort, or otherwise.
 
-### 6. 🔄 License Changes
+### 7. 🔄 License Changes
 
-The original author reserves the right to modify this license at any time. Continued use of this software after license changes indicates acceptance of the new terms.
+The original author may modify this license, but **any change applies only to versions
+released after that change**.
 
-### 7. ⚖️ Governing Law
+Versions already released remain licensed under the terms that accompanied them at the
+time of their release, and are not retroactively altered by later license changes, unless
+required by applicable law or otherwise agreed in writing by both parties.
+
+In other words: you may continue to rely on the license terms shipped with the version you
+obtained, without concern that those terms will be retroactively tightened.
+
+### 8. ⚖️ Governing Law
 
 This license is governed by the laws of the People's Republic of China. Any disputes arising from this license shall be resolved through friendly negotiation; if negotiation fails, they shall be submitted to the people's court where the original author is located for litigation.
 

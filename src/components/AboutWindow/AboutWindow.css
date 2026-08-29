@@ -302,6 +302,76 @@
   font-style: italic;
 }
 
+.license-boundary-note {
+  font-size: 11px;
+  color: rgba(255, 200, 100, 0.85);
+  line-height: 1.6;
+  margin: 8px 0 0 !important;
+  font-weight: 500;
+}
+
+/* 第三方开源组件声明 */
+.third-party-section {
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(120, 170, 255, 0.05);
+  border: 1px solid rgba(120, 170, 255, 0.2);
+}
+
+.third-party-content {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.third-party-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.third-party-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.third-party-line {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.6;
+  margin: 6px 0 0 !important;
+  word-break: break-word;
+}
+
+.third-party-meta {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.6;
+}
+
+.third-party-footnote {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
+  margin: 10px 0 0 !important;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.third-party-link {
+  color: #7fb2ff;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.third-party-link:hover {
+  text-decoration: underline;
+}
+
 /* 开发者信息 */
 .developer-info {
   padding: 12px;
@@ -768,6 +838,31 @@ html[data-theme='light'] .license-item {
 }
 html[data-theme='light'] .license-icon {
   color: #ad7112;
+}
+html[data-theme='light'] .license-boundary-note {
+  color: #8a5a06;
+}
+html[data-theme='light'] .third-party-section {
+  background: #f2f7ff;
+  border-color: #c3d8f2;
+}
+html[data-theme='light'] .third-party-item {
+  background: #ffffff;
+  border: 1px solid rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .third-party-name {
+  color: #18202b !important;
+}
+html[data-theme='light'] .third-party-line,
+html[data-theme='light'] .third-party-meta {
+  color: #4a5568;
+}
+html[data-theme='light'] .third-party-footnote {
+  color: #5a6472;
+  border-top-color: rgba(24, 32, 43, 0.12);
+}
+html[data-theme='light'] .third-party-link {
+  color: #1b5fa8;
 }
 html[data-theme='light'] .repo-link {
   color: #364151;

@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use tower_http::cors::CorsLayer;
+use super::http_cors::lan_cors_layer;
 
 const CHAT_SERVER_PORT: u16 = 14540; // 聊天服务端口
 const MAX_MESSAGES_PER_PLAYER: usize = 1000; // 每个玩家最多保存1000条消息
@@ -56,6 +56,8 @@ pub enum MessageType {
     Whiteboard,
     /// 撤回聊天消息（控制消息，content 为目标消息 ID）
     Recall,
+    /// 头像同步（控制消息，content 为头像 data URL）
+    Avatar,
 }
 
 /// 获取消息请求参数
@@ -161,7 +163,7 @@ impl ChatService {
             .route("/api/chat/messages", get(get_messages))
             .route("/api/chat/send", post(send_message))
             .route("/api/chat/stream", get(stream_messages)) // 新增SSE端点
-            .layer(CorsLayer::permissive())
+            .layer(lan_cors_layer())
             .with_state(AppState {
                 local_messages: local_messages.clone(),
                 message_tx: message_tx.clone(),

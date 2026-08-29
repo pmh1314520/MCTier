@@ -23,7 +23,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tower_http::cors::CorsLayer;
+use super::http_cors::lan_cors_layer;
 use zip::write::SimpleFileOptions;
 
 const FILE_SERVER_PORT: u16 = 14539; // 固定端口，方便其他节点访问
@@ -55,6 +55,29 @@ pub struct SharedFolderSummary {
     pub compress_before_send: Option<bool>,
     pub owner_id: String,
     pub created_at: u64,
+    /// 仅用于兼容尚未升级的旧节点：旧版 `/api/shares` 会直接返回 `password`，
+    /// 却没有 `has_password` 字段。反序列化时读入该值仅为推断"是否需要密码"，
+    /// 绝不会再次序列化出去，也不会向 UI 暴露。
+    #[serde(default, rename = "password", skip_serializing)]
+    pub legacy_password: Option<String>,
+}
+
+impl SharedFolderSummary {
+    /// 归一化来自远程节点的共享摘要。
+    ///
+    /// 新节点直接提供 `has_password`；旧节点只提供明文 `password`，此时据其推断
+    /// `has_password`，避免旧节点的加密共享在新客户端上被误判为"无需密码"
+    /// （那会导致锁图标消失并跳过密码校验）。返回值不再携带任何密码内容。
+    pub fn normalized(mut self) -> Self {
+        if !self.has_password {
+            self.has_password = self
+                .legacy_password
+                .as_deref()
+                .is_some_and(|password| !password.is_empty());
+        }
+        self.legacy_password = None;
+        self
+    }
 }
 
 impl From<&SharedFolder> for SharedFolderSummary {
@@ -70,6 +93,7 @@ impl From<&SharedFolder> for SharedFolderSummary {
             compress_before_send: share.compress_before_send,
             owner_id: share.owner_id.clone(),
             created_at: share.created_at,
+            legacy_password: None,
         }
     }
 }
@@ -203,7 +227,7 @@ impl FileTransferService {
             .route("/api/shares/:share_id/verify", post(verify_password))
             .route("/api/shares/:share_id/download/*file_path", get(download_file))
             .route("/api/shares/:share_id/batch-download", post(batch_download))
-            .layer(CorsLayer::permissive())
+            .layer(lan_cors_layer())
             .with_state(AppState {
                 shared_folders: shared_folders.clone(),
             });
@@ -467,6 +491,80 @@ mod share_list_response_tests {
         share.password = Some(String::new());
 
         assert!(!SharedFolderSummary::from(&share).has_password);
+    }
+
+    /// 旧节点只返回明文 `password`、没有 `has_password`。若不做归一化，
+    /// `has_password` 会默认为 false，导致新客户端不显示锁图标、直接跳过密码校验。
+    #[test]
+    fn legacy_node_password_is_inferred_as_protected() {
+        let legacy = serde_json::json!({
+            "id": "share-1",
+            "name": "Legacy share",
+            "path": r"C:\Users\test\private",
+            "password": "secret-password",
+            "owner_id": "owner-1",
+            "created_at": 1_800_000_000u64
+        });
+
+        let summary: SharedFolderSummary =
+            serde_json::from_value(legacy).expect("deserialize legacy share");
+        assert!(!summary.has_password, "旧节点响应本身没有 has_password 字段");
+
+        let summary = summary.normalized();
+        assert!(summary.has_password, "应据明文 password 推断出需要密码");
+        assert!(summary.legacy_password.is_none(), "归一化后不得残留密码");
+    }
+
+    #[test]
+    fn legacy_empty_password_stays_unprotected() {
+        let legacy = serde_json::json!({
+            "id": "share-1",
+            "name": "Legacy share",
+            "password": "",
+            "owner_id": "owner-1",
+            "created_at": 1_800_000_000u64
+        });
+
+        let summary: SharedFolderSummary = serde_json::from_value::<SharedFolderSummary>(legacy)
+            .expect("deserialize legacy share")
+            .normalized();
+        assert!(!summary.has_password);
+    }
+
+    #[test]
+    fn new_node_has_password_is_preserved() {
+        let modern = serde_json::json!({
+            "id": "share-1",
+            "name": "Modern share",
+            "has_password": true,
+            "owner_id": "owner-1",
+            "created_at": 1_800_000_000u64
+        });
+
+        let summary: SharedFolderSummary = serde_json::from_value::<SharedFolderSummary>(modern)
+            .expect("deserialize modern share")
+            .normalized();
+        assert!(summary.has_password);
+    }
+
+    /// 归一化后的摘要即使来自旧节点，也不得把密码再序列化出去。
+    #[test]
+    fn normalized_summary_never_serializes_password() {
+        let legacy = serde_json::json!({
+            "id": "share-1",
+            "name": "Legacy share",
+            "password": "secret-password",
+            "owner_id": "owner-1",
+            "created_at": 1_800_000_000u64
+        });
+
+        let summary: SharedFolderSummary = serde_json::from_value::<SharedFolderSummary>(legacy)
+            .expect("deserialize legacy share")
+            .normalized();
+        let json = serde_json::to_value(&summary).expect("serialize summary");
+
+        assert!(json.get("password").is_none());
+        assert!(!json.to_string().contains("secret-password"));
     }
 }
 

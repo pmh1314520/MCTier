@@ -223,6 +223,7 @@ class MctierRepository(private val context: Context) {
     val state: StateFlow<MctierUiState> = _state.asStateFlow()
 
     init {
+        clearAvatarCacheOnStartup()
         scope.launch { signalingClient.events.collect { handleSignal(it) } }
         // 应用已保存的音效/免打扰设置
         soundManager.applySettings(_state.value.settings)
@@ -307,10 +308,26 @@ class MctierRepository(private val context: Context) {
         }
     }
 
+    private fun clearAvatarCacheOnStartup() {
+        runCatching {
+            val cacheDir = java.io.File(context.cacheDir, "avatar-cache")
+            if (cacheDir.exists() && !cacheDir.deleteRecursively()) {
+                L("清理头像缓存失败", "Failed to clear avatar cache")
+            }
+        }.onFailure { error ->
+            L(
+                "清理头像缓存失败：${error.message ?: "未知错误"}",
+                "Failed to clear avatar cache: ${error.message ?: "Unknown error"}",
+            )
+        }
+    }
+
     fun updateSettings(settings: UserSettings) {
         val normalizedSettings = settings.copy(playerName = normalizePlayerName(settings.playerName))
         prefs.edit {
             putString("playerName", normalizedSettings.playerName)
+            putString("avatarData", normalizedSettings.avatarData)
+            putString("fileShareDownloadTreeUri", normalizedSettings.fileShareDownloadTreeUri)
             putString("preferredServer", settings.preferredServer)
             putString("signalingServer", settings.signalingServer)
             putBoolean("useDomain", settings.useDomain)
@@ -374,6 +391,42 @@ class MctierRepository(private val context: Context) {
         )
     }
 
+    fun updateAvatar(uri: Uri) {
+        ioScope.launch {
+            runCatching {
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    ?: error("头像格式无效")
+                val scale = minOf(1f, 256f / maxOf(bitmap.width, bitmap.height).toFloat())
+                val target = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true) else bitmap
+                val output = ByteArrayOutputStream()
+                var quality = 82
+                do {
+                    output.reset()
+                    target.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, output)
+                    quality -= 8
+                } while (output.size() > 120_000 && quality >= 42)
+                if (output.size() > 120_000) error("头像文件过大，请选择更小的图片")
+                if (target !== bitmap) target.recycle()
+                val data = "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+                val current = _state.value.settings
+                updateSettings(current.copy(avatarData = data))
+                _state.update { state -> state.copy(players = state.players.map { player -> if (player.id == state.playerId) player.copy(avatarData = data) else player }) }
+                chatClient?.sendAvatar(data)
+            }.onFailure { error ->
+                Log.w(TAG, "头像更新失败: ${error.message}")
+            }
+        }
+    }
+
+    fun clearAvatar() {
+        val current = _state.value.settings
+        updateSettings(current.copy(avatarData = null))
+        _state.update { state ->
+            state.copy(players = state.players.map { player -> if (player.id == state.playerId) player.copy(avatarData = null) else player })
+        }
+        chatClient?.sendAvatar(null)
+    }
+
     fun previewSound(kind: String) {
         when (kind) {
             "message" -> soundManager.previewMessage()
@@ -424,9 +477,9 @@ class MctierRepository(private val context: Context) {
                     signalingServer = effectiveSignaling,
                     serverNode = effectiveNode,
                 )
-                fileServer = FileShareHttpServer(context, current.playerId).also { it.start(5_000, false) }
+                fileServer = FileShareHttpServer(context, current.playerId, session.virtualIp).also { it.start(5_000, false) }
                 // 启动 P2P 聊天（与桌面端 14540 互通）
-                chatClient = ChatP2PClient(current.playerId, ioScope) { wire -> onIncomingChat(wire) }.also { it.start() }
+                chatClient = ChatP2PClient(current.playerId, ioScope, session.virtualIp) { wire -> onIncomingChat(wire) }.also { it.start() }
                 screenController = ScreenShareController(appContext, current.playerId) { signalingClient.send(it) }.also { controller ->
                     controller.onViewerCountChanged = { shareId, count ->
                         _state.update { state ->
@@ -701,6 +754,14 @@ class MctierRepository(private val context: Context) {
 
     /** 收到他人聊天消息（来自 P2P 聊天客户端，已去重并排除自己） */
     private fun onIncomingChat(wire: ChatWireMessage) {
+        if (wire.messageType == "avatar") {
+            _state.update { state ->
+                state.copy(players = state.players.map { player ->
+                    if (player.id == wire.playerId) player.copy(avatarData = wire.content.ifBlank { null }) else player
+                })
+            }
+            return
+        }
         // 公告控制消息：更新公告横幅，不计入聊天、不播放提示音
         if (wire.messageType == "announce") {
             _state.update { it.copy(announcement = wire.content) }
@@ -999,7 +1060,9 @@ class MctierRepository(private val context: Context) {
 
         val job = ioScope.launch {
             runCatching {
-                remoteFileClient.download(entry.ownerIp, entry.shareId, file.path, file.name, password, onProgress = { downloaded, total ->
+                remoteFileClient.download(entry.ownerIp, entry.shareId, file.path, file.name, password,
+                    downloadTreeUri = _state.value.settings.fileShareDownloadTreeUri,
+                    onProgress = { downloaded, total ->
                     val pct = if (total > 0) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else -1
                     scope.launch { _state.update { it.copy(downloadProgress = it.downloadProgress + (key to pct)) } }
                 }, isCanceled = { key in canceledDownloads || downloadJobs[key]?.isCancelled == true },
@@ -1242,12 +1305,15 @@ class MctierRepository(private val context: Context) {
                 signalingClient.send(SignalingEnvelope(type = "screen-share-list-request", from = _state.value.playerId))
             }
             "players-list" -> {
+                val selfId = _state.value.playerId
+                val selfIp = _state.value.lobby?.virtualIp
                 val remotes = message.players.orEmpty().map {
                     Player(it.playerId, it.playerName, it.virtualIp, it.virtualDomain, it.useDomain ?: false)
+                }.filter { player ->
+                    player.id != selfId && (selfIp.isNullOrBlank() || player.virtualIp.isNullOrBlank() || player.virtualIp != selfIp)
                 }
                 playersSnapshotVersion += 1
                 remotes.forEach { pendingPlayerLeaveJobs.remove(it.id)?.cancel() }
-                val selfId = _state.value.playerId
                 // 【幽灵玩家清理】players-list 是服务器在持有大厅读锁时构建的权威全量列表（不含自己），
                 // 与 player-joined 广播互斥一致。断线重连期间已离开的成员不会出现在其中，
                 // 据此移除本地残留，避免"幽灵玩家"永久停留在列表里。始终保留自己。
@@ -1278,11 +1344,14 @@ class MctierRepository(private val context: Context) {
                 rtcController.connectToPlayers(others)
                 // 更新 P2P 聊天 peer 列表
                 chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                chatClient?.sendAvatar(_state.value.settings.avatarData)
                 // 玩家列表变化后，主动重发一次自己的共享，确保新加入/刚获取 IP 的玩家能看到
                 if (_state.value.sharedFolders.isNotEmpty()) broadcastMyShares()
             }
             "player-joined" -> {
                 val id = message.playerId ?: return
+                val selfIp = _state.value.lobby?.virtualIp
+                if (id == _state.value.playerId || (!selfIp.isNullOrBlank() && message.virtualIp == selfIp)) return
                 val alreadyKnown = _state.value.players.any { it.id == id }
                 pendingPlayerLeaveJobs.remove(id)?.cancel()
                 val name = message.playerName ?: L("未知玩家", "Unknown player")
@@ -1291,6 +1360,7 @@ class MctierRepository(private val context: Context) {
                     if (id != _state.value.playerId) rtcController.connectToPlayer(id)
                     backfillRemoteShareIps()
                     chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                    chatClient?.sendAvatar(_state.value.settings.avatarData)
                     return
                 }
                 if (id != _state.value.playerId) {
@@ -1467,7 +1537,10 @@ class MctierRepository(private val context: Context) {
     private fun mergePlayers(existing: List<Player>, incoming: List<Player>): List<Player> {
         val map = linkedMapOf<String, Player>()
         existing.forEach { map[it.id] = it }
-        incoming.forEach { map[it.id] = it }
+        incoming.forEach { player ->
+            val previous = map[player.id]
+            map[player.id] = if (player.avatarData == null && previous?.avatarData != null) player.copy(avatarData = previous.avatarData) else player
+        }
         return map.values.toList()
     }
 
@@ -1858,6 +1931,7 @@ class MctierRepository(private val context: Context) {
 
     private fun loadSettings(): UserSettings = UserSettings(
         playerName = storedPlayerNameOrDeviceName(),
+        fileShareDownloadTreeUri = prefs.getString("fileShareDownloadTreeUri", null).orEmpty(),
         preferredServer = prefs.getString("preferredServer", null)
             ?.takeUnless { it == RemovedQingyunNode }
             ?: UserSettings().preferredServer,
@@ -1903,6 +1977,7 @@ class MctierRepository(private val context: Context) {
         danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),
         danmakuTracks = prefs.getInt("danmakuTracks", 4),
         danmakuColor = prefs.getString("danmakuColor", null) ?: "#FFFFFF",
+        avatarData = prefs.getString("avatarData", null),
         voicePreset = prefs.getString("voicePreset", null) ?: "none",
     )
 }

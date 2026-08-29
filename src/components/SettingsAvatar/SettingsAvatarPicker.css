@@ -1,0 +1,170 @@
+.settings-avatar-editor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 14px 14px;
+}
+
+.settings-avatar-editor-preview-column {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-avatar-editor-preview {
+  display: flex;
+  flex: 0 0 84px;
+  width: 84px;
+  height: 84px;
+  min-width: 84px;
+  min-height: 84px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: #354052;
+  color: #ffffff;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.settings-avatar-editor-preview:hover {
+  border-color: rgba(126, 211, 33, 0.8);
+}
+
+.settings-avatar-editor-preview:focus-visible {
+  outline: 2px solid rgba(126, 211, 33, 0.85);
+  outline-offset: 3px;
+}
+
+.settings-avatar-editor-preview.is-empty span {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.settings-avatar-editor-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-avatar-editor-empty-label {
+  display: block;
+  color: #ffffff;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.settings-avatar-editor-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  display: none;
+}
+
+.settings-avatar-editor-remove {
+  min-width: 74px;
+  padding: 3px 8px;
+  border: 1px solid #ff4d4f;
+  border-radius: 5px;
+  background: transparent;
+  color: #ff4d4f;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.settings-avatar-editor-remove:hover:not(:disabled) {
+  background: rgba(255, 77, 79, 0.12);
+}
+
+.settings-avatar-editor-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.settings-avatar-editor-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-avatar-editor-label {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-avatar-editor-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+}
+
+.settings-avatar-editor-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #8b96a5;
+}
+
+.settings-avatar-editor-dot.active {
+  background: #52c41a;
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.16);
+}
+
+.settings-avatar-editor-hint {
+  margin-top: 7px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+html[data-theme='light'] .settings-avatar-editor-preview {
+  border-color: rgba(24, 32, 43, 0.24);
+  background: #354052;
+}
+
+html[data-theme='light'] .settings-avatar-editor-preview:hover {
+  border-color: #52a51c;
+}
+
+html[data-theme='light'] .settings-avatar-editor-label {
+  color: #18202b;
+}
+
+html[data-theme='light'] .settings-avatar-editor-state,
+html[data-theme='light'] .settings-avatar-editor-hint {
+  color: #596574;
+}
+
+@media (max-width: 420px) {
+  .settings-avatar-editor {
+    align-items: flex-start;
+    gap: 12px;
+    padding-inline: 10px;
+  }
+
+  .settings-avatar-editor-preview {
+    width: 72px;
+    height: 72px;
+  }
+}

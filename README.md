@@ -6,7 +6,7 @@
   **虚拟局域网通用组网工具**
 
   <p>
-    <img src="https://img.shields.io/badge/version-2.7.5-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-2.8.0-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-2ea44f?style=flat-square" alt="Windows 10/11">
     <img src="https://img.shields.io/badge/Android-supported-3ddc84?style=flat-square" alt="Android">
     <img src="https://img.shields.io/badge/license-Custom-orange?style=flat-square" alt="License">
@@ -218,6 +218,17 @@ docker compose -f docker-compose-http.yml logs -f
 
 ## 开发与构建
 
+### 第一步：获取第三方二进制（首次 clone 后必做）
+
+`src-tauri/src/modules/resource_manager.rs` 通过 `include_bytes!` 在编译期内嵌 6 个第三方二进制。这些文件受版权与许可限制（尤其是 Npcap 的 `Packet.dll` / `Packet.lib`，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 第 8 节），因此不纳入本仓库。clone 之后必须先运行下面的脚本，否则 `cargo build` 会因找不到文件而失败：
+
+```powershell
+.\scripts\fetch-binaries.ps1
+```
+
+该脚本从 EasyTier 官方 Release 下载 `easytier-windows-x86_64-v2.5.0.zip`，逐个校验 SHA-256（任一不匹配即中止），再放入 `src-tauri/resources/binaries/`。已存在且校验通过的文件会被跳过；如需强制重新获取请加 `-Force`。
+
+### 第二步：构建
 ```bash
 npm install
 npm run tauri dev
@@ -259,14 +270,78 @@ MCTier 会持续维护桌面端和手机端体验。如果它帮你完成了组�
   </table>
 </div>
 
-## 开源协议
+## 许可协议
 
-本项目使用自定义开源协议：
+MCTier **自有代码**使用自定义**源码可得（source-available）非商业**许可（详见 [LICENSE](LICENSE)）：
 
 - 仅供个人学习与非商业使用。
 - 允许二次开发，但必须保留原作者信息。
-- 衍生项目需要按相同协议开源。
+- 衍生项目需要按相同协议公开源代码。
 
+> 用词说明：由于本许可禁止商业用途，它**不符合** OSI 对“开源许可证”的定义，
+> 因此本项目对自有代码统一表述为“源码可得 / 非商业许可”，而非“开源许可证”。
+> 项目源代码仍然完整公开。项目中包含的第三方组件多为真正的开源许可证，
+> 其权利不受本许可限制（见下文）。
+
+### 第三方组件与许可证边界
+
+**上述限制仅适用于 MCTier 自有代码，不适用于项目中包含的 EasyTier 组件。**
+
+本软件使用 [EasyTier](https://github.com/EasyTier/EasyTier) 提供虚拟组网能力。
+EasyTier 及 MCTier 对其所作的任何修改，继续按 **LGPL-3.0** 授权：
+
+```
+本软件使用 EasyTier 项目。
+EasyTier Copyright (c) EasyTier contributors.
+EasyTier is licensed under the GNU Lesser General Public License version 3.0 (LGPL-3.0).
+Source: https://github.com/EasyTier/EasyTier
+```
+
+- “禁止商业用途”**不适用于** EasyTier 的 LGPL-3.0 部分；
+- “二次开发必须以相同协议开源”**不适用于** EasyTier 的 LGPL-3.0 部分；
+- MCTier 自定义协议不得被解释为限制 LGPL-3.0 赋予使用者的任何权利。
+
+| 组件 | 平台 | 版本 | Commit | 许可证 | 是否修改 |
+| --- | --- | --- | --- | --- | --- |
+| EasyTier | Windows（独立进程） | v2.5.0 | `88a45d11...` | LGPL-3.0 | 否 |
+| EasyTier | Android（`.so` 动态库） | 基于 v2.6.0 | `79b562cd...` | LGPL-3.0 | 是（见补丁） |
+
+相关文件：
+
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — 版本、commit、修改状态、源码获取方式、二进制 SHA-256
+- [LICENSE-LGPL-3.0.txt](LICENSE-LGPL-3.0.txt) — LGPL-3.0 全文
+- [LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt) — GPL-3.0 全文（LGPL-3.0 以引用方式并入）
+- [patches/easytier-2.6.0-mctier-android.patch](patches/easytier-2.6.0-mctier-android.patch) — Android 端 EasyTier 修改补丁
+- [docs/android/rebuild-with-modified-easytier.md](docs/android/rebuild-with-modified-easytier.md) — 用自行修改的 EasyTier 重新构建 Android 版
+- [licenses/](licenses/) — 各第三方许可证全文（LGPL-3.0、GPL-3.0、GPL-2.0、Apache-2.0、MIT、BSD-3-Clause、Wintun）
+
+`THIRD_PARTY_NOTICES.md` 覆盖 EasyTier、Wintun、WinDivert、Npcap、Javassist、
+LocalVQE / GGML / 模型权重、WebRTC 及各应用级依赖的版本、SHA-256、许可证与修改状态。
+
+### 商标与非官方声明
+
+本项目不是官方 Minecraft 产品，未获 Mojang Studios 或 Microsoft 批准、认可、关联或背书。
+Minecraft 是 Mojang Synergies AB 及其关联主体的商标。
+
+WireGuard LLC、WireGuard 项目与 Wintun 项目均未对本项目作任何背书。
+
+## 默认服务与元数据披露
+
+MCTier 的通信内容（聊天、语音、文件、屏幕、远程控制）在成员设备之间点对点直接传输。但**建立连接**以及**版本检查**需要访问以下默认服务。若你使用默认配置，这些服务端会看到相应的连接元数据：
+
+| 默认服务 | 地址 | 服务端可见的元数据 | 用途 |
+|---|---|---|---|
+| 信令服务器 | `wss://mctier.pmhs.top/signaling` | 公网 IP、连接时间、大厅名称与密码哈希用于匹配、玩家名、虚拟 IP/虚拟域名、成员数、客户端版本 | 交换 WebRTC 信令、发现同一大厅的成员 |
+| EasyTier 公共节点 | `udp://us01.225284.xyz:11010` | 公网 IP、连接时间、EasyTier 网络标识 | P2P 打洞与必要时的流量中继 |
+| 版本检查 | `https://gitee.com/api/v5/repos/peng-minghang/mctier/tags` | 公网 IP、请求时间（由 Gitee 记录） | 获取最新版本号 |
+
+说明：
+
+- **元数据 ≠ 通信内容**。信令服务器与 EasyTier 节点不解密、不存储你的聊天、语音、文件内容。
+- **保留期限与删除**：官方信令服务器仅在会话期间于内存中保存大厅与成员映射，会话结束即释放；不建立长期用户画像。如需删除相关记录，可通过 issue 或官网联系方式提出。
+- **版本检查**由 Gitee 提供，其日志策略遵循 Gitee 自身的隐私政策。
+- **可以完全不使用官方服务**：在「设置 → 高级」中填入自建信令服务器与自建 EasyTier 节点即可（见「私有化部署快速流程」），此时不会有任何数据经过官方服务。版本检查可在设置中关闭。
+- 功能列表中的「本地数据统计绝不上报网络」**仅指该统计功能本身**（联机时长、加入/房主次数等纯本地计算，不会离开你的设备），并不意味着其他功能不访问上述默认服务。
 ## 免责声明
 
 - MCTier 是一款**中立的虚拟局域网组网与协作工具**，仅供在符合所在地法律法规的前提下用于个人合法用途（如局域网游戏联机、协作、访问你本人或已获授权的服务）。
@@ -286,5 +361,5 @@ MCTier 会持续维护桌面端和手机端体验。如果它帮你完成了组�
 ---
 
 <div align="center">
-  <b>MCTier 完全免费开源，祝使用顺利。</b>
+  <b>MCTier 对个人非商业使用完全免费，源代码完整公开，祝使用顺利。</b>
 </div>

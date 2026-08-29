@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (lint / typecheck / test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        # 存量代码尚有大量 eslint 告警/错误（多为 no-console 与 explicit-any），
+        # 先纳入 CI 保持可见性，暂不阻塞，待逐步清理后再改为强制。
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Audit runtime dependencies
+        # 运行时依赖必须无高危漏洞；开发期依赖（vite / rollup 等）另行跟踪，
+        # 不阻塞 CI，避免上游未修复时长期红灯。
+        run: npm audit --omit=dev --audit-level=high
+
+  rust:
+    name: Rust (fmt / clippy / check)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Fetch third-party binaries
+        # resource_manager.rs 通过 include_bytes! 内嵌第三方二进制，且这些文件不入库，
+        # 因此编译前必须先获取并校验 SHA-256。
+        run: .\scripts\fetch-binaries.ps1
+        shell: pwsh
+
+      - name: Format check
+        working-directory: src-tauri
+        # 存量文件（build.rs / lib.rs 等）尚未按 rustfmt 规范化，暂不阻塞。
+        continue-on-error: true
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        # 存量代码有 72 项 clippy 告警，先保持可见性，暂不阻塞。
+        continue-on-error: true
+        run: cargo clippy --lib --tests
+
+      - name: Check
+        working-directory: src-tauri
+        run: cargo check --lib --tests
+
+  android:
+    name: Android (assembleDebug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Assemble debug APK
+        working-directory: MCTier-Android
+        run: ./gradlew assembleDebug --no-daemon
+
+  license-check:
+    name: License compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify third-party notice files exist
+        run: |
+          set -e
+          for f in LICENSE THIRD_PARTY_NOTICES.md LICENSE-LGPL-3.0.txt LICENSE-GPL-3.0.txt; do
+            test -f "$f" || { echo "missing $f"; exit 1; }
+          done
+          for f in licenses/LICENSE-Apache-2.0.txt licenses/LICENSE-MIT.txt \
+                   licenses/LICENSE-BSD-3-Clause.txt licenses/LICENSE-GPL-2.0.txt \
+                   licenses/LICENSE-GPL-3.0.txt licenses/LICENSE-LGPL-3.0.txt \
+                   licenses/LICENSE-Wintun.txt; do
+            test -f "$f" || { echo "missing $f"; exit 1; }
+          done
+
+      - name: Verify every bundled component is documented
+        run: |
+          set -e
+          for name in EasyTier Wintun WinDivert Npcap Javassist LocalVQE GGML; do
+            grep -q "$name" THIRD_PARTY_NOTICES.md || { echo "$name missing from THIRD_PARTY_NOTICES.md"; exit 1; }
+          done
+
+      - name: Verify the modified-EasyTier patch is present
+        run: test -f patches/easytier-2.6.0-mctier-android.patch
+
+  cargo-audit:
+    name: Rust dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit and cargo-deny
+        run: cargo install cargo-audit cargo-deny --locked
+
+      - name: cargo audit
+        working-directory: src-tauri
+        # 不因未修复的上游告警阻塞主线，但保留可见性。
+        continue-on-error: true
+        run: cargo audit
+
+      - name: cargo deny
+        working-directory: src-tauri
+        continue-on-error: true
+        run: cargo deny check

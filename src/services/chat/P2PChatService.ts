@@ -34,6 +34,7 @@ class P2PChatService {
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
   private pendingRecalls: Map<string, string> = new Map();
+  private onAvatarCallback?: (playerId: string, avatarData?: string) => void;
 
   /**
    * 初始化服务
@@ -59,6 +60,7 @@ class P2PChatService {
     this.currentPlayerId = '';
     this.myVirtualIp = '';
     this.onMessageCallback = undefined;
+    this.onAvatarCallback = undefined;
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
     this.pendingRecalls.clear();
@@ -70,6 +72,10 @@ class P2PChatService {
    */
   onMessage(callback: (message: ChatMessage) => void): void {
     this.onMessageCallback = callback;
+  }
+
+  onAvatar(callback: (playerId: string, avatarData?: string) => void): void {
+    this.onAvatarCallback = callback;
   }
 
   startPolling(): void {
@@ -173,7 +179,8 @@ class P2PChatService {
       mtype === 'announce' ||
       mtype === 'voicegroup' ||
       mtype === 'todo' ||
-      mtype === 'recall'
+      mtype === 'recall' ||
+      mtype === 'avatar'
     ) {
       if (msg.player_id === this.currentPlayerId) return;
       // 按消息 ID 去重：避免对账/SSE 重复投递导致控制消息反复触发（如剪贴板反复弹窗、白板重复笔画）
@@ -271,6 +278,8 @@ class P2PChatService {
         if (!store.recallChatMessage(msg.content, msg.player_id) && !targetExists) {
           this.pendingRecalls.set(msg.content, msg.player_id);
         }
+      } else if (type === 'avatar') {
+        this.onAvatarCallback?.(msg.player_id, msg.content || undefined);
       }
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
@@ -297,6 +306,18 @@ class P2PChatService {
     } catch (error) {
       console.error('❌ [P2PChatService] 发送控制消息失败:', error);
     }
+  }
+
+  async sendAvatar(avatarData?: string): Promise<void> {
+    if (!this.currentPlayerId) return;
+    await invoke('send_p2p_chat_message', {
+      playerId: this.currentPlayerId,
+      playerName: '',
+      content: avatarData ?? '',
+      messageType: 'avatar',
+      imageData: null,
+      peerIps: this.peerIps,
+    });
   }
 
   /**

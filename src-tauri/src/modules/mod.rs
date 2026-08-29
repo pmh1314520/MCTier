@@ -40,6 +40,9 @@ pub mod easytier_advanced_commands;
 // Tauri 事件推送模块
 pub mod tauri_events;
 
+// 局域网 HTTP 服务的 CORS 策略（文件共享 / P2P 聊天共用）
+pub mod http_cors;
+
 // 高性能文件传输模块
 pub mod file_transfer;
 

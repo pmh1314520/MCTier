@@ -333,13 +333,13 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
           <div className="about-section license-section">
             <Title level={4} className="section-title">
-              {tl('开源协议', 'License')}
+              {tl('许可协议', 'License')}
             </Title>
             <div className="license-content">
               <Paragraph className="license-text">
                 {tl(
-                  '本软件采用自定义开源协议，使用前请仔细阅读：',
-                  'This software uses a custom open-source license. Please read carefully before use:'
+                  '本软件自有代码采用自定义源码可得（非商业）许可，使用前请仔细阅读：',
+                  'MCTier\u2019s own code uses a custom source-available (non-commercial) license. Please read carefully before use:'
                 )}
               </Paragraph>
               <ul className="license-list">
@@ -386,6 +386,242 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   'By using this software you agree to the terms above'
                 )}
               </Paragraph>
+              <Paragraph className="license-boundary-note">
+                {tl(
+                  '注意：以上限制仅适用于 MCTier 自有代码，不适用于下方所列的 EasyTier（LGPL-3.0）组件。',
+                  'Note: the restrictions above apply only to MCTier\u2019s own code, not to the EasyTier (LGPL-3.0) components listed below.'
+                )}
+              </Paragraph>
+            </div>
+          </div>
+
+          <Divider className="about-divider" />
+
+          <div className="about-section third-party-section">
+            <Title level={4} className="section-title">
+              {tl('第三方开源组件声明', 'Third-Party Open Source Notices')}
+            </Title>
+            <div className="third-party-content">
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  EasyTier
+                </Text>
+                <Paragraph className="third-party-line">
+                  EasyTier Copyright (c) EasyTier contributors.
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    'EasyTier 依据 GNU Lesser General Public License version 3.0（LGPL-3.0）授权，其使用与再分发受 LGPL-3.0 约束。',
+                    'EasyTier is licensed under the GNU Lesser General Public License version 3.0 (LGPL-3.0); its use and redistribution are governed by LGPL-3.0.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    'MCTier 的自定义协议（含“禁止商业用途”“二次开发必须以相同协议开源”）不适用于 EasyTier，且不得被解释为限制 LGPL-3.0 赋予您的权利。',
+                    'MCTier\u2019s custom license (including "no commercial use" and "derivatives must be open source") does not apply to EasyTier and shall not be construed to limit your rights under LGPL-3.0.'
+                  )}
+                </Paragraph>
+                <ul className="third-party-meta">
+                  <li>
+                    {tl('Windows 端：', 'Windows: ')}
+                    {tl(
+                      'v2.5.0（commit 88a45d11...），独立进程调用，未修改源码',
+                      'v2.5.0 (commit 88a45d11...), run as a separate process, source unmodified'
+                    )}
+                  </li>
+                  <li>
+                    {tl('Android 端：', 'Android: ')}
+                    {tl(
+                      '基于 v2.6.0（commit 79b562cd...）构建的动态库，已修改，补丁随源码仓库提供',
+                      'shared libraries built from v2.6.0 (commit 79b562cd...), modified; the patch is provided in the source repository'
+                    )}
+                  </li>
+                </ul>
+                <Paragraph className="third-party-line">
+                  {tl('上游源码地址：', 'Upstream source: ')}
+                  <a
+                    href="https://github.com/EasyTier/EasyTier"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://github.com/EasyTier/EasyTier
+                  </a>
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    '完整的版本、commit、SHA-256、修改说明、许可证全文与源码获取方式，见发布包内的 THIRD_PARTY_NOTICES.md 与 licenses/ 目录。',
+                    'For full versions, commits, SHA-256 hashes, modification details, license texts and how to obtain the corresponding source, see THIRD_PARTY_NOTICES.md and the licenses/ directory included in the release package.'
+                  )}
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  WebRTC
+                </Text>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    'Copyright (c) The WebRTC project authors，依据 BSD-3-Clause 授权。',
+                    'Copyright (c) The WebRTC project authors, licensed under BSD-3-Clause.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('源码地址：', 'Source: ')}
+                  <a
+                    href="https://webrtc.googlesource.com/src"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://webrtc.googlesource.com/src
+                  </a>
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  Wintun
+                </Text>
+                <Paragraph className="third-party-line">
+                  Copyright (C) 2018-2021 WireGuard LLC. All Rights Reserved.
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    '版本 0.14.1，依据 Wintun Prebuilt Binaries License 分发（仅通过官方 wintun.h 的 Permitted API 使用，未作修改）。WireGuard LLC、WireGuard 项目与 Wintun 项目均未对本软件作任何背书。',
+                    'Version 0.14.1, distributed under the Wintun Prebuilt Binaries License (used only via the Permitted API in the official wintun.h, unmodified). Neither WireGuard LLC, the WireGuard project, nor the Wintun project endorses this software.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('源码/下载地址：', 'Source/downloads: ')}
+                  <a
+                    href="https://www.wintun.net"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://www.wintun.net
+                  </a>
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  WinDivert
+                </Text>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    '版本 2.2.2，采用 LGPL-3.0 / GPL-2.0 双许可，本项目选择 LGPL-3.0 分支，未作修改。',
+                    'Version 2.2.2, dual-licensed under LGPL-3.0 / GPL-2.0; this project chooses the LGPL-3.0 branch. Unmodified.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('项目地址：', 'Project: ')}
+                  <a
+                    href="https://reqrypt.org/windivert.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://reqrypt.org/windivert.html
+                  </a>
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  Npcap
+                </Text>
+                <Paragraph className="third-party-line">
+                  Copyright (c) 2023, Insecure.Com LLC.
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    'Npcap 不是开源软件，依 Nmap Project 的专有许可条款授权。若你的系统缺少 Npcap，请自行前往官网下载安装。',
+                    'Npcap is not open source software; it is licensed under the Nmap Project\u2019s proprietary terms. If your system lacks Npcap, please download and install it yourself.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('官网：', 'Website: ')}
+                  <a
+                    href="https://npcap.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://npcap.com
+                  </a>
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  LocalVQE / GGML
+                </Text>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    'LocalVQE 依据 Apache-2.0 授权；其内嵌的 GGML 依据 MIT 授权（Copyright (c) 2023 Georgi Gerganov）。语音增强全程在本地完成，不上传任何音频。',
+                    'LocalVQE is licensed under Apache-2.0; the bundled GGML is licensed under MIT (Copyright (c) 2023 Georgi Gerganov). Voice enhancement runs entirely locally; no audio is uploaded.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    '语音降噪模型的训练数据包含 Microsoft DNS Challenge / AEC Challenge 素材，依 CC BY 4.0 授权。',
+                    'The noise-suppression model\u2019s training data includes material from the Microsoft DNS Challenge / AEC Challenge, licensed under CC BY 4.0.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('源码地址：', 'Source: ')}
+                  <a
+                    href="https://github.com/localai-org/LocalVQE"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://github.com/localai-org/LocalVQE
+                  </a>
+                </Paragraph>
+              </div>
+
+              <div className="third-party-item">
+                <Text strong className="third-party-name">
+                  Javassist
+                </Text>
+                <Paragraph className="third-party-line">
+                  Javassist 3.29.2-GA — Copyright (C) 1999- Shigeru Chiba and contributors
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl(
+                    '采用 MPL 1.1 / LGPL 2.1 / Apache-2.0 三重许可，本项目选择 Apache-2.0 分支。',
+                    'Triple-licensed under MPL 1.1 / LGPL 2.1 / Apache-2.0; this project chooses the Apache-2.0 branch.'
+                  )}
+                </Paragraph>
+                <Paragraph className="third-party-line">
+                  {tl('源码地址：', 'Source: ')}
+                  <a
+                    href="https://github.com/jboss-javassist/javassist"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="third-party-link"
+                  >
+                    https://github.com/jboss-javassist/javassist
+                  </a>
+                </Paragraph>
+              </div>
+
+              <Paragraph className="third-party-footnote">
+                {tl(
+                  '以上组件均不适用 MCTier 自有代码的许可条款，而按各自许可证授权；MCTier 的“禁止商业用途”“衍生须同协议开源”不得被解释为限制这些许可证赋予你的权利。完整清单（含版本、SHA-256、修改状态与源码获取方式）见发布包内的 THIRD_PARTY_NOTICES.md 与 licenses/ 目录。',
+                  'None of the components above are covered by MCTier\u2019s own license terms; each remains under its own license. MCTier\u2019s "no commercial use" and "derivatives must be open source" clauses shall not be construed to limit the rights those licenses grant you. For the full list (versions, SHA-256 hashes, modification status and how to obtain source), see THIRD_PARTY_NOTICES.md and the licenses/ directory in the release package.'
+                )}
+              </Paragraph>
+
+              <Paragraph className="third-party-footnote">
+                {tl(
+                  '本项目不是官方 Minecraft 产品，未获 Mojang Studios 或 Microsoft 批准、认可、关联或背书。Minecraft 是 Mojang Synergies AB 及其关联主体的商标。',
+                  'This project is not an official Minecraft product. It is not approved by or associated with Mojang Studios or Microsoft. Minecraft is a trademark of Mojang Synergies AB.'
+                )}
+              </Paragraph>
             </div>
           </div>
 
@@ -428,7 +664,10 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
             </div>
             <Paragraph className="free-text">
               <SparklesIcon size={16} className="inline-icon" />{' '}
-              {tl('本软件完全免费开源', 'Completely free and open source')}{' '}
+              {tl(
+                '本软件对个人非商业使用完全免费，源代码完整公开',
+                'Free for personal, non-commercial use; source code fully public'
+              )}{' '}
               <SparklesIcon size={16} className="inline-icon" />
             </Paragraph>
           </div>

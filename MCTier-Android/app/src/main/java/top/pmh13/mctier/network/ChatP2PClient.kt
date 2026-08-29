@@ -14,16 +14,23 @@ import top.pmh13.mctier.data.MctierWireJson
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
+/**
+ * P2P 聊天客户端。
+ *
+ * [bindIp] 为 EasyTier 分配的虚拟网卡地址，透传给内部的 [ChatHttpServer]，
+ * 使聊天服务只监听虚拟网卡而不是 `0.0.0.0`（见 issue #17）。
+ */
 class ChatP2PClient(
     private val playerId: String,
     private val scope: CoroutineScope,
+    bindIp: String = ChatHttpServer.DEFAULT_BIND_IP,
     private val onMessage: (ChatWireMessage) -> Unit,
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)
         .build()
-    private val server = ChatHttpServer(playerId).also { it.onMessageReceived = { m -> accept(m) } }
+    private val server = ChatHttpServer(playerId, bindIp).also { it.onMessageReceived = { m -> accept(m) } }
     private val seen = Collections.synchronizedSet(HashSet<String>())
 
     @Volatile private var peerIps: List<String> = emptyList()
@@ -62,6 +69,9 @@ class ChatP2PClient(
 
     fun sendRecall(playerName: String, messageId: String): ChatWireMessage =
         sendInternal(playerName, messageId, "recall", null)
+
+    fun sendAvatar(avatarData: String?): ChatWireMessage =
+        sendInternal("", avatarData.orEmpty(), "avatar", null)
 
     private fun sendInternal(playerName: String, content: String, type: String, imageData: List<Int>?): ChatWireMessage {
         val id = "msg-$playerId-${System.currentTimeMillis()}"

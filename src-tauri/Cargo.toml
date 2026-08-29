@@ -1,6 +1,6 @@
 [package]
 name = "mctier"
-version = "2.7.5"
+version = "2.8.0"
 description = "MCTier - Minecraft 虚拟局域网联机工具"
 authors = ["MCTier Team"]
 edition = "2021"
@@ -69,6 +69,11 @@ windows = { version = "0.58", features = [
     "Win32_System_Performance",
 ] }
 
+# 发布构建：剥离符号，避免二进制中残留调试信息与开发机绝对路径（见 issue #17 第 11 条）
+[profile.release]
+strip = true
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
+# 仅测试需要：tower 的 util 特性提供 ServiceExt::oneshot，用于直接驱动 axum Router 断言 CORS 响应头
+tower = { version = "0.4", features = ["util"] }

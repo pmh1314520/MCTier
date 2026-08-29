@@ -9,6 +9,8 @@ import { p2pChatService } from '../../services/chat/P2PChatService';
 import { isWithinRecallWindow, RECALL_WINDOW_MS } from '../../services/chat/recallPolicy';
 import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
 import { EmojiIcon, ImageIcon } from '../icons';
+import { Avatar } from '../Avatar/Avatar';
+import { saveAvatarData } from '../../services/avatar/avatarService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import type { ChatMessage } from '../../types';
@@ -210,10 +212,11 @@ export const ChatRoom: React.FC = () => {
     markMessagesAsRead();
   };
 
-  const getMessageInitial = (message: ChatMessage) => {
-    const name = (message.playerName || (message.playerId === currentPlayerId ? config.playerName : '') || '?').trim();
-    return (Array.from(name)[0] || '?').toUpperCase();
-  };
+  const getMessageAvatar = (message: ChatMessage) => (
+    message.playerId === currentPlayerId
+      ? config.avatarData
+      : players.find((player) => player.id === message.playerId)?.avatarData
+  );
 
   // 首次进入聊天室：在浏览器绘制前直接把滚动条置底（避免出现"从顶部滚到底部"的可见过程）。
   // 注意依赖 chatMessages.length：消息可能在挂载后才异步载入，确保有消息时才初始化一次，
@@ -919,9 +922,14 @@ export const ChatRoom: React.FC = () => {
                   }}
                 >
                 {/* 头像 */}
-                <div className="message-avatar">
-                  <span>{getMessageInitial(message)}</span>
-                </div>
+                <Avatar
+                  className="message-avatar"
+                  name={message.playerName || (message.playerId === currentPlayerId ? config.playerName : '')}
+                  avatarData={getMessageAvatar(message)}
+                  size={34}
+                  editable={isOwnMessage}
+                  onChange={(avatarData) => void saveAvatarData(avatarData)}
+                />
                 
                 <span className="message-author-outside">
                   {message.playerName}

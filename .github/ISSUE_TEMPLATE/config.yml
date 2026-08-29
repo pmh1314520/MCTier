@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/pmh1314520/MCTier/security/advisories/new
+    about: 请通过私有渠道报告安全问题，不要公开提交 issue。
+  - name: 官网
+    url: https://mctier.pmhs.top
+    about: 下载与使用说明。

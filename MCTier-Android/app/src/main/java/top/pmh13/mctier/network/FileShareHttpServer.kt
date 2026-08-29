@@ -11,10 +11,18 @@ import top.pmh13.mctier.data.MctierJson
 import top.pmh13.mctier.data.SharedFolder
 import java.net.URLDecoder
 
+/**
+ * 文件共享 HTTP 服务。
+ *
+ * [bindIp] 为 EasyTier 分配的虚拟网卡地址。只绑定该地址（而非 `0.0.0.0`），
+ * 可避免服务同时暴露在 Wi-Fi / 蜂窝等物理网络接口上被同网段任意设备访问。
+ * 若调用方暂时拿不到虚拟 IP，会退回 `0.0.0.0` 以保证功能可用（见 issue #17）。
+ */
 class FileShareHttpServer(
     private val context: Context,
     private val ownerId: String,
-) : NanoHTTPD("0.0.0.0", FileSharePort) {
+    bindIp: String = DEFAULT_BIND_IP,
+) : NanoHTTPD(bindIp.ifBlank { DEFAULT_BIND_IP }, FileSharePort) {
     private val folders = linkedMapOf<String, SharedFolder>()
 
     fun addFolder(folder: SharedFolder) {
@@ -28,8 +36,9 @@ class FileShareHttpServer(
     fun currentFolders(): List<SharedFolder> = folders.values.toList()
 
     override fun serve(session: IHTTPSession): Response {
+        val origin = LanCors.originOf(session)
         if (session.method == Method.OPTIONS) {
-            return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""))
+            return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""), origin)
         }
         val path = session.uri.orEmpty()
         val response = when {
@@ -38,17 +47,17 @@ class FileShareHttpServer(
             path.contains("/download/") -> download(path, session)
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
         }
-        return withCors(response)
+        return withCors(response, origin)
     }
 
-    /** 为响应附加跨域头，确保桌面端 webview 能直接读取（对齐桌面端 permissive CORS） */
-    private fun withCors(response: Response): Response {
-        response.addHeader("Access-Control-Allow-Origin", "*")
-        response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        response.addHeader("Access-Control-Allow-Headers", "*")
-        response.addHeader("Access-Control-Max-Age", "86400")
-        return response
-    }
+    /**
+     * 为响应附加跨域头。
+     *
+     * 只对白名单内的来源回写 `Access-Control-Allow-Origin`（详见 [LanCors]），
+     * 避免虚拟网内任意网页在浏览器里读取本机共享列表。
+     */
+    private fun withCors(response: Response, origin: String?): Response =
+        LanCors.apply(response, origin)
 
     private fun listFiles(path: String, session: IHTTPSession): Response {
         val shareId = path.split("/").getOrNull(3) ?: return missing()
@@ -115,8 +124,25 @@ class FileShareHttpServer(
     }
 
     private fun checkPassword(share: SharedFolder, session: IHTTPSession): Boolean {
-        val expected = share.password ?: return true
-        return session.headers["x-share-password"].orEmpty() == expected
+        val expected = share.password
+        if (expected.isNullOrEmpty()) return true
+        return constantTimeEquals(session.headers["x-share-password"].orEmpty(), expected)
+    }
+
+    /**
+     * 常量时间字符串比较，避免通过响应耗时逐字节爆破共享密码。
+     *
+     * 与桌面端 `ct_eq` 保持一致：长度不同直接判否，长度相同则始终比较全部字节。
+     */
+    private fun constantTimeEquals(a: String, b: String): Boolean {
+        val left = a.toByteArray(Charsets.UTF_8)
+        val right = b.toByteArray(Charsets.UTF_8)
+        if (left.size != right.size) return false
+        var diff = 0
+        for (i in left.indices) {
+            diff = diff or (left[i].toInt() xor right[i].toInt())
+        }
+        return diff == 0
     }
 
     private fun findDocument(root: DocumentFile, relPath: String): DocumentFile? {
@@ -169,4 +195,9 @@ class FileShareHttpServer(
         @kotlinx.serialization.SerialName("is_dir") val isDir: Boolean,
         val modified: Long,
     )
+
+    companion object {
+        /** 兜底监听地址：仅在拿不到虚拟 IP 时使用。 */
+        const val DEFAULT_BIND_IP = "0.0.0.0"
+    }
 }

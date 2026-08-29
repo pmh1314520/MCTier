@@ -341,6 +341,12 @@ function App() {
     
     const init = async () => {
       try {
+        try {
+          await invoke('clear_avatar_cache');
+        } catch (error) {
+          console.warn('清理头像缓存时出现警告，继续启动:', error);
+        }
+
         // 【新增】应用启动时检查并清理残留的虚拟网卡
         console.log('🔍 检查是否有残留的虚拟网卡...');
         try {
@@ -487,15 +493,6 @@ function App() {
           // 获取玩家名称
           const playerName = useAppStore.getState().config.playerName || tl('未知玩家', 'Unknown Player');
           console.log('使用玩家名称:', playerName);
-
-          // 添加当前玩家到玩家列表
-          addPlayer({
-            id: playerId,
-            name: playerName,
-            micEnabled: false, // 麦克风默认关闭
-            isMuted: false,
-            joinedAt: new Date().toISOString(),
-          });
 
           // 在初始化之前先设置版本错误回调
           webrtcClient.onVersionError((currentVersion, minimumVersion) => {

@@ -1358,3 +1358,47 @@ html[data-theme='light'] .settings-window .snd-manager .snd-block .danmaku-previ
   color: var(--danmaku-preview-color) !important;
   -webkit-text-fill-color: var(--danmaku-preview-color) !important;
 }
+
+html[data-theme='light'] :is(
+  .ant-btn-primary:not(.ant-btn-dangerous),
+  .create-button,
+  .add-button,
+  .start-share-btn,
+  .settings-btn-save,
+  .node-btn-save,
+  .settings-action-btn-green,
+  .lobby-settings-btn-save,
+  .global-advanced-config-save-btn,
+  .exit-node-advanced-btn-save,
+  .quick-rejoin-btn
+) {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  filter: none;
+  transform: none !important;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease !important;
+}
+
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button),
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):hover:not(:disabled),
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):focus-visible:not(:disabled),
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):active:not(:disabled) {
+  background-image: none !important;
+  border-color: #4b941e !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button) {
+  background-color: #4b941e !important;
+}
+
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):hover:not(:disabled),
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):focus-visible:not(:disabled) {
+  background-color: #3f8118 !important;
+  border-color: #3f8118 !important;
+}
+
+html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choice-button):active:not(:disabled) {
+  background-color: #367313 !important;
+  border-color: #367313 !important;
+}

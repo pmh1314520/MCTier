@@ -11,6 +11,7 @@ import { audioDevices } from '../voice/audioDevices';
 import { tl } from '../../i18n';
 import { voiceChangerService } from '../voice/voiceChangerService';
 import { localVqeService } from '../voice/localVqeService';
+import { appVersion, loadAppVersion } from '../version/appVersion';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -120,6 +121,13 @@ export class WebRTCClient {
   private onMuteChangedCallback?: (playerId: string, muted: boolean) => void;
   private onLobbyOptionsChangedCallback?: (maxPlayers: number | null, isPublic: boolean) => void;
   private onKickedCallback?: (reason: string) => void;
+  // WebSocket 可能在 initialize() 返回前就推送首批玩家列表；先缓存，待 UI 注册回调后补发。
+  private pendingPlayerJoined: Map<string, {
+    playerName: string;
+    virtualIp?: string;
+    virtualDomain?: string;
+    useDomain?: boolean;
+  }> = new Map();
 
   /**
    * 初始化 WebRTC 客户端
@@ -196,6 +204,9 @@ export class WebRTCClient {
       }
 
       // 设置信令服务器地址（优先使用传入的参数，否则使用默认值）
+      // 预取版本号：注册消息在 onopen 同步回调中发送，无法 await（见 src/services/version/appVersion.ts）
+      await loadAppVersion();
+
       this.signalingServerUrl = signalingServer || 'wss://mctier.pmhs.top/signaling';
       console.log('📡 连接到信令服务器:', this.signalingServerUrl);
 
@@ -316,7 +327,7 @@ export class WebRTCClient {
               useDomain: this.useDomain,
               lobbyName: this.lobbyName,
               lobbyPassword: this.lobbyPassword,
-              clientVersion: '2.7.5',
+              clientVersion: appVersion(),
             }));
             console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
           }
@@ -401,7 +412,7 @@ export class WebRTCClient {
       useDomain: this.useDomain,
       lobbyName: this.lobbyName,
       lobbyPassword: this.lobbyPassword,
-      clientVersion: '2.7.5',
+      clientVersion: appVersion(),
     });
   }
 
@@ -682,6 +693,12 @@ export class WebRTCClient {
             if (player.playerId === this.localPlayerId) {
               continue;
             }
+            // 虚拟 IP 在大厅内唯一。服务端残留旧连接或重复广播本机身份时，
+            // 不把同一台设备当成远端玩家，也不向自己的 IP 建立语音连接。
+            if (player.virtualIp && this.virtualIp && player.virtualIp === this.virtualIp) {
+              console.warn(`⚠️ 忽略与本机虚拟 IP 相同的玩家条目: ${player.playerName} (${player.playerId})`);
+              continue;
+            }
             listedIds.add(player.playerId);
 
             const wasPendingLeave = this.clearPendingPlayerLeave(player.playerId);
@@ -710,8 +727,8 @@ export class WebRTCClient {
             }
             
             // 触发回调，添加玩家到前端列表（避免重连时重复触发）
-            if (!isKnownPlayer && this.onPlayerJoinedCallback) {
-              this.onPlayerJoinedCallback(player.playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
+            if (!isKnownPlayer) {
+              this.notifyPlayerJoined(player.playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
             }
             
             // 已知玩家仍在权威列表中时，只修复他的连接，不能触发“玩家离开”回调。
@@ -807,6 +824,10 @@ export class WebRTCClient {
           if (message.playerId === this.localPlayerId) {
             break;
           }
+          if (message.virtualIp && this.virtualIp && message.virtualIp === this.virtualIp) {
+            console.warn(`⚠️ 忽略与本机虚拟 IP 相同的加入事件: ${message.playerName} (${message.playerId})`);
+            break;
+          }
 
           const isRecoveredPlayer = this.clearPendingPlayerLeave(message.playerId);
           if (isRecoveredPlayer) {
@@ -855,9 +876,7 @@ export class WebRTCClient {
           }
           
           // 触发回调
-          if (this.onPlayerJoinedCallback) {
-            this.onPlayerJoinedCallback(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
-          }
+          this.notifyPlayerJoined(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
           
           // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
           // 只有当本地玩家ID字典序大于对方时才主动发起连接
@@ -940,7 +959,7 @@ export class WebRTCClient {
             this.onStatusUpdateCallback(message.clientId, message.micEnabled);
           }
           break;
-          
+
         case 'chat-message':
           // 收到聊天消息
           console.log(`💬 收到聊天消息 from ${message.playerName}: ${message.content}`);
@@ -2015,6 +2034,8 @@ export class WebRTCClient {
     // 触发回调
     if (this.onPlayerLeftCallback) {
       this.onPlayerLeftCallback(peerId);
+    } else {
+      this.pendingPlayerJoined.delete(peerId);
     }
   }
 
@@ -2857,6 +2878,24 @@ export class WebRTCClient {
    */
   onPlayerJoined(callback: (playerId: string, playerName: string, virtualIp?: string, virtualDomain?: string, useDomain?: boolean) => void): void {
     this.onPlayerJoinedCallback = callback;
+    for (const [playerId, player] of this.pendingPlayerJoined) {
+      callback(playerId, player.playerName, player.virtualIp, player.virtualDomain, player.useDomain);
+    }
+    this.pendingPlayerJoined.clear();
+  }
+
+  private notifyPlayerJoined(
+    playerId: string,
+    playerName: string,
+    virtualIp?: string,
+    virtualDomain?: string,
+    useDomain?: boolean,
+  ): void {
+    if (this.onPlayerJoinedCallback) {
+      this.onPlayerJoinedCallback(playerId, playerName, virtualIp, virtualDomain, useDomain);
+      return;
+    }
+    this.pendingPlayerJoined.set(playerId, { playerName, virtualIp, virtualDomain, useDomain });
   }
 
   onPlayerLeft(callback: (playerId: string) => void): void {

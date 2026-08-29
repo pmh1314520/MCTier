@@ -1,0 +1,48 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请不要在此报告安全漏洞，参见 [SECURITY.md](../blob/master/SECURITY.md)。
+  - type: input
+    id: version
+    attributes:
+      label: 版本号
+      description: 在「关于」窗口可以看到
+      placeholder: 2.8.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Windows 桌面端
+        - Android 端
+        - 信令服务器（私有化部署）
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 出现……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选）
+      description: 请去除其中的个人信息与大厅密码
+      render: text

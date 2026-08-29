@@ -468,14 +468,7 @@ export const FileShareManagerNew: React.FC = () => {
     if (!selectedShare) return;
     
     try {
-      // 选择保存位置
-      const savePath = await invoke<string | null>('select_save_location', {
-        defaultName: file.name
-      });
-      
-      if (!savePath) {
-        return; // 用户取消
-      }
+      const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
       
       const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
       const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
@@ -577,11 +570,7 @@ export const FileShareManagerNew: React.FC = () => {
       return;
     }
 
-    // 选择保存位置
-    const saveDir = await invoke<string | null>('select_folder');
-    if (!saveDir) {
-      return; // 用户取消
-    }
+    const saveDir = await invoke<string>('get_file_share_download_dir');
 
     // 检查是否启用了"先压后发"
     if (selectedShare.share.compress_before_send && selectedFileList.length > 1) {
@@ -589,7 +578,7 @@ export const FileShareManagerNew: React.FC = () => {
         // 创建一个下载任务用于显示进度
         const taskId = `batch_download_${Date.now()}`;
         const zipFileName = `batch_download_${Date.now()}.zip`;
-        const tempZipPath = `${saveDir}/${zipFileName}`;
+        const tempZipPath = await invoke<string>('get_file_share_download_path', { fileName: zipFileName });
         const newTask: DownloadTask = {
           id: taskId,
           fileName: tl(`批量下载 (${selectedFileList.length} 个文件)`, `Batch download (${selectedFileList.length} files)`),
@@ -676,7 +665,7 @@ export const FileShareManagerNew: React.FC = () => {
       
       // 逐个下载
       for (const file of selectedFileList) {
-        const savePath = `${saveDir}/${file.name}`;
+        const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
         const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
       const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
         
@@ -703,7 +692,7 @@ export const FileShareManagerNew: React.FC = () => {
     } else {
       // 只选中了一个文件，直接下载
       const file = selectedFileList[0];
-      const savePath = `${saveDir}/${file.name}`;
+      const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
       const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
       const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
       
@@ -892,8 +881,6 @@ export const FileShareManagerNew: React.FC = () => {
           <motion.div 
             className={`sidebar-tab ${activeTab === 'local' ? 'active' : ''}`} 
             onClick={() => setActiveTab('local')} 
-            whileHover={{ x: 4 }} 
-            whileTap={{ scale: 0.95 }} 
             title={tl('我的共享', 'My Shares')}
           >
             <FolderIcon size={20} />
@@ -901,8 +888,6 @@ export const FileShareManagerNew: React.FC = () => {
           <motion.div 
             className={`sidebar-tab ${activeTab === 'remote' ? 'active' : ''}`} 
             onClick={() => setActiveTab('remote')} 
-            whileHover={{ x: 4 }} 
-            whileTap={{ scale: 0.95 }} 
             title={tl('远程共享', 'Remote Shares')}
           >
             <ShareIcon size={20} />
@@ -910,8 +895,6 @@ export const FileShareManagerNew: React.FC = () => {
           <motion.div 
             className={`sidebar-tab ${activeTab === 'transfers' ? 'active' : ''}`} 
             onClick={() => setActiveTab('transfers')} 
-            whileHover={{ x: 4 }} 
-            whileTap={{ scale: 0.95 }} 
             title={tl('传输列表', 'Transfers')}
           >
             <DownloadIcon size={20} />
@@ -927,7 +910,7 @@ export const FileShareManagerNew: React.FC = () => {
             {activeTab === 'local' && (
               <motion.div key="local" className="tab-content" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.2 }}>
                 <div className="share-list">
-                  <Button type="primary" icon={<FolderIcon size={16} />} onClick={() => setShowAddShare(true)} style={{ marginBottom: 16 }}>{tl('添加共享文件夹', 'Add shared folder')}</Button>
+                  <Button className="file-share-primary-btn" type="primary" icon={<FolderIcon size={16} />} onClick={() => setShowAddShare(true)} style={{ marginBottom: 16 }}>{tl('添加共享文件夹', 'Add shared folder')}</Button>
                   <AnimatePresence>
                     {localShares.map((share) => (
                       <motion.div key={share.id} className="share-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
@@ -977,13 +960,13 @@ export const FileShareManagerNew: React.FC = () => {
                   <div className="file-browser">
                     <div className="browser-header">
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
-                        <Button size="small" onClick={handleGoBack} disabled={!currentPath} icon={<BackIcon size={16} />} title={tl('返回上级', 'Up')} />
-                        <Button size="small" onClick={handleGoToRoot} disabled={!currentPath} title={tl('返回根目录', 'Root')}>{tl('根目录', 'Root')}</Button>
-                        <Button size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? tl('取消全选', 'Deselect all') : tl('全选文件', 'Select all files')}>
+                        <Button className="file-share-neutral-btn" size="small" onClick={handleGoBack} disabled={!currentPath} icon={<BackIcon size={16} />} title={tl('返回上级', 'Up')} />
+                        <Button className="file-share-neutral-btn" size="small" onClick={handleGoToRoot} disabled={!currentPath} title={tl('返回根目录', 'Root')}>{tl('根目录', 'Root')}</Button>
+                        <Button className="file-share-neutral-btn" size="small" onClick={handleSelectAll} title={selectedFiles.size === files.filter(f => !f.is_dir).length ? tl('取消全选', 'Deselect all') : tl('全选文件', 'Select all files')}>
                           {selectedFiles.size === files.filter(f => !f.is_dir).length && files.filter(f => !f.is_dir).length > 0 ? tl('取消全选', 'Deselect all') : tl('全选', 'Select all')}
                         </Button>
                       </div>
-                      <Button size="small" onClick={handleExitShareBrowser} icon={<CloseIcon size={16} />} title={tl('关闭', 'Close')} style={{ marginLeft: 'auto' }} />
+                      <Button className="file-share-neutral-btn" size="small" onClick={handleExitShareBrowser} icon={<CloseIcon size={16} />} title={tl('关闭', 'Close')} style={{ marginLeft: 'auto' }} />
                     </div>
                     <div className="file-list">
                       {loadingFiles ? <div className="loading-state">{tl('加载中...', 'Loading...')}</div> : (
@@ -1029,6 +1012,7 @@ export const FileShareManagerNew: React.FC = () => {
                               </div>
                               {!file.is_dir && (
                                 <Button 
+                                  className="file-share-neutral-btn"
                                   size="small" 
                                   icon={<DownloadIcon size={14} />} 
                                   onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }} 
@@ -1056,6 +1040,7 @@ export const FileShareManagerNew: React.FC = () => {
                         }}
                       >
                         <Button
+                          className="file-share-primary-btn file-share-batch-download"
                           type="primary"
                           shape="circle"
                           size="large"
@@ -1189,7 +1174,7 @@ export const FileShareManagerNew: React.FC = () => {
         </div>
       </div>
       {showAddShare && <AddShareDialog visible={showAddShare} onClose={() => setShowAddShare(false)} onSuccess={() => { setShowAddShare(false); loadLocalShares(); }} />}
-      <Modal title={tl('输入密码', 'Enter Password')} open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} centered width={400}>
+      <Modal className="file-share-modal" rootClassName="file-share-modal-root" title={tl('输入密码', 'Enter Password')} open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} centered width={400}>
         <div style={{ marginTop: 16 }}><Input.Password autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder={tl('请输入共享密码', 'Enter the share password')} /></div>
       </Modal>
     </div>
@@ -1293,7 +1278,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
   };
 
   return (
-    <Modal title={tl('添加共享文件夹', 'Add Shared Folder')} open={visible} onCancel={onClose} onOk={handleSubmit} confirmLoading={loading} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} width={500}>
+    <Modal className="file-share-modal" rootClassName="file-share-modal-root" title={tl('添加共享文件夹', 'Add Shared Folder')} open={visible} onCancel={onClose} onOk={handleSubmit} confirmLoading={loading} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} width={500}>
       <div className="add-share-form">
         <div className="form-item">
           <label>{tl('选择文件夹', 'Select Folder')}</label>

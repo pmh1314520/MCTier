@@ -18,7 +18,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class ChatHttpServer(
     private val ownerId: String,
-) : NanoHTTPD("0.0.0.0", ChatServerPort) {
+    bindIp: String = DEFAULT_BIND_IP,
+) : NanoHTTPD(bindIp.ifBlank { DEFAULT_BIND_IP }, ChatServerPort) {
 
     private val messages = CopyOnWriteArrayList<ChatWireMessage>()
     /** 收到他人 POST 的新消息时回调（用于推送到 UI） */
@@ -40,35 +41,36 @@ class ChatHttpServer(
         if (since == null) messages.toList() else messages.filter { it.timestamp > since }
 
     override fun serve(session: IHTTPSession): Response {
-        // 预检请求直接放行（对齐桌面端 CorsLayer::permissive）
+        val origin = LanCors.originOf(session)
+        // 预检请求：仅对白名单来源回写跨域头
         if (session.method == Method.OPTIONS) {
-            return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""))
+            return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""), origin)
         }
         return try {
             when {
                 session.uri == "/api/chat/messages" && session.method == Method.GET -> {
                     val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
-                    json(messagesSince(since))
+                    json(messagesSince(since), origin)
                 }
-                session.uri == "/api/chat/send" && session.method == Method.POST -> handleSend(session)
-                else -> withCors(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found"))
+                session.uri == "/api/chat/send" && session.method == Method.POST -> handleSend(session, origin)
+                else -> withCors(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found"), origin)
             }
         } catch (e: Exception) {
             Log.w(TAG, "处理聊天请求失败: ${e.message}")
-            withCors(newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "error"))
+            withCors(newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "error"), origin)
         }
     }
 
-    /** 为响应附加跨域头，确保桌面端 webview 能直接读取（对齐桌面端 permissive CORS） */
-    private fun withCors(response: Response): Response {
-        response.addHeader("Access-Control-Allow-Origin", "*")
-        response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        response.addHeader("Access-Control-Allow-Headers", "*")
-        response.addHeader("Access-Control-Max-Age", "86400")
-        return response
-    }
+    /**
+     * 为响应附加跨域头。
+     *
+     * 只对白名单内的来源回写 `Access-Control-Allow-Origin`（详见 [LanCors]），
+     * 避免虚拟网内任意网页在浏览器里读取本机聊天记录。
+     */
+    private fun withCors(response: Response, origin: String?): Response =
+        LanCors.apply(response, origin)
 
-    private fun handleSend(session: IHTTPSession): Response {
+    private fun handleSend(session: IHTTPSession, origin: String?): Response {
         // 【中文乱码修复】不依赖 nanohttpd 的 parseBody（其默认按非 UTF-8 解码请求体，
         // 会把桌面端发来的中文变成乱码），直接按 Content-Length 读原始字节并以 UTF-8 解码。
         val len = session.headers["content-length"]?.toIntOrNull() ?: 0
@@ -100,20 +102,23 @@ class ChatHttpServer(
         messages.add(message)
         trim()
         onMessageReceived?.invoke(message)
-        return json(message)
+        return json(message, origin)
     }
 
-    private fun json(value: List<ChatWireMessage>): Response =
+    private fun json(value: List<ChatWireMessage>, origin: String?): Response =
         withCors(newFixedLengthResponse(
             Response.Status.OK,
             "application/json; charset=utf-8",
             MctierJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatWireMessage.serializer()), value),
-        ))
+        ), origin)
 
-    private fun json(value: ChatWireMessage): Response =
-        withCors(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", MctierJson.encodeToString(ChatWireMessage.serializer(), value)))
+    private fun json(value: ChatWireMessage, origin: String?): Response =
+        withCors(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", MctierJson.encodeToString(ChatWireMessage.serializer(), value)), origin)
 
-    private companion object {
+    companion object {
         private const val TAG = "ChatHttpServer"
+
+        /** 兜底监听地址：仅在拿不到虚拟 IP 时使用。 */
+        const val DEFAULT_BIND_IP = "0.0.0.0"
     }
 }

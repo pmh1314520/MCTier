@@ -24,15 +24,7 @@ class FileTransferService {
     shareId: string,
     filePath: string
   ): Promise<void> {
-    // 让用户选择保存位置
-    const saveFolder = await invoke<string | null>('select_folder');
-
-    if (!saveFolder) {
-      throw new Error(tl('用户取消了保存', 'Save cancelled by user'));
-    }
-
-    // 构建完整的保存路径
-    const savePath = `${saveFolder}\\${fileName}`;
+    const savePath = await invoke<string>('get_file_share_download_path', { fileName });
 
     // 创建下载任务
     const task: DownloadTask = {

@@ -1,0 +1,38 @@
+# cargo-deny 配置（见 issue #17 第 12 条）
+# 用法：cd src-tauri && cargo deny check
+
+[advisories]
+# 使用 RustSec 公告库检查已知漏洞。
+ignore = []
+
+[licenses]
+# 允许的依赖许可证。MCTier 自有代码为源码可得非商业许可，
+# 但依赖必须是这些常见的宽松/弱著佐权协议之一。
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "OpenSSL",
+    "LGPL-3.0",
+    "Unlicense",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

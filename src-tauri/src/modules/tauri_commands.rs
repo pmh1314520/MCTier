@@ -2050,6 +2050,93 @@ pub async fn select_folder() -> Result<Option<String>, String> {
     }
 }
 
+/// 选择文件夹共享下载目录
+#[tauri::command]
+pub async fn select_file_share_download_folder() -> Result<Option<String>, String> {
+    log::info!("打开文件共享下载目录选择对话框");
+    use rfd::FileDialog;
+
+    let result = FileDialog::new()
+        .set_title("选择文件共享下载目录")
+        .pick_folder();
+
+    result.map(|path| {
+        path.to_str()
+            .map(|value| value.to_string())
+            .ok_or_else(|| "无法转换下载目录路径".to_string())
+    }).transpose()
+}
+
+fn default_file_share_download_dir() -> std::path::PathBuf {
+    dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("MCTier")
+}
+
+fn effective_file_share_download_dir(config: &UserConfig) -> std::path::PathBuf {
+    config
+        .file_share_download_dir
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_file_share_download_dir)
+}
+
+/// 获取文件夹共享的有效下载目录。目录不存在时会自动创建。
+#[tauri::command]
+pub async fn get_file_share_download_dir(state: State<'_, AppState>) -> Result<String, String> {
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let cfg_mgr = config_manager.lock().await;
+    let directory = effective_file_share_download_dir(cfg_mgr.get_config());
+    std::fs::create_dir_all(&directory).map_err(|e| format!("创建下载目录失败: {}", e))?;
+    directory
+        .to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "无法转换下载目录路径".to_string())
+}
+
+/// 保存或清除文件夹共享下载目录。传入空字符串或 null 恢复系统默认目录。
+#[tauri::command]
+pub async fn set_file_share_download_dir(
+    path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let normalized = path
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(directory) = normalized.as_deref() {
+        std::fs::create_dir_all(directory).map_err(|e| format!("创建下载目录失败: {}", e))?;
+    }
+
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    cfg_mgr.update_config(|config| {
+        config.file_share_download_dir = normalized.clone();
+    }).await.map_err(|e| format!("保存下载目录失败: {}", e))
+}
+
+/// 根据文件名生成文件夹共享下载路径，统一处理 Windows 路径分隔符。
+#[tauri::command]
+pub async fn get_file_share_download_path(
+    file_name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let cfg_mgr = config_manager.lock().await;
+    let directory = effective_file_share_download_dir(cfg_mgr.get_config());
+    let safe_name = std::path::Path::new(&file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "文件名无效".to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|e| format!("创建下载目录失败: {}", e))?;
+    Ok(directory.join(safe_name).to_string_lossy().into_owned())
+}
+
 /// 选择保存位置
 ///
 /// # 参数
@@ -2448,6 +2535,12 @@ pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolderSummar
                     if let Some(shares) = json.get("shares") {
                         match serde_json::from_value::<Vec<SharedFolderSummary>>(shares.clone()) {
                             Ok(shares_vec) => {
+                                // 归一化：兼容仅返回明文 password、没有 has_password 的旧节点，
+                                // 同时确保任何密码内容都不会继续传向前端。
+                                let shares_vec: Vec<SharedFolderSummary> = shares_vec
+                                    .into_iter()
+                                    .map(SharedFolderSummary::normalized)
+                                    .collect();
                                 log::debug!("✅ 成功获取 {} 个共享", shares_vec.len());
                                 for (i, share) in shares_vec.iter().enumerate() {
                                     log::debug!("  {}. {} (ID: {})", i + 1, share.name, share.id);
@@ -3490,6 +3583,7 @@ pub async fn send_p2p_chat_message(
         "todo" => MessageType::Todo,
         "whiteboard" => MessageType::Whiteboard,
         "recall" => MessageType::Recall,
+        "avatar" => MessageType::Avatar,
         _ => MessageType::Text,
     };
     
@@ -4447,6 +4541,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "lobbyName": auto_lobby.lobby_name,
         "lobbyPassword": auto_lobby.lobby_password,
         "playerName": auto_lobby.player_name,
+        "avatarData": config.avatar_data.clone(),
         "useDomain": auto_lobby.use_domain,
         "virtualDomain": auto_lobby.virtual_domain,
         "usePrivateServer": config.use_private_server.unwrap_or(false),
@@ -4470,7 +4565,41 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
         "proxyCidrs": exit_node_config.proxy_cidrs.join("\n"),
         "exitNodes": exit_node_config.exit_nodes.join("\n"),
         "subnetProxyCidrs": exit_node_config.subnet_proxy_cidrs.join("\n"),
+        "fileShareDownloadDir": config.file_share_download_dir.clone(),
     }))
+}
+
+/// 保存全局用户头像。头像由前端压缩后以 data URL 传入，清空时传 null。
+#[tauri::command]
+pub async fn set_avatar_data(
+    avatar_data: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(data) = avatar_data.as_deref() {
+        if !data.starts_with("data:image/") || data.len() > 180_000 {
+            return Err("头像格式或大小无效".to_string());
+        }
+    }
+    let core = state.core.lock().await;
+    let config_manager = core.get_config_manager();
+    let mut cfg_mgr = config_manager.lock().await;
+    cfg_mgr.update_config(|config| {
+        config.avatar_data = avatar_data.clone();
+    }).await.map_err(|e| format!("保存头像失败: {}", e))
+}
+
+#[tauri::command]
+pub async fn clear_avatar_cache() -> Result<(), String> {
+    let Some(data_dir) = dirs::data_local_dir() else {
+        return Ok(());
+    };
+
+    let cache_dir = data_dir.join("MCTier").join("avatar-cache");
+    match tokio::fs::remove_dir_all(&cache_dir).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("清理头像缓存失败: {}", error)),
+    }
 }
 
 /// 保存语音音量

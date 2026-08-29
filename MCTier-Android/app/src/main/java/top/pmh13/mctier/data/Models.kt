@@ -8,7 +8,7 @@ const val RemovedQingyunNode = "wss://mctiers.pmhs.top"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
-const val AppClientVersion = "2.7.5"
+const val AppClientVersion = "2.8.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 
@@ -49,6 +49,7 @@ data class Player(
     val muted: Boolean = false,
     val speaking: Boolean = false,
     val joinedAt: Long = System.currentTimeMillis(),
+    val avatarData: String? = null,
 )
 
 @Serializable
@@ -91,6 +92,9 @@ data class ScreenShareInfo(
 @Serializable
 data class UserSettings(
     val playerName: String = "Android玩家",
+    val avatarData: String? = null,
+    // SAF tree URI；为空时使用应用默认下载目录
+    val fileShareDownloadTreeUri: String = "",
     val preferredServer: String = DefaultEasyTierNode,
     val signalingServer: String = DefaultSignalingServer,
     val useDomain: Boolean = false,

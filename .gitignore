@@ -49,7 +49,10 @@ src-tauri/WixTools
 config_mctier-*
 
 # Test files and reports
-tests/
+# tests/ 不再整体忽略，否则 npm test 没有任何可跑的用例（见 issue #17）。
+tests/**/__snapshots__/
+# 早期回归实验的遗留用例：相对路径已失效且与顶层同名用例重复，不纳入版本库。
+tests/reverted-ui/
 *_TEST_REPORT.md
 *_DEBUG_GUIDE.md
 *_GUIDE.md
@@ -62,9 +65,11 @@ STORE_TEST_REPORT.md
 VOICE_DEBUG_GUIDE.md
 
 # Editor directories and files
-**/.*/
+# 注意：不要使用 "**/.*/" 这类通配 —— 它会静默忽略 .github/、.husky/ 等必要目录。
 .vscode/*
 !.vscode/extensions.json
+!.github/
+!.husky/
 .idea
 .DS_Store
 *.suo
@@ -76,3 +81,8 @@ VOICE_DEBUG_GUIDE.md
 # OS files
 Thumbs.db
 .DS_Store
+
+# 一次性脚本 / 构建日志 / 过期的更新元数据（见 issue #17）
+/0
+/buildout.txt
+/latest.json

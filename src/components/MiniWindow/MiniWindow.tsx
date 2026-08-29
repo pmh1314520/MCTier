@@ -18,6 +18,8 @@ import { listen, emitTo } from '@tauri-apps/api/event';
 import type { ChatMessage } from '../../types';
 import { MicIcon, SpeakerIcon, CloseCircleIcon, CollapseIcon, CloseIcon, WarningTriangleIcon, InfoIcon, ScreenShareIcon, CrownIcon } from '../icons';
 import { ChatRoom } from '../ChatRoom/ChatRoom';
+import { Avatar } from '../Avatar/Avatar';
+import { saveAvatarData } from '../../services/avatar/avatarService';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
@@ -560,6 +562,9 @@ export const MiniWindow: React.FC = () => {
         }
       }
     });
+    p2pChatService.onAvatar((playerId, avatarData) => {
+      useAppStore.getState().updatePlayerStatus(playerId, { avatarData });
+    });
 
     return () => {
       // 停止轮询
@@ -582,6 +587,9 @@ export const MiniWindow: React.FC = () => {
 
     // 初始化P2P聊天服务（传入自己的虚拟IP用于过滤）
     p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp);
+    void p2pChatService.sendAvatar(config.avatarData).catch((error) => {
+      console.warn('发送大厅头像同步消息失败:', error);
+    });
 
     // 开始轮询消息
     p2pChatService.startPolling();
@@ -1677,11 +1685,14 @@ export const MiniWindow: React.FC = () => {
                     }}
                   >
                     <div className="mini-player-info">
-                      <div className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}>
-                        <span className="mini-player-initial">
-                          {Array.from((useAppStore.getState().config.playerName || tl('我', 'Me')).trim())[0] || tl('我', 'Me')}
-                        </span>
-                      </div>
+                      <Avatar
+                        className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}
+                        name={config.playerName || tl('我', 'Me')}
+                        avatarData={config.avatarData}
+                        size={28}
+                        editable
+                        onChange={(avatarData) => void saveAvatarData(avatarData)}
+                      />
                       <div className="player-details">
                         <span className="mini-player-name">
                           {useAppStore.getState().config.playerName || tl('我', 'Me')} ({tl('我', 'Me')})
@@ -1731,9 +1742,12 @@ export const MiniWindow: React.FC = () => {
                         >
                           <div className="mini-player-info">
                             <div className="mini-player-avatar-col">
-                              <div className={`player-avatar ${speakingPlayers.has(player.id) && isSameVoiceGroup(player.id) ? 'speaking' : ''}`}>
-                                <span className="mini-player-initial">{Array.from((player.name || '?').trim())[0] || '?'}</span>
-                              </div>
+                              <Avatar
+                                className={`player-avatar ${speakingPlayers.has(player.id) && isSameVoiceGroup(player.id) ? 'speaking' : ''}`}
+                                name={player.name}
+                                avatarData={player.avatarData}
+                                size={28}
+                              />
                               {player.virtualIp && peerConnTypes[player.virtualIp] && (
                                 <span
                                   className="mini-conn-badge"

@@ -41,6 +41,8 @@ export interface Player {
   id: string;
   /** 玩家名称 */
   name: string;
+  /** 用户自定义头像数据（压缩后的 data URL） */
+  avatarData?: string;
   /** 虚拟IP */
   virtualIp?: string;
   /** 虚拟域名 */
@@ -107,6 +109,8 @@ export interface UserConfig {
   language?: 'system' | 'zh' | 'en';
   /** 玩家名称 */
   playerName?: string;
+  /** 用户自定义头像数据（压缩后的 data URL） */
+  avatarData?: string;
   /** 首选服务器节点 */
   preferredServer?: string;
   /** 麦克风快捷键 */

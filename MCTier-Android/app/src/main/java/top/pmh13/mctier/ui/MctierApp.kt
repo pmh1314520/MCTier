@@ -167,6 +167,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -187,7 +188,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.webrtc.RendererCommon
@@ -2182,6 +2182,9 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
 private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
     val clipboard = LocalClipboardManager.current
     val ctx = LocalContext.current
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) repository.updateAvatar(uri)
+    }
     var transferTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var kickTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
@@ -2240,11 +2243,14 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
             SectionCard(padding = 12.dp, modifier = Modifier.animateItem()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(if (player.speaking) GrassGreen else PanelHigh)
-                                .then(if (player.speaking) Modifier.border(2.dp, GrassGreen, CircleShape) else Modifier),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(player.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = TextPrimary) }
+                        ProfileAvatar(
+                            name = player.name,
+                            avatarData = player.avatarData,
+                            size = 44.dp,
+                            editable = isMe,
+                            speaking = player.speaking,
+                            onClick = { avatarPicker.launch("image/*") },
+                        )
                         // 连接模式（在头像下方显示，节省横向空间）
                         if (!isMe) {
                             val conn = state.playerConnTypes[player.id]
@@ -2426,6 +2432,9 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) repository.sendImageChat(uri)
     }
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) repository.updateAvatar(uri)
+    }
     // @提及自动补全：检测光标前是否正在输入 @名字（@ 后无空格）
     val mentionQuery: String? = remember(input) {
         val pos = input.selection.start.coerceIn(0, input.text.length)
@@ -2537,6 +2546,8 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
                     it,
                     repository,
                     Modifier.animateItem(),
+                    avatarData = if (it.mine) state.settings.avatarData else state.players.firstOrNull { player -> player.id == it.playerId }?.avatarData,
+                    onAvatarClick = { avatarPicker.launch("image/*") },
                     highlighted = highlightedMessageId == it.id,
                     onQuote = { message -> replyTo = message },
                     onJumpToQuote = { message -> jumpToReply(message) },
@@ -2660,16 +2671,43 @@ private fun buildMentionText(content: String, baseColor: Color): AnnotatedString
 private fun formatChatClock(timestamp: Long): String =
     if (timestamp > 0) java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp)) else "--:--"
 
+@Composable
+private fun ProfileAvatar(
+    name: String,
+    avatarData: String?,
+    size: androidx.compose.ui.unit.Dp,
+    editable: Boolean = false,
+    speaking: Boolean = false,
+    onClick: () -> Unit = {},
+) {
+    val bitmap = remember(avatarData) {
+        avatarData?.substringAfter(',', "")?.let { encoded ->
+            runCatching {
+                val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
+        }
+    }
+    Box(
+        Modifier.size(size)
+            .clip(CircleShape)
+            .background(if (speaking) GrassGreen else PanelHigh)
+            .then(if (speaking) Modifier.border(2.dp, GrassGreen, CircleShape) else Modifier)
+            .clickable(enabled = editable, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(bitmap = bitmap.asImageBitmap(), contentDescription = L("头像", "Avatar"), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Text(name.trim().firstOrNull()?.uppercase() ?: "?", fontWeight = FontWeight.Bold, color = TextPrimary)
+        }
+    }
+}
+
 /** 聊天消息首字符圆形头像（与玩家列表统一风格） */
 @Composable
-private fun ChatAvatar(message: ChatMessage) {
-    val ch = (message.playerName.ifBlank { if (message.mine) "我" else "?" })
-        .let { Character.toString(it[0]) }.uppercase()
-    Box(
-        Modifier.size(34.dp).clip(CircleShape)
-            .background(if (message.mine) GrassGreen.copy(alpha = 0.85f) else PanelHigh),
-        contentAlignment = Alignment.Center,
-    ) { Text(ch, fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp) }
+private fun ChatAvatar(message: ChatMessage, avatarData: String?, editable: Boolean = false, onClick: () -> Unit = {}) {
+    ProfileAvatar(message.playerName, avatarData, 34.dp, editable = editable, onClick = onClick)
 }
 
 /** 聊天气泡尾巴：朝头像一侧凸出的小三角（仿桌面端，颜色与气泡一致） */
@@ -2706,6 +2744,8 @@ private fun ChatBubble(
     message: ChatMessage,
     repository: MctierRepository,
     modifier: Modifier = Modifier,
+    avatarData: String? = null,
+    onAvatarClick: () -> Unit = {},
     highlighted: Boolean = false,
     onQuote: (ChatMessage) -> Unit = {},
     onJumpToQuote: (ChatMessage) -> Unit = {},
@@ -2766,7 +2806,7 @@ private fun ChatBubble(
             horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            if (!message.mine) { ChatAvatar(message); Spacer(Modifier.width(6.dp)); BubbleTail(mine = false) }
+            if (!message.mine) { ChatAvatar(message, avatarData); Spacer(Modifier.width(6.dp)); BubbleTail(mine = false) }
             Box(
                 modifier = Modifier
                     .weight(1f, fill = false),
@@ -2879,7 +2919,7 @@ private fun ChatBubble(
                     }
                 }
             }
-            if (message.mine) { BubbleTail(mine = true); Spacer(Modifier.width(6.dp)); ChatAvatar(message) }
+            if (message.mine) { BubbleTail(mine = true); Spacer(Modifier.width(6.dp)); ChatAvatar(message, avatarData, editable = true, onClick = onAvatarClick) }
         }
         // 发送时间（气泡底部）
         Row(
@@ -3398,6 +3438,27 @@ private fun ScreenRenderSurface(
 private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
     val settings = state.settings
     val onChange: (UserSettings) -> Unit = repository::updateSettings
+    val context = LocalContext.current
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) repository.updateAvatar(uri)
+    }
+    val downloadFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+                onChange(settings.copy(fileShareDownloadTreeUri = uri.toString()))
+            }.onFailure { error ->
+                android.widget.Toast.makeText(
+                    context,
+                    L("无法保存文件夹权限：${error.message}", "Could not save folder permission: ${error.message}"),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
     SectionCard {
         Text(L("设置", "Settings"), fontWeight = FontWeight.Bold, color = TextPrimary)
         Spacer(Modifier.height(14.dp))
@@ -3405,6 +3466,57 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
             val name = it.replace(Regex("\\s+"), "")
             if (name.length <= 8) onChange(settings.copy(playerName = name))
         }, L("玩家名称（最多8字）", "Player Name (max 8)"))
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                ProfileAvatar(
+                    if (settings.avatarData.isNullOrBlank()) L("无", "None") else settings.playerName,
+                    settings.avatarData,
+                    56.dp,
+                    editable = true,
+                    onClick = { avatarPicker.launch("image/*") },
+                )
+                if (!settings.avatarData.isNullOrBlank()) {
+                    TextButton(onClick = { repository.clearAvatar() }, contentPadding = PaddingValues(0.dp)) {
+                        Text(L("删除头像", "Remove avatar"), color = DangerRed, fontSize = 12.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(L("个人头像", "Profile Avatar"), color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (settings.avatarData.isNullOrBlank()) L("当前使用名称首字符", "Using the first character of your name") else L("当前使用自定义头像", "Custom avatar is active"),
+                    fontSize = 12.sp,
+                    color = TextPrimary.copy(alpha = 0.55f),
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(L("文件共享下载目录", "File sharing download folder"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
+        Spacer(Modifier.height(4.dp))
+        val downloadFolderLabel = settings.fileShareDownloadTreeUri.takeIf { it.isNotBlank() }?.let { uriText ->
+            runCatching { Uri.decode(Uri.parse(uriText).lastPathSegment ?: uriText) }.getOrDefault(uriText)
+        } ?: L("默认：应用下载目录 / MCTier", "Default: app download folder / MCTier")
+        Text(downloadFolderLabel, color = TextPrimary.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = { downloadFolderLauncher.launch(null) },
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GrassGreen, contentColor = TextPrimary),
+            ) {
+                Icon(Icons.Rounded.Folder, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(L("选择文件夹", "Choose folder"), fontWeight = FontWeight.SemiBold)
+            }
+            if (settings.fileShareDownloadTreeUri.isNotBlank()) {
+                TextButton(onClick = { onChange(settings.copy(fileShareDownloadTreeUri = "")) }) {
+                    Text(L("恢复默认", "Reset"), color = GrassGreen)
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Text(L("EasyTier 节点", "EasyTier Node"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f))
         Spacer(Modifier.height(8.dp))

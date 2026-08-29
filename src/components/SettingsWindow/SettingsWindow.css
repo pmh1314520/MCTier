@@ -879,6 +879,47 @@ html[data-theme='light'] .hotkey-reset-row .settings-action-btn-reset:hover {
   margin-bottom: 14px;
 }
 
+.settings-download-path-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 4px;
+  padding-bottom: 4px;
+}
+
+.settings-download-path-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-download-path-input input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-download-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+@media (max-width: 560px) {
+  .settings-download-path-row {
+    align-items: stretch;
+  }
+
+  .settings-download-path-input {
+    width: 100%;
+  }
+
+  .settings-download-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .microphone-reset-control {
   margin-top: 2px;
 }
@@ -1029,4 +1070,105 @@ html[data-theme='light'] .snd-dnd-times input[type="time"] {
   background: #ffffff;
   border-color: rgba(24, 32, 43, 0.2);
   color-scheme: light;
+}
+.settings-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+}
+
+.settings-avatar-row .settings-card-desc {
+  margin-top: 3px;
+}
+
+.settings-avatar-profile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px 12px;
+}
+
+.settings-avatar-preview-column {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-avatar-profile .mct-avatar {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #48c774) 34%, transparent), 0 6px 14px rgba(0, 0, 0, 0.18);
+}
+
+.settings-avatar-profile .mct-avatar > span:first-child {
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.settings-avatar-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-avatar-current-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-avatar-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+}
+
+.settings-avatar-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #8b96a5;
+}
+
+.settings-avatar-status-dot.custom {
+  background: #52c41a;
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.16);
+}
+
+.settings-avatar-profile .settings-card-desc {
+  padding: 0;
+  margin: 6px 0 0;
+}
+
+html[data-theme='light'] .settings-avatar-current-label {
+  color: #18202b;
+}
+
+html[data-theme='light'] .settings-avatar-status {
+  color: #596574;
+}
+
+html[data-theme='light'] .settings-avatar-profile .settings-card-desc {
+  color: #596574;
+}
+
+@media (max-width: 420px) {
+  .settings-avatar-profile {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .settings-avatar-profile .mct-avatar {
+    width: 64px !important;
+    height: 64px !important;
+  }
+
+  .settings-avatar-preview-column .ant-btn {
+    padding-inline: 7px;
+  }
 }

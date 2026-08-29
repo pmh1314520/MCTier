@@ -4,6 +4,8 @@ import { Tooltip, Empty, Slider } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { MicrophoneIcon, VolumeIcon } from '../icons';
+import { Avatar } from '../Avatar/Avatar';
+import { saveAvatarData } from '../../services/avatar/avatarService';
 import { useAppStore } from '../../stores';
 import './PlayerList.css';
 
@@ -22,6 +24,7 @@ export const PlayerList: React.FC = () => {
   const speakingPlayers = useAppStore((state) => state.speakingPlayers);
   const myVoiceGroup = useAppStore((state) => state.myVoiceGroup);
   const playerVoiceGroups = useAppStore((state) => state.playerVoiceGroups);
+  const currentPlayerId = useAppStore((state) => state.currentPlayerId);
 
   // 用于控制音量滑块的显示
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
@@ -54,8 +57,6 @@ export const PlayerList: React.FC = () => {
   const toggleVolumeControl = (playerId: string) => {
     setExpandedPlayerId(expandedPlayerId === playerId ? null : playerId);
   };
-
-  const getInitial = (name: string) => (Array.from((name || '?').trim())[0] || '?').toUpperCase();
 
   if (players.length === 0) {
     return (
@@ -100,7 +101,13 @@ export const PlayerList: React.FC = () => {
                 animate={{ scale: 1 }}
                 transition={{ delay: index * 0.05 + 0.1, type: 'spring', stiffness: 500 }}
               >
-                <span className="player-initial">{getInitial(player.name)}</span>
+                <Avatar
+                  name={player.name}
+                  avatarData={player.avatarData}
+                  size={42}
+                  editable={player.id === currentPlayerId}
+                  onChange={(avatarData) => void saveAvatarData(avatarData)}
+                />
               </motion.div>
 
               <div className="player-item-info">

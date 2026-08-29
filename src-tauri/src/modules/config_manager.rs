@@ -345,6 +345,8 @@ pub struct UserConfig {
     pub language: Option<String>,
     /// 玩家名称
     pub player_name: Option<String>,
+    /// 用户自定义头像数据（压缩后的 data URL）
+    pub avatar_data: Option<String>,
     /// 首选服务器节点
     pub preferred_server: Option<String>,
     /// 麦克风开关快捷键
@@ -391,6 +393,8 @@ pub struct UserConfig {
     pub global_easytier_advanced_config: Option<EasyTierAdvancedConfig>,
     /// 大厅 EasyTier 高级配置（覆盖全局配置）
     pub lobby_easytier_advanced_config: Option<EasyTierAdvancedConfig>,
+    /// 文件夹共享下载目录；为空时使用系统下载目录下的 MCTier 文件夹
+    pub file_share_download_dir: Option<String>,
 }
 
 impl Default for UserConfig {
@@ -398,6 +402,7 @@ impl Default for UserConfig {
         Self {
             language: None,
             player_name: None,
+            avatar_data: None,
             preferred_server: None,
             mic_hotkey: Some("Ctrl+M".to_string()),
             global_mute_hotkey: Some("Ctrl+T".to_string()),
@@ -421,6 +426,7 @@ impl Default for UserConfig {
             exit_node_config: Some(ExitNodeConfig::default()),
             global_easytier_advanced_config: None,
             lobby_easytier_advanced_config: None,
+            file_share_download_dir: None,
         }
     }
 }

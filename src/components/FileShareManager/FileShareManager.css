@@ -883,3 +883,269 @@ html[data-theme='light'] .file-share-container .ant-modal-content {
   background: #ffffff !important;
   border-color: rgba(24, 32, 43, 0.14) !important;
 }
+
+.file-share-container .ant-btn,
+.file-share-modal .ant-btn {
+  box-sizing: border-box;
+  transform: none !important;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease !important;
+}
+
+.file-share-container .file-share-primary-btn,
+.file-share-modal .ant-btn-primary {
+  background: #4b941e !important;
+  background-image: none !important;
+  border-color: #4b941e !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(75, 148, 30, 0.24) !important;
+}
+
+.file-share-container .file-share-primary-btn:hover:not(:disabled),
+.file-share-container .file-share-primary-btn:focus-visible:not(:disabled),
+.file-share-modal .ant-btn-primary:hover:not(:disabled),
+.file-share-modal .ant-btn-primary:focus-visible:not(:disabled) {
+  background: #3f8118 !important;
+  background-image: none !important;
+  border-color: #3f8118 !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 10px rgba(63, 129, 24, 0.3) !important;
+}
+
+.file-share-container .file-share-primary-btn:active:not(:disabled),
+.file-share-modal .ant-btn-primary:active:not(:disabled) {
+  background: #367313 !important;
+  border-color: #367313 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(54, 115, 19, 0.24) !important;
+}
+
+.file-share-container .file-share-batch-download,
+.file-share-container .file-share-batch-download:hover:not(:disabled),
+.file-share-container .file-share-batch-download:focus-visible:not(:disabled),
+.file-share-container .file-share-batch-download:active:not(:disabled) {
+  background: #52c41a !important;
+  background-image: none !important;
+  border-color: #52c41a !important;
+  color: #ffffff !important;
+}
+
+.file-share-container .file-share-neutral-btn,
+.file-share-modal .ant-btn-default {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.file-share-container .file-share-neutral-btn:hover:not(:disabled),
+.file-share-container .file-share-neutral-btn:focus-visible:not(:disabled),
+.file-share-modal .ant-btn-default:hover:not(:disabled),
+.file-share-modal .ant-btn-default:focus-visible:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(126, 211, 33, 0.55);
+  color: #ffffff;
+}
+
+html[data-theme='light'] .file-share-container,
+html[data-theme='light'] .file-share-container .content-area,
+html[data-theme='light'] .file-share-container .tab-content {
+  background: #ffffff;
+  color: #18202b;
+}
+
+html[data-theme='light'] .file-share-container .sidebar-tabs {
+  background: #eef1f4;
+  border-right-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .file-share-container .sidebar-tab {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.1);
+  color: #596574;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease !important;
+}
+
+html[data-theme='light'] .file-share-container .sidebar-tab:hover {
+  background: #e7edf1;
+  border-color: rgba(24, 32, 43, 0.16);
+  color: #18202b;
+}
+
+html[data-theme='light'] .file-share-container .sidebar-tab.active {
+  background: #edf8e8;
+  border-color: #9ed181;
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-list, .file-browser, .transfer-list, .file-list) {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-item, .file-item, .transfer-item) {
+  background: #f7f9fb;
+  border-color: rgba(24, 32, 43, 0.13);
+  color: #18202b;
+  transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease !important;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-item, .file-item, .transfer-item):hover,
+html[data-theme='light'] .file-share-container :is(.share-item.clickable, .file-item.clickable, .transfer-item.clickable):hover {
+  background: #f1f5f8;
+  border-color: rgba(24, 32, 43, 0.2);
+  box-shadow: none;
+  transform: none !important;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-name, .file-name, .transfer-name) {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-meta, .file-meta, .transfer-meta, .current-path, .loading-state) {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .file-share-container :is(.share-icon, .file-icon, .transfer-icon, .file-item svg, .empty-state svg) {
+  color: #687585;
+}
+
+html[data-theme='light'] .file-share-container .share-owner {
+  background: #edf8e8;
+  border-color: #b7dfa2;
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .file-share-container .share-status-icons .status-icon {
+  background: rgba(24, 32, 43, 0.08);
+  border-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .file-share-container .browser-header {
+  background: #f1f4f7;
+  border: 1px solid rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .file-share-container .transfers-subtabs {
+  background: #ffffff;
+  border-bottom-color: rgba(24, 32, 43, 0.12);
+}
+
+html[data-theme='light'] .file-share-container .subtab {
+  background: #f1f4f7;
+  border: 1px solid transparent;
+  color: #596574;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease !important;
+}
+
+html[data-theme='light'] .file-share-container .subtab:hover {
+  background: #e8eef2;
+  border-color: rgba(24, 32, 43, 0.14);
+  color: #18202b;
+}
+
+html[data-theme='light'] .file-share-container .subtab.active {
+  background: #e5f3dc;
+  border-color: #9ed181;
+  color: #2f7d12;
+}
+
+html[data-theme='light'] .file-share-container .subtab-badge {
+  background: #52c41a;
+  color: #ffffff;
+}
+
+html[data-theme='light'] .file-share-container .file-share-neutral-btn,
+html[data-theme='light'] .file-share-modal .ant-btn-default {
+  background: #ffffff !important;
+  border-color: #aeb8c3 !important;
+  color: #364151 !important;
+}
+
+html[data-theme='light'] .file-share-container .file-share-neutral-btn:hover:not(:disabled),
+html[data-theme='light'] .file-share-container .file-share-neutral-btn:focus-visible:not(:disabled),
+html[data-theme='light'] .file-share-modal .ant-btn-default:hover:not(:disabled),
+html[data-theme='light'] .file-share-modal .ant-btn-default:focus-visible:not(:disabled) {
+  background: #f1f5f8 !important;
+  border-color: #687585 !important;
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .file-share-container .transfer-speed {
+  color: #2578a8;
+}
+
+html[data-theme='light'] .file-share-container .ant-progress-inner {
+  background: #dfe5ea;
+}
+
+html[data-theme='light'] .file-share-container .ant-progress-text {
+  color: #596574;
+}
+
+html[data-theme='light'] .file-share-container .empty-state {
+  color: #687585;
+}
+
+html[data-theme='light'] .file-share-container .empty-state svg {
+  opacity: 0.55;
+}
+
+html[data-theme='light'] .file-share-container .file-list::-webkit-scrollbar-track,
+html[data-theme='light'] .file-share-container .transfer-list::-webkit-scrollbar-track,
+html[data-theme='light'] .file-share-container .share-list::-webkit-scrollbar-track {
+  background: #edf1f4;
+}
+
+html[data-theme='light'] .file-share-container .file-list::-webkit-scrollbar-thumb,
+html[data-theme='light'] .file-share-container .transfer-list::-webkit-scrollbar-thumb,
+html[data-theme='light'] .file-share-container .share-list::-webkit-scrollbar-thumb {
+  background: #c3cbd3;
+}
+
+html[data-theme='light'] .file-share-container .file-list::-webkit-scrollbar-thumb:hover,
+html[data-theme='light'] .file-share-container .transfer-list::-webkit-scrollbar-thumb:hover,
+html[data-theme='light'] .file-share-container .share-list::-webkit-scrollbar-thumb:hover {
+  background: #aab5c0;
+}
+
+html[data-theme='light'] .file-share-container .form-item label,
+html[data-theme='light'] .file-share-container .form-item > span {
+  color: #18202b;
+}
+
+html[data-theme='light'] .file-share-modal .ant-modal-content,
+html[data-theme='light'] .file-share-modal .ant-modal-header,
+html[data-theme='light'] .file-share-modal .ant-modal-footer {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.14) !important;
+}
+
+html[data-theme='light'] .file-share-modal .ant-modal-title,
+html[data-theme='light'] .file-share-modal .ant-modal-body,
+html[data-theme='light'] .file-share-modal .form-item label,
+html[data-theme='light'] .file-share-modal .form-item span {
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .file-share-modal .ant-modal-close {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .file-share-modal .ant-input,
+html[data-theme='light'] .file-share-modal .ant-input-affix-wrapper {
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+  color: #18202b !important;
+}
+
+html[data-theme='light'] .file-share-modal .ant-input::placeholder,
+html[data-theme='light'] .file-share-modal .ant-input-affix-wrapper input::placeholder {
+  color: #85909d !important;
+}
+
+html[data-theme='light'] .file-share-modal .ant-input-affix-wrapper .ant-input-suffix,
+html[data-theme='light'] .file-share-modal .ant-input-password-icon {
+  color: #596574 !important;
+}
+
+html[data-theme='light'] .file-share-modal-root .ant-modal-mask {
+  background: rgba(24, 32, 43, 0.35) !important;
+}

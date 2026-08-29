@@ -208,6 +208,7 @@ interface AppStore {
  */
 const defaultConfig: UserConfig = {
   playerName: undefined,
+  avatarData: undefined,
   preferredServer: undefined,
   micHotkey: 'Ctrl+M',
   globalMuteHotkey: 'Ctrl+T',

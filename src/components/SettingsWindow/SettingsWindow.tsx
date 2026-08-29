@@ -13,6 +13,9 @@ import { DanmakuSettings } from '../Danmaku/DanmakuSettings';
 import { GameHudSettings } from '../GameHud/GameHudSettings';
 import { VoiceChangerPicker } from '../VoiceChanger/VoiceChangerPicker';
 import { HotkeyInput } from '../HotkeyInput/HotkeyInput';
+import { clearAvatarData, saveAvatarData } from '../../services/avatar/avatarService';
+import { useAppStore } from '../../stores';
+import { SettingsAvatarPicker } from '../SettingsAvatar/SettingsAvatarPicker';
 import { persistThemePreference, readThemePreference, type ThemePreference } from '../../theme/themePreference';
 import './SettingsWindow.css';
 
@@ -63,6 +66,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [closeToTray, setCloseToTray] = useState(false);
   const [startMinimized, setStartMinimized] = useState(false);
   const [enableGpuRendering, setEnableGpuRendering] = useState(true);
+  const [fileShareDownloadDir, setFileShareDownloadDir] = useState<string | null>(null);
+  const [avatarData, setAvatarData] = useState<string | undefined>();
   // 全局快捷键：用户可自定义，改完立即重新注册生效
   const [hotkeys, setHotkeys] = useState<Record<HotkeyKey, string>>({ ...DEFAULT_HOTKEYS });
   const [showRestartModal, setShowRestartModal] = useState(false);
@@ -101,6 +106,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       const ctt = settings.closeToTray ?? false;
       const sm = settings.startMinimized ?? false;
       const egr = settings.enableGpuRendering ?? true;
+      const fsdd = settings.fileShareDownloadDir || null;
       const language: LanguagePreference = settings.language === 'zh' || settings.language === 'en' || settings.language === 'system'
         ? settings.language
         : getLanguagePreference();
@@ -113,6 +119,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       setCloseToTray(ctt);
       setStartMinimized(sm);
       setEnableGpuRendering(egr);
+      setFileShareDownloadDir(fsdd);
+      setAvatarData(settings.avatarData || undefined);
+      useAppStore.getState().updateConfig({ avatarData: settings.avatarData || undefined });
       setLang(language);
       setLanguagePreference(language);
       // 读取自定义快捷键（后端缺省会回落到默认键位）
@@ -140,6 +149,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         closeToTray: ctt,
         startMinimized: sm,
         enableGpuRendering: egr,
+        fileShareDownloadDir: fsdd,
+        avatarData: settings.avatarData || undefined,
         ...hk,
         // 出口节点配置
         enableExitNode: settings.enableExitNode || false,
@@ -174,6 +185,8 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         closeToTray: false,
         startMinimized: false,
         enableGpuRendering: true,
+        fileShareDownloadDir: null,
+        avatarData: undefined,
         ...DEFAULT_HOTKEYS,
         enableExitNode: false,
         enableAsExitNode: false,
@@ -191,6 +204,9 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       setCloseToTray(false);
       setStartMinimized(false);
       setEnableGpuRendering(true);
+      setFileShareDownloadDir(null);
+      setAvatarData(undefined);
+      useAppStore.getState().updateConfig({ avatarData: undefined });
       setHotkeys({ ...DEFAULT_HOTKEYS });
       settingsRef.current = defaultSettings;
       form.setFieldsValue(defaultSettings);
@@ -198,6 +214,66 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
       setLoading(false);
     }
   }, [form]);
+
+  const handleAvatarChange = useCallback(async (nextAvatar: string) => {
+    const previousAvatar = avatarData;
+    setAvatarData(nextAvatar);
+    useAppStore.getState().updateConfig({ avatarData: nextAvatar });
+    settingsRef.current = { ...settingsRef.current, avatarData: nextAvatar };
+    try {
+      await saveAvatarData(nextAvatar);
+      message.success(tl('头像已更新', 'Avatar updated'));
+    } catch (error) {
+      console.error('保存头像失败:', error);
+      setAvatarData(previousAvatar);
+      useAppStore.getState().updateConfig({ avatarData: previousAvatar });
+      settingsRef.current = { ...settingsRef.current, avatarData: previousAvatar };
+      message.error(tl('保存头像失败', 'Failed to save avatar'));
+    }
+  }, [avatarData]);
+
+  const handleAvatarRemove = useCallback(async () => {
+    const previousAvatar = avatarData;
+    setAvatarData(undefined);
+    useAppStore.getState().updateConfig({ avatarData: undefined });
+    settingsRef.current = { ...settingsRef.current, avatarData: undefined };
+    try {
+      await clearAvatarData();
+      message.success(tl('头像已删除，已恢复名称首字符', 'Avatar removed; using the name initial again'));
+    } catch (error) {
+      console.error('删除头像失败:', error);
+      setAvatarData(previousAvatar);
+      useAppStore.getState().updateConfig({ avatarData: previousAvatar });
+      settingsRef.current = { ...settingsRef.current, avatarData: previousAvatar };
+      message.error(tl('删除头像失败', 'Failed to remove avatar'));
+    }
+  }, [avatarData]);
+
+  const chooseFileShareDownloadDir = useCallback(async () => {
+    try {
+      const selected = await invoke<string | null>('select_file_share_download_folder');
+      if (!selected) return;
+      await invoke('set_file_share_download_dir', { path: selected });
+      setFileShareDownloadDir(selected);
+      settingsRef.current = { ...settingsRef.current, fileShareDownloadDir: selected };
+      message.success(tl('文件共享下载目录已更新', 'File sharing download folder updated'));
+    } catch (error) {
+      console.error('保存文件共享下载目录失败:', error);
+      message.error(tl('保存下载目录失败', 'Failed to save download folder'));
+    }
+  }, []);
+
+  const resetFileShareDownloadDir = useCallback(async () => {
+    try {
+      await invoke('set_file_share_download_dir', { path: null });
+      setFileShareDownloadDir(null);
+      settingsRef.current = { ...settingsRef.current, fileShareDownloadDir: null };
+      message.success(tl('已恢复系统默认下载目录', 'System default download folder restored'));
+    } catch (error) {
+      console.error('恢复文件共享下载目录失败:', error);
+      message.error(tl('恢复默认目录失败', 'Failed to restore default folder'));
+    }
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -429,6 +505,54 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                   ))}
                 </Button.Group>
               </div>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-cyan">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('文件共享下载', 'File Sharing Downloads')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl('设置文件夹共享中下载的所有文件的保存位置，不影响聊天图片等其他下载。', 'Choose where all files downloaded from folder sharing are saved. Other downloads are not affected.')}
+              </div>
+              <div className="settings-download-path-row">
+                <Input
+                  value={fileShareDownloadDir || tl('系统默认下载目录（MCTier）', 'System default download folder (MCTier)')}
+                  readOnly
+                  className="settings-download-path-input"
+                />
+                <div className="settings-download-actions">
+                  <Button type="primary" onClick={chooseFileShareDownloadDir}>
+                    {tl('选择文件夹', 'Choose folder')}
+                  </Button>
+                  {fileShareDownloadDir && (
+                    <Button onClick={resetFileShareDownloadDir}>
+                      {tl('恢复默认', 'Reset')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-orange">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.42 0-8 2.24-8 5v3h16v-3c0-2.76-3.58-5-8-5z" />
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('个人头像', 'Profile Avatar')}</span>
+              </div>
+              <SettingsAvatarPicker
+                avatarData={avatarData}
+                onChange={handleAvatarChange}
+                onRemove={() => void handleAvatarRemove()}
+                onError={(error) => message.error(error)}
+              />
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>
