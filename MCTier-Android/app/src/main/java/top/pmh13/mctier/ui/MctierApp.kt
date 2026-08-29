@@ -4623,6 +4623,55 @@ private fun AboutScreen(onBack: () -> Unit) {
             }
             item {
                 SectionCard {
+                    Text(L("开源许可与第三方组件", "Open-Source Licenses and Third-Party Components"), fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        L(
+                            "MCTier 使用了以下第三方组件，它们各自按其原有许可证授权，不适用 MCTier 自有代码的许可证：",
+                            "MCTier uses the following third-party components. Each remains licensed under its own terms and is not covered by MCTier's own license:"
+                        ),
+                        fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.8f), lineHeight = 20.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        L(
+                            "· EasyTier —— LGPL-3.0（Android 端使用了修改版，修改补丁随仓库提供）\n" +
+                                "· WebRTC —— BSD-3-Clause\n" +
+                                "· LocalVQE —— Apache-2.0；内嵌 GGML —— MIT\n" +
+                                "· GTCRN 模型权重 —— 训练数据含 CC BY 4.0 素材\n" +
+                                "· OkHttp、NanoHTTPD、AndroidX、Kotlin 等依赖见完整声明",
+                            "· EasyTier — LGPL-3.0 (Android uses a modified build; the patch ships with the repository)\n" +
+                                "· WebRTC — BSD-3-Clause\n" +
+                                "· LocalVQE — Apache-2.0; bundled GGML — MIT\n" +
+                                "· GTCRN model weights — training data includes CC BY 4.0 material\n" +
+                                "· OkHttp, NanoHTTPD, AndroidX, Kotlin and others: see the full notice"
+                        ),
+                        fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.7f), lineHeight = 19.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    AboutLinkVectorRow(
+                        L("第三方组件完整声明", "Full Third-Party Notices"),
+                        "THIRD_PARTY_NOTICES.md",
+                        R.drawable.ic_github
+                    ) { open("https://github.com/pmh1314520/MCTier/blob/master/THIRD_PARTY_NOTICES.md") }
+                    Spacer(Modifier.height(8.dp))
+                    AboutLinkVectorRow(
+                        L("EasyTier 上游仓库", "EasyTier Upstream Repository"),
+                        "github.com/EasyTier/EasyTier",
+                        R.drawable.ic_github
+                    ) { open("https://github.com/EasyTier/EasyTier") }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        L(
+                            "本项目不是官方 Minecraft 产品，未获 Mojang Studios 或 Microsoft 批准、认可、关联或背书。",
+                            "This project is not an official Minecraft product and is not approved by or associated with Mojang Studios or Microsoft."
+                        ),
+                        fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.5f), lineHeight = 17.sp
+                    )
+                }
+            }
+            item {
+                SectionCard {
                     Text(L("支持开发者", "Support the developer"), fontWeight = FontWeight.Bold, color = TextPrimary)
                     Spacer(Modifier.height(8.dp))
                     Text(L("如果 MCTier 对你有帮助，欢迎赞助支持作者持续开发", "If MCTier helps you, please consider sponsoring continued development"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.8f))
