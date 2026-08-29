@@ -42,6 +42,38 @@ pub struct SharedFolder {
     pub created_at: u64,
 }
 
+/// 可安全暴露给远程节点的共享摘要。
+///
+/// 本地文件系统路径和共享密码只保留在服务端，绝不能通过 HTTP API 序列化。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SharedFolderSummary {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub has_password: bool,
+    pub expire_time: Option<u64>,
+    pub compress_before_send: Option<bool>,
+    pub owner_id: String,
+    pub created_at: u64,
+}
+
+impl From<&SharedFolder> for SharedFolderSummary {
+    fn from(share: &SharedFolder) -> Self {
+        Self {
+            id: share.id.clone(),
+            name: share.name.clone(),
+            has_password: share
+                .password
+                .as_deref()
+                .is_some_and(|password| !password.is_empty()),
+            expire_time: share.expire_time,
+            compress_before_send: share.compress_before_send,
+            owner_id: share.owner_id.clone(),
+            created_at: share.created_at,
+        }
+    }
+}
+
 /// 文件信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
@@ -55,7 +87,7 @@ pub struct FileInfo {
 /// 共享列表响应
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ShareListResponse {
-    pub shares: Vec<SharedFolder>,
+    pub shares: Vec<SharedFolderSummary>,
 }
 
 /// 文件列表响应
@@ -386,15 +418,56 @@ fn safe_join(base: &Path, rel: &str) -> Option<PathBuf> {
 
 /// 获取共享列表
 async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
-    let shares: Vec<SharedFolder> = state
+    let shares: Vec<SharedFolderSummary> = state
         .shared_folders
         .iter()
-        .map(|entry| entry.value().clone())
+        .map(|entry| SharedFolderSummary::from(entry.value()))
         .collect();
 
     log::debug!("📋 收到获取共享列表请求，返回 {} 个共享", shares.len());
 
     Json(ShareListResponse { shares })
+}
+
+#[cfg(test)]
+mod share_list_response_tests {
+    use super::{ShareListResponse, SharedFolder, SharedFolderSummary};
+
+    fn protected_share() -> SharedFolder {
+        SharedFolder {
+            id: "share-1".to_string(),
+            name: "Test share".to_string(),
+            path: r"C:\Users\test\private".to_string(),
+            password: Some("secret-password".to_string()),
+            expire_time: Some(1_900_000_000),
+            compress_before_send: Some(true),
+            owner_id: "owner-1".to_string(),
+            created_at: 1_800_000_000,
+        }
+    }
+
+    #[test]
+    fn public_share_summary_omits_path_and_password() {
+        let response = ShareListResponse {
+            shares: vec![SharedFolderSummary::from(&protected_share())],
+        };
+        let json = serde_json::to_value(response).expect("serialize share list response");
+        let share = &json["shares"][0];
+
+        assert_eq!(share["has_password"], true);
+        assert!(share.get("path").is_none());
+        assert!(share.get("password").is_none());
+        assert!(!json.to_string().contains("secret-password"));
+        assert!(!json.to_string().contains(r"C:\Users\test\private"));
+    }
+
+    #[test]
+    fn empty_password_is_reported_as_unprotected() {
+        let mut share = protected_share();
+        share.password = Some(String::new());
+
+        assert!(!SharedFolderSummary::from(&share).has_password);
+    }
 }
 
 /// 获取文件列表
@@ -816,6 +889,5 @@ async fn batch_download(
             StatusCode::INTERNAL_SERVER_ERROR
         })
 }
-
 
 

@@ -10,7 +10,7 @@ import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd'
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../../stores/appStore';
-import type { SharedFolder, FileInfo } from '../../types/fileShare';
+import type { SharedFolder, SharedFolderSummary, FileInfo } from '../../types/fileShare';
 import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
@@ -18,7 +18,7 @@ import './FileShareManager.css';
 
 // 简化的远程共享类型
 interface SimpleRemoteShare {
-  share: SharedFolder;
+  share: SharedFolderSummary;
   ownerName: string;
   ownerIp: string;
 }
@@ -116,7 +116,7 @@ export const FileShareManagerNew: React.FC = () => {
     // 1. 加载自己的共享
     if (lobby?.virtualIp) {
       try {
-        const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp: lobby.virtualIp });
+        const shares = await invoke<SharedFolderSummary[]>('get_remote_shares', { peerIp: lobby.virtualIp });
         
         shares.forEach(share => {
           // 过滤掉过期的共享
@@ -137,7 +137,7 @@ export const FileShareManagerNew: React.FC = () => {
     for (const player of players) {
       if (player.virtualIp) {
         try {
-          const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp: player.virtualIp });
+          const shares = await invoke<SharedFolderSummary[]>('get_remote_shares', { peerIp: player.virtualIp });
           
           shares.forEach(share => {
             // 过滤掉过期的共享
@@ -200,8 +200,7 @@ export const FileShareManagerNew: React.FC = () => {
         share: {
           id: shareId,
           name: shareName,
-          path: '',
-          password: hasPassword ? 'protected' : undefined,
+          has_password: Boolean(hasPassword),
           expire_time: undefined,
           compress_before_send: false,
           owner_id: playerId,
@@ -345,7 +344,7 @@ export const FileShareManagerNew: React.FC = () => {
   const handleBrowseShare = async (remoteShare: SimpleRemoteShare) => {
     pendingBrowsePathRef.current = '';
 
-    if (remoteShare.share.password) {
+    if (remoteShare.share.has_password) {
       setPendingShare(remoteShare);
       setShowPasswordModal(true);
       return;
@@ -359,7 +358,7 @@ export const FileShareManagerNew: React.FC = () => {
       const targetPath = pendingBrowsePathRef.current || '';
       let verifiedPassword: string | undefined;
 
-      if (remoteShare.share.password) {
+      if (remoteShare.share.has_password) {
         const passwordToVerify = password ?? sharePasswordMap[getShareKey(remoteShare.ownerIp, remoteShare.share.id)] ?? '';
         const valid = await invoke<boolean>('verify_share_password', {
           peerIp: remoteShare.ownerIp,
@@ -959,7 +958,7 @@ export const FileShareManagerNew: React.FC = () => {
                           </div>
                           {/* 右上角状态图标 */}
                           <div className="share-status-icons">
-                            {remoteShare.share.password && (
+                            {remoteShare.share.has_password && (
                               <div className="status-icon lock-icon" title={tl('需要密码', 'Password required')}>🔒</div>
                             )}
                             {remoteShare.share.compress_before_send && (
@@ -1339,7 +1338,6 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
     </Modal>
   );
 };
-
 
 
 
