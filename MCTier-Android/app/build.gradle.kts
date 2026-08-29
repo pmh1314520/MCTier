@@ -72,7 +72,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation("io.github.webrtc-sdk:android:144.7559.09")
+    implementation("io.github.webrtc-sdk:android:144.7559.14")
     // 二维码：生成(core) + 扫码(zxing-android-embedded)
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
