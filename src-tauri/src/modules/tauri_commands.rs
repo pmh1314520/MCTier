@@ -3093,65 +3093,231 @@ pub async fn diagnose_file_share_connection(peer_ip: String) -> Result<String, S
 
 // ==================== 文件下载命令 ====================
 
+// ZIP extraction helpers keep every output path inside the selected directory.
+fn is_symlink_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        // FILE_ATTRIBUTE_REPARSE_POINT. Junctions and other reparse points can
+        // redirect extraction outside of the user-selected directory.
+        return metadata.file_attributes() & 0x400 != 0;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
+fn ensure_safe_zip_directory(
+    extraction_root: &std::path::Path,
+    relative_path: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    use std::io::ErrorKind;
+    use std::path::Component;
+
+    let mut current = extraction_root.to_path_buf();
+
+    for component in relative_path.components() {
+        let Component::Normal(component) = component else {
+            return Err(format!(
+                "ZIP条目包含不安全的目录组件: {}",
+                relative_path.display()
+            ));
+        };
+
+        current.push(component);
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if is_symlink_or_reparse_point(&metadata) || !metadata.is_dir() {
+                    return Err(format!(
+                        "ZIP解压路径包含符号链接、重解析点或非目录项: {}",
+                        current.display()
+                    ));
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                std::fs::create_dir(&current)
+                    .map_err(|e| format!("创建目录失败 {}: {}", current.display(), e))?;
+            }
+            Err(error) => {
+                return Err(format!("检查解压目录失败 {}: {}", current.display(), error));
+            }
+        }
+
+        let canonical = std::fs::canonicalize(&current)
+            .map_err(|e| format!("规范化解压目录失败 {}: {}", current.display(), e))?;
+        if !canonical.starts_with(extraction_root) {
+            return Err(format!("ZIP条目试图写出目标目录: {}", current.display()));
+        }
+        current = canonical;
+    }
+
+    Ok(current)
+}
+
+fn extract_zip_archive(
+    zip_path: &std::path::Path,
+    extract_dir: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    use std::fs::{File, OpenOptions};
+    use std::io::ErrorKind;
+    use zip::ZipArchive;
+
+    std::fs::create_dir_all(extract_dir)
+        .map_err(|e| format!("创建解压目标目录失败: {}", e))?;
+    let extraction_root = std::fs::canonicalize(extract_dir)
+        .map_err(|e| format!("规范化解压目标目录失败: {}", e))?;
+
+    let file = File::open(zip_path)
+        .map_err(|e| format!("打开ZIP文件失败: {}", e))?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|e| format!("读取ZIP文件失败: {}", e))?;
+
+    // Validate every entry before writing anything so a malicious archive
+    // cannot leave a partially extracted payload behind.
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i)
+            .map_err(|e| format!("读取ZIP条目失败: {}", e))?;
+        let enclosed_path = entry.enclosed_name()
+            .ok_or_else(|| format!("拒绝不安全的ZIP条目路径: {}", entry.name()))?;
+
+        if enclosed_path.as_os_str().is_empty() {
+            return Err("拒绝空的ZIP条目路径".to_string());
+        }
+
+        if entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) {
+            return Err(format!("拒绝ZIP中的符号链接条目: {}", entry.name()));
+        }
+    }
+
+    let mut extracted_files = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| format!("读取ZIP条目失败: {}", e))?;
+        let enclosed_path = entry.enclosed_name()
+            .ok_or_else(|| format!("拒绝不安全的ZIP条目路径: {}", entry.name()))?;
+
+        if entry.is_dir() {
+            let directory = ensure_safe_zip_directory(&extraction_root, &enclosed_path)?;
+            log::info!("📁 创建目录: {:?}", directory);
+            continue;
+        }
+
+        let file_name = enclosed_path.file_name()
+            .ok_or_else(|| format!("ZIP条目缺少文件名: {}", entry.name()))?;
+        let parent_path = enclosed_path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let safe_parent = ensure_safe_zip_directory(&extraction_root, parent_path)?;
+        let outpath = safe_parent.join(file_name);
+
+        // create_new prevents following a pre-existing symlink/hard link and
+        // avoids silently overwriting files in the selected directory.
+        let mut outfile = match OpenOptions::new().write(true).create_new(true).open(&outpath) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                return Err(format!("目标文件已存在，拒绝覆盖: {}", outpath.display()));
+            }
+            Err(error) => {
+                return Err(format!("创建文件失败 {}: {}", outpath.display(), error));
+            }
+        };
+
+        log::info!("📄 解压文件: {:?}", outpath);
+        std::io::copy(&mut entry, &mut outfile)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        extracted_files.push(outpath.to_string_lossy().to_string());
+    }
+
+    Ok(extracted_files)
+}
+
 /// 解压ZIP文件到指定目录
-/// 
+///
 /// # 参数
 /// * `zip_path` - ZIP文件路径
 /// * `extract_dir` - 解压目标目录
-/// 
+///
 /// # 返回
 /// * `Ok(Vec<String>)` - 解压的文件列表
 /// * `Err(String)` - 错误信息
 #[tauri::command]
 pub async fn extract_zip(zip_path: String, extract_dir: String) -> Result<Vec<String>, String> {
     log::info!("📦 解压ZIP文件: {} -> {}", zip_path, extract_dir);
-    
-    use std::fs::File;
-    use std::path::Path;
-    use zip::ZipArchive;
-    
-    // 打开ZIP文件
-    let file = File::open(&zip_path)
-        .map_err(|e| format!("打开ZIP文件失败: {}", e))?;
-    
-    let mut archive = ZipArchive::new(file)
-        .map_err(|e| format!("读取ZIP文件失败: {}", e))?;
-    
-    let mut extracted_files = Vec::new();
-    
-    // 解压所有文件
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
-            .map_err(|e| format!("读取ZIP条目失败: {}", e))?;
-        
-        let outpath = Path::new(&extract_dir).join(file.name());
-        
-        if file.is_dir() {
-            log::info!("📁 创建目录: {:?}", outpath);
-            std::fs::create_dir_all(&outpath)
-                .map_err(|e| format!("创建目录失败: {}", e))?;
-        } else {
-            log::info!("📄 解压文件: {:?}", outpath);
-            
-            // 确保父目录存在
-            if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("创建父目录失败: {}", e))?;
-            }
-            
-            // 写入文件
-            let mut outfile = File::create(&outpath)
-                .map_err(|e| format!("创建文件失败: {}", e))?;
-            
-            std::io::copy(&mut file, &mut outfile)
-                .map_err(|e| format!("写入文件失败: {}", e))?;
-            
-            extracted_files.push(outpath.to_string_lossy().to_string());
-        }
-    }
-    
+
+    let extracted_files = extract_zip_archive(
+        std::path::Path::new(&zip_path),
+        std::path::Path::new(&extract_dir),
+    )?;
+
     log::info!("✅ ZIP文件解压完成，共 {} 个文件", extracted_files.len());
     Ok(extracted_files)
+}
+
+#[cfg(test)]
+mod zip_extraction_tests {
+    use super::extract_zip_archive;
+    use std::io::Write;
+
+    fn create_zip(zip_path: &std::path::Path, entries: &[(&str, &[u8])]) {
+        let file = std::fs::File::create(zip_path).expect("create test zip");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        for (name, contents) in entries {
+            writer.start_file(*name, options).expect("start zip entry");
+            writer.write_all(contents).expect("write zip entry");
+        }
+
+        writer.finish().expect("finish test zip");
+    }
+
+    #[test]
+    fn extracts_valid_nested_files() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let zip_path = temp.path().join("valid.zip");
+        let extract_dir = temp.path().join("output");
+        create_zip(&zip_path, &[("nested/file.txt", b"safe")]);
+
+        let extracted = extract_zip_archive(&zip_path, &extract_dir).expect("extract valid zip");
+
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(std::fs::read(extract_dir.join("nested/file.txt")).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn rejects_parent_directory_traversal_before_writing() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let zip_path = temp.path().join("traversal.zip");
+        let extract_dir = temp.path().join("output");
+        create_zip(
+            &zip_path,
+            &[("safe.txt", b"must not be written"), ("../escape.txt", b"pwned")],
+        );
+
+        let error = extract_zip_archive(&zip_path, &extract_dir).expect_err("reject traversal");
+
+        assert!(error.contains("不安全的ZIP条目路径"));
+        assert!(!extract_dir.join("safe.txt").exists());
+        assert!(!temp.path().join("escape.txt").exists());
+    }
+
+    #[test]
+    fn refuses_to_overwrite_existing_files() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let zip_path = temp.path().join("overwrite.zip");
+        let extract_dir = temp.path().join("output");
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        std::fs::write(extract_dir.join("existing.txt"), b"original").unwrap();
+        create_zip(&zip_path, &[("existing.txt", b"replacement")]);
+
+        let error = extract_zip_archive(&zip_path, &extract_dir).expect_err("reject overwrite");
+
+        assert!(error.contains("拒绝覆盖"));
+        assert_eq!(std::fs::read(extract_dir.join("existing.txt")).unwrap(), b"original");
+    }
 }
 
 /// 删除文件
