@@ -70,7 +70,7 @@ MCTier 自定义源码可得（Source-Available）非商业许可
 | EasyTier（`easytier-core.exe`、`easytier-cli.exe`、`libeasytier_ffi.so`、`libeasytier_android_jni.so` 及其源码/修改） | LGPL-3.0 |
 | WinDivert（`WinDivert64.sys`） | LGPL-3.0（双许可中所选分支） |
 | Wintun（`wintun.dll`） | Wintun Prebuilt Binaries License |
-| Npcap（`Packet.dll`、`Packet.lib`） | Npcap 专有许可条款 |
+| Npcap（`Packet.dll`） | Npcap 专有许可条款 |
 | Javassist（内嵌于 `minecraft-offline-agent.jar`） | Apache-2.0（三重许可中所选分支） |
 | LocalVQE（`liblocalvqe.so`、`localvqe.wasm` 等） | Apache-2.0 |
 | GGML（内嵌于 LocalVQE） | MIT |
@@ -226,7 +226,7 @@ licensed under their own respective terms:
 | EasyTier (`easytier-core.exe`, `easytier-cli.exe`, `libeasytier_ffi.so`, `libeasytier_android_jni.so`, and its source/modifications) | LGPL-3.0 |
 | WinDivert (`WinDivert64.sys`) | LGPL-3.0 (branch chosen from its dual license) |
 | Wintun (`wintun.dll`) | Wintun Prebuilt Binaries License |
-| Npcap (`Packet.dll`, `Packet.lib`) | Npcap proprietary terms |
+| Npcap (`Packet.dll`) | Npcap proprietary terms |
 | Javassist (bundled in `minecraft-offline-agent.jar`) | Apache-2.0 (branch chosen from its triple license) |
 | LocalVQE (`liblocalvqe.so`, `localvqe.wasm`, etc.) | Apache-2.0 |
 | GGML (bundled in LocalVQE) | MIT |

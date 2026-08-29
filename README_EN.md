@@ -221,7 +221,7 @@ docker compose -f docker-compose-http.yml logs -f
 
 ### Step 1: Fetch third-party binaries (required after the first clone)
 
-`src-tauri/src/modules/resource_manager.rs` embeds 6 third-party binaries at compile time via `include_bytes!`. Those files are subject to copyright and licensing restrictions (notably Npcap's `Packet.dll` / `Packet.lib`, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) section 8), so they are not tracked in this repository. After cloning you must run the script below, otherwise `cargo build` fails because the files are missing:
+`src-tauri/src/modules/resource_manager.rs` embeds 5 third-party binaries at compile time via `include_bytes!`. Those files are subject to copyright and licensing restrictions (notably Npcap's `Packet.dll`, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) section 8), so they are not tracked in this repository. After cloning you must run the script below, otherwise `cargo build` fails because the files are missing:
 
 ```powershell
 .\scripts\fetch-binaries.ps1

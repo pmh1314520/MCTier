@@ -610,16 +610,6 @@ impl NetworkService {
             log::info!("✅ 已复制 WinDivert64.sys");
         }
         
-        // 提取Packet.lib
-        let packet_lib_source = ResourceManager::get_packet_lib_path(app_handle)?;
-        let packet_lib_target = working_dir.join("Packet.lib");
-        if !packet_lib_target.exists() || std::fs::metadata(&packet_lib_target).map(|m| m.len()).unwrap_or(0) 
-            != std::fs::metadata(&packet_lib_source).map(|m| m.len()).unwrap_or(1) {
-            std::fs::copy(&packet_lib_source, &packet_lib_target)
-                .map_err(|e| AppError::ProcessError(format!("复制Packet.lib失败: {}", e)))?;
-            log::info!("✅ 已复制 Packet.lib");
-        }
-        
         log::info!("✅ 所有必需的DLL文件已准备就绪");
 
         // 生成唯一的实例名称（基于时间戳和随机数）

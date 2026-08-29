@@ -220,7 +220,7 @@ docker compose -f docker-compose-http.yml logs -f
 
 ### 第一步：获取第三方二进制（首次 clone 后必做）
 
-`src-tauri/src/modules/resource_manager.rs` 通过 `include_bytes!` 在编译期内嵌 6 个第三方二进制。这些文件受版权与许可限制（尤其是 Npcap 的 `Packet.dll` / `Packet.lib`，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 第 8 节），因此不纳入本仓库。clone 之后必须先运行下面的脚本，否则 `cargo build` 会因找不到文件而失败：
+`src-tauri/src/modules/resource_manager.rs` 通过 `include_bytes!` 在编译期内嵌 5 个第三方二进制。这些文件受版权与许可限制（尤其是 Npcap 的 `Packet.dll`，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 第 8 节），因此不纳入本仓库。clone 之后必须先运行下面的脚本，否则 `cargo build` 会因找不到文件而失败：
 
 ```powershell
 .\scripts\fetch-binaries.ps1

@@ -15,8 +15,6 @@ static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
 #[allow(dead_code)]
 static WINDIVERT_SYS_BYTES: &[u8] = include_bytes!("../../resources/binaries/WinDivert64.sys");
-#[allow(dead_code)]
-static PACKET_LIB_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.lib");
 
 /// 资源管理器
 /// 
@@ -209,22 +207,6 @@ impl ResourceManager {
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES)
-        }
-    }
-    
-    /// 获取 Packet.lib 的路径
-    pub fn get_packet_lib_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(path) = Self::find_debug_binary(app_handle, "Packet.lib") {
-                return Ok(path);
-            }
-            return Self::extract_binary(app_handle, "Packet.lib", PACKET_LIB_BYTES);
-        }
-        
-        #[cfg(not(debug_assertions))]
-        {
-            Self::extract_binary(app_handle, "Packet.lib", PACKET_LIB_BYTES)
         }
     }
     

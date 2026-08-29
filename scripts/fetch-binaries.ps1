@@ -3,7 +3,7 @@
     获取 MCTier 构建所需的第三方二进制，并校验 SHA-256。
 
 .DESCRIPTION
-    src-tauri/src/modules/resource_manager.rs 使用编译期宏 include_bytes! 内嵌 6 个
+    src-tauri/src/modules/resource_manager.rs 使用编译期宏 include_bytes! 内嵌 5 个
     二进制文件。这些文件受版权/许可限制（尤其是 Npcap，见 THIRD_PARTY_NOTICES.md §8），
     因此按 .gitignore 规则不纳入 Git 版本库。clone 仓库后需先运行本脚本，否则
     `cargo build` 会因找不到文件而失败。
@@ -11,12 +11,12 @@
     本脚本会：
       1. 从 EasyTier 官方 Release 下载 easytier-windows-x86_64-v2.5.0.zip；
       2. 从中提取 easytier-core.exe / easytier-cli.exe / easytier-web*.exe /
-         wintun.dll / WinDivert64.sys / Packet.dll / Packet.lib；
+         wintun.dll / WinDivert64.sys / Packet.dll；
       3. 对每个文件校验 SHA-256，不匹配即报错退出；
       4. 复制到 src-tauri/resources/binaries/。
 
 .NOTES
-    Npcap 授权提示：Packet.dll / Packet.lib 属 Npcap（Insecure.Com LLC），
+    Npcap 授权提示：Packet.dll 属 Npcap（Insecure.Com LLC），
     不是开源软件，未经 Nmap Project 书面许可不得再分发。本脚本仅在你本机从
     EasyTier 官方发布包中提取以供本地构建；如需分发请自行确认授权，
     或改为引导用户从 https://npcap.com 自行安装。详见 THIRD_PARTY_NOTICES.md §8。
@@ -50,17 +50,16 @@ $Expected = [ordered]@{
     'wintun.dll'             = 'E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE'
     'WinDivert64.sys'        = '8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2'
     'Packet.dll'             = 'C7C03A87EAC7243CCBE331554624B18803010B740E311FC8CFDDB573096EACAC'
-    'Packet.lib'             = '5BE8EB0EF57344CEDC940FD81EDBF7FC98680BA0C8337B577E7FDC448408130B'
 }
 
-# include_bytes! 真正需要的 6 个文件；其余为 EasyTier 附带，一并放置以便本地调试。
+# include_bytes! 真正需要的 5 个文件；其余为 EasyTier 附带，一并放置以便本地调试。
+# 注意：Packet.lib 只是链接期导入库，运行时不需要，因此不再获取也不再随包分发（见 THIRD_PARTY_NOTICES.md §8）。
 $Required = @(
     'easytier-core.exe',
     'easytier-cli.exe',
     'Packet.dll',
     'wintun.dll',
-    'WinDivert64.sys',
-    'Packet.lib'
+    'WinDivert64.sys'
 )
 
 function Get-Sha256([string]$Path) {
@@ -76,7 +75,7 @@ function Test-ExistingFile([string]$Name) {
 Write-Host 'MCTier 构建依赖获取脚本' -ForegroundColor Cyan
 Write-Host "目标目录: $TargetDir"
 Write-Host ''
-Write-Host 'Npcap 许可提示: Packet.dll / Packet.lib 属 Npcap (Insecure.Com LLC)，非开源软件，' -ForegroundColor Yellow
+Write-Host 'Npcap 许可提示: Packet.dll 属 Npcap (Insecure.Com LLC)，非开源软件，' -ForegroundColor Yellow
 Write-Host '未经 Nmap Project 书面许可不得随其他软件再分发。详见 THIRD_PARTY_NOTICES.md 第 8 节。' -ForegroundColor Yellow
 Write-Host ''
 
@@ -146,7 +145,7 @@ try {
     if ($stillMissing.Count -gt 0) {
         throw ('仍缺少必需文件: ' + ($stillMissing -join ', '))
     }
-    Write-Host 'include_bytes! 所需的 6 个二进制均已就位，现在可以执行 npm run tauri build。' -ForegroundColor Green
+    Write-Host 'include_bytes! 所需的 5 个二进制均已就位，现在可以执行 npm run tauri build。' -ForegroundColor Green
 } finally {
     if (Test-Path -LiteralPath $WorkDir) {
         Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue

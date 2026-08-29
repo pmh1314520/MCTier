@@ -17,7 +17,7 @@ their licenses, upstream sources, versions and modification status.
 | EasyTier (Android `libeasytier_ffi.so` / `libeasytier_android_jni.so`) | https://github.com/EasyTier/EasyTier | 以 v2.6.0 为补丁基线 / patch baseline v2.6.0 | 基线 `79b562cdc9f1dc3f52195a47a02cf83542c225ab` + 本仓库补丁 | LGPL-3.0 | 是 / Yes（见 §5） |
 | Wintun (`wintun.dll`) | https://www.wintun.net | 0.14.1 | — | Wintun Prebuilt Binaries License | 否 / No（见 §7） |
 | WinDivert (`WinDivert64.sys`) | https://reqrypt.org/windivert.html | 2.2.2 | — | LGPL-3.0（双许可中所选分支） | 否 / No（见 §7） |
-| Npcap (`Packet.dll` / `Packet.lib`) | https://npcap.com | 1.79 | — | 专有 / Proprietary | 否 / No（授权状态见 §8） |
+| Npcap (`Packet.dll`) | https://npcap.com | 1.79 | — | 专有 / Proprietary | 否 / No（授权状态见 §8） |
 | Javassist（内嵌于 offline agent） | https://github.com/jboss-javassist/javassist | 3.29.2-GA | — | Apache-2.0（三重许可中所选分支） | 否 / No（见 §9） |
 | LocalVQE (`liblocalvqe.so` / `localvqe.wasm`) | https://github.com/localai-org/LocalVQE | 见 §10 | — | Apache-2.0 | 否 / No（见 §10） |
 | GGML（内嵌于 LocalVQE） | https://github.com/ggerganov/ggml | 见 §10 | — | MIT | 否 / No（见 §10） |
@@ -194,7 +194,6 @@ MCTier 承诺在提供对应发布版本期间持续保持上述源码与补丁�
 | `wintun.dll` | 0.14.1 (amd64) | Wintun Prebuilt Binaries License | Copyright (C) 2018-2021 WireGuard LLC. All Rights Reserved. | `E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE` | 否 |
 | `WinDivert64.sys` | 2.2.2 | **LGPL-3.0**（双许可中所选分支） | Copyright (C) Basil Nemeth / WinDivert contributors | `8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2` | 否 |
 | `Packet.dll` | Npcap 1.79 | 专有（Npcap License）— 见 §8 | Copyright (c) 2023, Insecure.Com LLC. | `C7C03A87EAC7243CCBE331554624B18803010B740E311FC8CFDDB573096EACAC` | 否 |
-| `Packet.lib` | Npcap（导入库） | 专有（Npcap License）— 见 §8 | Copyright (c) Insecure.Com LLC. | `5BE8EB0EF57344CEDC940FD81EDBF7FC98680BA0C8337B577E7FDC448408130B` | 否 |
 
 ### Wintun
 
@@ -219,7 +218,7 @@ WinDivert 属 §3 许可证边界所述的 LGPL 组件，MCTier 自定义协议�
 
 ---
 
-## 8. Npcap（`Packet.dll` / `Packet.lib`）授权状态 / Npcap Licensing Status
+## 8. Npcap（`Packet.dll`）授权状态 / Npcap Licensing Status
 
 **当前状态：项目方尚未取得 Npcap OEM Redistribution License。**
 
@@ -230,18 +229,54 @@ Npcap 不是开源软件，未经 Nmap Project 书面许可不得随其他软件
   `ProductVersion: 1.79`、`Copyright (c) 2023, Insecure.Com LLC.`；
 - 该逐字节一致性同时说明它**不是**来自 OEM 授权版（OEM 版为独立构建）。
 
+### 8.1 `Packet.lib`：已停止捆绑 / No Longer Bundled
+
+`Packet.lib` 是 **MSVC 链接期导入库（import library）**，仅在编译链接阶段被 `link.exe` 使用，
+运行期完全不需要。已实测验证：在仅含 `easytier-core.exe`、`Packet.dll`、`wintun.dll`、
+`WinDivert64.sys`（**不含** `Packet.lib`）的目录中执行 `easytier-core.exe --version`，
+输出 `easytier-core 2.5.0-88a45d11`，退出码 0。
+
+因此自本次整改起，`Packet.lib` **不再**通过 `include_bytes!` 内嵌进 `MCTier.exe`，
+也不再由 `resource_manager.rs` / `network_service.rs` 释放到工作目录，
+并已从 `scripts/fetch-binaries.ps1` 的必需文件清单中移除。
+Npcap 再分发面仅剩 `Packet.dll` 一项。
+
+### 8.2 `Packet.dll`：运行期硬依赖的真实成因 / Root Cause of the Runtime Dependency
+
 **技术事实（已实测）**：`easytier-core.exe` 的 PE 导入表中**静态导入** `packet.dll`
 （`easytier-cli.exe` 不导入）。在缺少 `Packet.dll` 的目录中运行 `easytier-core.exe --version`
 会以 `0xC0000135`（`STATUS_DLL_NOT_FOUND`）失败。因此**仅删除发布包中的 `Packet.dll`
-会导致 EasyTier 无法启动**，即使使用 Wintun 模式亦然 —— 必须通过重新编译 EasyTier
-（关闭其 pcap/npcap 相关 feature）才能消除该硬依赖。
+会导致 EasyTier 无法启动**，即使使用 Wintun 模式亦然。
 
-**处理计划**：
+该硬依赖**不是**由某个 pcap/npcap feature 开关引入的（此前本节的表述有误，现予更正）。
+已定位到源码级成因：
 
-1. 短期：不再于新的 Windows 发布包中捆绑 `Packet.dll` / `Packet.lib`，
-   改为在缺失时引导用户自行前往 https://npcap.com 下载安装（Npcap 官方亦推荐此方式）；
-2. 配套：重新编译 EasyTier 以移除 `packet.dll` 的启动期硬依赖，
-   并将该构建的 commit、参数与 SHA-256 登记入本文件；
+- `pnet_datalink-0.35.0/src/bindings/winpcap.rs` 中的 `#[link(name = "Packet")]`
+  仅由 `#[cfg(windows)]` 门控，**并未**置于任何 `pcap` feature 之后；
+- `pnet_datalink` 由 `pnet` 的**默认 `std` feature** 间接引入，而 EasyTier 在
+  `easytier/Cargo.toml` 中声明为 `pnet = { version = "0.35.0", features = ["serde"] }`
+  （未关闭默认 feature），于是 `Packet` 被无条件链接。
+
+最小复现（已实测）：新建仅依赖 `pnet` 的空 crate，
+使用默认 feature 时报 `LNK1181: 无法打开输入文件"Packet.lib"`；
+改为 `default-features = false` 后链接成功。
+
+**因此正确的消除路径**是重新编译 EasyTier 并关闭 `pnet` 默认 feature（或避免 `pnet::datalink`）。
+在 Windows 上 `pnet::datalink` 仅用于两处降级回退：
+
+- `easytier/src/common/network.rs` 中 `collect_interfaces_windows()` 在
+  `network-interface` crate 失败时的回退；
+- `easytier/src/tunnel/netfilter/mod.rs` 中 `netfilter::pnet::PnetTun` 在 WinDivert 失败时的回退。
+
+两处均为回退路径，具备可移除性；该改造需要重新构建 EasyTier 二进制，
+因此排在后续版本落地，完成后会将构建 commit、参数与 SHA-256 登记入本文件。
+
+### 8.3 处理计划 / Remediation Plan
+
+1. ✅ 已完成：停止捆绑 `Packet.lib`（见 §8.1）；
+2. ⏳ 进行中：重新编译 EasyTier（关闭 `pnet` 默认 feature）以移除 `packet.dll` 的启动期
+   硬依赖，之后新的 Windows 发布包将不再捆绑 `Packet.dll`，改为在缺失时引导用户自行前往
+   https://npcap.com 下载安装（Npcap 官方亦推荐此方式）；
 3. 若后续取得 Npcap OEM Redistribution License，将在此处写明"本项目已取得再分发许可"
    （不公开合同细节）。
 
