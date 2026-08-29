@@ -1,24 +1,67 @@
+# Dependabot 配置（见 issue #17 第 14/15 条）
+#
+# 目标是"及时收到安全告警"，而不是"持续收到大版本升级 PR"。
+# 初次启用时未加限制，一次性产生了 19 个 PR（含 zip 2→8、reqwest 0.11→0.13、
+# vite 7→8、AGP 8→9 等跨大版本变更），这类升级需要人工验证并配合发版节奏，
+# 不适合自动开 PR。因此这里：
+#
+#   1. 忽略所有依赖的 major 升级（semver-major），只保留 minor/patch；
+#   2. 按生态分组，把同一生态的更新合并到单个 PR；
+#   3. 收紧并发 PR 上限；
+#   4. 改为每月检查，降低噪音。
+#
+# 大版本升级仍可在需要时手动执行；安全漏洞由 GitHub 安全告警与 CI 中的
+# npm audit / cargo audit 覆盖。
 version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: "/src-tauri"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: gradle
     directory: "/MCTier-Android"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      gradle-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

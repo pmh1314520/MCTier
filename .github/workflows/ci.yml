@@ -22,7 +22,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 需要 Node 22+：`node --test tests/*.test.mjs` 依赖 Node 自身的 glob 展开
+          # （cmd.exe 不做展开），Node 20 会报 "Could not find 'tests\*.test.mjs'"。
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
