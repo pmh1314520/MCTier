@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { SharedFolder, FileInfo, PlayerShare } from '../../types/fileShare';
+import { SharedFolder, SharedFolderSummary, FileInfo, PlayerShare } from '../../types/fileShare';
 
 class FileShareService {
   private localShares: SharedFolder[] = [];
@@ -98,13 +98,13 @@ class FileShareService {
   /**
    * 获取远程玩家的共享列表
    */
-  async getRemoteShares(peerIp: string): Promise<SharedFolder[]> {
+  async getRemoteShares(peerIp: string): Promise<SharedFolderSummary[]> {
     try {
       console.log(`📡 [FileShareService] 正在获取远程共享: ${peerIp}`);
       console.log(`📡 [FileShareService] 调用 invoke('get_remote_shares', { peerIp: '${peerIp}' })`);
       
       // Tauri会自动将驼峰命名peerIp转换为Rust的下划线命名peer_ip
-      const shares = await invoke<SharedFolder[]>('get_remote_shares', { peerIp });
+      const shares = await invoke<SharedFolderSummary[]>('get_remote_shares', { peerIp });
       
       console.log(`✅ [FileShareService] 成功获取 ${shares.length} 个共享`);
       if (shares.length > 0) {

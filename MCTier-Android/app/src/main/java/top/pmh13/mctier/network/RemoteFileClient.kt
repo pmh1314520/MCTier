@@ -40,7 +40,7 @@ class RemoteFileClient(private val context: Context) {
                     shareId = it.id,
                     shareName = it.name,
                     playerName = "",
-                    hasPassword = !it.password.isNullOrBlank(),
+                    hasPassword = it.hasPassword || !it.legacyPassword.isNullOrBlank(),
                 )
             }
         }
@@ -132,8 +132,9 @@ class RemoteFileClient(private val context: Context) {
     private data class RemoteShareDto(
         val id: String,
         val name: String,
-        val path: String? = null,
-        val password: String? = null,
+        @SerialName("has_password") val hasPassword: Boolean = false,
+        // 仅用于兼容尚未升级的旧节点；不会继续暴露给 UI 或其他接口。
+        @SerialName("password") val legacyPassword: String? = null,
         @SerialName("owner_id") val ownerId: String? = null,
     )
 }

@@ -136,13 +136,12 @@ class FileShareHttpServer(
     @Serializable
     private data class ShareListResponse(val shares: List<ShareDto>)
 
-    /** 与桌面端 Rust SharedFolder 结构体字段严格一致(snake_case + path)，否则桌面端解析报 missing field */
+    /** 仅包含远程浏览所需的公开元数据，禁止泄漏 SAF URI 或共享密码。 */
     @Serializable
     private data class ShareDto(
         val id: String,
         val name: String,
-        val path: String,
-        val password: String? = null,
+        @kotlinx.serialization.SerialName("has_password") val hasPassword: Boolean,
         @kotlinx.serialization.SerialName("expire_time") val expireTime: Long? = null,
         @kotlinx.serialization.SerialName("compress_before_send") val compressBeforeSend: Boolean? = false,
         @kotlinx.serialization.SerialName("owner_id") val ownerId: String,
@@ -152,8 +151,7 @@ class FileShareHttpServer(
     private fun SharedFolder.toDto(): ShareDto = ShareDto(
         id = id,
         name = name,
-        path = name, // 桌面端仅展示 name、用 id 调 API，path 仅占位
-        password = password,
+        hasPassword = !password.isNullOrBlank(),
         expireTime = expireAt?.let { it / 1000 },
         compressBeforeSend = compressBeforeSend,
         ownerId = ownerId,

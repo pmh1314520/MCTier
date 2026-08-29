@@ -2276,7 +2276,9 @@ pub async fn open_folder(path: String) -> Result<(), String> {
 
 // ==================== HTTP 文件共享命令 ====================
 
-use crate::modules::file_transfer::{SharedFolder, FileInfo as FileTransferFileInfo};
+use crate::modules::file_transfer::{
+    FileInfo as FileTransferFileInfo, SharedFolder, SharedFolderSummary,
+};
 
 /// 启动HTTP文件服务器
 #[tauri::command]
@@ -2416,7 +2418,7 @@ pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), St
 
 /// 获取远程共享列表（通过HTTP API）
 #[tauri::command]
-pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, String> {
+pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolderSummary>, String> {
     log::debug!("📡 正在获取远程共享列表: {}", peer_ip);
     
     let url = format!("http://{}:14539/api/shares", peer_ip);
@@ -2443,10 +2445,8 @@ pub async fn get_remote_shares(peer_ip: String) -> Result<Vec<SharedFolder>, Str
             
             match response.json::<serde_json::Value>().await {
                 Ok(json) => {
-                    log::info!("📦 响应JSON: {}", json);
-                    
                     if let Some(shares) = json.get("shares") {
-                        match serde_json::from_value::<Vec<SharedFolder>>(shares.clone()) {
+                        match serde_json::from_value::<Vec<SharedFolderSummary>>(shares.clone()) {
                             Ok(shares_vec) => {
                                 log::debug!("✅ 成功获取 {} 个共享", shares_vec.len());
                                 for (i, share) in shares_vec.iter().enumerate() {

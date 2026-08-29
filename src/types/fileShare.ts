@@ -18,6 +18,19 @@ export interface SharedFolder {
 }
 
 /**
+ * 远程共享摘要。服务端不会向远程节点暴露本地路径或共享密码。
+ */
+export interface SharedFolderSummary {
+  id: string;
+  name: string;
+  has_password: boolean;
+  expire_time?: number;
+  compress_before_send?: boolean;
+  owner_id: string;
+  created_at: number;
+}
+
+/**
  * 文件信息
  */
 export interface FileInfo {
@@ -55,14 +68,14 @@ export interface PlayerShare {
   player_id: string;
   player_name: string;
   virtual_ip: string;
-  shares: SharedFolder[];
+  shares: SharedFolderSummary[];
 }
 
 /**
  * 远程共享（包含所有者信息）
  */
 export interface RemoteShare {
-  share: SharedFolder;
+  share: SharedFolderSummary;
   owner_name: string;
   owner_ip: string;
 }
