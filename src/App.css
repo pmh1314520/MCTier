@@ -1402,3 +1402,94 @@ html[data-theme='light'] .ant-btn-primary:not(.ant-btn-dangerous):not(.mct-choic
   background-color: #367313 !important;
   border-color: #367313 !important;
 }
+
+/* ============================================================
+   亮色主题：消除按钮鼠标悬停时的闪烁
+   ------------------------------------------------------------
+   成因：这些按钮的基础样式写的是 `transition: all`，而 :hover 里同时
+   改了 transform(scale/translate)。亮色主题下背景多为浅色实心，
+   合成层在 transform 动画期间反复重绘，肉眼看到的就是"一闪一闪"。
+   处理：亮色主题下只过渡颜色相关属性，并取消 hover 位移/缩放；
+   已在下方 :is() 列表里补齐此前遗漏的按钮（取消下载、删除共享、
+   确认弹窗按钮、静音、表情、发送等）。
+   深色主题保持原有动效不变。
+   ============================================================ */
+html[data-theme='light'] :is(
+  .transfer-cancel-btn,
+  .delete-share-btn,
+  .confirm-btn,
+  .cancel-btn,
+  .delete-btn,
+  .status-icon,
+  .player-mute-button,
+  .emoji-button,
+  .image-button,
+  .send-button,
+  .image-download-btn,
+  .new-message-indicator,
+  .remove-rule-btn,
+  .add-rule-btn,
+  .exit-node-advanced-btn-save,
+  .lobby-settings-btn-reset,
+  .lobby-settings-btn-save,
+  .advanced-config-btn,
+  .lobby-advanced-config-btn-save,
+  .global-advanced-config-save-btn,
+  .config-btn-export,
+  .config-btn-import,
+  .stop-viewing-btn,
+  .retry-btn,
+  .back-button,
+  .url-copy-btn,
+  .status-window-header-button,
+  .sponsor-button,
+  .onboarding-entry-button,
+  .helper-button.primary,
+  .version-update-btn.download,
+  .version-error-btn.primary,
+  .voice-control-button.mic-button,
+  .voice-control-button.mute-button
+) {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease !important;
+}
+
+html[data-theme='light'] :is(
+  .transfer-cancel-btn,
+  .delete-share-btn,
+  .confirm-btn,
+  .cancel-btn,
+  .delete-btn,
+  .status-icon,
+  .player-mute-button,
+  .emoji-button,
+  .image-button,
+  .send-button,
+  .image-download-btn,
+  .new-message-indicator,
+  .remove-rule-btn,
+  .add-rule-btn,
+  .exit-node-advanced-btn-save,
+  .lobby-settings-btn-reset,
+  .lobby-settings-btn-save,
+  .advanced-config-btn,
+  .lobby-advanced-config-btn-save,
+  .global-advanced-config-save-btn,
+  .config-btn-export,
+  .config-btn-import,
+  .stop-viewing-btn,
+  .retry-btn,
+  .back-button,
+  .url-copy-btn,
+  .status-window-header-button,
+  .sponsor-button,
+  .onboarding-entry-button,
+  .helper-button.primary,
+  .version-update-btn.download,
+  .version-error-btn.primary,
+  .voice-control-button.mic-button,
+  .voice-control-button.mute-button
+):is(:hover, :focus-visible, :active) {
+  transform: none !important;
+}

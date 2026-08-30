@@ -1149,3 +1149,70 @@ html[data-theme='light'] .file-share-modal .ant-input-password-icon {
 html[data-theme='light'] .file-share-modal-root .ant-modal-mask {
   background: rgba(24, 32, 43, 0.35) !important;
 }
+
+/* ------------------------------------------------------------
+   亮色主题：下载分页内按钮的配色补齐
+   ------------------------------------------------------------
+   此前 .transfer-cancel-btn / .delete-share-btn / 确认弹窗的
+   .cancel-btn 只有深色主题下的样式（半透明白底 + 白字），
+   亮色主题下没有任何 override，落在浅色卡片上时出现
+   白字压浅底、红色块过饱和等主题色不匹配的问题。
+   这里按亮色面板重新给一套对比度达标的配色。
+   ------------------------------------------------------------ */
+html[data-theme='light'] .file-share-container .transfer-cancel-btn {
+  background: #e5484d;
+  border-color: #c93c40;
+  color: #ffffff;
+}
+
+html[data-theme='light'] .file-share-container .transfer-cancel-btn:hover,
+html[data-theme='light'] .file-share-container .transfer-cancel-btn:focus-visible {
+  background: #c93c40;
+  border-color: #ac3235;
+  box-shadow: 0 2px 8px rgba(201, 60, 64, 0.28);
+}
+
+html[data-theme='light'] .file-share-container .delete-share-btn {
+  background: #fdecec;
+  border-color: #e7a9ab;
+  color: #b3282c;
+}
+
+html[data-theme='light'] .file-share-container .delete-share-btn:hover,
+html[data-theme='light'] .file-share-container .delete-share-btn:focus-visible {
+  background: #f9d9da;
+  border-color: #d1787b;
+  color: #8f1f22;
+}
+
+html[data-theme='light'] .file-share-container .transfer-info,
+html[data-theme='light'] .file-share-container .transfer-progress {
+  color: #364151;
+}
+
+/* 删除共享的确认弹窗（自绘，不走 antd 按钮） */
+html[data-theme='light'] .custom-confirm-dialog .cancel-btn {
+  background: #ffffff;
+  border: 1px solid #aeb8c3;
+  color: #364151;
+}
+
+html[data-theme='light'] .custom-confirm-dialog .cancel-btn:hover,
+html[data-theme='light'] .custom-confirm-dialog .cancel-btn:focus-visible {
+  background: #f1f5f8;
+  border-color: #687585;
+  color: #18202b;
+  box-shadow: none;
+}
+
+html[data-theme='light'] .custom-confirm-dialog .delete-btn {
+  background: #e5484d;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(229, 72, 77, 0.24);
+}
+
+html[data-theme='light'] .custom-confirm-dialog .delete-btn:hover,
+html[data-theme='light'] .custom-confirm-dialog .delete-btn:focus-visible {
+  background: #c93c40;
+  box-shadow: 0 3px 10px rgba(201, 60, 64, 0.3);
+}
