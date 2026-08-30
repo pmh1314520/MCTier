@@ -1003,7 +1003,7 @@ mod linux_uinput {
             for code in 0u32..=0xFF {
                 if let Some(key) = vk_to_key(code) {
                     assert!(
-                        key >= 1 && key <= KEY_BIT_MAX,
+                        (1..=KEY_BIT_MAX).contains(&key),
                         "键码 0x{:02X} 映射到 {}，超出键盘设备声明范围",
                         code,
                         key
