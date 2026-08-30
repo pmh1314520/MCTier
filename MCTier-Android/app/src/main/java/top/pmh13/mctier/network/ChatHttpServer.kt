@@ -25,13 +25,54 @@ class ChatHttpServer(
     /** 收到他人 POST 的新消息时回调（用于推送到 UI） */
     var onMessageReceived: ((ChatWireMessage) -> Unit)? = null
 
+    /**
+     * 大厅身份名册：playerId -> 虚拟 IP。
+     *
+     * 用于校验 `/api/chat/send` 里自称的 `playerId` 是否与其真实来源 IP 相符，
+     * 与桌面端 `chat_service.rs` 的判定规则保持一致。
+     */
+    @Volatile
+    private var peerRoster: Map<String, String> = emptyMap()
+
+    /** 更新身份名册（只保留同时具备 ID 与 IP 的条目） */
+    fun setPeerRoster(roster: Map<String, String>) {
+        peerRoster = roster.filter { it.key.isNotBlank() && it.value.isNotBlank() }
+    }
+
     /** 把本机发送的消息加入存储（供他人拉取） */
     fun addLocal(message: ChatWireMessage) {
         messages.add(message)
         trim()
     }
 
-    fun clear() = messages.clear()
+    fun clear() {
+        messages.clear()
+        peerRoster = emptyMap()
+    }
+
+    /**
+     * 校验消息里自称的 [playerId] 是否确实来自该玩家的虚拟 IP。
+     *
+     * 同一大厅内任何成员都能直连他人的聊天端口，若完全信任请求体里的 `playerId`，
+     * 任意成员都可以伪造成房主或其他玩家发言（含 announce / recall / avatar 等控制消息）。
+     *
+     * 判定规则与桌面端一致：名册为空、或名册中没有该 playerId 时放行（升级过程与
+     * 新玩家刚加入都属正常）；名册中存在但登记 IP 与来源 IP 不一致时判定为冒名。
+     */
+    internal fun senderIdentityMatches(playerId: String, remoteIp: String?): Boolean {
+        val roster = peerRoster
+        if (roster.isEmpty() || playerId.isBlank()) return true
+        val expected = roster[playerId] ?: return true
+        if (remoteIp.isNullOrBlank()) return true
+        return expected == normalizeIp(remoteIp)
+    }
+
+    /** 归一化来源地址：去掉 IPv6 映射前缀与端口，便于与名册里的 IPv4 文本比较。 */
+    private fun normalizeIp(raw: String): String {
+        var ip = raw.trim()
+        if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
+        return ip
+    }
 
     private fun trim() {
         while (messages.size > 1000) messages.removeAt(0)
@@ -90,6 +131,14 @@ class ChatHttpServer(
             files["postData"] ?: session.queryParameterString ?: ""
         }
         val req = MctierJson.decodeFromString(ChatSendRequest.serializer(), body)
+        // 身份绑定：拒绝冒用他人 playerId 的消息（含控制类消息）
+        if (!senderIdentityMatches(req.playerId, session.remoteIpAddress)) {
+            Log.w(TAG, "拒绝冒名消息：自称 ${req.playerId} 但来源为 ${session.remoteIpAddress}")
+            return withCors(
+                newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "identity mismatch"),
+                origin,
+            )
+        }
         val message = ChatWireMessage(
             id = req.id ?: "msg-${req.playerId}-${System.currentTimeMillis()}",
             playerId = req.playerId,

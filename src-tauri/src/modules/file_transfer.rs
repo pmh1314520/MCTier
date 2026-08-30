@@ -4,15 +4,15 @@
  * 使用标准 HTTP 协议，支持断点续传和多线程下载
  */
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Body,
-    extract::{Path as AxumPath, Query, State},
+    extract::{ConnectInfo, Path as AxumPath, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::Response,
     routing::{get, post},
@@ -150,6 +150,12 @@ pub struct FileTransferService {
     server_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// 过期定时器句柄
     expiry_timers: Arc<DashMap<String, tokio::task::JoinHandle<()>>>,
+    /// 允许访问共享的大厅成员虚拟 IP 集合。
+    ///
+    /// 由前端在玩家列表变化时下发（数据源为信令服务器的大厅成员列表）。
+    /// EasyTier 网络的网络名与密钥在大厅存续期间不变，被房主移出大厅的玩家
+    /// 仍可能留在虚拟网内，若不校验来源就仍能继续浏览与下载共享内容。
+    allowed_peers: Arc<RwLock<HashSet<String>>>,
 }
 
 impl FileTransferService {
@@ -159,6 +165,7 @@ impl FileTransferService {
             virtual_ip: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
             expiry_timers: Arc::new(DashMap::new()),
+            allowed_peers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -171,6 +178,21 @@ impl FileTransferService {
     /// 获取虚拟IP地址
     pub fn get_virtual_ip(&self) -> Option<String> {
         self.virtual_ip.read().clone()
+    }
+
+    /// 更新允许访问共享的大厅成员 IP 集合（含自己，便于本机自查）
+    pub fn set_allowed_peers(&self, ips: Vec<String>) {
+        let peers: HashSet<String> = ips
+            .into_iter()
+            .filter(|ip| !ip.trim().is_empty())
+            .collect();
+        log::info!("🪪 [FileShare] 更新可访问成员，共 {} 个地址", peers.len());
+        *self.allowed_peers.write() = peers;
+    }
+
+    /// 清空允许访问的成员集合（退出大厅时调用）
+    pub fn clear_allowed_peers(&self) {
+        self.allowed_peers.write().clear();
     }
 
     /// 启动HTTP文件服务器
@@ -230,6 +252,7 @@ impl FileTransferService {
             .layer(lan_cors_layer())
             .with_state(AppState {
                 shared_folders: shared_folders.clone(),
+                allowed_peers: self.allowed_peers.clone(),
             });
 
         log::info!("🚀 正在启动HTTP文件服务器...");
@@ -252,7 +275,9 @@ impl FileTransferService {
         // 启动服务器
         let server_task = tokio::spawn(async move {
             log::info!("🌐 HTTP文件服务器开始监听请求...");
-            if let Err(e) = axum::serve(listener, app).await {
+            // 需要 ConnectInfo 才能拿到对端真实地址，用于校验调用方是否仍是大厅成员
+            let service = app.into_make_service_with_connect_info::<SocketAddr>();
+            if let Err(e) = axum::serve(listener, service).await {
                 log::error!("❌ HTTP服务器运行错误: {}", e);
             } else {
                 log::info!("🛑 HTTP服务器已正常停止");
@@ -389,6 +414,42 @@ impl FileTransferService {
 #[derive(Clone)]
 struct AppState {
     shared_folders: Arc<DashMap<String, SharedFolder>>,
+    allowed_peers: Arc<RwLock<HashSet<String>>>,
+}
+
+/// 判断调用方是否仍是本大厅成员。
+///
+/// 名册为空时放行：可能是尚未下发（刚进大厅）或对端为旧版本，
+/// 此时不能让文件共享直接不可用。名册非空则要求来源 IP 在册。
+fn is_lobby_member(allowed_peers: &HashSet<String>, peer_ip: IpAddr) -> bool {
+    if allowed_peers.is_empty() {
+        return true;
+    }
+    let peer = peer_ip.to_string();
+    allowed_peers.iter().any(|allowed| {
+        allowed
+            .parse::<IpAddr>()
+            .map(|ip| ip == peer_ip)
+            .unwrap_or_else(|_| allowed == &peer)
+    })
+}
+
+/// 统一的成员校验入口：非成员一律 403，并记录日志便于排查。
+fn reject_non_member(
+    state: &AppState,
+    peer_addr: &SocketAddr,
+    what: &str,
+) -> Result<(), StatusCode> {
+    let allowed = state.allowed_peers.read();
+    if is_lobby_member(&allowed, peer_addr.ip()) {
+        return Ok(());
+    }
+    log::warn!(
+        "🚫 [FileShare] 拒绝非大厅成员访问 {}：来源 {}",
+        what,
+        peer_addr.ip()
+    );
+    Err(StatusCode::FORBIDDEN)
 }
 
 fn is_share_access_allowed(share: &SharedFolder, headers: &HeaderMap) -> bool {
@@ -441,7 +502,12 @@ fn safe_join(base: &Path, rel: &str) -> Option<PathBuf> {
 }
 
 /// 获取共享列表
-async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
+async fn list_shares(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+) -> Result<Json<ShareListResponse>, StatusCode> {
+    reject_non_member(&state, &peer_addr, "共享列表")?;
+
     let shares: Vec<SharedFolderSummary> = state
         .shared_folders
         .iter()
@@ -450,7 +516,7 @@ async fn list_shares(State(state): State<AppState>) -> Json<ShareListResponse> {
 
     log::debug!("📋 收到获取共享列表请求，返回 {} 个共享", shares.len());
 
-    Json(ShareListResponse { shares })
+    Ok(Json(ShareListResponse { shares }))
 }
 
 #[cfg(test)]
@@ -571,10 +637,13 @@ mod share_list_response_tests {
 /// 获取文件列表
 async fn list_files(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     AxumPath(share_id): AxumPath<String>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Json<FileListResponse>, StatusCode> {
+    reject_non_member(&state, &peer_addr, "文件列表")?;
+
     // 获取共享信息
     let share = state
         .shared_folders
@@ -653,9 +722,18 @@ async fn list_files(
 /// 验证密码
 async fn verify_password(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     AxumPath(share_id): AxumPath<String>,
     Json(req): Json<VerifyPasswordRequest>,
 ) -> Json<VerifyPasswordResponse> {
+    // 非大厅成员不得试探密码（否则可绕过成员校验做离线爆破）
+    if reject_non_member(&state, &peer_addr, "密码校验").is_err() {
+        return Json(VerifyPasswordResponse {
+            success: false,
+            message: "共享不存在".to_string(),
+        });
+    }
+
     let share = match state.shared_folders.get(&share_id) {
         Some(s) => s,
         None => {
@@ -684,9 +762,12 @@ async fn verify_password(
 /// 下载文件（支持Range请求）
 async fn download_file(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     AxumPath((share_id, file_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    reject_non_member(&state, &peer_addr, "文件下载")?;
+
     // 获取共享信息
     let share = state
         .shared_folders
@@ -854,10 +935,13 @@ fn create_file_stream(
 /// 批量打包下载（先压后发）
 async fn batch_download(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     AxumPath(share_id): AxumPath<String>,
     headers: HeaderMap,
     Json(req): Json<BatchDownloadRequest>,
 ) -> Result<Response, StatusCode> {
+    reject_non_member(&state, &peer_addr, "批量下载")?;
+
     log::info!("📦 收到批量打包下载请求: share_id={}, files={}", share_id, req.file_paths.len());
     
     // 获取共享信息
@@ -989,3 +1073,65 @@ async fn batch_download(
 }
 
 
+
+#[cfg(test)]
+mod lobby_member_tests {
+    use super::{is_lobby_member, FileTransferService};
+    use std::collections::HashSet;
+    use std::net::IpAddr;
+
+    fn peers(list: &[&str]) -> HashSet<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn ip(value: &str) -> IpAddr {
+        value.parse().expect("测试用 IP 应可解析")
+    }
+
+    #[test]
+    fn rejects_a_peer_that_left_the_lobby() {
+        // 被移出大厅的玩家仍在 EasyTier 虚拟网内，但不应再能访问共享
+        let allowed = peers(&["10.126.126.1", "10.126.126.2"]);
+        assert!(
+            !is_lobby_member(&allowed, ip("10.126.126.9")),
+            "非大厅成员必须被拒绝，否则被踢玩家仍能下载文件"
+        );
+    }
+
+    #[test]
+    fn allows_current_lobby_members() {
+        let allowed = peers(&["10.126.126.1", "10.126.126.2"]);
+        assert!(is_lobby_member(&allowed, ip("10.126.126.1")));
+        assert!(is_lobby_member(&allowed, ip("10.126.126.2")));
+    }
+
+    #[test]
+    fn allows_everything_before_the_roster_is_pushed() {
+        // 刚进大厅或对端为旧版本时，不能让文件共享直接不可用
+        assert!(is_lobby_member(&HashSet::new(), ip("10.126.126.9")));
+    }
+
+    #[test]
+    fn set_allowed_peers_drops_blank_entries() {
+        let service = FileTransferService::new();
+        service.set_allowed_peers(vec![
+            "10.126.126.1".to_string(),
+            String::new(),
+            "   ".to_string(),
+        ]);
+        let allowed = service.allowed_peers.read().clone();
+        assert_eq!(allowed.len(), 1, "空白地址不得进入名单：{:?}", allowed);
+        assert!(allowed.contains("10.126.126.1"));
+    }
+
+    #[test]
+    fn clear_allowed_peers_resets_the_check() {
+        let service = FileTransferService::new();
+        service.set_allowed_peers(vec!["10.126.126.1".to_string()]);
+        service.clear_allowed_peers();
+        assert!(
+            service.allowed_peers.read().is_empty(),
+            "退出大厅后必须清空名单，否则会影响下一个大厅"
+        );
+    }
+}

@@ -40,6 +40,32 @@ class FileShareService {
   }
 
   /**
+   * 下发允许访问共享的大厅成员虚拟IP（含自己）
+   *
+   * EasyTier 的网络名与密钥在大厅存续期间不变，被房主移出大厅的玩家仍可能
+   * 留在虚拟网内。后端据此拒绝非成员浏览共享列表、文件列表与下载。
+   */
+  async updateAllowedPeers(ips: string[]): Promise<void> {
+    try {
+      await invoke('set_share_allowed_peers', { ips });
+      console.log(`🪪 [FileShareService] 已下发可访问成员（${ips.length} 个）`);
+    } catch (error) {
+      console.warn('⚠️ [FileShareService] 下发可访问成员失败:', error);
+    }
+  }
+
+  /**
+   * 清空允许访问共享的成员列表（退出大厅时调用）
+   */
+  async clearAllowedPeers(): Promise<void> {
+    try {
+      await invoke('clear_share_allowed_peers');
+    } catch (error) {
+      console.warn('⚠️ [FileShareService] 清空可访问成员失败:', error);
+    }
+  }
+
+  /**
    * 添加共享文件夹
    */
   async addShare(share: SharedFolder): Promise<void> {

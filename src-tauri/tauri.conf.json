@@ -87,6 +87,9 @@
       "desktop": {
         "schemes": ["mctier"]
       }
+    },
+    "shell": {
+      "open": "https?://[a-zA-Z0-9][^\\s\"'<>]*"
     }
   },
   "bundle": {

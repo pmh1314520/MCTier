@@ -38,8 +38,17 @@ class P2PChatService {
 
   /**
    * 初始化服务
+   *
+   * `roster` 为大厅成员的 [playerId, virtualIp] 列表（含自己），下发给后端后，
+   * `/api/chat/send` 会校验消息里自称的 player_id 是否来自其登记的虚拟 IP，
+   * 避免同大厅成员伪造他人身份发言（含公告、撤回、头像等控制消息）。
    */
-  initialize(peerIps: string[], currentPlayerId: string, myVirtualIp: string): void {
+  initialize(
+    peerIps: string[],
+    currentPlayerId: string,
+    myVirtualIp: string,
+    roster?: Array<[string, string]>
+  ): void {
     // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
     this.peerIps = peerIps;
     this.currentPlayerId = currentPlayerId;
@@ -49,6 +58,22 @@ class P2PChatService {
     console.log('  - 当前玩家ID:', currentPlayerId);
     console.log('  - 自己的虚拟IP:', myVirtualIp);
     console.log('  - 其他玩家IPs:', peerIps);
+
+    if (roster) {
+      void this.updatePeerRoster(roster);
+    }
+  }
+
+  /**
+   * 下发大厅身份名册，供后端校验聊天消息发送者身份
+   */
+  async updatePeerRoster(roster: Array<[string, string]>): Promise<void> {
+    try {
+      await invoke('set_chat_peer_roster', { entries: roster });
+      console.log(`🪪 [P2PChatService] 已下发身份名册（${roster.length} 人）`);
+    } catch (error) {
+      console.warn('⚠️ [P2PChatService] 下发身份名册失败:', error);
+    }
   }
   
   /**
@@ -64,6 +89,9 @@ class P2PChatService {
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
     this.pendingRecalls.clear();
+    void invoke('clear_chat_peer_roster').catch((error) => {
+      console.warn('⚠️ [P2PChatService] 清空身份名册失败:', error);
+    });
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 

@@ -25,6 +25,44 @@ class FileShareHttpServer(
 ) : NanoHTTPD(bindIp.ifBlank { DEFAULT_BIND_IP }, FileSharePort) {
     private val folders = linkedMapOf<String, SharedFolder>()
 
+    /**
+     * 允许访问共享的大厅成员虚拟 IP 集合。
+     *
+     * EasyTier 的网络名与密钥在大厅存续期间不变，被房主移出大厅的玩家仍可能留在
+     * 虚拟网内。若不校验来源，其仍能继续浏览与下载本机共享内容。
+     */
+    @Volatile
+    private var allowedPeers: Set<String> = emptySet()
+
+    /** 更新可访问成员集合（含自己，便于本机自查） */
+    fun setAllowedPeers(ips: Collection<String>) {
+        allowedPeers = ips.filter { it.isNotBlank() }.toSet()
+    }
+
+    /** 清空可访问成员集合（退出大厅时调用） */
+    fun clearAllowedPeers() {
+        allowedPeers = emptySet()
+    }
+
+    /**
+     * 判断调用方是否仍是本大厅成员。
+     *
+     * 与桌面端一致：名单为空时放行（尚未下发或对端为旧版本），
+     * 名单非空则要求来源 IP 在册。
+     */
+    internal fun isLobbyMember(remoteIp: String?): Boolean {
+        val allowed = allowedPeers
+        if (allowed.isEmpty()) return true
+        if (remoteIp.isNullOrBlank()) return true
+        return allowed.contains(normalizeIp(remoteIp))
+    }
+
+    /** 归一化来源地址：去掉 IPv6 映射前缀，便于与名单里的 IPv4 文本比较。 */
+    private fun normalizeIp(raw: String): String {
+        val ip = raw.trim()
+        return if (ip.startsWith("::ffff:")) ip.removePrefix("::ffff:") else ip
+    }
+
     fun addFolder(folder: SharedFolder) {
         folders[folder.id] = folder
     }
@@ -41,6 +79,10 @@ class FileShareHttpServer(
             return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""), origin)
         }
         val path = session.uri.orEmpty()
+        // 成员校验：非本大厅成员一律拒绝浏览与下载
+        if (!isLobbyMember(session.remoteIpAddress)) {
+            return withCors(forbidden(), origin)
+        }
         val response = when {
             path == "/api/shares" -> json(ShareListResponse(folders.values.map { it.toDto() }))
             path.matches(Regex("/api/shares/[^/]+/files")) -> listFiles(path, session)
@@ -157,6 +199,7 @@ class FileShareHttpServer(
         newFixedLengthResponse(Response.Status.OK, "application/json", MctierJson.encodeToString(value))
 
     private fun missing(): Response = newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
+    private fun forbidden(): Response = newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "forbidden")
     private fun unauthorized(): Response = newFixedLengthResponse(Response.Status.UNAUTHORIZED, "text/plain", "unauthorized")
 
     @Serializable

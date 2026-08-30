@@ -3687,6 +3687,82 @@ pub async fn send_p2p_chat_message(
     Ok(serde_json::json!({ "delivered": delivered, "total": total, "messageId": message_id }))
 }
 
+/// 下发大厅身份名册（player_id -> 虚拟IP），用于校验聊天消息发送者身份
+///
+/// # 参数
+/// * `entries` - 大厅成员的 (player_id, virtual_ip) 列表
+/// * `state` - 应用状态
+///
+/// # 返回
+/// * `Ok(())` - 设置成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn set_chat_peer_roster(
+    entries: Vec<(String, String)>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let core = state.core.lock().await;
+    let chat_service = core.get_chat_service();
+    let chat_svc = chat_service.lock().await;
+    chat_svc.set_peer_roster(entries);
+    Ok(())
+}
+
+/// 下发允许访问文件共享的大厅成员虚拟IP列表
+///
+/// # 参数
+/// * `ips` - 大厅成员虚拟IP列表（含自己）
+/// * `state` - 应用状态
+///
+/// # 返回
+/// * `Ok(())` - 设置成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn set_share_allowed_peers(
+    ips: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    ft_service.set_allowed_peers(ips);
+    Ok(())
+}
+
+/// 清空允许访问文件共享的成员列表（退出大厅时调用）
+///
+/// # 参数
+/// * `state` - 应用状态
+///
+/// # 返回
+/// * `Ok(())` - 清空成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn clear_share_allowed_peers(state: State<'_, AppState>) -> Result<(), String> {
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
+    let ft_service = file_transfer.lock().await;
+    ft_service.clear_allowed_peers();
+    Ok(())
+}
+
+/// 清空大厅身份名册（退出大厅时调用）
+///
+/// # 参数
+/// * `state` - 应用状态
+///
+/// # 返回
+/// * `Ok(())` - 清空成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn clear_chat_peer_roster(state: State<'_, AppState>) -> Result<(), String> {
+    let core = state.core.lock().await;
+    let chat_service = core.get_chat_service();
+    let chat_svc = chat_service.lock().await;
+    chat_svc.clear_peer_roster();
+    Ok(())
+}
+
 /// 获取P2P聊天消息
 /// 
 /// # 参数

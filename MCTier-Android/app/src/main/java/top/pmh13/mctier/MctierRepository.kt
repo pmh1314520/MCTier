@@ -886,6 +886,33 @@ class MctierRepository(private val context: Context) {
         broadcastMyShares()
     }
 
+    /**
+     * 同步 P2P 聊天的 peer 列表与身份名册，并同步文件共享的可访问成员。
+     *
+     * 名册为 playerId -> 虚拟IP（含自己），聊天服务器据此校验收到的消息是否
+     * 真的来自其自称的玩家，避免同大厅成员冒用他人身份发言；文件共享服务据同一
+     * 份成员表拒绝已被移出大厅但仍留在虚拟网内的节点访问共享内容。
+     */
+    private fun syncChatPeers() {
+        val players = _state.value.players
+        val selfId = _state.value.playerId
+        val roster = players
+            .filter { it.id.isNotBlank() && !it.virtualIp.isNullOrBlank() }
+            .associate { it.id to it.virtualIp!! }
+
+        chatClient?.let { client ->
+            client.setPeers(players.filter { it.id != selfId }.mapNotNull { it.virtualIp })
+            client.setPeerRoster(roster)
+        }
+
+        // 仅在"每个成员的虚拟IP都已就绪"时才启用共享成员校验：玩家虚拟IP 是异步
+        // 补齐的（这也是 backfillRemoteShareIps 存在的原因），名单不完整时无法区分
+        // "非成员"与"IP 尚未同步的合法成员"，此时下发空名单放行，避免共享重新
+        // 退化成"有时有有时无"。
+        val rosterComplete = players.isNotEmpty() && roster.size == players.size
+        fileServer?.setAllowedPeers(if (rosterComplete) roster.values else emptyList())
+    }
+
     /** 玩家列表更新后，回填此前 ownerIp 为空的远端共享（修“共享时有时无”） */
     private fun backfillRemoteShareIps() {
         val players = _state.value.players
@@ -1457,7 +1484,7 @@ class MctierRepository(private val context: Context) {
                 val others = remotes.map { it.id }.filter { it != selfId }
                 rtcController.connectToPlayers(others)
                 // 更新 P2P 聊天 peer 列表
-                chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                syncChatPeers()
                 chatClient?.sendAvatar(_state.value.settings.avatarData)
                 // 玩家列表变化后，主动重发一次自己的共享，确保新加入/刚获取 IP 的玩家能看到
                 if (_state.value.sharedFolders.isNotEmpty()) broadcastMyShares()
@@ -1473,7 +1500,7 @@ class MctierRepository(private val context: Context) {
                 if (alreadyKnown) {
                     if (id != _state.value.playerId) rtcController.connectToPlayer(id)
                     backfillRemoteShareIps()
-                    chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                    syncChatPeers()
                     chatClient?.sendAvatar(_state.value.settings.avatarData)
                     return
                 }
@@ -1483,7 +1510,7 @@ class MctierRepository(private val context: Context) {
                     rtcController.connectToPlayer(id)
                 }
                 backfillRemoteShareIps()
-                chatClient?.setPeers(_state.value.players.filter { it.id != _state.value.playerId }.mapNotNull { it.virtualIp })
+                syncChatPeers()
                 if (id != _state.value.playerId) {
                     soundManager.playerJoin()
                     // 有新玩家加入时，把自己的文件共享列表推送给对方，确保对方能看到我的共享

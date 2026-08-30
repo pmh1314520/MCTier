@@ -51,6 +51,16 @@ class ChatP2PClient(
         peerIps = ips.filter { it.isNotBlank() }
     }
 
+    /**
+     * 下发大厅身份名册（playerId -> 虚拟IP，含自己）。
+     *
+     * 内部聊天服务器据此校验收到的消息是否来自其自称的玩家，
+     * 避免同大厅成员冒用他人身份发言。
+     */
+    fun setPeerRoster(roster: Map<String, String>) {
+        server.setPeerRoster(roster)
+    }
+
     fun sendText(playerName: String, content: String): ChatWireMessage =
         sendInternal(playerName, content, "text", null)
 

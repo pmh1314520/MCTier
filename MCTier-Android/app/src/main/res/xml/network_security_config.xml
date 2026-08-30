@@ -23,259 +23,259 @@
     <!-- 例外：仅 EasyTier 虚拟网段与 Magic DNS 域名允许明文 -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">mct.net</domain>
-        <domain>10.126.126.1</domain>
-        <domain>10.126.126.2</domain>
-        <domain>10.126.126.3</domain>
-        <domain>10.126.126.4</domain>
-        <domain>10.126.126.5</domain>
-        <domain>10.126.126.6</domain>
-        <domain>10.126.126.7</domain>
-        <domain>10.126.126.8</domain>
-        <domain>10.126.126.9</domain>
-        <domain>10.126.126.10</domain>
-        <domain>10.126.126.11</domain>
-        <domain>10.126.126.12</domain>
-        <domain>10.126.126.13</domain>
-        <domain>10.126.126.14</domain>
-        <domain>10.126.126.15</domain>
-        <domain>10.126.126.16</domain>
-        <domain>10.126.126.17</domain>
-        <domain>10.126.126.18</domain>
-        <domain>10.126.126.19</domain>
-        <domain>10.126.126.20</domain>
-        <domain>10.126.126.21</domain>
-        <domain>10.126.126.22</domain>
-        <domain>10.126.126.23</domain>
-        <domain>10.126.126.24</domain>
-        <domain>10.126.126.25</domain>
-        <domain>10.126.126.26</domain>
-        <domain>10.126.126.27</domain>
-        <domain>10.126.126.28</domain>
-        <domain>10.126.126.29</domain>
-        <domain>10.126.126.30</domain>
-        <domain>10.126.126.31</domain>
-        <domain>10.126.126.32</domain>
-        <domain>10.126.126.33</domain>
-        <domain>10.126.126.34</domain>
-        <domain>10.126.126.35</domain>
-        <domain>10.126.126.36</domain>
-        <domain>10.126.126.37</domain>
-        <domain>10.126.126.38</domain>
-        <domain>10.126.126.39</domain>
-        <domain>10.126.126.40</domain>
-        <domain>10.126.126.41</domain>
-        <domain>10.126.126.42</domain>
-        <domain>10.126.126.43</domain>
-        <domain>10.126.126.44</domain>
-        <domain>10.126.126.45</domain>
-        <domain>10.126.126.46</domain>
-        <domain>10.126.126.47</domain>
-        <domain>10.126.126.48</domain>
-        <domain>10.126.126.49</domain>
-        <domain>10.126.126.50</domain>
-        <domain>10.126.126.51</domain>
-        <domain>10.126.126.52</domain>
-        <domain>10.126.126.53</domain>
-        <domain>10.126.126.54</domain>
-        <domain>10.126.126.55</domain>
-        <domain>10.126.126.56</domain>
-        <domain>10.126.126.57</domain>
-        <domain>10.126.126.58</domain>
-        <domain>10.126.126.59</domain>
-        <domain>10.126.126.60</domain>
-        <domain>10.126.126.61</domain>
-        <domain>10.126.126.62</domain>
-        <domain>10.126.126.63</domain>
-        <domain>10.126.126.64</domain>
-        <domain>10.126.126.65</domain>
-        <domain>10.126.126.66</domain>
-        <domain>10.126.126.67</domain>
-        <domain>10.126.126.68</domain>
-        <domain>10.126.126.69</domain>
-        <domain>10.126.126.70</domain>
-        <domain>10.126.126.71</domain>
-        <domain>10.126.126.72</domain>
-        <domain>10.126.126.73</domain>
-        <domain>10.126.126.74</domain>
-        <domain>10.126.126.75</domain>
-        <domain>10.126.126.76</domain>
-        <domain>10.126.126.77</domain>
-        <domain>10.126.126.78</domain>
-        <domain>10.126.126.79</domain>
-        <domain>10.126.126.80</domain>
-        <domain>10.126.126.81</domain>
-        <domain>10.126.126.82</domain>
-        <domain>10.126.126.83</domain>
-        <domain>10.126.126.84</domain>
-        <domain>10.126.126.85</domain>
-        <domain>10.126.126.86</domain>
-        <domain>10.126.126.87</domain>
-        <domain>10.126.126.88</domain>
-        <domain>10.126.126.89</domain>
-        <domain>10.126.126.90</domain>
-        <domain>10.126.126.91</domain>
-        <domain>10.126.126.92</domain>
-        <domain>10.126.126.93</domain>
-        <domain>10.126.126.94</domain>
-        <domain>10.126.126.95</domain>
-        <domain>10.126.126.96</domain>
-        <domain>10.126.126.97</domain>
-        <domain>10.126.126.98</domain>
-        <domain>10.126.126.99</domain>
-        <domain>10.126.126.100</domain>
-        <domain>10.126.126.101</domain>
-        <domain>10.126.126.102</domain>
-        <domain>10.126.126.103</domain>
-        <domain>10.126.126.104</domain>
-        <domain>10.126.126.105</domain>
-        <domain>10.126.126.106</domain>
-        <domain>10.126.126.107</domain>
-        <domain>10.126.126.108</domain>
-        <domain>10.126.126.109</domain>
-        <domain>10.126.126.110</domain>
-        <domain>10.126.126.111</domain>
-        <domain>10.126.126.112</domain>
-        <domain>10.126.126.113</domain>
-        <domain>10.126.126.114</domain>
-        <domain>10.126.126.115</domain>
-        <domain>10.126.126.116</domain>
-        <domain>10.126.126.117</domain>
-        <domain>10.126.126.118</domain>
-        <domain>10.126.126.119</domain>
-        <domain>10.126.126.120</domain>
-        <domain>10.126.126.121</domain>
-        <domain>10.126.126.122</domain>
-        <domain>10.126.126.123</domain>
-        <domain>10.126.126.124</domain>
-        <domain>10.126.126.125</domain>
-        <domain>10.126.126.126</domain>
-        <domain>10.126.126.127</domain>
-        <domain>10.126.126.128</domain>
-        <domain>10.126.126.129</domain>
-        <domain>10.126.126.130</domain>
-        <domain>10.126.126.131</domain>
-        <domain>10.126.126.132</domain>
-        <domain>10.126.126.133</domain>
-        <domain>10.126.126.134</domain>
-        <domain>10.126.126.135</domain>
-        <domain>10.126.126.136</domain>
-        <domain>10.126.126.137</domain>
-        <domain>10.126.126.138</domain>
-        <domain>10.126.126.139</domain>
-        <domain>10.126.126.140</domain>
-        <domain>10.126.126.141</domain>
-        <domain>10.126.126.142</domain>
-        <domain>10.126.126.143</domain>
-        <domain>10.126.126.144</domain>
-        <domain>10.126.126.145</domain>
-        <domain>10.126.126.146</domain>
-        <domain>10.126.126.147</domain>
-        <domain>10.126.126.148</domain>
-        <domain>10.126.126.149</domain>
-        <domain>10.126.126.150</domain>
-        <domain>10.126.126.151</domain>
-        <domain>10.126.126.152</domain>
-        <domain>10.126.126.153</domain>
-        <domain>10.126.126.154</domain>
-        <domain>10.126.126.155</domain>
-        <domain>10.126.126.156</domain>
-        <domain>10.126.126.157</domain>
-        <domain>10.126.126.158</domain>
-        <domain>10.126.126.159</domain>
-        <domain>10.126.126.160</domain>
-        <domain>10.126.126.161</domain>
-        <domain>10.126.126.162</domain>
-        <domain>10.126.126.163</domain>
-        <domain>10.126.126.164</domain>
-        <domain>10.126.126.165</domain>
-        <domain>10.126.126.166</domain>
-        <domain>10.126.126.167</domain>
-        <domain>10.126.126.168</domain>
-        <domain>10.126.126.169</domain>
-        <domain>10.126.126.170</domain>
-        <domain>10.126.126.171</domain>
-        <domain>10.126.126.172</domain>
-        <domain>10.126.126.173</domain>
-        <domain>10.126.126.174</domain>
-        <domain>10.126.126.175</domain>
-        <domain>10.126.126.176</domain>
-        <domain>10.126.126.177</domain>
-        <domain>10.126.126.178</domain>
-        <domain>10.126.126.179</domain>
-        <domain>10.126.126.180</domain>
-        <domain>10.126.126.181</domain>
-        <domain>10.126.126.182</domain>
-        <domain>10.126.126.183</domain>
-        <domain>10.126.126.184</domain>
-        <domain>10.126.126.185</domain>
-        <domain>10.126.126.186</domain>
-        <domain>10.126.126.187</domain>
-        <domain>10.126.126.188</domain>
-        <domain>10.126.126.189</domain>
-        <domain>10.126.126.190</domain>
-        <domain>10.126.126.191</domain>
-        <domain>10.126.126.192</domain>
-        <domain>10.126.126.193</domain>
-        <domain>10.126.126.194</domain>
-        <domain>10.126.126.195</domain>
-        <domain>10.126.126.196</domain>
-        <domain>10.126.126.197</domain>
-        <domain>10.126.126.198</domain>
-        <domain>10.126.126.199</domain>
-        <domain>10.126.126.200</domain>
-        <domain>10.126.126.201</domain>
-        <domain>10.126.126.202</domain>
-        <domain>10.126.126.203</domain>
-        <domain>10.126.126.204</domain>
-        <domain>10.126.126.205</domain>
-        <domain>10.126.126.206</domain>
-        <domain>10.126.126.207</domain>
-        <domain>10.126.126.208</domain>
-        <domain>10.126.126.209</domain>
-        <domain>10.126.126.210</domain>
-        <domain>10.126.126.211</domain>
-        <domain>10.126.126.212</domain>
-        <domain>10.126.126.213</domain>
-        <domain>10.126.126.214</domain>
-        <domain>10.126.126.215</domain>
-        <domain>10.126.126.216</domain>
-        <domain>10.126.126.217</domain>
-        <domain>10.126.126.218</domain>
-        <domain>10.126.126.219</domain>
-        <domain>10.126.126.220</domain>
-        <domain>10.126.126.221</domain>
-        <domain>10.126.126.222</domain>
-        <domain>10.126.126.223</domain>
-        <domain>10.126.126.224</domain>
-        <domain>10.126.126.225</domain>
-        <domain>10.126.126.226</domain>
-        <domain>10.126.126.227</domain>
-        <domain>10.126.126.228</domain>
-        <domain>10.126.126.229</domain>
-        <domain>10.126.126.230</domain>
-        <domain>10.126.126.231</domain>
-        <domain>10.126.126.232</domain>
-        <domain>10.126.126.233</domain>
-        <domain>10.126.126.234</domain>
-        <domain>10.126.126.235</domain>
-        <domain>10.126.126.236</domain>
-        <domain>10.126.126.237</domain>
-        <domain>10.126.126.238</domain>
-        <domain>10.126.126.239</domain>
-        <domain>10.126.126.240</domain>
-        <domain>10.126.126.241</domain>
-        <domain>10.126.126.242</domain>
-        <domain>10.126.126.243</domain>
-        <domain>10.126.126.244</domain>
-        <domain>10.126.126.245</domain>
-        <domain>10.126.126.246</domain>
-        <domain>10.126.126.247</domain>
-        <domain>10.126.126.248</domain>
-        <domain>10.126.126.249</domain>
-        <domain>10.126.126.250</domain>
-        <domain>10.126.126.251</domain>
-        <domain>10.126.126.252</domain>
-        <domain>10.126.126.253</domain>
-        <domain>10.126.126.254</domain>
+        <domain includeSubdomains="false">10.126.126.1</domain>
+        <domain includeSubdomains="false">10.126.126.2</domain>
+        <domain includeSubdomains="false">10.126.126.3</domain>
+        <domain includeSubdomains="false">10.126.126.4</domain>
+        <domain includeSubdomains="false">10.126.126.5</domain>
+        <domain includeSubdomains="false">10.126.126.6</domain>
+        <domain includeSubdomains="false">10.126.126.7</domain>
+        <domain includeSubdomains="false">10.126.126.8</domain>
+        <domain includeSubdomains="false">10.126.126.9</domain>
+        <domain includeSubdomains="false">10.126.126.10</domain>
+        <domain includeSubdomains="false">10.126.126.11</domain>
+        <domain includeSubdomains="false">10.126.126.12</domain>
+        <domain includeSubdomains="false">10.126.126.13</domain>
+        <domain includeSubdomains="false">10.126.126.14</domain>
+        <domain includeSubdomains="false">10.126.126.15</domain>
+        <domain includeSubdomains="false">10.126.126.16</domain>
+        <domain includeSubdomains="false">10.126.126.17</domain>
+        <domain includeSubdomains="false">10.126.126.18</domain>
+        <domain includeSubdomains="false">10.126.126.19</domain>
+        <domain includeSubdomains="false">10.126.126.20</domain>
+        <domain includeSubdomains="false">10.126.126.21</domain>
+        <domain includeSubdomains="false">10.126.126.22</domain>
+        <domain includeSubdomains="false">10.126.126.23</domain>
+        <domain includeSubdomains="false">10.126.126.24</domain>
+        <domain includeSubdomains="false">10.126.126.25</domain>
+        <domain includeSubdomains="false">10.126.126.26</domain>
+        <domain includeSubdomains="false">10.126.126.27</domain>
+        <domain includeSubdomains="false">10.126.126.28</domain>
+        <domain includeSubdomains="false">10.126.126.29</domain>
+        <domain includeSubdomains="false">10.126.126.30</domain>
+        <domain includeSubdomains="false">10.126.126.31</domain>
+        <domain includeSubdomains="false">10.126.126.32</domain>
+        <domain includeSubdomains="false">10.126.126.33</domain>
+        <domain includeSubdomains="false">10.126.126.34</domain>
+        <domain includeSubdomains="false">10.126.126.35</domain>
+        <domain includeSubdomains="false">10.126.126.36</domain>
+        <domain includeSubdomains="false">10.126.126.37</domain>
+        <domain includeSubdomains="false">10.126.126.38</domain>
+        <domain includeSubdomains="false">10.126.126.39</domain>
+        <domain includeSubdomains="false">10.126.126.40</domain>
+        <domain includeSubdomains="false">10.126.126.41</domain>
+        <domain includeSubdomains="false">10.126.126.42</domain>
+        <domain includeSubdomains="false">10.126.126.43</domain>
+        <domain includeSubdomains="false">10.126.126.44</domain>
+        <domain includeSubdomains="false">10.126.126.45</domain>
+        <domain includeSubdomains="false">10.126.126.46</domain>
+        <domain includeSubdomains="false">10.126.126.47</domain>
+        <domain includeSubdomains="false">10.126.126.48</domain>
+        <domain includeSubdomains="false">10.126.126.49</domain>
+        <domain includeSubdomains="false">10.126.126.50</domain>
+        <domain includeSubdomains="false">10.126.126.51</domain>
+        <domain includeSubdomains="false">10.126.126.52</domain>
+        <domain includeSubdomains="false">10.126.126.53</domain>
+        <domain includeSubdomains="false">10.126.126.54</domain>
+        <domain includeSubdomains="false">10.126.126.55</domain>
+        <domain includeSubdomains="false">10.126.126.56</domain>
+        <domain includeSubdomains="false">10.126.126.57</domain>
+        <domain includeSubdomains="false">10.126.126.58</domain>
+        <domain includeSubdomains="false">10.126.126.59</domain>
+        <domain includeSubdomains="false">10.126.126.60</domain>
+        <domain includeSubdomains="false">10.126.126.61</domain>
+        <domain includeSubdomains="false">10.126.126.62</domain>
+        <domain includeSubdomains="false">10.126.126.63</domain>
+        <domain includeSubdomains="false">10.126.126.64</domain>
+        <domain includeSubdomains="false">10.126.126.65</domain>
+        <domain includeSubdomains="false">10.126.126.66</domain>
+        <domain includeSubdomains="false">10.126.126.67</domain>
+        <domain includeSubdomains="false">10.126.126.68</domain>
+        <domain includeSubdomains="false">10.126.126.69</domain>
+        <domain includeSubdomains="false">10.126.126.70</domain>
+        <domain includeSubdomains="false">10.126.126.71</domain>
+        <domain includeSubdomains="false">10.126.126.72</domain>
+        <domain includeSubdomains="false">10.126.126.73</domain>
+        <domain includeSubdomains="false">10.126.126.74</domain>
+        <domain includeSubdomains="false">10.126.126.75</domain>
+        <domain includeSubdomains="false">10.126.126.76</domain>
+        <domain includeSubdomains="false">10.126.126.77</domain>
+        <domain includeSubdomains="false">10.126.126.78</domain>
+        <domain includeSubdomains="false">10.126.126.79</domain>
+        <domain includeSubdomains="false">10.126.126.80</domain>
+        <domain includeSubdomains="false">10.126.126.81</domain>
+        <domain includeSubdomains="false">10.126.126.82</domain>
+        <domain includeSubdomains="false">10.126.126.83</domain>
+        <domain includeSubdomains="false">10.126.126.84</domain>
+        <domain includeSubdomains="false">10.126.126.85</domain>
+        <domain includeSubdomains="false">10.126.126.86</domain>
+        <domain includeSubdomains="false">10.126.126.87</domain>
+        <domain includeSubdomains="false">10.126.126.88</domain>
+        <domain includeSubdomains="false">10.126.126.89</domain>
+        <domain includeSubdomains="false">10.126.126.90</domain>
+        <domain includeSubdomains="false">10.126.126.91</domain>
+        <domain includeSubdomains="false">10.126.126.92</domain>
+        <domain includeSubdomains="false">10.126.126.93</domain>
+        <domain includeSubdomains="false">10.126.126.94</domain>
+        <domain includeSubdomains="false">10.126.126.95</domain>
+        <domain includeSubdomains="false">10.126.126.96</domain>
+        <domain includeSubdomains="false">10.126.126.97</domain>
+        <domain includeSubdomains="false">10.126.126.98</domain>
+        <domain includeSubdomains="false">10.126.126.99</domain>
+        <domain includeSubdomains="false">10.126.126.100</domain>
+        <domain includeSubdomains="false">10.126.126.101</domain>
+        <domain includeSubdomains="false">10.126.126.102</domain>
+        <domain includeSubdomains="false">10.126.126.103</domain>
+        <domain includeSubdomains="false">10.126.126.104</domain>
+        <domain includeSubdomains="false">10.126.126.105</domain>
+        <domain includeSubdomains="false">10.126.126.106</domain>
+        <domain includeSubdomains="false">10.126.126.107</domain>
+        <domain includeSubdomains="false">10.126.126.108</domain>
+        <domain includeSubdomains="false">10.126.126.109</domain>
+        <domain includeSubdomains="false">10.126.126.110</domain>
+        <domain includeSubdomains="false">10.126.126.111</domain>
+        <domain includeSubdomains="false">10.126.126.112</domain>
+        <domain includeSubdomains="false">10.126.126.113</domain>
+        <domain includeSubdomains="false">10.126.126.114</domain>
+        <domain includeSubdomains="false">10.126.126.115</domain>
+        <domain includeSubdomains="false">10.126.126.116</domain>
+        <domain includeSubdomains="false">10.126.126.117</domain>
+        <domain includeSubdomains="false">10.126.126.118</domain>
+        <domain includeSubdomains="false">10.126.126.119</domain>
+        <domain includeSubdomains="false">10.126.126.120</domain>
+        <domain includeSubdomains="false">10.126.126.121</domain>
+        <domain includeSubdomains="false">10.126.126.122</domain>
+        <domain includeSubdomains="false">10.126.126.123</domain>
+        <domain includeSubdomains="false">10.126.126.124</domain>
+        <domain includeSubdomains="false">10.126.126.125</domain>
+        <domain includeSubdomains="false">10.126.126.126</domain>
+        <domain includeSubdomains="false">10.126.126.127</domain>
+        <domain includeSubdomains="false">10.126.126.128</domain>
+        <domain includeSubdomains="false">10.126.126.129</domain>
+        <domain includeSubdomains="false">10.126.126.130</domain>
+        <domain includeSubdomains="false">10.126.126.131</domain>
+        <domain includeSubdomains="false">10.126.126.132</domain>
+        <domain includeSubdomains="false">10.126.126.133</domain>
+        <domain includeSubdomains="false">10.126.126.134</domain>
+        <domain includeSubdomains="false">10.126.126.135</domain>
+        <domain includeSubdomains="false">10.126.126.136</domain>
+        <domain includeSubdomains="false">10.126.126.137</domain>
+        <domain includeSubdomains="false">10.126.126.138</domain>
+        <domain includeSubdomains="false">10.126.126.139</domain>
+        <domain includeSubdomains="false">10.126.126.140</domain>
+        <domain includeSubdomains="false">10.126.126.141</domain>
+        <domain includeSubdomains="false">10.126.126.142</domain>
+        <domain includeSubdomains="false">10.126.126.143</domain>
+        <domain includeSubdomains="false">10.126.126.144</domain>
+        <domain includeSubdomains="false">10.126.126.145</domain>
+        <domain includeSubdomains="false">10.126.126.146</domain>
+        <domain includeSubdomains="false">10.126.126.147</domain>
+        <domain includeSubdomains="false">10.126.126.148</domain>
+        <domain includeSubdomains="false">10.126.126.149</domain>
+        <domain includeSubdomains="false">10.126.126.150</domain>
+        <domain includeSubdomains="false">10.126.126.151</domain>
+        <domain includeSubdomains="false">10.126.126.152</domain>
+        <domain includeSubdomains="false">10.126.126.153</domain>
+        <domain includeSubdomains="false">10.126.126.154</domain>
+        <domain includeSubdomains="false">10.126.126.155</domain>
+        <domain includeSubdomains="false">10.126.126.156</domain>
+        <domain includeSubdomains="false">10.126.126.157</domain>
+        <domain includeSubdomains="false">10.126.126.158</domain>
+        <domain includeSubdomains="false">10.126.126.159</domain>
+        <domain includeSubdomains="false">10.126.126.160</domain>
+        <domain includeSubdomains="false">10.126.126.161</domain>
+        <domain includeSubdomains="false">10.126.126.162</domain>
+        <domain includeSubdomains="false">10.126.126.163</domain>
+        <domain includeSubdomains="false">10.126.126.164</domain>
+        <domain includeSubdomains="false">10.126.126.165</domain>
+        <domain includeSubdomains="false">10.126.126.166</domain>
+        <domain includeSubdomains="false">10.126.126.167</domain>
+        <domain includeSubdomains="false">10.126.126.168</domain>
+        <domain includeSubdomains="false">10.126.126.169</domain>
+        <domain includeSubdomains="false">10.126.126.170</domain>
+        <domain includeSubdomains="false">10.126.126.171</domain>
+        <domain includeSubdomains="false">10.126.126.172</domain>
+        <domain includeSubdomains="false">10.126.126.173</domain>
+        <domain includeSubdomains="false">10.126.126.174</domain>
+        <domain includeSubdomains="false">10.126.126.175</domain>
+        <domain includeSubdomains="false">10.126.126.176</domain>
+        <domain includeSubdomains="false">10.126.126.177</domain>
+        <domain includeSubdomains="false">10.126.126.178</domain>
+        <domain includeSubdomains="false">10.126.126.179</domain>
+        <domain includeSubdomains="false">10.126.126.180</domain>
+        <domain includeSubdomains="false">10.126.126.181</domain>
+        <domain includeSubdomains="false">10.126.126.182</domain>
+        <domain includeSubdomains="false">10.126.126.183</domain>
+        <domain includeSubdomains="false">10.126.126.184</domain>
+        <domain includeSubdomains="false">10.126.126.185</domain>
+        <domain includeSubdomains="false">10.126.126.186</domain>
+        <domain includeSubdomains="false">10.126.126.187</domain>
+        <domain includeSubdomains="false">10.126.126.188</domain>
+        <domain includeSubdomains="false">10.126.126.189</domain>
+        <domain includeSubdomains="false">10.126.126.190</domain>
+        <domain includeSubdomains="false">10.126.126.191</domain>
+        <domain includeSubdomains="false">10.126.126.192</domain>
+        <domain includeSubdomains="false">10.126.126.193</domain>
+        <domain includeSubdomains="false">10.126.126.194</domain>
+        <domain includeSubdomains="false">10.126.126.195</domain>
+        <domain includeSubdomains="false">10.126.126.196</domain>
+        <domain includeSubdomains="false">10.126.126.197</domain>
+        <domain includeSubdomains="false">10.126.126.198</domain>
+        <domain includeSubdomains="false">10.126.126.199</domain>
+        <domain includeSubdomains="false">10.126.126.200</domain>
+        <domain includeSubdomains="false">10.126.126.201</domain>
+        <domain includeSubdomains="false">10.126.126.202</domain>
+        <domain includeSubdomains="false">10.126.126.203</domain>
+        <domain includeSubdomains="false">10.126.126.204</domain>
+        <domain includeSubdomains="false">10.126.126.205</domain>
+        <domain includeSubdomains="false">10.126.126.206</domain>
+        <domain includeSubdomains="false">10.126.126.207</domain>
+        <domain includeSubdomains="false">10.126.126.208</domain>
+        <domain includeSubdomains="false">10.126.126.209</domain>
+        <domain includeSubdomains="false">10.126.126.210</domain>
+        <domain includeSubdomains="false">10.126.126.211</domain>
+        <domain includeSubdomains="false">10.126.126.212</domain>
+        <domain includeSubdomains="false">10.126.126.213</domain>
+        <domain includeSubdomains="false">10.126.126.214</domain>
+        <domain includeSubdomains="false">10.126.126.215</domain>
+        <domain includeSubdomains="false">10.126.126.216</domain>
+        <domain includeSubdomains="false">10.126.126.217</domain>
+        <domain includeSubdomains="false">10.126.126.218</domain>
+        <domain includeSubdomains="false">10.126.126.219</domain>
+        <domain includeSubdomains="false">10.126.126.220</domain>
+        <domain includeSubdomains="false">10.126.126.221</domain>
+        <domain includeSubdomains="false">10.126.126.222</domain>
+        <domain includeSubdomains="false">10.126.126.223</domain>
+        <domain includeSubdomains="false">10.126.126.224</domain>
+        <domain includeSubdomains="false">10.126.126.225</domain>
+        <domain includeSubdomains="false">10.126.126.226</domain>
+        <domain includeSubdomains="false">10.126.126.227</domain>
+        <domain includeSubdomains="false">10.126.126.228</domain>
+        <domain includeSubdomains="false">10.126.126.229</domain>
+        <domain includeSubdomains="false">10.126.126.230</domain>
+        <domain includeSubdomains="false">10.126.126.231</domain>
+        <domain includeSubdomains="false">10.126.126.232</domain>
+        <domain includeSubdomains="false">10.126.126.233</domain>
+        <domain includeSubdomains="false">10.126.126.234</domain>
+        <domain includeSubdomains="false">10.126.126.235</domain>
+        <domain includeSubdomains="false">10.126.126.236</domain>
+        <domain includeSubdomains="false">10.126.126.237</domain>
+        <domain includeSubdomains="false">10.126.126.238</domain>
+        <domain includeSubdomains="false">10.126.126.239</domain>
+        <domain includeSubdomains="false">10.126.126.240</domain>
+        <domain includeSubdomains="false">10.126.126.241</domain>
+        <domain includeSubdomains="false">10.126.126.242</domain>
+        <domain includeSubdomains="false">10.126.126.243</domain>
+        <domain includeSubdomains="false">10.126.126.244</domain>
+        <domain includeSubdomains="false">10.126.126.245</domain>
+        <domain includeSubdomains="false">10.126.126.246</domain>
+        <domain includeSubdomains="false">10.126.126.247</domain>
+        <domain includeSubdomains="false">10.126.126.248</domain>
+        <domain includeSubdomains="false">10.126.126.249</domain>
+        <domain includeSubdomains="false">10.126.126.250</domain>
+        <domain includeSubdomains="false">10.126.126.251</domain>
+        <domain includeSubdomains="false">10.126.126.252</domain>
+        <domain includeSubdomains="false">10.126.126.253</domain>
+        <domain includeSubdomains="false">10.126.126.254</domain>
     </domain-config>
 </network-security-config>

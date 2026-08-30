@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { Modal, Spin, Tooltip, App as AntdApp } from 'antd';import { open } from '@tauri-apps/plugin-shell';
@@ -21,6 +21,7 @@ import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { Avatar } from '../Avatar/Avatar';
 import { saveAvatarData } from '../../services/avatar/avatarService';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
+import { fileShareService } from '../../services/fileShare/FileShareService';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
@@ -585,8 +586,28 @@ export const MiniWindow: React.FC = () => {
     console.log('🔄 [MiniWindow] 玩家列表变化，更新P2P聊天连接');
     console.log('  - 其他玩家IPs:', playerIPs);
 
+    // 大厅身份名册：playerId -> 虚拟IP（含自己），供后端校验消息发送者身份，
+    // 防止同大厅成员冒用他人 playerId 发言。
+    //
+    // 后端对"名册中不存在的 playerId"是放行的（新玩家刚加入属正常现象），
+    // 因此这里即使名册暂时不完整也不会误伤合法成员，可以直接下发。
+    const roster = players
+      .filter((p) => p.id && p.virtualIp)
+      .map((p) => [p.id, p.virtualIp as string] as [string, string]);
+
     // 初始化P2P聊天服务（传入自己的虚拟IP用于过滤）
-    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp);
+    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp, roster);
+
+    // 同步文件共享的可访问成员（含自己）：被移出大厅的玩家仍可能留在 EasyTier
+    // 虚拟网内，后端据此拒绝非成员浏览与下载共享内容。
+    //
+    // 仅在"每个成员的虚拟IP都已就绪"时才下发名单并启用校验：玩家的虚拟IP是
+    // 异步补齐的（这也是 backfillRemoteShareIps 存在的原因），名单不完整时
+    // 无法区分"非成员"与"IP 尚未同步的合法成员"，此时下发空名单以放行，
+    // 避免把共享重新退化成"有时有有时无"。
+    const memberIps = players.map((p) => p.virtualIp).filter(Boolean) as string[];
+    const rosterComplete = players.length > 0 && memberIps.length === players.length;
+    void fileShareService.updateAllowedPeers(rosterComplete ? memberIps : []);
     void p2pChatService.sendAvatar(config.avatarData).catch((error) => {
       console.warn('发送大厅头像同步消息失败:', error);
     });
@@ -774,6 +795,9 @@ export const MiniWindow: React.FC = () => {
       console.log('正在重置P2P聊天服务...');
       p2pChatService.reset();
       console.log('✅ P2P聊天服务已重置');
+
+      // 清空文件共享的可访问成员，避免旧大厅名单影响下一个大厅
+      await fileShareService.clearAllowedPeers();
       
       // 等待一小段时间，确保WebSocket完全关闭
       await new Promise(resolve => setTimeout(resolve, 300));

@@ -4,12 +4,13 @@
  * 不依赖中心服务器，直接在虚拟局域网中传输
  */
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, State},
     http::StatusCode,
     response::sse::{Event, Sse},
     routing::{get, post},
@@ -89,6 +90,11 @@ pub struct ChatService {
     server_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// 消息广播通道（用于SSE推送）
     message_tx: broadcast::Sender<ChatMessage>,
+    /// 大厅身份名册：player_id -> 虚拟 IP。
+    ///
+    /// 由前端在玩家列表变化时下发（数据源是信令服务器的大厅成员列表），
+    /// 用于校验 `/api/chat/send` 里自称的 `player_id` 是否与其真实来源 IP 相符。
+    peer_roster: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl ChatService {
@@ -101,6 +107,7 @@ impl ChatService {
             virtual_ip: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
             message_tx: tx,
+            peer_roster: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -113,6 +120,24 @@ impl ChatService {
     /// 获取虚拟IP地址
     pub fn get_virtual_ip(&self) -> Option<String> {
         self.virtual_ip.read().clone()
+    }
+
+    /// 更新大厅身份名册（player_id -> 虚拟 IP）。
+    ///
+    /// 只保留同时具备 ID 与 IP 的条目：缺 IP 的玩家无法参与身份校验，
+    /// 塞进名册反而会把合法消息判成冒名。
+    pub fn set_peer_roster(&self, entries: Vec<(String, String)>) {
+        let roster: HashMap<String, String> = entries
+            .into_iter()
+            .filter(|(id, ip)| !id.trim().is_empty() && !ip.trim().is_empty())
+            .collect();
+        log::info!("🪪 [ChatService] 更新身份名册，共 {} 名玩家", roster.len());
+        *self.peer_roster.write() = roster;
+    }
+
+    /// 清空身份名册（退出大厅时调用，避免旧名册影响下一个大厅）
+    pub fn clear_peer_roster(&self) {
+        self.peer_roster.write().clear();
     }
 
     /// 启动HTTP聊天服务器
@@ -167,6 +192,7 @@ impl ChatService {
             .with_state(AppState {
                 local_messages: local_messages.clone(),
                 message_tx: message_tx.clone(),
+                peer_roster: self.peer_roster.clone(),
             });
 
         log::info!("🚀 [ChatService] 正在启动聊天服务器...");
@@ -186,7 +212,9 @@ impl ChatService {
         // 启动服务器
         let server_task = tokio::spawn(async move {
             log::info!("🌐 [ChatService] 聊天服务器开始监听请求...");
-            if let Err(e) = axum::serve(listener, app).await {
+            // 需要 ConnectInfo 才能拿到对端真实地址，用于校验消息发送者身份
+            let service = app.into_make_service_with_connect_info::<SocketAddr>();
+            if let Err(e) = axum::serve(listener, service).await {
                 log::error!("❌ [ChatService] 服务器运行错误: {}", e);
             } else {
                 log::info!("🛑 [ChatService] 聊天服务器已正常停止");
@@ -259,6 +287,7 @@ impl ChatService {
 struct AppState {
     local_messages: Arc<RwLock<VecDeque<ChatMessage>>>,
     message_tx: broadcast::Sender<ChatMessage>,
+    peer_roster: Arc<RwLock<HashMap<String, String>>>,
 }
 
 /// 获取消息列表
@@ -316,11 +345,57 @@ fn rate_limit_allow(player_id: &str) -> bool {
     true
 }
 
+/// 校验消息里自称的 `player_id` 是否确实来自该玩家的虚拟 IP。
+///
+/// 攻击场景：同一大厅内任何成员都能直连他人的 14540 端口，此前 `/api/chat/send`
+/// 完全信任请求体里的 `player_id` / `player_name`，因此任意成员都可以伪造成
+/// 房主或其他玩家发言（含 `announce`、`recall`、`avatar` 等控制消息，危害不止于
+/// 聊天内容）。这里把自称身份与 TCP 连接的真实来源地址做绑定。
+///
+/// 判定规则（在"可用性优先"与"防冒名"之间取平衡）：
+/// - 名册为空（尚未下发或旧版本前端）时放行，避免升级过程中聊天直接不可用；
+/// - 名册中不存在该 `player_id` 时放行，交由上层去重/展示逻辑处理（新玩家刚加入、
+///   名册还没同步到本机是正常现象）；
+/// - 名册中存在该 `player_id` 但登记 IP 与来源 IP 不一致时拒绝，这就是冒名。
+///
+/// 消息不经任何中继，均由发送方直连接收方（见 `send_p2p_chat_message`），
+/// 所以来源 IP 就是发送方的真实虚拟 IP，可以直接作为身份凭据。
+fn sender_identity_matches(
+    roster: &std::collections::HashMap<String, String>,
+    player_id: &str,
+    peer_ip: std::net::IpAddr,
+) -> bool {
+    if roster.is_empty() {
+        return true;
+    }
+    match roster.get(player_id) {
+        Some(expected_ip) => expected_ip
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip == peer_ip)
+            .unwrap_or(true),
+        None => true,
+    }
+}
+
 /// 发送消息（接收其他玩家发送的消息）
 async fn send_message(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<ChatMessage>, StatusCode> {
+    // 身份绑定：拒绝冒用他人 player_id 的消息（含控制类消息）
+    if !req.player_id.is_empty() {
+        let roster = state.peer_roster.read();
+        if !sender_identity_matches(&roster, &req.player_id, peer_addr.ip()) {
+            log::warn!(
+                "🚫 [ChatService] 拒绝冒名消息：自称 {} 但来源为 {}",
+                req.player_id,
+                peer_addr.ip()
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     // 限流：防止恶意成员刷屏（控制类消息如 voicegroup 不计入更严格限制，这里统一按 player 限流）
     if !req.player_id.is_empty() && !rate_limit_allow(&req.player_id) {
         log::warn!("⚠️ [ChatService] 玩家 {} 发送过于频繁，已限流", req.player_id);
@@ -386,4 +461,84 @@ async fn stream_messages(
             .interval(std::time::Duration::from_secs(15))
             .text("keep-alive")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn roster(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(id, ip)| (id.to_string(), ip.to_string()))
+            .collect()
+    }
+
+    fn ip(value: &str) -> IpAddr {
+        value.parse().expect("测试用 IP 应可解析")
+    }
+
+    #[test]
+    fn rejects_a_member_impersonating_another_player() {
+        // 大厅成员 10.126.126.9 自称是房主 host-1（真实 IP 为 .1）
+        let table = roster(&[("host-1", "10.126.126.1"), ("evil-9", "10.126.126.9")]);
+        assert!(
+            !sender_identity_matches(&table, "host-1", ip("10.126.126.9")),
+            "冒用他人 player_id 必须被拒绝，否则任意成员都能伪造房主公告"
+        );
+    }
+
+    #[test]
+    fn accepts_a_player_sending_from_its_own_ip() {
+        let table = roster(&[("host-1", "10.126.126.1"), ("peer-2", "10.126.126.2")]);
+        assert!(sender_identity_matches(&table, "peer-2", ip("10.126.126.2")));
+        assert!(sender_identity_matches(&table, "host-1", ip("10.126.126.1")));
+    }
+
+    #[test]
+    fn accepts_everything_when_the_roster_is_not_ready() {
+        // 名册尚未下发（刚进大厅）或对端为旧版本前端时，不能让聊天直接不可用
+        let table = roster(&[]);
+        assert!(sender_identity_matches(&table, "host-1", ip("10.126.126.9")));
+    }
+
+    #[test]
+    fn accepts_players_that_are_not_in_the_local_roster_yet() {
+        // 新玩家刚加入、名册还没同步到本机是正常现象，不应误判为冒名
+        let table = roster(&[("host-1", "10.126.126.1")]);
+        assert!(sender_identity_matches(&table, "newcomer-7", ip("10.126.126.7")));
+    }
+
+    #[test]
+    fn accepts_when_the_registered_ip_is_unparsable() {
+        // 名册里的 IP 异常时放行，避免脏数据把合法消息全部拦掉
+        let table = roster(&[("host-1", "not-an-ip")]);
+        assert!(sender_identity_matches(&table, "host-1", ip("10.126.126.1")));
+    }
+
+    #[test]
+    fn set_peer_roster_drops_entries_without_an_ip() {
+        let service = ChatService::new();
+        service.set_peer_roster(vec![
+            ("host-1".to_string(), "10.126.126.1".to_string()),
+            ("no-ip".to_string(), String::new()),
+            (String::new(), "10.126.126.5".to_string()),
+            ("blank-ip".to_string(), "   ".to_string()),
+        ]);
+        let table = service.peer_roster.read().clone();
+        assert_eq!(table.len(), 1, "缺 ID 或缺 IP 的条目不得进入名册：{:?}", table);
+        assert_eq!(table.get("host-1").map(String::as_str), Some("10.126.126.1"));
+    }
+
+    #[test]
+    fn clear_peer_roster_resets_identity_checks() {
+        let service = ChatService::new();
+        service.set_peer_roster(vec![("host-1".to_string(), "10.126.126.1".to_string())]);
+        service.clear_peer_roster();
+        assert!(
+            service.peer_roster.read().is_empty(),
+            "退出大厅后必须清空名册，否则旧名册会影响下一个大厅"
+        );
+    }
 }
