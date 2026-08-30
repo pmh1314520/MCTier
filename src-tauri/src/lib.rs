@@ -338,6 +338,18 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
     };
     let notification_body = body;
 
+    // 托盘气泡通知走的是 Windows 的 Shell_NotifyIcon，没有跨平台对应物。
+    // 这里不自造一套桌面通知（各桌面环境行为不一，且要引新依赖），只记一条日志，
+    // 同时显式消费上面算好的文案 —— 否则 Linux 目标下这两个变量是 unused 告警。
+    #[cfg(not(target_os = "windows"))]
+    {
+        log::info!(
+            "托盘后台运行提示（当前平台无气泡通知）: {} - {}",
+            title,
+            notification_body
+        );
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;

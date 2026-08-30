@@ -29,6 +29,9 @@ const MAX_REMOTE_BATCH_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_PATH_GRANTS: usize = 4096;
 const MAX_CHAT_TARGETS: usize = 64;
 const MAX_CHAT_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+// 仅 Windows 凭据管理器路径使用；其他平台不落盘明文密码，因此这里不是死代码，
+// 而是平台无关声明配平台相关使用。
+#[cfg(windows)]
 const AUTO_LOBBY_CREDENTIAL_TARGET: &str = "MCTier:auto-lobby-password";
 
 #[cfg(windows)]
@@ -396,6 +399,8 @@ fn require_existing_directory_grant(
     Ok(path)
 }
 
+/// 仅 Windows：把程序路径转成注册表 Run 项的取值（Linux 用 XDG autostart）。
+#[cfg(windows)]
 fn windows_run_value(exe: &std::path::Path) -> Result<String, String> {
     let value = exe
         .to_str()
@@ -2938,7 +2943,6 @@ pub async fn open_file_location(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         // Linux: 使用 xdg-open 打开父目录
-        use std::path::Path;
         let path_obj = &path;
         if let Some(parent) = path_obj.parent() {
             if let Some(parent_str) = parent.to_str() {

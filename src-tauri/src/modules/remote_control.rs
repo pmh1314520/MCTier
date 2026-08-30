@@ -606,7 +606,16 @@ mod linux_uinput {
     mod keys {
         #![allow(dead_code)]
         pub const KEY_ESC: u16 = 1;
+        // 主键盘数字行：evdev 是 1..9 然后 0（2..10, 11），与 VK 的 0..9 顺序不同。
         pub const KEY_1: u16 = 2;
+        pub const KEY_2: u16 = 3;
+        pub const KEY_3: u16 = 4;
+        pub const KEY_4: u16 = 5;
+        pub const KEY_5: u16 = 6;
+        pub const KEY_6: u16 = 7;
+        pub const KEY_7: u16 = 8;
+        pub const KEY_8: u16 = 9;
+        pub const KEY_9: u16 = 10;
         pub const KEY_0: u16 = 11;
         pub const KEY_MINUS: u16 = 12;
         pub const KEY_EQUAL: u16 = 13;
@@ -906,10 +915,26 @@ mod linux_uinput {
 
         #[test]
         fn digit_and_letter_keys_use_the_physical_evdev_layout() {
-            // evdev 的数字键是 1..9,0 的顺序，直接用偏移会把每个数字错开一位
-            assert_eq!(vk_to_key(0x31), Some(keys::KEY_1));
-            assert_eq!(vk_to_key(0x39), Some(keys::KEY_9));
-            assert_eq!(vk_to_key(0x30), Some(keys::KEY_0));
+            // evdev 的数字键是 1..9 然后 0，VK 是 0..9。若按 KEY_0 + (vk - 0x30)
+            // 线性推算，每个数字都会错开一位（VK 1 会打出 0）。逐个断言而不是
+            // 用偏移量表达期望，否则测试和实现会犯同一个错。
+            const DIGITS: [(u32, u16); 10] = [
+                (0x30, keys::KEY_0),
+                (0x31, keys::KEY_1),
+                (0x32, keys::KEY_2),
+                (0x33, keys::KEY_3),
+                (0x34, keys::KEY_4),
+                (0x35, keys::KEY_5),
+                (0x36, keys::KEY_6),
+                (0x37, keys::KEY_7),
+                (0x38, keys::KEY_8),
+                (0x39, keys::KEY_9),
+            ];
+            for (vk, expected) in DIGITS {
+                assert_eq!(vk_to_key(vk), Some(expected), "VK 0x{:02X} 映射错误", vk);
+            }
+            // 回归防线：VK 1 曾被线性偏移算成 KEY_0
+            assert_ne!(vk_to_key(0x31), Some(keys::KEY_0));
 
             // 字母按 QWERTY 物理位置排布，不是字母序
             assert_eq!(vk_to_key(0x41), Some(keys::KEY_A));

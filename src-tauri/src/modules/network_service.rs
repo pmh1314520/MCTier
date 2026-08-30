@@ -50,8 +50,14 @@ fn is_elevated() -> bool {
     }
 }
 
-/// 非 Windows 平台始终返回 true（不需要管理员权限）
+/// 非 Windows 平台始终返回 true（不需要管理员权限）。
+///
+/// Linux 上应用本体确实不需要 root：创建 TUN 只要求 easytier-core 这个**文件**
+/// 具备 cap_net_admin，检查逻辑在 linux_platform::ensure_easytier_tun_capability，
+/// 由 start_easytier 在启动前调用。所以这里返回 true 不是绕过检查，而是检查点
+/// 换了位置；调用方全在 #[cfg(windows)] 内，故标注 allow(dead_code)。
 #[cfg(not(windows))]
+#[allow(dead_code)]
 fn is_elevated() -> bool {
     true
 }
