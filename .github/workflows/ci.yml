@@ -131,7 +131,7 @@ jobs:
       - name: Verify every bundled component is documented
         run: |
           set -e
-          for name in EasyTier Wintun WinDivert Npcap Javassist LocalVQE GGML; do
+          for name in EasyTier Wintun WinDivert Npcap LocalVQE GGML; do
             grep -q "$name" THIRD_PARTY_NOTICES.md || { echo "$name missing from THIRD_PARTY_NOTICES.md"; exit 1; }
           done
 

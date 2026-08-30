@@ -600,33 +600,6 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 </Paragraph>
               </div>
 
-              <div className="third-party-item">
-                <Text strong className="third-party-name">
-                  Javassist
-                </Text>
-                <Paragraph className="third-party-line">
-                  Javassist 3.29.2-GA — Copyright (C) 1999- Shigeru Chiba and contributors
-                </Paragraph>
-                <Paragraph className="third-party-line">
-                  {tl(
-                    '采用 MPL 1.1 / LGPL 2.1 / Apache-2.0 三重许可，本项目选择 Apache-2.0 分支。',
-                    'Triple-licensed under MPL 1.1 / LGPL 2.1 / Apache-2.0; this project chooses the Apache-2.0 branch.'
-                  )}
-                </Paragraph>
-                <Paragraph className="third-party-line">
-                  {tl('源码地址：', 'Source: ')}
-                  <a
-                    href="https://github.com/jboss-javassist/javassist"
-                    target="_blank"
-                    onClick={openTrustedExternal}
-                    rel="noopener noreferrer"
-                    className="third-party-link"
-                  >
-                    https://github.com/jboss-javassist/javassist
-                  </a>
-                </Paragraph>
-              </div>
-
               <Paragraph className="third-party-footnote">
                 {tl(
                   '以上组件均不适用 MCTier 自有代码的许可条款，而按各自许可证授权；MCTier 的“禁止商业用途”“衍生须同协议开源”不得被解释为限制这些许可证赋予你的权利。完整清单（含版本、SHA-256、修改状态与源码获取方式）见发布包内的 THIRD_PARTY_NOTICES.md 与 licenses/ 目录。',

@@ -314,7 +314,7 @@ Source: https://github.com/EasyTier/EasyTier
 - [docs/android/rebuild-with-modified-easytier.md](docs/android/rebuild-with-modified-easytier.md) — 用自行修改的 EasyTier 重新构建 Android 版
 - [licenses/](licenses/) — 各第三方许可证全文（LGPL-3.0、GPL-3.0、GPL-2.0、Apache-2.0、MIT、BSD-3-Clause、Wintun）
 
-`THIRD_PARTY_NOTICES.md` 覆盖 EasyTier、Wintun、WinDivert、Npcap、Javassist、
+`THIRD_PARTY_NOTICES.md` 覆盖 EasyTier、Wintun、WinDivert、Npcap、
 LocalVQE / GGML / 模型权重、WebRTC 及各应用级依赖的版本、SHA-256、许可证与修改状态。
 
 ### 商标与非官方声明
