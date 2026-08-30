@@ -545,33 +545,6 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
 
               <div className="third-party-item">
                 <Text strong className="third-party-name">
-                  Npcap
-                </Text>
-                <Paragraph className="third-party-line">
-                  Copyright (c) 2023, Insecure.Com LLC.
-                </Paragraph>
-                <Paragraph className="third-party-line">
-                  {tl(
-                    'Npcap 不是开源软件，依 Nmap Project 的专有许可条款授权。若你的系统缺少 Npcap，请自行前往官网下载安装。',
-                    'Npcap is not open source software; it is licensed under the Nmap Project\u2019s proprietary terms. If your system lacks Npcap, please download and install it yourself.'
-                  )}
-                </Paragraph>
-                <Paragraph className="third-party-line">
-                  {tl('官网：', 'Website: ')}
-                  <a
-                    href="https://npcap.com"
-                    target="_blank"
-                    onClick={openTrustedExternal}
-                    rel="noopener noreferrer"
-                    className="third-party-link"
-                  >
-                    https://npcap.com
-                  </a>
-                </Paragraph>
-              </div>
-
-              <div className="third-party-item">
-                <Text strong className="third-party-name">
                   LocalVQE / GGML
                 </Text>
                 <Paragraph className="third-party-line">

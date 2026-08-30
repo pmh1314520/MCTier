@@ -6,20 +6,23 @@ use tauri::Manager;
 
 // 将二进制文件嵌入到可执行文件中。
 //
-// Windows：easytier-core.exe / easytier-cli.exe，外加 3 个驱动类文件
-//   （Packet.dll / wintun.dll / WinDivert64.sys）。
+// Windows：easytier-core.exe / easytier-cli.exe，外加 2 个驱动类文件
+//   （wintun.dll / WinDivert64.sys）。
 // Linux：只需 easytier-core / easytier-cli —— 虚拟网卡由内核 TUN
 //   （/dev/net/tun）提供，不存在与 wintun/WinDivert 对应的用户态驱动，
-//   因此那 3 个文件在 Linux 上既不内嵌也不提取。
+//   因此那 2 个文件在 Linux 上既不内嵌也不提取。
+//
+// 不再内嵌 Npcap 的 Packet.dll：它此前是 easytier-core.exe 的启动期硬依赖
+// （PE 导入表静态导入，缺失即 0xC0000135），而该依赖并非功能需要，只是
+// pnet_datalink 无条件 #[link(name = "Packet")] 的连带结果。现随 MCTier 重建的
+// EasyTier 一并消除，详见 patches/pnet_datalink-0.35.0-no-npcap.patch 与
+// THIRD_PARTY_NOTICES.md §8。
 #[cfg(windows)]
 #[allow(dead_code)]
 static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-core.exe");
 #[cfg(windows)]
 #[allow(dead_code)]
 static EASYTIER_CLI_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-cli.exe");
-#[cfg(windows)]
-#[allow(dead_code)]
-static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.dll");
 #[cfg(windows)]
 #[allow(dead_code)]
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
@@ -208,23 +211,6 @@ impl ResourceManager {
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, EASYTIER_CLI_FILE, EASYTIER_CLI_BYTES)
-        }
-    }
-
-    /// 获取 Packet.dll 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
-    #[cfg(windows)]
-    pub fn get_packet_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(path) = Self::find_debug_binary(app_handle, "Packet.dll") {
-                return Ok(path);
-            }
-            return Self::extract_binary(app_handle, "Packet.dll", PACKET_DLL_BYTES);
-        }
-
-        #[cfg(not(debug_assertions))]
-        {
-            Self::extract_binary(app_handle, "Packet.dll", PACKET_DLL_BYTES)
         }
     }
 

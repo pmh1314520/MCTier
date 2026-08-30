@@ -602,21 +602,10 @@ impl NetworkService {
         {
             log::info!("开始提取必需的DLL文件...");
 
-            // 提取Packet.dll
-            let packet_dll_source = ResourceManager::get_packet_dll_path(app_handle)?;
-            let packet_dll_target = working_dir.join("Packet.dll");
-            if !packet_dll_target.exists()
-                || std::fs::metadata(&packet_dll_target)
-                    .map(|m| m.len())
-                    .unwrap_or(0)
-                    != std::fs::metadata(&packet_dll_source)
-                        .map(|m| m.len())
-                        .unwrap_or(1)
-            {
-                std::fs::copy(&packet_dll_source, &packet_dll_target)
-                    .map_err(|e| AppError::ProcessError(format!("复制Packet.dll失败: {}", e)))?;
-                log::info!("✅ 已复制 Packet.dll");
-            }
+            // 这里刻意不再释放 Npcap 的 Packet.dll。它曾是 easytier-core.exe 的
+            // 启动期硬依赖，但那只是 pnet_datalink 无条件静态链接的连带结果，
+            // 并非任何功能需要；MCTier 重建的 EasyTier 已移除该导入。
+            // 若系统自行安装了 Npcap，pcap 相关回退路径仍会按标准搜索顺序找到它。
 
             // 提取wintun.dll
             let wintun_dll_source = ResourceManager::get_wintun_dll_path(app_handle)?;

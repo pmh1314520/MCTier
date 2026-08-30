@@ -196,12 +196,25 @@ jobs:
       - name: Verify every bundled component is documented
         run: |
           set -e
-          for name in EasyTier Wintun WinDivert Npcap LocalVQE GGML; do
+          for name in EasyTier Wintun WinDivert LocalVQE GGML; do
             grep -q "$name" THIRD_PARTY_NOTICES.md || { echo "$name missing from THIRD_PARTY_NOTICES.md"; exit 1; }
           done
 
-      - name: Verify the modified-EasyTier patch is present
-        run: test -f patches/easytier-2.6.0-mctier-android.patch
+      - name: Verify the modified-EasyTier patches are present
+        run: |
+          set -e
+          test -f patches/easytier-2.6.0-mctier-android.patch
+          test -f patches/pnet_datalink-0.35.0-no-npcap.patch
+
+      # Npcap is proprietary and must never be redistributed by this project.
+      # These files were bundled before; assert they cannot creep back in.
+      - name: Verify no Npcap file is bundled
+        run: |
+          set -e
+          for f in Packet.dll Packet.lib; do
+            test ! -e "src-tauri/resources/binaries/$f" || { echo "$f must not be bundled"; exit 1; }
+          done
+          ! grep -rn 'include_bytes!.*Packet\.dll' src-tauri/src || { echo "Packet.dll is still embedded"; exit 1; }
 
   cargo-audit:
     name: Rust dependency audit

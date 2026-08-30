@@ -1,0 +1,7 @@
+# 补丁文件必须以 LF 检出。
+#
+# 本仓库未设置 core.autocrlf，开发者机器上普遍是 true（Windows 默认引导即如此），
+# 那样 *.patch 会被转成 CRLF 检出，而补丁要打到的上游源码是 LF —— 上下文行的行尾
+# 对不上，git apply 会直接失败。把补丁固定为 LF，避免「照文档执行却打不上补丁」。
+*.patch text eol=lf
+*.diff text eol=lf

@@ -217,15 +217,21 @@ docker compose -f docker-compose-http.yml logs -f
 
 ## 开发与构建
 
-### 第一步：获取第三方二进制（首次 clone 后必做）
+### 第一步：准备第三方二进制（首次 clone 后必做）
 
-`src-tauri/src/modules/resource_manager.rs` 通过 `include_bytes!` 在编译期内嵌 5 个第三方二进制。这些文件受版权与许可限制（尤其是 Npcap 的 `Packet.dll`，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 第 8 节），因此不纳入本仓库。clone 之后必须先运行下面的脚本，否则 `cargo build` 会因找不到文件而失败：
+`src-tauri/src/modules/resource_manager.rs` 通过 `include_bytes!` 在编译期内嵌 4 个第三方二进制。这些文件体积较大且受各自许可约束，因此不纳入本仓库。clone 之后必须先准备好它们，否则 `cargo build` 会因找不到文件而失败。
 
 ```powershell
+# 1) 下载可直接再分发的驱动类文件（wintun.dll / WinDivert64.sys）
 .\scripts\fetch-binaries.ps1
+
+# 2) 重建不依赖 Npcap 的 easytier-core.exe / easytier-cli.exe
+.\scripts\build-easytier-npcap-free.ps1
 ```
 
-该脚本从 EasyTier 官方 Release 下载 `easytier-windows-x86_64-v2.5.0.zip`，逐个校验 SHA-256（任一不匹配即中止），再放入 `src-tauri/resources/binaries/`。已存在且校验通过的文件会被跳过；如需强制重新获取请加 `-Force`。
+第一个脚本从 EasyTier 官方 Release 下载 `easytier-windows-x86_64-v2.5.0.zip`，逐个校验 SHA-256（任一不匹配即中止），再放入 `src-tauri/resources/binaries/`。已存在且校验通过的文件会被跳过；如需强制重新获取请加 `-Force`。
+
+第二个脚本单独存在是有原因的：EasyTier 官方构建的 `easytier-core.exe` 在 PE 导入表中**静态导入** Npcap 的 `packet.dll`，而 Npcap 不是开源软件、未经 Nmap Project 书面许可不得随其他软件再分发。该脚本会克隆 EasyTier v2.5.0（同一 commit，不涉及版本升级）、应用 [patches/pnet_datalink-0.35.0-no-npcap.patch](patches/pnet_datalink-0.35.0-no-npcap.patch) 去掉这个导入，并在构建后解析产物导入表作为硬门槛。需要 `cargo`（MSVC 工具链）、`protoc` 与 `libclang`。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 第 8 节。
 
 ### 第二步：构建
 ```bash
@@ -311,11 +317,13 @@ Source: https://github.com/EasyTier/EasyTier
 - [LICENSE-LGPL-3.0.txt](LICENSE-LGPL-3.0.txt) — LGPL-3.0 全文
 - [LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt) — GPL-3.0 全文（LGPL-3.0 以引用方式并入）
 - [patches/easytier-2.6.0-mctier-android.patch](patches/easytier-2.6.0-mctier-android.patch) — Android 端 EasyTier 修改补丁
+- [patches/pnet_datalink-0.35.0-no-npcap.patch](patches/pnet_datalink-0.35.0-no-npcap.patch) — 移除 Windows 端对 Npcap `Packet.dll` 的静态链接依赖
 - [docs/android/rebuild-with-modified-easytier.md](docs/android/rebuild-with-modified-easytier.md) — 用自行修改的 EasyTier 重新构建 Android 版
 - [licenses/](licenses/) — 各第三方许可证全文（LGPL-3.0、GPL-3.0、GPL-2.0、Apache-2.0、MIT、BSD-3-Clause、Wintun）
 
-`THIRD_PARTY_NOTICES.md` 覆盖 EasyTier、Wintun、WinDivert、Npcap、
+`THIRD_PARTY_NOTICES.md` 覆盖 EasyTier、Wintun、WinDivert、
 LocalVQE / GGML / 模型权重、WebRTC 及各应用级依赖的版本、SHA-256、许可证与修改状态。
+其中第 8 节记录了 Npcap `packet.dll` 依赖的成因与移除过程——本项目已不再包含任何 Npcap 文件。
 
 ### 商标与非官方声明
 

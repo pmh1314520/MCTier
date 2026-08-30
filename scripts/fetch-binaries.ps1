@@ -3,23 +3,24 @@
     获取 MCTier 构建所需的第三方二进制，并校验 SHA-256。
 
 .DESCRIPTION
-    src-tauri/src/modules/resource_manager.rs 使用编译期宏 include_bytes! 内嵌 5 个
-    二进制文件。这些文件受版权/许可限制（尤其是 Npcap，见 THIRD_PARTY_NOTICES.md §8），
-    因此按 .gitignore 规则不纳入 Git 版本库。clone 仓库后需先运行本脚本，否则
-    `cargo build` 会因找不到文件而失败。
+    src-tauri/src/modules/resource_manager.rs 使用编译期宏 include_bytes! 内嵌 4 个
+    二进制文件。这些文件体积较大且受各自许可约束，因此按 .gitignore 规则不纳入
+    Git 版本库。clone 仓库后需先准备好它们，否则 `cargo build` 会因找不到文件而失败。
 
-    本脚本会：
+    本脚本负责其中可直接再分发的 2 个驱动类文件，以及供本地调试的 easytier-web*：
       1. 从 EasyTier 官方 Release 下载 easytier-windows-x86_64-v2.5.0.zip；
-      2. 从中提取 easytier-core.exe / easytier-cli.exe / easytier-web*.exe /
-         wintun.dll / WinDivert64.sys / Packet.dll；
+      2. 从中提取 wintun.dll / WinDivert64.sys / easytier-web*.exe；
       3. 对每个文件校验 SHA-256，不匹配即报错退出；
       4. 复制到 src-tauri/resources/binaries/。
 
+    easytier-core.exe 与 easytier-cli.exe 刻意不从官方发布包提取：官方构建在 PE
+    导入表中静态导入 Npcap 的 packet.dll，而 Npcap 不是开源软件、未经 Nmap Project
+    书面许可不得随其他软件再分发。MCTier 改为自行重建这两个文件以去掉该导入，
+    请运行 scripts/build-easytier-npcap-free.ps1（详见 THIRD_PARTY_NOTICES.md §8）。
+
 .NOTES
-    Npcap 授权提示：Packet.dll 属 Npcap（Insecure.Com LLC），
-    不是开源软件，未经 Nmap Project 书面许可不得再分发。本脚本仅在你本机从
-    EasyTier 官方发布包中提取以供本地构建；如需分发请自行确认授权，
-    或改为引导用户从 https://npcap.com 自行安装。详见 THIRD_PARTY_NOTICES.md §8。
+    本脚本获取的 4 个文件均可随 MCTier 再分发：wintun.dll 依 Wintun 预编译二进制
+    许可，WinDivert64.sys 依 LGPL-3.0（双许可中所选分支）。不再获取任何 Npcap 文件。
 
 .EXAMPLE
     .\scripts\fetch-binaries.ps1
@@ -87,24 +88,26 @@ $EasyTierVersion = 'v2.5.0'
 $EasyTierUrl = "https://github.com/EasyTier/EasyTier/releases/download/$EasyTierVersion/easytier-windows-x86_64-$EasyTierVersion.zip"
 
 # 期望的 SHA-256（大写）。任何不匹配都会中止，避免被篡改的依赖流入构建。
+# 官方发布包中本脚本负责的条目。刻意不含 easytier-core/cli：那两个由
+# build-easytier-npcap-free.ps1 自行重建，官方构建带有 Npcap 静态导入。
 $Expected = [ordered]@{
-    'easytier-core.exe'      = 'A47B63A7763FB4CCF9D56F3A7E936163619C89A1E34C9D1E84022375A7D2711F'
-    'easytier-cli.exe'       = '83A31B18CB92436BFD6D85C4A22B27594FB5A2EC7BB1E46ADF9245EBD935667B'
     'easytier-web.exe'       = '4AFF79986A665F2919D32AE5BD928733A8C0555A474578D1E90AB96CE38F11EC'
     'easytier-web-embed.exe' = '3CE38602FD67499646CC8996D8B7A8A03E409C5F4B72623B09C97B97B75F850E'
     'wintun.dll'             = 'E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE'
     'WinDivert64.sys'        = '8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2'
-    'Packet.dll'             = 'C7C03A87EAC7243CCBE331554624B18803010B740E311FC8CFDDB573096EACAC'
 }
 
-# include_bytes! 真正需要的 5 个文件；其余为 EasyTier 附带，一并放置以便本地调试。
-# 注意：Packet.lib 只是链接期导入库，运行时不需要，因此不再获取也不再随包分发（见 THIRD_PARTY_NOTICES.md §8）。
+# 本脚本必须成功放置的文件。easytier-web* 仅供本地调试，缺失不阻塞。
 $Required = @(
-    'easytier-core.exe',
-    'easytier-cli.exe',
-    'Packet.dll',
     'wintun.dll',
     'WinDivert64.sys'
+)
+
+# include_bytes! 需要但本脚本不负责的文件，由 build-easytier-npcap-free.ps1 产出。
+# 这里只做存在性提示，不校验哈希——重建产物的哈希取决于工具链版本，写死会误报。
+$BuiltLocally = @(
+    'easytier-core.exe',
+    'easytier-cli.exe'
 )
 
 function Get-Sha256([string]$Path) {
@@ -299,8 +302,9 @@ function Copy-VerifiedZipEntries([string]$ZipPath, [string]$DestinationDir) {
 Write-Host 'MCTier 构建依赖获取脚本' -ForegroundColor Cyan
 Write-Host "目标目录: $TargetDir"
 Write-Host ''
-Write-Host 'Npcap 许可提示: Packet.dll 属 Npcap (Insecure.Com LLC)，非开源软件，' -ForegroundColor Yellow
-Write-Host '未经 Nmap Project 书面许可不得随其他软件再分发。详见 THIRD_PARTY_NOTICES.md 第 8 节。' -ForegroundColor Yellow
+Write-Host '本脚本只获取可随 MCTier 再分发的文件（wintun.dll / WinDivert64.sys），' -ForegroundColor Yellow
+Write-Host '不再获取任何 Npcap 文件。easytier-core/cli 请用 scripts\build-easytier-npcap-free.ps1' -ForegroundColor Yellow
+Write-Host '自行重建，以去掉官方构建中对 Npcap packet.dll 的静态导入。' -ForegroundColor Yellow
 Write-Host ''
 
 Assert-SafeTargetDirectory
@@ -350,7 +354,18 @@ try {
     if ($stillMissing.Count -gt 0) {
         throw ('仍缺少必需文件: ' + ($stillMissing -join ', '))
     }
-    Write-Host 'include_bytes! 所需的 5 个二进制均已就位，现在可以执行 npm run tauri build。' -ForegroundColor Green
+    Write-Host '本脚本负责的文件均已就位。' -ForegroundColor Green
+
+    # include_bytes! 还需要重建出来的那两个文件。这里只提示、不代为构建：
+    # 重建耗时数分钟且需要额外工具链，静默触发会让人摸不着头脑。
+    $missingBuilt = @($BuiltLocally | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TargetDir $_)) })
+    if ($missingBuilt.Count -gt 0) {
+        Write-Host ''
+        Write-Host ('还缺少需自行重建的文件: ' + ($missingBuilt -join ', ')) -ForegroundColor Yellow
+        Write-Host '请先运行: .\scripts\build-easytier-npcap-free.ps1' -ForegroundColor Yellow
+    } else {
+        Write-Host 'include_bytes! 所需的 4 个二进制均已就位，现在可以执行 npm run tauri build。' -ForegroundColor Green
+    }
 } finally {
     $workItem = Get-Item -LiteralPath $WorkDir -Force -ErrorAction SilentlyContinue
     if ($workItem -and $workItem.PSIsContainer -and (($workItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)) {

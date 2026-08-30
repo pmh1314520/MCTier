@@ -1,0 +1,322 @@
+# MCTier: 移除 pnet_datalink 对 Npcap `Packet.dll` 的静态链接依赖
+#
+# 适用对象: pnet_datalink 0.35.0（crates.io 原始发布版）
+# 应用方式: 解到 EasyTier 源码树的 vendor/pnet_datalink/，再在根 Cargo.toml 加入
+#     [patch.crates-io]
+#     pnet_datalink = { path = "vendor/pnet_datalink" }
+#
+# 背景:
+#   上游 src/bindings/winpcap.rs 的 extern 块声明为 `#[link(name = "Packet")]`，
+#   该声明只被 #[cfg(windows)] 门控，并未置于任何 pcap feature 之后。而
+#   pnet_datalink 由 pnet 的默认 std feature 间接引入，EasyTier 声明的是
+#   `pnet = { version = "0.35.0", features = ["serde"] }`（未关闭默认 feature），
+#   于是 Packet 被无条件静态链接。Windows 加载器在进程启动时解析静态导入，
+#   因此缺少 Packet.dll 时 easytier-core.exe 直接以 0xC0000135 启动失败——
+#   即使全程使用 wintun 模式、从未打开任何 datalink channel 也一样。
+#
+# 本补丁做两件事:
+#   1. 把这些入口改为经 LoadLibraryA / GetProcAddress 懒解析，缺库时退化为其
+#      文档化的失败返回值（空句柄 / FALSE），调用方原有的
+#      io::Error::last_os_error() 处理路径不变；系统装有 Npcap 时行为完全一致。
+#   2. interfaces() 在缺库时返回未经 pcap 过滤的接口列表，而不是 panic。
+#      这一条是必需的: EasyTier release profile 为 panic = "abort"，上游用
+#      catch_unwind 包裹该调用也拦不住，缺库时任何一次接口枚举都会终止进程。
+#      适配器列表本身来自 iphlpapi 的 GetAdaptersInfo（始终可用），
+#      PacketGetAdapterNames 仅用于取 pcap 可见子集做过滤。
+#
+# 验证（v2.5.0 / commit 88a45d115670631dfe6a05ba192387d615ddb95b）:
+#   - 重建后 easytier-core.exe 的 PE 导入表已无 packet.dll（原版为静态导入）;
+#   - 在不含 Packet.dll 的目录实测: --version / --help 退出码 0;
+#     以 --no-tun 连接公共节点后 easytier-cli node/peer/route 均退出 0，
+#     取到 10.126.126.1/24，与公共节点 p2p 直连、丢包 0%。
+diff --git a/src/bindings/winpcap.rs b/src/bindings/winpcap.rs
+index 4aa621f..1d28701 100644
+--- a/src/bindings/winpcap.rs
++++ b/src/bindings/winpcap.rs
+@@ -354,29 +354,215 @@ extern "system" {
+     ) -> minwindef::DWORD;
+ }
+ 
+-#[link(name = "Packet")]
+-#[allow(improper_ctypes)]
+-extern "C" {
+-    // from Packet32.h
+-    pub fn PacketSendPacket(
+-        AdapterObject: LPADAPTER,
+-        pPacket: LPPACKET,
+-        Sync: winnt::BOOLEAN,
+-    ) -> winnt::BOOLEAN;
+-    pub fn PacketReceivePacket(
+-        AdapterObject: LPADAPTER,
+-        lpPacket: LPPACKET,
+-        Sync: winnt::BOOLEAN,
+-    ) -> winnt::BOOLEAN;
+-    pub fn PacketAllocatePacket() -> LPPACKET;
+-    pub fn PacketInitPacket(lpPacket: LPPACKET, Buffer: PVOID, Length: UINT);
+-    pub fn PacketFreePacket(lpPacket: LPPACKET);
+-    pub fn PacketOpenAdapter(AdapterName: PCHAR) -> LPADAPTER;
+-    pub fn PacketCloseAdapter(lpAdapter: LPADAPTER);
+-    pub fn PacketGetAdapterNames(pStr: PTSTR, BufferSize: PULONG) -> winnt::BOOLEAN;
+-    pub fn PacketSetHwFilter(AdapterObject: LPADAPTER, Filter: ULONG) -> winnt::BOOLEAN;
+-    pub fn PacketSetMinToCopy(AdapterObject: LPADAPTER, nbytes: ctypes::c_int) -> winnt::BOOLEAN;
+-    pub fn PacketSetBuff(AdapterObject: LPADAPTER, dim: ctypes::c_int) -> winnt::BOOLEAN;
+-    pub fn PacketSetReadTimeout(AdapterObject: LPADAPTER, timeout: ctypes::c_int)
+-        -> winnt::BOOLEAN;
++// ==== MCTier patch: no static `Packet.dll` import ====
++//
++// Upstream declares this block as `#[link(name = "Packet")]`, which turns every
++// binary that links `pnet_datalink` into a hard consumer of Npcap/WinPcap's
++// `Packet.dll`: the loader resolves static imports at process start, so the
++// process dies with STATUS_DLL_NOT_FOUND (0xC0000135) even when no datalink
++// channel is ever opened. On Windows `pnet::datalink` is only a fallback path
++// for MCTier's EasyTier build (interface enumeration goes through
++// `network-interface`, and fake-tcp goes through WinDivert), so paying a
++// mandatory proprietary-DLL dependency for it is not acceptable.
++//
++// The functions are therefore resolved lazily through `LoadLibraryA` /
++// `GetProcAddress`. When `Packet.dll` is absent every entry point degrades to
++// its documented failure value (null handle / FALSE), which the callers in
++// `winpcap.rs` already handle via `io::Error::last_os_error()`. Behaviour is
++// unchanged when a real Npcap/WinPcap installation is present.
++mod packet_dll {
++    use super::{ctypes, winnt, LPADAPTER, LPPACKET, PCHAR, PTSTR, PULONG, PVOID, UINT, ULONG};
++    use std::sync::OnceLock;
++
++    type SendPacket = unsafe extern "C" fn(LPADAPTER, LPPACKET, winnt::BOOLEAN) -> winnt::BOOLEAN;
++    type ReceivePacket = unsafe extern "C" fn(LPADAPTER, LPPACKET, winnt::BOOLEAN) -> winnt::BOOLEAN;
++    type AllocatePacket = unsafe extern "C" fn() -> LPPACKET;
++    type InitPacket = unsafe extern "C" fn(LPPACKET, PVOID, UINT);
++    type FreePacket = unsafe extern "C" fn(LPPACKET);
++    type OpenAdapter = unsafe extern "C" fn(PCHAR) -> LPADAPTER;
++    type CloseAdapter = unsafe extern "C" fn(LPADAPTER);
++    type GetAdapterNames = unsafe extern "C" fn(PTSTR, PULONG) -> winnt::BOOLEAN;
++    type SetHwFilter = unsafe extern "C" fn(LPADAPTER, ULONG) -> winnt::BOOLEAN;
++    type SetMinToCopy = unsafe extern "C" fn(LPADAPTER, ctypes::c_int) -> winnt::BOOLEAN;
++    type SetBuff = unsafe extern "C" fn(LPADAPTER, ctypes::c_int) -> winnt::BOOLEAN;
++    type SetReadTimeout = unsafe extern "C" fn(LPADAPTER, ctypes::c_int) -> winnt::BOOLEAN;
++
++    #[link(name = "kernel32")]
++    extern "system" {
++        fn LoadLibraryA(name: *const ctypes::c_char) -> *mut ctypes::c_void;
++        fn GetProcAddress(
++            module: *mut ctypes::c_void,
++            name: *const ctypes::c_char,
++        ) -> *mut ctypes::c_void;
++    }
++
++    /// Resolved entry points. Raw function pointers are `Send + Sync`, so the
++    /// whole table can live in a `OnceLock` and be shared across threads.
++    #[derive(Default)]
++    pub struct Api {
++        pub send_packet: Option<SendPacket>,
++        pub receive_packet: Option<ReceivePacket>,
++        pub allocate_packet: Option<AllocatePacket>,
++        pub init_packet: Option<InitPacket>,
++        pub free_packet: Option<FreePacket>,
++        pub open_adapter: Option<OpenAdapter>,
++        pub close_adapter: Option<CloseAdapter>,
++        pub get_adapter_names: Option<GetAdapterNames>,
++        pub set_hw_filter: Option<SetHwFilter>,
++        pub set_min_to_copy: Option<SetMinToCopy>,
++        pub set_buff: Option<SetBuff>,
++        pub set_read_timeout: Option<SetReadTimeout>,
++    }
++
++    /// `GetProcAddress` returns a data pointer; casting it to a function
++    /// pointer of the matching ABI is the documented way to use it.
++    unsafe fn symbol<T: Copy>(module: *mut ctypes::c_void, name: &[u8]) -> Option<T> {
++        debug_assert_eq!(name.last(), Some(&0), "symbol names must be NUL terminated");
++        debug_assert_eq!(
++            std::mem::size_of::<T>(),
++            std::mem::size_of::<*mut ctypes::c_void>()
++        );
++        let address = GetProcAddress(module, name.as_ptr() as *const ctypes::c_char);
++        if address.is_null() {
++            return None;
++        }
++        Some(*(&address as *const *mut ctypes::c_void as *const T))
++    }
++
++    pub fn api() -> &'static Api {
++        static API: OnceLock<Api> = OnceLock::new();
++        API.get_or_init(|| unsafe {
++            // Only the plain name is used on purpose: it must resolve through
++            // the standard search order so a system-wide Npcap/WinPcap install
++            // still works, and stay unresolved when none is installed.
++            let module = LoadLibraryA(b"Packet.dll\0".as_ptr() as *const ctypes::c_char);
++            if module.is_null() {
++                return Api::default();
++            }
++            Api {
++                send_packet: symbol(module, b"PacketSendPacket\0"),
++                receive_packet: symbol(module, b"PacketReceivePacket\0"),
++                allocate_packet: symbol(module, b"PacketAllocatePacket\0"),
++                init_packet: symbol(module, b"PacketInitPacket\0"),
++                free_packet: symbol(module, b"PacketFreePacket\0"),
++                open_adapter: symbol(module, b"PacketOpenAdapter\0"),
++                close_adapter: symbol(module, b"PacketCloseAdapter\0"),
++                get_adapter_names: symbol(module, b"PacketGetAdapterNames\0"),
++                set_hw_filter: symbol(module, b"PacketSetHwFilter\0"),
++                set_min_to_copy: symbol(module, b"PacketSetMinToCopy\0"),
++                set_buff: symbol(module, b"PacketSetBuff\0"),
++                set_read_timeout: symbol(module, b"PacketSetReadTimeout\0"),
++            }
++        })
++    }
++
++    /// True when a usable `Packet.dll` was found. Callers that want to fail
++    /// early rather than per-symbol can check this first.
++    pub fn is_available() -> bool {
++        api().open_adapter.is_some()
++    }
++}
++
++pub unsafe fn PacketSendPacket(
++    AdapterObject: LPADAPTER,
++    pPacket: LPPACKET,
++    Sync: winnt::BOOLEAN,
++) -> winnt::BOOLEAN {
++    match packet_dll::api().send_packet {
++        Some(f) => f(AdapterObject, pPacket, Sync),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketReceivePacket(
++    AdapterObject: LPADAPTER,
++    lpPacket: LPPACKET,
++    Sync: winnt::BOOLEAN,
++) -> winnt::BOOLEAN {
++    match packet_dll::api().receive_packet {
++        Some(f) => f(AdapterObject, lpPacket, Sync),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketAllocatePacket() -> LPPACKET {
++    match packet_dll::api().allocate_packet {
++        Some(f) => f(),
++        None => std::ptr::null_mut(),
++    }
++}
++
++pub unsafe fn PacketInitPacket(lpPacket: LPPACKET, Buffer: PVOID, Length: UINT) {
++    if let Some(f) = packet_dll::api().init_packet {
++        f(lpPacket, Buffer, Length);
++    }
++}
++
++pub unsafe fn PacketFreePacket(lpPacket: LPPACKET) {
++    if let Some(f) = packet_dll::api().free_packet {
++        f(lpPacket);
++    }
++}
++
++pub unsafe fn PacketOpenAdapter(AdapterName: PCHAR) -> LPADAPTER {
++    match packet_dll::api().open_adapter {
++        Some(f) => f(AdapterName),
++        None => std::ptr::null_mut(),
++    }
++}
++
++pub unsafe fn PacketCloseAdapter(lpAdapter: LPADAPTER) {
++    if let Some(f) = packet_dll::api().close_adapter {
++        f(lpAdapter);
++    }
++}
++
++pub unsafe fn PacketGetAdapterNames(pStr: PTSTR, BufferSize: PULONG) -> winnt::BOOLEAN {
++    match packet_dll::api().get_adapter_names {
++        Some(f) => f(pStr, BufferSize),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketSetHwFilter(AdapterObject: LPADAPTER, Filter: ULONG) -> winnt::BOOLEAN {
++    match packet_dll::api().set_hw_filter {
++        Some(f) => f(AdapterObject, Filter),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketSetMinToCopy(
++    AdapterObject: LPADAPTER,
++    nbytes: ctypes::c_int,
++) -> winnt::BOOLEAN {
++    match packet_dll::api().set_min_to_copy {
++        Some(f) => f(AdapterObject, nbytes),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketSetBuff(AdapterObject: LPADAPTER, dim: ctypes::c_int) -> winnt::BOOLEAN {
++    match packet_dll::api().set_buff {
++        Some(f) => f(AdapterObject, dim),
++        None => 0,
++    }
++}
++
++pub unsafe fn PacketSetReadTimeout(
++    AdapterObject: LPADAPTER,
++    timeout: ctypes::c_int,
++) -> winnt::BOOLEAN {
++    match packet_dll::api().set_read_timeout {
++        Some(f) => f(AdapterObject, timeout),
++        None => 0,
++    }
++}
++
++/// True when a usable `Packet.dll` was located at run time.
++///
++/// Callers use this to decide up front whether the pcap-backed code paths can
++/// work at all, instead of discovering it from a per-symbol failure value that
++/// is indistinguishable from a genuine API error.
++pub fn packet_dll_is_available() -> bool {
++    packet_dll::is_available()
+ }
+diff --git a/src/winpcap.rs b/src/winpcap.rs
+index 5fdb460..a3ac0ac 100644
+--- a/src/winpcap.rs
++++ b/src/winpcap.rs
+@@ -336,6 +336,27 @@ pub fn interfaces() -> Vec<NetworkInterface> {
+         }
+     }
+ 
++    // ==== MCTier patch: never abort the process over a missing Packet.dll ====
++    //
++    // Upstream `panic!`s when `PacketGetAdapterNames` fails twice. That is fatal
++    // here for two reasons: EasyTier builds the release profile with
++    // `panic = "abort"`, so the panic cannot be contained by the
++    // `catch_unwind(pnet::datalink::interfaces)` guards upstream code wraps this
++    // call in; and without `Packet.dll` the call *always* fails, so merely
++    // removing the static import would have traded a load-time 0xC0000135 for a
++    // run-time abort the moment any code enumerated interfaces.
++    //
++    // The adapter list itself comes from `GetAdaptersInfo` (iphlpapi, always
++    // present); `PacketGetAdapterNames` only supplies the pcap-visible subset
++    // used to filter it. So when Npcap is absent we return the unfiltered list
++    // instead: that is what MCTier's only Windows consumer of this function
++    // wants anyway (interface enumeration fallback), and any caller that goes on
++    // to open a datalink channel still gets a clean `io::Error` from
++    // `PacketOpenAdapter` returning null.
++    if !winpcap::packet_dll_is_available() {
++        return all_ifaces;
++    }
++
+     let mut buf = vec![0u8; 4096];
+     let mut buflen = buf.len() as u32;
+ 
+@@ -343,10 +364,11 @@ pub fn interfaces() -> Vec<NetworkInterface> {
+         buf.resize(buflen as usize, 0);
+ 
+         // Second call should now work with the correct buffer size. If not, this may be
+-        // due to some privilege or other unforeseen issue.
++        // due to some privilege or other unforeseen issue - degrade to the
++        // unfiltered list rather than taking the process down.
+         if unsafe { winpcap::PacketGetAdapterNames(buf.as_mut_ptr() as *mut i8, &mut buflen) } == 0
+         {
+-            panic!("Unable to get interface list despite increasing buffer size");
++            return all_ifaces;
+         }
+     }
+ 

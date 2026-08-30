@@ -219,15 +219,21 @@ docker compose -f docker-compose-http.yml logs -f
 
 ## Development & Build
 
-### Step 1: Fetch third-party binaries (required after the first clone)
+### Step 1: Prepare third-party binaries (required after the first clone)
 
-`src-tauri/src/modules/resource_manager.rs` embeds 5 third-party binaries at compile time via `include_bytes!`. Those files are subject to copyright and licensing restrictions (notably Npcap's `Packet.dll`, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) section 8), so they are not tracked in this repository. After cloning you must run the script below, otherwise `cargo build` fails because the files are missing:
+`src-tauri/src/modules/resource_manager.rs` embeds 4 third-party binaries at compile time via `include_bytes!`. They are large and subject to their own licenses, so they are not tracked in this repository. After cloning you must prepare them, otherwise `cargo build` fails because the files are missing.
 
 ```powershell
+# 1) Download the freely redistributable driver files (wintun.dll / WinDivert64.sys)
 .\scripts\fetch-binaries.ps1
+
+# 2) Rebuild easytier-core.exe / easytier-cli.exe without the Npcap dependency
+.\scripts\build-easytier-npcap-free.ps1
 ```
 
-The script downloads `easytier-windows-x86_64-v2.5.0.zip` from the official EasyTier release, verifies the SHA-256 of every file (aborting on any mismatch), then places them into `src-tauri/resources/binaries/`. Files that already exist and pass verification are skipped; pass `-Force` to re-fetch.
+The first script downloads `easytier-windows-x86_64-v2.5.0.zip` from the official EasyTier release, verifies the SHA-256 of every file (aborting on any mismatch), then places them into `src-tauri/resources/binaries/`. Files that already exist and pass verification are skipped; pass `-Force` to re-fetch.
+
+The second script exists for a specific reason: the official `easytier-core.exe` build **statically imports** Npcap's `packet.dll`, and Npcap is not open source software — it may not be redistributed with other software without written permission from the Nmap Project. This script clones EasyTier v2.5.0 (the same commit, so no version bump), applies [patches/pnet_datalink-0.35.0-no-npcap.patch](patches/pnet_datalink-0.35.0-no-npcap.patch) to drop that import, and then parses the resulting PE import table as a hard gate. It requires `cargo` (MSVC toolchain), `protoc` and `libclang`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) section 8.
 
 ### Step 2: Build
 ```bash
@@ -317,12 +323,14 @@ Related files:
 - [LICENSE-LGPL-3.0.txt](LICENSE-LGPL-3.0.txt) — full LGPL-3.0 text
 - [LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt) — full GPL-3.0 text (incorporated by reference into LGPL-3.0)
 - [patches/easytier-2.6.0-mctier-android.patch](patches/easytier-2.6.0-mctier-android.patch) — EasyTier modifications for Android
+- [patches/pnet_datalink-0.35.0-no-npcap.patch](patches/pnet_datalink-0.35.0-no-npcap.patch) — removes the static Npcap `Packet.dll` link dependency on Windows
 - [docs/android/rebuild-with-modified-easytier.md](docs/android/rebuild-with-modified-easytier.md) — rebuild the Android app with your own modified EasyTier
 - [licenses/](licenses/) — full third-party license texts (LGPL-3.0, GPL-3.0, GPL-2.0, Apache-2.0, MIT, BSD-3-Clause, Wintun)
 
 `THIRD_PARTY_NOTICES.md` covers versions, SHA-256 hashes, licenses and modification status
-for EasyTier, Wintun, WinDivert, Npcap, Javassist, LocalVQE / GGML / model weights, WebRTC
-and the application-level dependencies.
+for EasyTier, Wintun, WinDivert, LocalVQE / GGML / model weights, WebRTC
+and the application-level dependencies. Section 8 documents the cause and removal of the
+Npcap `packet.dll` dependency — this project no longer ships any Npcap file.
 
 ### Trademarks and Non-Affiliation
 
