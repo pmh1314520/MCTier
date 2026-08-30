@@ -3699,12 +3699,15 @@ pub async fn send_p2p_chat_message(
 #[tauri::command]
 pub async fn set_chat_peer_roster(
     entries: Vec<(String, String)>,
+    readers: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let core = state.core.lock().await;
     let chat_service = core.get_chat_service();
     let chat_svc = chat_service.lock().await;
     chat_svc.set_peer_roster(entries);
+    // readers 为 None/空表示"名单尚未就绪"，此时清空以放行（见 set_allowed_readers 说明）
+    chat_svc.set_allowed_readers(readers.unwrap_or_default());
     Ok(())
 }
 

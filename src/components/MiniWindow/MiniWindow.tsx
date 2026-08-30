@@ -586,28 +586,45 @@ export const MiniWindow: React.FC = () => {
     console.log('🔄 [MiniWindow] 玩家列表变化，更新P2P聊天连接');
     console.log('  - 其他玩家IPs:', playerIPs);
 
-    // 大厅身份名册：playerId -> 虚拟IP（含自己），供后端校验消息发送者身份，
+    // 大厅身份名册：playerId -> 虚拟IP，供后端校验消息发送者身份，
     // 防止同大厅成员冒用他人 playerId 发言。
+    //
+    // 注意 players 不含自己（见 WebRTCClient 中 players-list 的自身过滤），
+    // 因此需要显式补上本机条目，名册才是完整的大厅成员表。
     //
     // 后端对"名册中不存在的 playerId"是放行的（新玩家刚加入属正常现象），
     // 因此这里即使名册暂时不完整也不会误伤合法成员，可以直接下发。
-    const roster = players
+    const roster: Array<[string, string]> = players
       .filter((p) => p.id && p.virtualIp)
       .map((p) => [p.id, p.virtualIp as string] as [string, string]);
+    if (currentPlayerId && lobby.virtualIp) {
+      roster.push([currentPlayerId, lobby.virtualIp]);
+    }
+
+    // 允许读取本机聊天记录/订阅消息流的成员IP。读取类接口不携带 playerId，
+    // 只能按来源IP判断，因此与共享一样，仅在所有成员虚拟IP均已就绪时才启用校验。
+    // 必须含本机：前端自订阅 SSE 走的是 http://{本机虚拟IP}:14540/api/chat/stream。
+    const peerIps = players.map((p) => p.virtualIp).filter(Boolean) as string[];
+    const rosterComplete = peerIps.length === players.length && !!lobby.virtualIp;
+    const chatReaders = rosterComplete ? [...peerIps, lobby.virtualIp] : undefined;
 
     // 初始化P2P聊天服务（传入自己的虚拟IP用于过滤）
-    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp, roster);
+    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp, roster, chatReaders);
 
-    // 同步文件共享的可访问成员（含自己）：被移出大厅的玩家仍可能留在 EasyTier
-    // 虚拟网内，后端据此拒绝非成员浏览与下载共享内容。
+    // 同步文件共享的可访问成员：被移出大厅的玩家仍可能留在 EasyTier 虚拟网内，
+    // 后端据此拒绝非成员浏览与下载共享内容。
+    //
+    // 必须包含本机虚拟IP：查看"我的共享"同样是走 HTTP 请求本机的 14539
+    // （见 FileShareManagerNew 的 loadRemoteShares），而 players 不含自己，
+    // 漏掉本机会导致客户端把自己也拒掉。
     //
     // 仅在"每个成员的虚拟IP都已就绪"时才下发名单并启用校验：玩家的虚拟IP是
     // 异步补齐的（这也是 backfillRemoteShareIps 存在的原因），名单不完整时
     // 无法区分"非成员"与"IP 尚未同步的合法成员"，此时下发空名单以放行，
     // 避免把共享重新退化成"有时有有时无"。
-    const memberIps = players.map((p) => p.virtualIp).filter(Boolean) as string[];
-    const rosterComplete = players.length > 0 && memberIps.length === players.length;
-    void fileShareService.updateAllowedPeers(rosterComplete ? memberIps : []);
+    void fileShareService.updateAllowedPeers(
+      rosterComplete ? [...peerIps, lobby.virtualIp] : []
+    );
     void p2pChatService.sendAvatar(config.avatarData).catch((error) => {
       console.warn('发送大厅头像同步消息失败:', error);
     });

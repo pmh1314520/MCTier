@@ -47,7 +47,8 @@ class P2PChatService {
     peerIps: string[],
     currentPlayerId: string,
     myVirtualIp: string,
-    roster?: Array<[string, string]>
+    roster?: Array<[string, string]>,
+    readers?: string[]
   ): void {
     // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
     this.peerIps = peerIps;
@@ -60,16 +61,20 @@ class P2PChatService {
     console.log('  - 其他玩家IPs:', peerIps);
 
     if (roster) {
-      void this.updatePeerRoster(roster);
+      void this.updatePeerRoster(roster, readers);
     }
   }
 
   /**
    * 下发大厅身份名册，供后端校验聊天消息发送者身份
+   *
+   * `readers` 为允许读取本机聊天记录的成员IP（含本机，本机需自订阅 SSE 流）。
+   * 仅在所有成员虚拟IP均已就绪时传入；未就绪时省略，后端会放行以避免误拒
+   * IP 尚未同步的合法成员。
    */
-  async updatePeerRoster(roster: Array<[string, string]>): Promise<void> {
+  async updatePeerRoster(roster: Array<[string, string]>, readers?: string[]): Promise<void> {
     try {
-      await invoke('set_chat_peer_roster', { entries: roster });
+      await invoke('set_chat_peer_roster', { entries: roster, readers: readers ?? null });
       console.log(`🪪 [P2PChatService] 已下发身份名册（${roster.length} 人）`);
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 下发身份名册失败:', error);

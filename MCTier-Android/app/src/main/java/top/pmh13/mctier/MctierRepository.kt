@@ -900,17 +900,22 @@ class MctierRepository(private val context: Context) {
             .filter { it.id.isNotBlank() && !it.virtualIp.isNullOrBlank() }
             .associate { it.id to it.virtualIp!! }
 
+        // 仅在"每个成员的虚拟IP都已就绪"时才启用来源校验：玩家虚拟IP 是异步补齐的
+        // （这也是 backfillRemoteShareIps 存在的原因），名单不完整时无法区分
+        // "非成员"与"IP 尚未同步的合法成员"，此时下发空名单放行，避免共享/聊天历史
+        // 重新退化成"有时有有时无"。
+        //
+        // 注意 Android 的 players 含自己（加入大厅时即写入本机条目），因此 roster
+        // 已覆盖本机地址，无需额外补。
+        val rosterComplete = players.isNotEmpty() && roster.size == players.size
+        val memberIps = if (rosterComplete) roster.values else emptyList()
+
         chatClient?.let { client ->
             client.setPeers(players.filter { it.id != selfId }.mapNotNull { it.virtualIp })
             client.setPeerRoster(roster)
+            client.setAllowedReaders(memberIps)
         }
-
-        // 仅在"每个成员的虚拟IP都已就绪"时才启用共享成员校验：玩家虚拟IP 是异步
-        // 补齐的（这也是 backfillRemoteShareIps 存在的原因），名单不完整时无法区分
-        // "非成员"与"IP 尚未同步的合法成员"，此时下发空名单放行，避免共享重新
-        // 退化成"有时有有时无"。
-        val rosterComplete = players.isNotEmpty() && roster.size == players.size
-        fileServer?.setAllowedPeers(if (rosterComplete) roster.values else emptyList())
+        fileServer?.setAllowedPeers(memberIps)
     }
 
     /** 玩家列表更新后，回填此前 ownerIp 为空的远端共享（修“共享时有时无”） */

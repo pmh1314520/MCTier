@@ -61,6 +61,16 @@ class ChatP2PClient(
         server.setPeerRoster(roster)
     }
 
+    /**
+     * 下发允许读取本机聊天记录的成员 IP。
+     *
+     * 读取类接口不携带 playerId，只能按来源 IP 判断，因此与名册分开下发；
+     * 仅在所有成员虚拟IP均已就绪时传入非空集合。
+     */
+    fun setAllowedReaders(ips: Collection<String>) {
+        server.setAllowedReaders(ips)
+    }
+
     fun sendText(playerName: String, content: String): ChatWireMessage =
         sendInternal(playerName, content, "text", null)
 

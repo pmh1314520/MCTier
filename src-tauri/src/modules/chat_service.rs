@@ -4,7 +4,7 @@
  * 不依赖中心服务器，直接在虚拟局域网中传输
  */
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -95,6 +95,12 @@ pub struct ChatService {
     /// 由前端在玩家列表变化时下发（数据源是信令服务器的大厅成员列表），
     /// 用于校验 `/api/chat/send` 里自称的 `player_id` 是否与其真实来源 IP 相符。
     peer_roster: Arc<RwLock<HashMap<String, String>>>,
+    /// 允许读取本机聊天记录的成员 IP 集合。
+    ///
+    /// 读取类接口（历史与 SSE 流）不携带 player_id，只能按来源 IP 判断，
+    /// 因此单独维护一份 IP 集合。前端仅在"所有成员虚拟IP均已就绪"时才下发，
+    /// 避免 IP 尚未同步的合法成员被误拒。
+    allowed_readers: Arc<RwLock<HashSet<String>>>,
 }
 
 impl ChatService {
@@ -108,6 +114,7 @@ impl ChatService {
             server_handle: Arc::new(RwLock::new(None)),
             message_tx: tx,
             peer_roster: Arc::new(RwLock::new(HashMap::new())),
+            allowed_readers: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -135,9 +142,20 @@ impl ChatService {
         *self.peer_roster.write() = roster;
     }
 
-    /// 清空身份名册（退出大厅时调用，避免旧名册影响下一个大厅）
+    /// 更新允许读取聊天记录的成员 IP 集合（必须含本机：本机要自订阅 SSE 流）
+    pub fn set_allowed_readers(&self, ips: Vec<String>) {
+        let readers: HashSet<String> = ips
+            .into_iter()
+            .filter(|ip| !ip.trim().is_empty())
+            .collect();
+        log::info!("🪪 [ChatService] 更新可读取成员，共 {} 个地址", readers.len());
+        *self.allowed_readers.write() = readers;
+    }
+
+    /// 清空身份名册与可读取成员（退出大厅时调用，避免影响下一个大厅）
     pub fn clear_peer_roster(&self) {
         self.peer_roster.write().clear();
+        self.allowed_readers.write().clear();
     }
 
     /// 启动HTTP聊天服务器
@@ -193,6 +211,7 @@ impl ChatService {
                 local_messages: local_messages.clone(),
                 message_tx: message_tx.clone(),
                 peer_roster: self.peer_roster.clone(),
+                allowed_readers: self.allowed_readers.clone(),
             });
 
         log::info!("🚀 [ChatService] 正在启动聊天服务器...");
@@ -288,13 +307,43 @@ struct AppState {
     local_messages: Arc<RwLock<VecDeque<ChatMessage>>>,
     message_tx: broadcast::Sender<ChatMessage>,
     peer_roster: Arc<RwLock<HashMap<String, String>>>,
+    allowed_readers: Arc<RwLock<HashSet<String>>>,
+}
+
+/// 判断调用方是否有权读取本机聊天记录。
+///
+/// 集合为空时放行（尚未下发、或对端为旧版本客户端）；非空则要求来源 IP 在册，
+/// 从而阻止被移出大厅但仍留在 EasyTier 虚拟网内的节点继续拉取聊天历史。
+fn is_allowed_reader(allowed: &HashSet<String>, peer_ip: std::net::IpAddr) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    allowed.iter().any(|entry| {
+        entry
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip == peer_ip)
+            .unwrap_or(false)
+    })
 }
 
 /// 获取消息列表
 async fn get_messages(
     State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     Query(params): Query<GetMessagesQuery>,
-) -> Json<Vec<ChatMessage>> {
+) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
+    // 非大厅成员不得拉取聊天历史
+    {
+        let allowed = state.allowed_readers.read();
+        if !is_allowed_reader(&allowed, peer_addr.ip()) {
+            log::warn!(
+                "🚫 [ChatService] 拒绝非大厅成员拉取聊天历史：来源 {}",
+                peer_addr.ip()
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     let messages = state.local_messages.read();
     
     let result: Vec<ChatMessage> = if let Some(since) = params.since {
@@ -308,8 +357,8 @@ async fn get_messages(
     };
     
     log::info!("📋 [ChatService] 收到获取消息请求，返回 {} 条消息", result.len());
-    
-    Json(result)
+
+    Ok(Json(result))
 }
 
 /// 简单的按玩家滑动窗口限流：防止同大厅恶意成员刷屏。
@@ -431,7 +480,20 @@ async fn send_message(
 /// SSE流式推送消息
 async fn stream_messages(
     State(state): State<AppState>,
-) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
+    // 非大厅成员不得订阅本机消息流
+    {
+        let allowed = state.allowed_readers.read();
+        if !is_allowed_reader(&allowed, peer_addr.ip()) {
+            log::warn!(
+                "🚫 [ChatService] 拒绝非大厅成员订阅消息流：来源 {}",
+                peer_addr.ip()
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     log::info!("📡 [ChatService] 新的SSE连接建立");
     
     let rx = state.message_tx.subscribe();
@@ -456,11 +518,11 @@ async fn stream_messages(
         }
     });
     
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(std::time::Duration::from_secs(15))
-            .text("keep-alive")
-    )
+            .text("keep-alive"),
+    ))
 }
 
 #[cfg(test)]
@@ -535,10 +597,50 @@ mod tests {
     fn clear_peer_roster_resets_identity_checks() {
         let service = ChatService::new();
         service.set_peer_roster(vec![("host-1".to_string(), "10.126.126.1".to_string())]);
+        service.set_allowed_readers(vec!["10.126.126.1".to_string()]);
         service.clear_peer_roster();
         assert!(
             service.peer_roster.read().is_empty(),
             "退出大厅后必须清空名册，否则旧名册会影响下一个大厅"
         );
+        assert!(
+            service.allowed_readers.read().is_empty(),
+            "退出大厅后必须一并清空可读取成员"
+        );
+    }
+
+    #[test]
+    fn rejects_history_reads_from_a_peer_that_left_the_lobby() {
+        // 被移出大厅的成员仍在虚拟网内，但不应还能拉取聊天历史或订阅消息流
+        let allowed: HashSet<String> =
+            ["10.126.126.1", "10.126.126.2"].iter().map(|s| s.to_string()).collect();
+        assert!(!is_allowed_reader(&allowed, ip("10.126.126.9")));
+    }
+
+    #[test]
+    fn allows_history_reads_from_members_including_self() {
+        // 本机要自订阅 SSE 流，因此本机地址必须在册
+        let allowed: HashSet<String> =
+            ["10.126.126.1", "10.126.126.2"].iter().map(|s| s.to_string()).collect();
+        assert!(is_allowed_reader(&allowed, ip("10.126.126.1")));
+        assert!(is_allowed_reader(&allowed, ip("10.126.126.2")));
+    }
+
+    #[test]
+    fn allows_history_reads_before_the_reader_list_is_pushed() {
+        // 名单未就绪（刚进大厅、成员IP 尚未补齐）时放行，避免聊天历史直接读不到
+        assert!(is_allowed_reader(&HashSet::new(), ip("10.126.126.9")));
+    }
+
+    #[test]
+    fn set_allowed_readers_drops_blank_entries() {
+        let service = ChatService::new();
+        service.set_allowed_readers(vec![
+            "10.126.126.1".to_string(),
+            String::new(),
+            "   ".to_string(),
+        ]);
+        let readers = service.allowed_readers.read().clone();
+        assert_eq!(readers.len(), 1, "空白地址不得进入名单：{:?}", readers);
     }
 }

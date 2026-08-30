@@ -39,6 +39,28 @@ class ChatHttpServer(
         peerRoster = roster.filter { it.key.isNotBlank() && it.value.isNotBlank() }
     }
 
+    /**
+     * 允许读取本机聊天记录的成员 IP 集合。
+     *
+     * 读取类接口（`/api/chat/messages`）不携带 playerId，只能按来源 IP 判断，
+     * 因此与发送侧的名册分开维护。集合为空时放行（尚未下发或对端为旧版本）。
+     */
+    @Volatile
+    private var allowedReaders: Set<String> = emptySet()
+
+    /** 更新可读取聊天记录的成员 IP 集合 */
+    fun setAllowedReaders(ips: Collection<String>) {
+        allowedReaders = ips.filter { it.isNotBlank() }.toSet()
+    }
+
+    /** 判断调用方是否有权读取本机聊天记录 */
+    internal fun isAllowedReader(remoteIp: String?): Boolean {
+        val allowed = allowedReaders
+        if (allowed.isEmpty()) return true
+        if (remoteIp.isNullOrBlank()) return true
+        return allowed.contains(normalizeIp(remoteIp))
+    }
+
     /** 把本机发送的消息加入存储（供他人拉取） */
     fun addLocal(message: ChatWireMessage) {
         messages.add(message)
@@ -48,6 +70,7 @@ class ChatHttpServer(
     fun clear() {
         messages.clear()
         peerRoster = emptyMap()
+        allowedReaders = emptySet()
     }
 
     /**
@@ -90,8 +113,17 @@ class ChatHttpServer(
         return try {
             when {
                 session.uri == "/api/chat/messages" && session.method == Method.GET -> {
-                    val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
-                    json(messagesSince(since), origin)
+                    // 非大厅成员不得拉取聊天历史
+                    if (!isAllowedReader(session.remoteIpAddress)) {
+                        Log.w(TAG, "拒绝非大厅成员拉取聊天历史：来源 ${session.remoteIpAddress}")
+                        withCors(
+                            newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "forbidden"),
+                            origin,
+                        )
+                    } else {
+                        val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
+                        json(messagesSince(since), origin)
+                    }
                 }
                 session.uri == "/api/chat/send" && session.method == Method.POST -> handleSend(session, origin)
                 else -> withCors(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found"), origin)
