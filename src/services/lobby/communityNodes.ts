@@ -5,6 +5,12 @@
  * - 节点存活判定与「失效超过 1 天自动移除」由信令服务器负责，客户端只做展示
  */
 
+import {
+  isSafeServerNode,
+  isSafeSignalingServer,
+  sanitizeUntrustedText,
+} from '../../security/trustBoundary.ts';
+
 export interface CommunityNode {
   name: string;
   address: string;
@@ -88,7 +94,12 @@ function requestOnce<T>(
   parse: (msg: any) => T,
   timeoutMs: number,
 ): Promise<T> {
-  const url = signalingServer || DEFAULT_SIGNALING;
+  const url = signalingServer?.trim() || DEFAULT_SIGNALING;
+  // 与公开广场一致：自定义信令地址属于跨信任边界输入，先过校验再连接，
+  // 避免 http(s)/file 等非 WebSocket 协议或带凭据的 URL 被直接送进 WebSocket。
+  if (!isSafeSignalingServer(url)) {
+    return Promise.reject(new Error('信令服务器地址无效'));
+  }
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     let ws: WebSocket;
@@ -153,12 +164,14 @@ function requestOnce<T>(
 
 /** 把服务器返回的单条节点数据收敛成前端类型，脏数据一律丢弃 */
 function normalizeNode(raw: any): CommunityNode | null {
-  const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
+  // 名称与昵称会直接渲染到界面：剥离控制字符并限长，长度上限与服务器侧一致
+  const name = sanitizeUntrustedText(raw?.name, 32).trim();
   const address = typeof raw?.address === 'string' ? raw.address.trim() : '';
   if (!name || !address) return null;
-  const submitter = typeof raw?.submitter === 'string' && raw.submitter.trim()
-    ? raw.submitter.trim()
-    : undefined;
+  // 地址会被写进 EasyTier 启动参数，必须是受支持协议的规范节点地址；
+  // 'custom' 是本地 UI 的占位值，不能由服务器数据冒充。
+  if (address === 'custom' || address.length > 128 || !isSafeServerNode(address)) return null;
+  const submitter = sanitizeUntrustedText(raw?.submitter, 24).trim() || undefined;
   const toSecs = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
   const latency = typeof raw?.latencyMs === 'number' && Number.isFinite(raw.latencyMs) && raw.latencyMs >= 0
     ? Math.round(raw.latencyMs)

@@ -25,6 +25,8 @@ import top.pmh13.mctier.data.ChatMessage
 import top.pmh13.mctier.data.ChatPeerIdentity
 import top.pmh13.mctier.data.ChatTokenHexLength
 import top.pmh13.mctier.data.ChatWireMessage
+import top.pmh13.mctier.data.CommunityNodeAddressMaxLen
+import top.pmh13.mctier.data.CommunityNodeNameMaxLen
 import top.pmh13.mctier.data.AppClientVersion
 import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.data.DefaultSignalingServer
@@ -1988,16 +1990,51 @@ class MctierRepository(private val context: Context) {
         )
     }
 
-    /** 把共享节点保存进本地自定义节点，之后即可在节点列表中选用 */
+    /**
+     * 把共享节点保存进本地自定义节点，之后即可在节点列表中选用。
+     *
+     * 列表内容来自信令服务器（且任何人都能投稿），属于跨信任边界数据：
+     * 名称会渲染到界面、地址会进入 EasyTier 启动参数，因此这里先按与桌面端
+     * 一致的规则清洗与限长，再决定是否落盘。
+     */
     fun adoptCommunityNode(node: top.pmh13.mctier.data.CommunityNodeWire) {
+        val safeName = sanitizeCommunityText(node.name, CommunityNodeNameMaxLen)
+        val safeAddress = node.address.trim()
+        if (safeName.isBlank()) {
+            toast(L("该节点名称无效", "This node name is invalid"))
+            return
+        }
+        if (!isSafeCommunityNodeAddress(safeAddress)) {
+            toast(L("该节点地址无效", "This node address is invalid"))
+            return
+        }
         val known = top.pmh13.mctier.data.BuiltinNodes.map { it.address } +
             _state.value.customNodes.map { it.address }
-        if (node.address in known) {
+        if (safeAddress in known) {
             toast(L("该节点已在你的节点列表中", "This node is already in your node list"))
             return
         }
-        addCustomNode(node.name, node.address)
-        toast(L("已添加到我的节点：", "Added to your nodes: ") + node.name)
+        addCustomNode(safeName, safeAddress)
+        toast(L("已添加到我的节点：", "Added to your nodes: ") + safeName)
+    }
+
+    /** 清洗共享节点的展示文本：去掉控制字符并限长（与信令服务器规则一致） */
+    private fun sanitizeCommunityText(raw: String, maxLen: Int): String =
+        raw.trim().filterNot { it.isISOControl() }.take(maxLen).trim()
+
+    /**
+     * 校验共享节点地址是否可安全使用。
+     *
+     * 只接受 EasyTier 支持的协议 + 非空主机，且不允许出现空白/控制字符与
+     * URL 凭据（user:pass@），避免把恶意地址塞进启动参数。
+     */
+    private fun isSafeCommunityNodeAddress(address: String): Boolean {
+        if (address.isBlank() || address.length > CommunityNodeAddressMaxLen) return false
+        if (address.any { it.isWhitespace() || it.isISOControl() }) return false
+        val match = Regex("^(tcp|udp|ws|wss)://(.+)$").find(address) ?: return false
+        val hostPart = match.groupValues[2].substringBefore('/')
+        if (hostPart.isBlank() || hostPart.contains('@')) return false
+        return true
     }
 
     // ==================== 新手引导 / 自动大厅 ====================

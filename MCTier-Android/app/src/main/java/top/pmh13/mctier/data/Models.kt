@@ -376,6 +376,12 @@ data class CommunityNodeListWire(
 /** 服务器侧的自动淘汰阈值（1 天），仅用于前端「还剩多久被移除」文案 */
 const val CommunityNodeMaxOfflineSecs: Long = 24 * 60 * 60
 
+/** 共享节点名称长度上限（与信令服务器 COMMUNITY_NODE_NAME_MAX_LEN 一致） */
+const val CommunityNodeNameMaxLen: Int = 32
+
+/** 共享节点地址长度上限（与信令服务器 COMMUNITY_NODE_ADDRESS_MAX_LEN 一致） */
+const val CommunityNodeAddressMaxLen: Int = 128
+
 /** 待办事项（房间工具，多人协同同步；字段名与桌面端一致） */
 @Serializable
 data class TodoItem(
