@@ -117,7 +117,12 @@ class RemoteFileClient(private val context: Context) {
             val append = isResume && existing > 0
             body.byteStream().use { input ->
                 val output = if (customPart != null) {
-                    context.contentResolver.openOutputStream(customPart.uri, if (append) "wa" else "w")
+                    // 必须用 "wt"（truncate）而不是 "w"：SAF 的 "w" 不保证截断已有内容。
+                    // 若上次留下的 .part 比本次全量响应更长（例如服务端不支持 Range 而返回 200，
+                    // 或对端文件已被替换成更小的文件），用 "w" 会残留旧文件尾部字节，
+                    // 下载"成功"但文件损坏。本地文件路径分支的 FileOutputStream(append=false)
+                    // 本身即截断，因此只有 SAF 分支有此问题。
+                    context.contentResolver.openOutputStream(customPart.uri, if (append) "wa" else "wt")
                 } else {
                     java.io.FileOutputStream(partFile!!, append)
                 } ?: error("无法写入下载文件")
