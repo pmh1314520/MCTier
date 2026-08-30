@@ -93,7 +93,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
     try {
       console.log('开始加载设置...');
       const settings = await invoke<any>('get_settings');
-      console.log('设置加载成功:', settings);
+      console.log('设置加载成功');
       
       clearTimeout(timeoutId); // 清除超时定时器
       
@@ -337,7 +337,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         exitNodes: merged.exitNodes?.trim() || null,
         subnetProxyCidrs: merged.subnetProxyCidrs?.trim() || null,
       });
-      console.log('设置已保存:', merged);
+      console.log('设置已保存');
       message.success(tl('已保存', 'Saved'), 1);
     } catch (e) {
       console.error('保存设置失败:', e);

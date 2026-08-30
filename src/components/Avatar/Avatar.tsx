@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { isSafeImageDataUrl } from '../../security/trustBoundary';
 import './Avatar.css';
 
 const MAX_SIZE = 256;
@@ -59,6 +60,7 @@ export const Avatar: React.FC<AvatarProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const initial = Array.from((name || '?').trim())[0] || '?';
+  const safeAvatarData = isSafeImageDataUrl(avatarData) ? avatarData : undefined;
 
   const chooseAvatar = () => {
     if (!editable || !onChange) return;
@@ -84,7 +86,7 @@ export const Avatar: React.FC<AvatarProps> = ({
 
   return (
     <div
-      className={`mct-avatar ${avatarData ? 'has-image' : 'no-image'} ${editable ? 'mct-avatar-editable' : ''} ${className}`.trim()}
+      className={`mct-avatar ${safeAvatarData ? 'has-image' : 'no-image'} ${editable ? 'mct-avatar-editable' : ''} ${className}`.trim()}
       style={{ width: size, height: size }}
       onClick={chooseAvatar}
       onKeyDown={handleKeyDown}
@@ -92,7 +94,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       tabIndex={editable ? 0 : undefined}
       aria-label={editable ? '上传头像' : `${name || '玩家'}的头像`}
     >
-      {avatarData ? <img src={avatarData} alt="" draggable={false} /> : <span>{initial.toUpperCase()}</span>}
+      {safeAvatarData ? <img src={safeAvatarData} alt="" draggable={false} /> : <span>{initial.toUpperCase()}</span>}
       {editable && <input ref={inputRef} type="file" accept="image/*" onChange={(event) => void handleFile(event)} />}
     </div>
   );

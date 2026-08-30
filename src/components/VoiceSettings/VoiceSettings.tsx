@@ -54,12 +54,7 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
 
   const loadDevices = async () => {
     try {
-      // 触发一次权限请求，否则设备 label 为空
-      try {
-        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-        tmp.getTracks().forEach((t) => t.stop());
-      } catch { /* 用户可能拒绝，仍尝试枚举 */ }
-
+      // 仅枚举设备；麦克风权限只在用户明确点击「开始试音」时申请。
       const devices = await navigator.mediaDevices.enumerateDevices();
       const ins: DeviceOption[] = [{ value: '', label: tl('系统默认麦克风', 'System Default Microphone') }];
       const outs: DeviceOption[] = [{ value: '', label: tl('系统默认扬声器', 'System Default Speaker') }];

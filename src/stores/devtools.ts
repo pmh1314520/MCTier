@@ -10,10 +10,17 @@ import { useAppStore } from './appStore';
  */
 export const printStoreState = (): void => {
   const state = useAppStore.getState();
+  const safeLobby = state.lobby ? { ...state.lobby, password: state.lobby.password ? '[redacted]' : undefined } : null;
+  const safeConfig = {
+    ...state.config,
+    autoLobby: state.config.autoLobby
+      ? { ...state.config.autoLobby, lobbyPassword: state.config.autoLobby.lobbyPassword ? '[redacted]' : undefined }
+      : state.config.autoLobby,
+  };
   console.group('📊 MCTier Store 状态');
   console.log('应用状态:', state.appState);
   console.log('错误信息:', state.errorMessage);
-  console.log('大厅信息:', state.lobby);
+  console.log('大厅信息:', safeLobby);
   console.log('玩家列表:', state.players);
   console.log('麦克风状态:', state.micEnabled);
   console.log('静音玩家:', Array.from(state.mutedPlayers));
@@ -21,7 +28,7 @@ export const printStoreState = (): void => {
   console.log('状态窗口收起:', state.statusWindowCollapsed);
   console.log('状态窗口位置:', state.statusWindowPosition);
   console.log('主窗口可见:', state.mainWindowVisible);
-  console.log('用户配置:', state.config);
+  console.log('用户配置:', safeConfig);
   console.groupEnd();
 };
 
@@ -131,11 +138,18 @@ export const createTestLobby = (): void => {
  */
 export const exportStoreState = (): string => {
   const state = useAppStore.getState();
+  const safeLobby = state.lobby ? { ...state.lobby, password: state.lobby.password ? '[redacted]' : undefined } : null;
+  const safeConfig = {
+    ...state.config,
+    autoLobby: state.config.autoLobby
+      ? { ...state.config.autoLobby, lobbyPassword: state.config.autoLobby.lobbyPassword ? '[redacted]' : undefined }
+      : state.config.autoLobby,
+  };
   return JSON.stringify(
     {
       appState: state.appState,
       errorMessage: state.errorMessage,
-      lobby: state.lobby,
+      lobby: safeLobby,
       players: state.players,
       micEnabled: state.micEnabled,
       mutedPlayers: Array.from(state.mutedPlayers),
@@ -143,7 +157,7 @@ export const exportStoreState = (): string => {
       statusWindowCollapsed: state.statusWindowCollapsed,
       statusWindowPosition: state.statusWindowPosition,
       mainWindowVisible: state.mainWindowVisible,
-      config: state.config,
+      config: safeConfig,
     },
     null,
     2

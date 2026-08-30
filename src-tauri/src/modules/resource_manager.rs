@@ -1,7 +1,7 @@
 use crate::modules::error::AppError;
-use std::path::PathBuf;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use tauri::Manager;
 
 // 将二进制文件嵌入到可执行文件中
@@ -17,7 +17,7 @@ static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun
 static WINDIVERT_SYS_BYTES: &[u8] = include_bytes!("../../resources/binaries/WinDivert64.sys");
 
 /// 资源管理器
-/// 
+///
 /// 负责管理应用程序的资源文件路径
 /// 所有二进制文件都嵌入到exe中，运行时提取到临时目录
 pub struct ResourceManager;
@@ -35,7 +35,11 @@ impl ResourceManager {
             if let Some(exe_dir) = exe_path.parent() {
                 candidates.push(exe_dir.join("binaries").join(filename));
                 candidates.push(exe_dir.join("..\\..\\..\\binaries").join(filename));
-                candidates.push(exe_dir.join("..\\..\\..\\resources\\binaries").join(filename));
+                candidates.push(
+                    exe_dir
+                        .join("..\\..\\..\\resources\\binaries")
+                        .join(filename),
+                );
             }
         }
 
@@ -49,10 +53,10 @@ impl ResourceManager {
     }
 
     /// 获取运行时目录（用于存放提取的二进制文件）
-    /// 
+    ///
     /// # 参数
     /// * `app_handle` - Tauri 应用句柄
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 运行时目录路径
     /// * `Err(AppError)` - 获取路径失败
@@ -61,28 +65,25 @@ impl ResourceManager {
         let runtime_dir = app_handle
             .path()
             .app_local_data_dir()
-            .map_err(|e| {
-                AppError::ConfigError(format!("无法获取本地数据目录: {}", e))
-            })?
+            .map_err(|e| AppError::ConfigError(format!("无法获取本地数据目录: {}", e)))?
             .join("runtime");
-        
+
         // 确保运行时目录存在
         if !runtime_dir.exists() {
-            fs::create_dir_all(&runtime_dir).map_err(|e| {
-                AppError::ConfigError(format!("无法创建运行时目录: {}", e))
-            })?;
+            fs::create_dir_all(&runtime_dir)
+                .map_err(|e| AppError::ConfigError(format!("无法创建运行时目录: {}", e)))?;
         }
-        
+
         Ok(runtime_dir)
     }
-    
+
     /// 提取嵌入的二进制文件到运行时目录
-    /// 
+    ///
     /// # 参数
     /// * `app_handle` - Tauri 应用句柄
     /// * `filename` - 文件名
     /// * `bytes` - 文件内容
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 提取后的文件路径
     /// * `Err(AppError)` - 提取失败
@@ -94,7 +95,7 @@ impl ResourceManager {
     ) -> Result<PathBuf, AppError> {
         let runtime_dir = Self::get_runtime_dir(app_handle)?;
         let target_path = runtime_dir.join(filename);
-        
+
         // 如果文件已存在且大小一致，跳过提取
         if target_path.exists() {
             if let Ok(metadata) = fs::metadata(&target_path) {
@@ -104,26 +105,24 @@ impl ResourceManager {
                 }
             }
         }
-        
+
         // 提取文件
         log::info!("提取嵌入的二进制文件: {} ({} 字节)", filename, bytes.len());
-        let mut file = fs::File::create(&target_path).map_err(|e| {
-            AppError::ConfigError(format!("无法创建文件 {}: {}", filename, e))
-        })?;
-        
-        file.write_all(bytes).map_err(|e| {
-            AppError::ConfigError(format!("无法写入文件 {}: {}", filename, e))
-        })?;
-        
+        let mut file = fs::File::create(&target_path)
+            .map_err(|e| AppError::ConfigError(format!("无法创建文件 {}: {}", filename, e)))?;
+
+        file.write_all(bytes)
+            .map_err(|e| AppError::ConfigError(format!("无法写入文件 {}: {}", filename, e)))?;
+
         log::info!("成功提取文件到: {:?}", target_path);
         Ok(target_path)
     }
-    
+
     /// 获取 EasyTier 可执行文件的路径
-    /// 
+    ///
     /// # 参数
     /// * `app_handle` - Tauri 应用句柄
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - EasyTier 可执行文件的完整路径
     /// * `Err(AppError)` - 获取路径失败
@@ -139,7 +138,7 @@ impl ResourceManager {
             log::warn!("开发模式 - 未找到外部 easytier-core.exe，回退到内嵌资源提取");
             return Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES);
         }
-        
+
         // 在生产模式下，从嵌入的二进制文件中提取
         #[cfg(not(debug_assertions))]
         {
@@ -161,7 +160,7 @@ impl ResourceManager {
             Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES)
         }
     }
-    
+
     /// 获取 Packet.dll 的路径
     pub fn get_packet_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
@@ -171,13 +170,13 @@ impl ResourceManager {
             }
             return Self::extract_binary(app_handle, "Packet.dll", PACKET_DLL_BYTES);
         }
-        
+
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "Packet.dll", PACKET_DLL_BYTES)
         }
     }
-    
+
     /// 获取 wintun.dll 的路径
     pub fn get_wintun_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
@@ -187,13 +186,13 @@ impl ResourceManager {
             }
             return Self::extract_binary(app_handle, "wintun.dll", WINTUN_DLL_BYTES);
         }
-        
+
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "wintun.dll", WINTUN_DLL_BYTES)
         }
     }
-    
+
     /// 获取 WinDivert64.sys 的路径
     pub fn get_windivert_sys_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
@@ -203,18 +202,18 @@ impl ResourceManager {
             }
             return Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES);
         }
-        
+
         #[cfg(not(debug_assertions))]
         {
             Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES)
         }
     }
-    
+
     /// 获取配置目录路径
-    /// 
+    ///
     /// # 参数
     /// * `app_handle` - Tauri 应用句柄
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 配置目录路径
     /// * `Err(AppError)` - 获取路径失败
@@ -222,25 +221,22 @@ impl ResourceManager {
         let config_dir = app_handle
             .path()
             .app_config_dir()
-            .map_err(|e| {
-                AppError::ConfigError(format!("无法获取配置目录: {}", e))
-            })?;
-        
+            .map_err(|e| AppError::ConfigError(format!("无法获取配置目录: {}", e)))?;
+
         // 确保配置目录存在
         if !config_dir.exists() {
-            std::fs::create_dir_all(&config_dir).map_err(|e| {
-                AppError::ConfigError(format!("无法创建配置目录: {}", e))
-            })?;
+            std::fs::create_dir_all(&config_dir)
+                .map_err(|e| AppError::ConfigError(format!("无法创建配置目录: {}", e)))?;
         }
-        
+
         Ok(config_dir)
     }
-    
+
     /// 获取日志目录路径
-    /// 
+    ///
     /// # 参数
     /// * `app_handle` - Tauri 应用句柄
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 日志目录路径
     /// * `Err(AppError)` - 获取路径失败
@@ -248,17 +244,14 @@ impl ResourceManager {
         let log_dir = app_handle
             .path()
             .app_log_dir()
-            .map_err(|e| {
-                AppError::ConfigError(format!("无法获取日志目录: {}", e))
-            })?;
-        
+            .map_err(|e| AppError::ConfigError(format!("无法获取日志目录: {}", e)))?;
+
         // 确保日志目录存在
         if !log_dir.exists() {
-            std::fs::create_dir_all(&log_dir).map_err(|e| {
-                AppError::ConfigError(format!("无法创建日志目录: {}", e))
-            })?;
+            std::fs::create_dir_all(&log_dir)
+                .map_err(|e| AppError::ConfigError(format!("无法创建日志目录: {}", e)))?;
         }
-        
+
         Ok(log_dir)
     }
 }

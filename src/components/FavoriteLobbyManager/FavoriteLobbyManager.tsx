@@ -3,12 +3,12 @@ import { Modal, Button, Form, Input, Space, App, Switch } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
+import { isSafeServerNode, isSafeSignalingServer, sanitizeUntrustedText } from '../../security/trustBoundary';
 import './FavoriteLobbyManager.css';
 
 export interface FavoriteLobby {
   id: string;
   name: string;
-  password: string;
   playerName?: string;
   useDomain?: boolean;
   serverNode?: string;
@@ -30,6 +30,41 @@ interface FavoriteLobbyManagerProps {
 
 const STORAGE_KEY = 'mctier_favorite_lobbies';
 
+function normalizeFavorite(value: unknown): FavoriteLobby | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  const name = sanitizeUntrustedText(item.name, 64).trim();
+  const id = sanitizeUntrustedText(item.id, 128).trim();
+  if (!name || !id) return null;
+  const playerName = sanitizeUntrustedText(item.playerName, 64).trim();
+  const serverNode = typeof item.serverNode === 'string' && isSafeServerNode(item.serverNode) && item.serverNode !== 'custom'
+    ? item.serverNode.trim()
+    : undefined;
+  const signalingServer = typeof item.signalingServer === 'string' && isSafeSignalingServer(item.signalingServer)
+    ? item.signalingServer.trim()
+    : undefined;
+  const createdAt = typeof item.createdAt === 'number' && Number.isFinite(item.createdAt)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(item.createdAt)))
+    : Date.now();
+  const useCount = typeof item.useCount === 'number' && Number.isFinite(item.useCount)
+    ? Math.max(0, Math.min(1_000_000, Math.trunc(item.useCount)))
+    : 0;
+  const lastUsedAt = typeof item.lastUsedAt === 'number' && Number.isFinite(item.lastUsedAt)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(item.lastUsedAt)))
+    : undefined;
+  return {
+    id,
+    name,
+    ...(playerName ? { playerName } : {}),
+    ...(item.useDomain === true ? { useDomain: true } : {}),
+    ...(serverNode ? { serverNode } : {}),
+    ...(signalingServer ? { signalingServer } : {}),
+    createdAt,
+    useCount,
+    ...(lastUsedAt === undefined ? {} : { lastUsedAt }),
+  };
+}
+
 /**
  * 常用大厅信息管理组件
  */
@@ -46,8 +81,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
   const [favorites, setFavorites] = useState<FavoriteLobby[]>([]);
   const [editingFavorite, setEditingFavorite] = useState<FavoriteLobby | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [form] = Form.useForm<{ name: string; password: string; playerName?: string; useDomain?: boolean }>();
-  const [showPassword, setShowPassword] = useState(false);
+  const [form] = Form.useForm<{ name: string; playerName?: string; useDomain?: boolean }>();
 
   // 从 localStorage 加载常用大厅列表
   useEffect(() => {
@@ -56,7 +90,16 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          setFavorites(Array.isArray(parsed) ? parsed : []);
+          const normalized = Array.isArray(parsed)
+            ? parsed.flatMap((item: unknown) => {
+                const favorite = normalizeFavorite(item);
+                return favorite ? [favorite] : [];
+              })
+            : [];
+          setFavorites(normalized);
+          // Rewrite legacy entries to remove persisted passwords and malformed
+          // fields immediately, even if the user never edits a favorite.
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
         }
       } catch (error) {
         console.error('加载常用大厅列表失败:', error);
@@ -71,8 +114,12 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
   // 保存常用大厅列表到 localStorage
   const saveFavorites = (newFavorites: FavoriteLobby[]) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newFavorites));
-      setFavorites(newFavorites);
+      const normalized = newFavorites.flatMap((item) => {
+        const favorite = normalizeFavorite(item);
+        return favorite ? [favorite] : [];
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      setFavorites(normalized);
     } catch (error) {
       console.error('保存常用大厅列表失败:', error);
       message.error(tl('保存失败', 'Save failed'));
@@ -88,10 +135,9 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
         // 编辑现有项
         const updated = favorites.map(fav =>
           fav.id === editingFavorite.id
-            ? { 
+          ? {
                 ...fav, 
                 name: values.name, 
-                password: values.password,
                 playerName: values.playerName,
                 useDomain: values.useDomain ?? false
               }
@@ -104,7 +150,6 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
         const newFavorite: FavoriteLobby = {
           id: `fav_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           name: values.name,
-          password: values.password,
           playerName: values.playerName,
           useDomain: values.useDomain ?? false,
           serverNode: defaultServerNode,
@@ -118,7 +163,6 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
       form.resetFields();
       setEditingFavorite(null);
       setShowAddForm(false);
-      setShowPassword(false);
     } catch (error) {
       console.error('保存常用大厅失败:', error);
     }
@@ -169,7 +213,6 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
     setEditingFavorite(lobby);
     form.setFieldsValue({
       name: lobby.name,
-      password: lobby.password,
       playerName: lobby.playerName,
       useDomain: lobby.useDomain ?? false,
     });
@@ -181,7 +224,6 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
     form.resetFields();
     setEditingFavorite(null);
     setShowAddForm(false);
-    setShowPassword(false);
   };
 
   return (
@@ -228,71 +270,6 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                       }
                     }}
                   />
-                </Form.Item>
-                <Form.Item
-                  label={tl('密码', 'Password')}
-                  name="password"
-                  rules={[
-                    { required: true, message: tl('请输入密码', 'Enter a password') },
-                    { min: 8, max: 32, message: tl('密码长度为 8-32 个字符', 'Password must be 8-32 characters') },
-                    {
-                      validator: (_, value) => {
-                        if (!value) return Promise.resolve();
-                        const hasLetter = /[a-zA-Z]/.test(value);
-                        const hasDigit = /[0-9]/.test(value);
-                        if (!hasLetter) {
-                          return Promise.reject(new Error(tl('密码必须包含至少一个字母', 'Password must contain at least one letter')));
-                        }
-                        if (!hasDigit) {
-                          return Promise.reject(new Error(tl('密码必须包含至少一个数字', 'Password must contain at least one digit')));
-                        }
-                        return Promise.resolve();
-                      },
-                    },
-                  ]}
-                >
-                  <div style={{ position: 'relative' }}>
-                    <Input
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder={tl('输入密码（至少8个字符，包含字母和数字）', 'Password (min 8 chars, letters and digits)')}
-                      style={{ paddingRight: '40px' }}
-                      className="custom-password-input"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      style={{
-                        position: 'absolute',
-                        right: '8px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: '4px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        transition: 'color 0.2s',
-                        zIndex: 10,
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)'}
-                    >
-                      {showPassword ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                          <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                          <line x1="1" y1="1" x2="23" y2="23"></line>
-                        </svg>
-                      )}
-                    </button>
-                  </div>
                 </Form.Item>
                 <Form.Item
                   label={tl('玩家名称', 'Player Name')}
@@ -371,7 +348,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                       </svg>
-                      <span>{item.password.replace(/./g, '●')}</span>
+                      <span>{tl('加入时需要重新输入密码', 'Password required when joining')}</span>
                     </div>
                     <div className="favorite-card-meta" style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4, display: 'flex', gap: 12 }}>
                       <span>{tl('使用', 'Used')} {item.useCount ?? 0} {tl('次', 'x')}</span>

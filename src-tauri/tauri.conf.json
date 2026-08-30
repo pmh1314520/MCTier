@@ -45,7 +45,6 @@
           "blob:",
           "ws:",
           "wss:",
-          "http://*:14539",
           "http://*:14540",
           "https://gitee.com"
         ],
@@ -70,7 +69,6 @@
           "blob:",
           "ws:",
           "wss:",
-          "http://*:14539",
           "http://*:14540",
           "https://gitee.com",
           "http://localhost:1420"
@@ -83,13 +81,13 @@
     "withGlobalTauri": false
   },
   "plugins": {
+    "shell": {
+      "open": "https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com)(?:[/?#][^\\s]*)?\\z"
+    },
     "deep-link": {
       "desktop": {
         "schemes": ["mctier"]
       }
-    },
-    "shell": {
-      "open": "https?://[a-zA-Z0-9][^\\s\"'<>]*"
     }
   },
   "bundle": {

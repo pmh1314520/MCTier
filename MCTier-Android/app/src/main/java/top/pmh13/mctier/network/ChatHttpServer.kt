@@ -2,189 +2,316 @@ package top.pmh13.mctier.network
 
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
+import top.pmh13.mctier.data.ChatMaxHistoryBytes
+import top.pmh13.mctier.data.ChatMaxHistoryMessages
+import top.pmh13.mctier.data.ChatMaxHttpBodyBytes
+import top.pmh13.mctier.data.ChatPeerIdentity
 import top.pmh13.mctier.data.ChatSendRequest
 import top.pmh13.mctier.data.ChatServerPort
+import top.pmh13.mctier.data.ChatTokenHeader
+import top.pmh13.mctier.data.ChatTokenHexLength
 import top.pmh13.mctier.data.ChatWireMessage
 import top.pmh13.mctier.data.MctierJson
-import java.util.concurrent.CopyOnWriteArrayList
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.security.MessageDigest
+import java.util.ArrayDeque
+import java.util.HashMap
+import java.util.LinkedHashMap
+import java.util.Locale
+import java.util.UUID
 
 /**
- * P2P 聊天服务器（与桌面端 chat_service.rs 完全互通）
+ * P2P chat HTTP server.
  *
- * - POST /api/chat/send      接收其他玩家推送来的消息（存储 + 回调通知 UI）
- * - GET  /api/chat/messages  返回本机存储的消息（支持 ?since=秒 过滤），供他人对账拉取
- *
- * 发送方会把自己发的消息也存进本机，所以任何 peer 都能从发送方拉到完整历史。
+ * Every request needs the signaling-issued token and a TCP source IP present in
+ * the current signaling identity snapshot. Request-body identity fields are
+ * retained only for wire compatibility and are never used for attribution.
  */
 class ChatHttpServer(
     private val ownerId: String,
-    bindIp: String = DEFAULT_BIND_IP,
-) : NanoHTTPD(bindIp.ifBlank { DEFAULT_BIND_IP }, ChatServerPort) {
+    bindIp: String,
+) : NanoHTTPD(requireBindIp(bindIp), ChatServerPort) {
 
-    private val messages = CopyOnWriteArrayList<ChatWireMessage>()
+    private val boundIp = requireBindIp(bindIp)
+    private val sessionLock = Any()
+    private val historyLock = Any()
+    private val rateLimitLock = Any()
+    private val messages = ArrayDeque<ChatWireMessage>()
+    private var historyBytes = 0
+    private var authSession: AuthSession? = null
+    private val requestTimes = HashMap<RateLimitKey, ArrayDeque<Long>>()
+
     /** 收到他人 POST 的新消息时回调（用于推送到 UI） */
     var onMessageReceived: ((ChatWireMessage) -> Unit)? = null
 
     /**
-     * 大厅身份名册：playerId -> 虚拟 IP。
-     *
-     * 用于校验 `/api/chat/send` 里自称的 `playerId` 是否与其真实来源 IP 相符，
-     * 与桌面端 `chat_service.rs` 的判定规则保持一致。
+     * Install the current signaling session. A lower epoch or a different
+     * token at the same epoch is rejected so stale callbacks cannot reopen the
+     * HTTP boundary.
      */
-    @Volatile
-    private var peerRoster: Map<String, String> = emptyMap()
-
-    /** 更新身份名册（只保留同时具备 ID 与 IP 的条目） */
-    fun setPeerRoster(roster: Map<String, String>) {
-        peerRoster = roster.filter { it.key.isNotBlank() && it.value.isNotBlank() }
+    fun configureSession(
+        token: String,
+        tokenEpoch: Long,
+        local: ChatPeerIdentity,
+        peers: List<ChatPeerIdentity>,
+        hostId: String?,
+    ): Boolean {
+        if (!isValidChatToken(token) || tokenEpoch <= 0L || local.playerId != ownerId) return false
+        val normalizedLocal = normalizeIdentity(local) ?: return false
+        if (normalizedLocal.virtualIp != boundIp) return false
+        val identities = buildIdentityMap(normalizedLocal, peers) ?: return false
+        synchronized(sessionLock) {
+            val current = authSession
+            if (current != null) {
+                if (current.local != normalizedLocal) return false
+                if (tokenEpoch < current.tokenEpoch) return false
+                if (tokenEpoch == current.tokenEpoch && current.token != token) return false
+            }
+            if (!isValidHostId(hostId, identities)) return false
+            authSession = AuthSession(token, tokenEpoch, normalizedLocal, hostId, identities)
+        }
+        return true
     }
 
-    /**
-     * 允许读取本机聊天记录的成员 IP 集合。
-     *
-     * 读取类接口（`/api/chat/messages`）不携带 playerId，只能按来源 IP 判断，
-     * 因此与发送侧的名册分开维护。集合为空时放行（尚未下发或对端为旧版本）。
-     */
-    @Volatile
-    private var allowedReaders: Set<String> = emptySet()
-
-    /** 更新可读取聊天记录的成员 IP 集合 */
-    fun setAllowedReaders(ips: Collection<String>) {
-        allowedReaders = ips.filter { it.isNotBlank() }.toSet()
+    /** Rotate only the credential while retaining the authoritative peer map. */
+    fun rotateToken(token: String, tokenEpoch: Long): Boolean {
+        if (!isValidChatToken(token) || tokenEpoch <= 0L) return false
+        synchronized(sessionLock) {
+            val current = authSession ?: return false
+            if (tokenEpoch < current.tokenEpoch) return false
+            if (tokenEpoch == current.tokenEpoch) return current.token == token
+            authSession = current.copy(token = token, tokenEpoch = tokenEpoch)
+        }
+        return true
     }
 
-    /** 判断调用方是否有权读取本机聊天记录 */
-    internal fun isAllowedReader(remoteIp: String?): Boolean {
-        val allowed = allowedReaders
-        if (allowed.isEmpty()) return true
-        if (remoteIp.isNullOrBlank()) return true
-        return allowed.contains(normalizeIp(remoteIp))
+    /** Replace peer identities after an authenticated signaling snapshot. */
+    fun updatePeers(peers: List<ChatPeerIdentity>): Boolean {
+        synchronized(sessionLock) {
+            val current = authSession ?: return false
+            val identities = buildIdentityMap(current.local, peers) ?: return false
+            if (!isValidHostId(current.hostId, identities)) return false
+            authSession = current.copy(identities = identities)
+        }
+        return true
     }
 
-    /** 把本机发送的消息加入存储（供他人拉取） */
-    fun addLocal(message: ChatWireMessage) {
-        messages.add(message)
-        trim()
+    fun updateHostId(hostId: String?): Boolean {
+        synchronized(sessionLock) {
+            val current = authSession ?: return false
+            if (!isValidHostId(hostId, current.identities)) return false
+            authSession = current.copy(hostId = hostId)
+        }
+        return true
     }
 
-    fun clear() {
-        messages.clear()
-        peerRoster = emptyMap()
-        allowedReaders = emptySet()
+    fun currentToken(): String? = synchronized(sessionLock) { authSession?.token }
+
+    fun currentTokenEpoch(): Long = synchronized(sessionLock) { authSession?.tokenEpoch ?: 0L }
+
+    fun localIdentity(): ChatPeerIdentity? = synchronized(sessionLock) { authSession?.local }
+
+    fun hasSession(): Boolean = synchronized(sessionLock) { authSession != null }
+
+    fun isKnownPeer(message: ChatWireMessage): Boolean = synchronized(sessionLock) {
+        authSession?.identities?.values?.any { identity ->
+            identity.playerId == message.playerId && identity.playerName == message.playerName
+        } == true
     }
 
-    /**
-     * 校验消息里自称的 [playerId] 是否确实来自该玩家的虚拟 IP。
-     *
-     * 同一大厅内任何成员都能直连他人的聊天端口，若完全信任请求体里的 `playerId`，
-     * 任意成员都可以伪造成房主或其他玩家发言（含 announce / recall / avatar 等控制消息）。
-     *
-     * 判定规则与桌面端一致：名册为空、或名册中没有该 playerId 时放行（升级过程与
-     * 新玩家刚加入都属正常）；名册中存在但登记 IP 与来源 IP 不一致时判定为冒名。
-     */
-    internal fun senderIdentityMatches(playerId: String, remoteIp: String?): Boolean {
-        val roster = peerRoster
-        if (roster.isEmpty() || playerId.isBlank()) return true
-        val expected = roster[playerId] ?: return true
-        if (remoteIp.isNullOrBlank()) return true
-        return expected == normalizeIp(remoteIp)
+    /** 把本机发送的消息加入存储（供他人拉取）。 */
+    fun addLocal(message: ChatWireMessage): Boolean {
+        val session = synchronized(sessionLock) { authSession } ?: return false
+        if (message.playerId != session.local.playerId || message.playerName != session.local.playerName) return false
+        if (!isValidMessage(message, hostId = session.hostId, checkHost = true)) return false
+        return storeMessage(message)
     }
 
-    /** 归一化来源地址：去掉 IPv6 映射前缀与端口，便于与名册里的 IPv4 文本比较。 */
-    private fun normalizeIp(raw: String): String {
-        var ip = raw.trim()
-        if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
-        return ip
+    /** Stop/reset is a security boundary: revoke credentials and discard history. */
+    fun clearSession() {
+        synchronized(sessionLock) { authSession = null }
+        synchronized(rateLimitLock) { requestTimes.clear() }
+        synchronized(historyLock) {
+            messages.clear()
+            historyBytes = 0
+        }
     }
 
-    private fun trim() {
-        while (messages.size > 1000) messages.removeAt(0)
-    }
-
-    private fun messagesSince(since: Long?): List<ChatWireMessage> =
+    private fun messagesSince(since: Long?): List<ChatWireMessage> = synchronized(historyLock) {
         if (since == null) messages.toList() else messages.filter { it.timestamp > since }
+    }
 
     override fun serve(session: IHTTPSession): Response {
         val origin = LanCors.originOf(session)
-        // 预检请求：仅对白名单来源回写跨域头
         if (session.method == Method.OPTIONS) {
             return withCors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""), origin)
         }
         return try {
             when {
-                session.uri == "/api/chat/messages" && session.method == Method.GET -> {
-                    // 非大厅成员不得拉取聊天历史
-                    if (!isAllowedReader(session.remoteIpAddress)) {
-                        Log.w(TAG, "拒绝非大厅成员拉取聊天历史：来源 ${session.remoteIpAddress}")
-                        withCors(
-                            newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "forbidden"),
-                            origin,
-                        )
-                    } else {
-                        val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
-                        json(messagesSince(since), origin)
-                    }
-                }
+                session.uri == "/api/chat/messages" && session.method == Method.GET -> handleMessages(session, origin)
                 session.uri == "/api/chat/send" && session.method == Method.POST -> handleSend(session, origin)
                 else -> withCors(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found"), origin)
             }
+        } catch (rejected: RequestRejected) {
+            withCors(newFixedLengthResponse(rejected.status, "text/plain", rejected.message ?: "request rejected"), origin)
         } catch (e: Exception) {
             Log.w(TAG, "处理聊天请求失败: ${e.message}")
             withCors(newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "error"), origin)
         }
     }
 
-    /**
-     * 为响应附加跨域头。
-     *
-     * 只对白名单内的来源回写 `Access-Control-Allow-Origin`（详见 [LanCors]），
-     * 避免虚拟网内任意网页在浏览器里读取本机聊天记录。
-     */
-    private fun withCors(response: Response, origin: String?): Response =
-        LanCors.apply(response, origin)
+    private fun handleMessages(session: IHTTPSession, origin: String?): Response {
+        val auth = authenticate(session)
+        if (!allowRequest(auth.identity, auth.sourceIp)) reject(Response.Status.TOO_MANY_REQUESTS)
+        val rawSince = session.parameters["since"]?.firstOrNull()
+        val since = when {
+            rawSince == null -> null
+            rawSince.isBlank() -> reject(Response.Status.BAD_REQUEST)
+            else -> rawSince.toLongOrNull()?.takeIf { it >= 0L } ?: reject(Response.Status.BAD_REQUEST)
+        }
+        return json(messagesSince(since), origin)
+    }
 
     private fun handleSend(session: IHTTPSession, origin: String?): Response {
-        // 【中文乱码修复】不依赖 nanohttpd 的 parseBody（其默认按非 UTF-8 解码请求体，
-        // 会把桌面端发来的中文变成乱码），直接按 Content-Length 读原始字节并以 UTF-8 解码。
-        val len = session.headers["content-length"]?.toIntOrNull() ?: 0
-        val body = if (len > 0) {
-            val buf = ByteArray(len)
-            var off = 0
-            while (off < len) {
-                val r = session.inputStream.read(buf, off, len - off)
-                if (r < 0) break
-                off += r
-            }
-            String(buf, 0, off, Charsets.UTF_8)
-        } else {
-            // 兜底：极少数情况下没有 Content-Length，退回 parseBody
-            val files = HashMap<String, String>()
-            session.parseBody(files)
-            files["postData"] ?: session.queryParameterString ?: ""
-        }
-        val req = MctierJson.decodeFromString(ChatSendRequest.serializer(), body)
-        // 身份绑定：拒绝冒用他人 playerId 的消息（含控制类消息）
-        if (!senderIdentityMatches(req.playerId, session.remoteIpAddress)) {
-            Log.w(TAG, "拒绝冒名消息：自称 ${req.playerId} 但来源为 ${session.remoteIpAddress}")
-            return withCors(
-                newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "identity mismatch"),
-                origin,
-            )
-        }
+        val auth = authenticate(session)
+        if (!allowRequest(auth.identity, auth.sourceIp)) reject(Response.Status.TOO_MANY_REQUESTS)
+        val body = readJsonBody(session)
+        val req = runCatching {
+            MctierJson.decodeFromString(ChatSendRequest.serializer(), body)
+        }.getOrElse { reject(Response.Status.BAD_REQUEST) }
+        val type = req.messageType.trim().lowercase(Locale.US)
+        val id = req.id?.trim()?.takeIf { it.isNotEmpty() }
         val message = ChatWireMessage(
-            id = req.id ?: "msg-${req.playerId}-${System.currentTimeMillis()}",
-            playerId = req.playerId,
-            playerName = req.playerName,
+            id = id ?: "msg-${auth.identity.playerId}-${UUID.randomUUID()}",
+            playerId = auth.identity.playerId,
+            playerName = auth.identity.playerName,
             content = req.content,
-            messageType = req.messageType,
-            timestamp = System.currentTimeMillis() / 1000,
+            messageType = type,
+            timestamp = System.currentTimeMillis() / 1000L,
             imageData = req.imageData,
         )
-        messages.add(message)
-        trim()
+        if (!isValidMessage(message, auth.hostId, checkHost = true)) {
+            reject(Response.Status.BAD_REQUEST)
+        }
+        if (!storeMessage(message)) reject(Response.Status.PAYLOAD_TOO_LARGE)
         onMessageReceived?.invoke(message)
         return json(message, origin)
     }
+
+    private fun authenticate(session: IHTTPSession): AuthenticatedRequest {
+        val snapshot = synchronized(sessionLock) { authSession }
+            ?: reject(Response.Status.UNAUTHORIZED)
+        val supplied = singleHeader(session, ChatTokenHeader) ?: reject(Response.Status.UNAUTHORIZED)
+        if (!constantTimeEquals(supplied, snapshot.token)) reject(Response.Status.UNAUTHORIZED)
+        val source = parseUsableIp(session.remoteIpAddress) ?: reject(Response.Status.FORBIDDEN)
+        val identity = snapshot.identities[source] ?: reject(Response.Status.FORBIDDEN)
+        return AuthenticatedRequest(snapshot.hostId, source, identity)
+    }
+
+    private fun readJsonBody(session: IHTTPSession): String {
+        if (session.headers.keys.any { it.equals("transfer-encoding", ignoreCase = true) }) {
+            reject(Response.Status.BAD_REQUEST)
+        }
+        val contentType = singleHeader(session, "content-type")
+            ?.substringBefore(';')
+            ?.trim()
+            ?.takeIf { it.equals("application/json", ignoreCase = true) }
+            ?: reject(Response.Status.UNSUPPORTED_MEDIA_TYPE)
+        @Suppress("UNUSED_VARIABLE")
+        val ignoredContentType = contentType
+        val lengthText = singleHeader(session, "content-length") ?: reject(Response.Status.LENGTH_REQUIRED)
+        val length = lengthText.toLongOrNull()?.takeIf { it >= 0L }
+            ?: reject(Response.Status.BAD_REQUEST)
+        if (length > ChatMaxHttpBodyBytes.toLong()) reject(Response.Status.PAYLOAD_TOO_LARGE)
+        val bytes = ByteArray(length.toInt())
+        var offset = 0
+        while (offset < bytes.size) {
+            val read = session.inputStream.read(bytes, offset, bytes.size - offset)
+            if (read <= 0) reject(Response.Status.BAD_REQUEST)
+            offset += read
+        }
+        if (bytes.isEmpty()) reject(Response.Status.BAD_REQUEST)
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private fun allowRequest(identity: ChatPeerIdentity, sourceIp: InetAddress): Boolean {
+        val key = RateLimitKey(identity.playerId, sourceIp)
+        val now = System.nanoTime()
+        synchronized(rateLimitLock) {
+            val entries = requestTimes.getOrPut(key) { ArrayDeque() }
+            while (entries.peekFirst()?.let { now - it > RATE_WINDOW_NANOS } == true) entries.removeFirst()
+            if (entries.size >= RATE_MAX_REQUESTS) return false
+            entries.addLast(now)
+            if (requestTimes.size > RATE_KEY_LIMIT) {
+                requestTimes.entries.removeIf { it.value.isEmpty() }
+            }
+            return true
+        }
+    }
+
+    private fun storeMessage(message: ChatWireMessage): Boolean {
+        val encodedSize = runCatching {
+            MctierJson.encodeToString(ChatWireMessage.serializer(), message).toByteArray(Charsets.UTF_8).size
+        }.getOrNull() ?: return false
+        if (encodedSize > ChatMaxHistoryBytes) return false
+        synchronized(historyLock) {
+            if (messages.any { it.id == message.id }) return false
+            while (messages.size >= ChatMaxHistoryMessages || historyBytes + encodedSize > ChatMaxHistoryBytes) {
+                if (messages.isEmpty()) break
+                val removed = messages.removeFirst()
+                historyBytes = (historyBytes - encodedSizeOf(removed)).coerceAtLeast(0)
+            }
+            historyBytes += encodedSize
+            messages.addLast(message)
+        }
+        return true
+    }
+
+    private fun encodedSizeOf(message: ChatWireMessage): Int = runCatching {
+        MctierJson.encodeToString(ChatWireMessage.serializer(), message).toByteArray(Charsets.UTF_8).size
+    }.getOrDefault(0)
+
+    private fun isValidMessage(message: ChatWireMessage, hostId: String?, checkHost: Boolean): Boolean {
+        if (!isMessageIdForPlayer(message.id, message.playerId)) return false
+        if (message.content.toByteArray(Charsets.UTF_8).size > MAX_CONTENT_BYTES) return false
+        if (message.playerId.isBlank() || message.playerId.toByteArray(Charsets.UTF_8).size > MAX_ID_BYTES) return false
+        if (message.playerName.isBlank() || message.playerName.toByteArray(Charsets.UTF_8).size > MAX_PLAYER_NAME_BYTES || message.playerName.any { it.isISOControl() }) return false
+        if (checkHost && message.messageType == "announce" && hostId != message.playerId) return false
+        return when (message.messageType.lowercase(Locale.US)) {
+            "text" -> message.content.isNotEmpty() && message.contentBytes() <= MAX_TEXT_BYTES && message.imageData == null
+            "image" -> message.contentBytes() <= MAX_IMAGE_CONTENT_BYTES && validImage(message.imageData)
+            "announce" -> message.contentBytes() <= MAX_ANNOUNCE_BYTES && message.imageData == null
+            "voicegroup" -> message.contentBytes() <= MAX_VOICE_GROUP_BYTES &&
+                message.imageData == null && message.content.toIntOrNull()?.let { it in 0..4 } == true
+            "clipboard" -> message.contentBytes() <= MAX_CLIPBOARD_BYTES && message.imageData == null
+            "todo" -> message.contentBytes() <= MAX_TODO_BYTES && message.imageData == null
+            "whiteboard" -> message.contentBytes() <= MAX_WHITEBOARD_BYTES && message.imageData == null
+            "recall" -> message.content.isNotEmpty() && message.contentBytes() <= MAX_RECALL_BYTES &&
+                message.imageData == null && validRecall(message)
+            "avatar" -> message.contentBytes() <= MAX_AVATAR_BYTES && message.imageData == null &&
+                (message.content.isEmpty() || message.content.startsWith("data:image/"))
+            else -> false
+        }
+    }
+
+    private fun validRecall(message: ChatWireMessage): Boolean {
+        val now = System.currentTimeMillis() / 1000L
+        val target = synchronized(historyLock) { messages.lastOrNull { it.id == message.content } } ?: return false
+        return target.playerId == message.playerId && now >= target.timestamp && now - target.timestamp <= RECALL_WINDOW_SECS
+    }
+
+    private fun validImage(image: List<Int>?): Boolean = image != null && image.isNotEmpty() &&
+        image.size <= MAX_IMAGE_BYTES && image.all { it in 0..255 }
+
+    private fun ChatWireMessage.contentBytes(): Int = content.toByteArray(Charsets.UTF_8).size
+
+    private fun singleHeader(session: IHTTPSession, name: String): String? {
+        val matches = session.headers.entries.filter { it.key.equals(name, ignoreCase = true) }
+        return if (matches.size == 1) matches.single().value else null
+    }
+
+    private fun withCors(response: Response, origin: String?): Response = LanCors.apply(response, origin)
 
     private fun json(value: List<ChatWireMessage>, origin: String?): Response =
         withCors(newFixedLengthResponse(
@@ -194,12 +321,113 @@ class ChatHttpServer(
         ), origin)
 
     private fun json(value: ChatWireMessage, origin: String?): Response =
-        withCors(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", MctierJson.encodeToString(ChatWireMessage.serializer(), value)), origin)
+        withCors(newFixedLengthResponse(
+            Response.Status.OK,
+            "application/json; charset=utf-8",
+            MctierJson.encodeToString(ChatWireMessage.serializer(), value),
+        ), origin)
+
+    private data class AuthSession(
+        val token: String,
+        val tokenEpoch: Long,
+        val local: ChatPeerIdentity,
+        val hostId: String?,
+        val identities: Map<InetAddress, ChatPeerIdentity>,
+    )
+
+    private data class AuthenticatedRequest(
+        val hostId: String?,
+        val sourceIp: InetAddress,
+        val identity: ChatPeerIdentity,
+    )
+
+    private data class RateLimitKey(val playerId: String, val ip: InetAddress)
+
+    private class RequestRejected(val status: Response.Status) : RuntimeException()
 
     companion object {
         private const val TAG = "ChatHttpServer"
+        private const val MAX_ID_BYTES = 128
+        private const val MAX_PLAYER_NAME_BYTES = 256
+        private const val MAX_CONTENT_BYTES = 512 * 1024
+        private const val MAX_TEXT_BYTES = 16 * 1024
+        private const val MAX_IMAGE_BYTES = 512 * 1024
+        private const val MAX_IMAGE_CONTENT_BYTES = 256
+        private const val MAX_ANNOUNCE_BYTES = 16 * 1024
+        private const val MAX_VOICE_GROUP_BYTES = 32
+        private const val MAX_CLIPBOARD_BYTES = 16 * 1024
+        private const val MAX_TODO_BYTES = 64 * 1024
+        private const val MAX_WHITEBOARD_BYTES = 64 * 1024
+        private const val MAX_RECALL_BYTES = 128
+        private const val MAX_AVATAR_BYTES = 192 * 1024
+        private const val RECALL_WINDOW_SECS = 2 * 60
+        private const val RATE_MAX_REQUESTS = 12
+        private const val RATE_KEY_LIMIT = 256
+        private const val RATE_WINDOW_NANOS = 3_000_000_000L
+        private const val MAX_PEERS = ChatMaxHistoryMessages
 
-        /** 兜底监听地址：仅在拿不到虚拟 IP 时使用。 */
-        const val DEFAULT_BIND_IP = "0.0.0.0"
+        /** Numeric, specific virtual IP only; wildcard and loopback binds are rejected. */
+        private fun requireBindIp(raw: String): String =
+            parseUsableIp(raw)?.hostAddress ?: throw IllegalArgumentException("Chat server requires a specific virtual IP")
+
+        internal fun parseUsableIp(raw: String): InetAddress? {
+            val value = raw.trim()
+            if (value.isEmpty() || value.contains('%')) return null
+            val numeric = if (value.contains(':')) {
+                value.matches(Regex("[0-9A-Fa-f:]+"))
+            } else {
+                value.matches(Regex("[0-9.]+"))
+            }
+            if (!numeric) return null
+            return runCatching { InetAddress.getByName(value) }.getOrNull()?.takeIf {
+                it is Inet4Address &&
+                    it.address.sliceArray(0..2).contentEquals(byteArrayOf(10, 126, 126)) &&
+                    (it.address[3].toInt() and 0xff) in 1..254
+            }
+        }
+
+        private fun normalizeIdentity(identity: ChatPeerIdentity): ChatPeerIdentity? {
+            val ip = parseUsableIp(identity.virtualIp) ?: return null
+            val normalizedIp = ip.hostAddress ?: return null
+            if (identity.playerId.isBlank() || identity.playerId.toByteArray(Charsets.UTF_8).size > MAX_ID_BYTES) return null
+            if (identity.playerName.isBlank() || identity.playerName.toByteArray(Charsets.UTF_8).size > MAX_PLAYER_NAME_BYTES || identity.playerName.any { it.isISOControl() }) return null
+            if (identity.playerId.any { it.isISOControl() }) return null
+            return identity.copy(virtualIp = normalizedIp)
+        }
+
+        private fun buildIdentityMap(
+            local: ChatPeerIdentity,
+            peers: List<ChatPeerIdentity>,
+        ): Map<InetAddress, ChatPeerIdentity>? {
+            val map = LinkedHashMap<InetAddress, ChatPeerIdentity>()
+            val ids = HashSet<String>()
+            val all = sequenceOf(local).plus(peers.asSequence().take(MAX_PEERS))
+            for (raw in all) {
+                val identity = normalizeIdentity(raw) ?: return null
+                val ip = parseUsableIp(identity.virtualIp) ?: return null
+                if (!ids.add(identity.playerId) || map.put(ip, identity) != null) return null
+            }
+            return map
+        }
+
+        private fun isValidChatToken(token: String): Boolean =
+            token.length == ChatTokenHexLength && token.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
+
+        private fun isMessageIdForPlayer(id: String, playerId: String): Boolean {
+            if (id.isBlank() || id.toByteArray(Charsets.UTF_8).size > MAX_ID_BYTES || id.any { it.isISOControl() }) return false
+            return listOf("msg-$playerId-", "recall-$playerId-").any { prefix ->
+                id.startsWith(prefix) && id.length > prefix.length
+            }
+        }
+
+        private fun isValidHostId(
+            hostId: String?,
+            identities: Map<InetAddress, ChatPeerIdentity>,
+        ): Boolean = hostId == null || identities.values.any { it.playerId == hostId }
+
+        private fun constantTimeEquals(left: String, right: String): Boolean =
+            MessageDigest.isEqual(left.toByteArray(Charsets.UTF_8), right.toByteArray(Charsets.UTF_8))
+
+        private fun reject(status: Response.Status): Nothing = throw RequestRejected(status)
     }
 }

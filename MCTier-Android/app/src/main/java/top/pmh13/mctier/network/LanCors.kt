@@ -48,7 +48,7 @@ internal object LanCors {
             response.addHeader("Access-Control-Allow-Origin", origin)
             response.addHeader("Vary", "Origin")
             response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            response.addHeader("Access-Control-Allow-Headers", "Content-Type, Range, X-Share-Password")
+            response.addHeader("Access-Control-Allow-Headers", "Content-Type, Range, X-Share-Password, X-MCTier-Chat-Token")
             response.addHeader("Access-Control-Expose-Headers", EXPOSED_HEADERS)
             response.addHeader("Access-Control-Max-Age", "86400")
         }

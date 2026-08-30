@@ -1147,7 +1147,13 @@ class ScreenShareService {
    */
   async handleOffer(offer: ScreenShareOffer): Promise<void> {
     try {
-      console.log('📨 [ScreenShareService] 收到查看请求:', offer);
+      console.log('📨 [ScreenShareService] 收到查看请求:', {
+        shareId: offer.shareId,
+        playerId: offer.playerId,
+        routeVersion: offer.routeVersion,
+        hasPassword: !!offer.password,
+        hasSdp: !!offer.sdp,
+      });
       const share = this.activeShares.get(offer.shareId);
       if (!share) {
         console.error('❌ [ScreenShareService] 找不到对应的共享');

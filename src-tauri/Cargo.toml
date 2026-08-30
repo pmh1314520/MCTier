@@ -19,7 +19,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -39,7 +38,7 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.8"
-reqwest = { version = "0.11", features = ["blocking", "stream", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "stream", "json"] }
 rfd = "0.15"
 urlencoding = "2.1"
 base64 = "0.22"
@@ -56,6 +55,9 @@ async-stream = "0.3"
 zip = "2"
 sonora = "0.2.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"
 windows = { version = "0.58", features = [
@@ -65,6 +67,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Security",
+    "Win32_Security_Credentials",
     "Win32_System_Threading",
     "Win32_System_Performance",
 ] }

@@ -39,6 +39,7 @@ pub fn lan_cors_layer() -> CorsLayer {
             header::CONTENT_TYPE,
             header::RANGE,
             header::HeaderName::from_static("x-share-password"),
+            header::HeaderName::from_static("x-mctier-chat-token"),
         ])
         .expose_headers([
             header::CONTENT_LENGTH,

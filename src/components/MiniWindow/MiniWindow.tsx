@@ -21,7 +21,6 @@ import { ChatRoom } from '../ChatRoom/ChatRoom';
 import { Avatar } from '../Avatar/Avatar';
 import { saveAvatarData } from '../../services/avatar/avatarService';
 import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
-import { fileShareService } from '../../services/fileShare/FileShareService';
 import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
 import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
 import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
@@ -312,9 +311,11 @@ export const MiniWindow: React.FC = () => {
   useEffect(() => {
     let un: (() => void) | undefined;
     void listen<{ action: string; playerId: string }>('hud-action', (e) => {
-      const { action, playerId } = e.payload || ({} as any);
-      if (!playerId) return;
+      const action = typeof e.payload?.action === 'string' ? e.payload.action : '';
+      const playerId = typeof e.payload?.playerId === 'string' ? e.payload.playerId.trim() : '';
+      if (!playerId || !['toggle-mute', 'vol-up', 'vol-down'].includes(action)) return;
       const st = useAppStore.getState();
+      if (!st.players.some((player) => player.id === playerId)) return;
       if (action === 'toggle-mute') {
         st.togglePlayerMute(playerId);
       } else if (action === 'vol-up') {
@@ -485,12 +486,11 @@ export const MiniWindow: React.FC = () => {
     }
 
     console.log('🚀 [MiniWindow] 初始化P2P聊天服务（仅初始化一次）');
-    console.log('  - 当前玩家ID:', currentPlayerId);
-    console.log('  - 自己的虚拟IP:', lobby.virtualIp);
+    console.log('  - 已准备本机聊天连接');
 
     // 设置消息接收回调（只设置一次）
     p2pChatService.onMessage((message) => {
-      console.log('📨 [MiniWindow] 收到P2P消息:', message);
+      console.log('📨 [MiniWindow] 收到P2P消息');
       
       // 查找发送者名称
       let senderName = tl('未知玩家', 'Unknown player');
@@ -574,16 +574,13 @@ export const MiniWindow: React.FC = () => {
     };
   }, [lobby, currentPlayerId, config.playerName, addChatMessage]);
 
-  // 玩家名册指纹：仅用 players.length 作依赖无法反映"虚拟IP异步补齐"（补齐时人数不变），
-  // 而共享浏览/聊天记录读取的成员校验依赖"每个成员虚拟IP均已就绪"才会启用。
-  // 若只看人数，IP 补齐后本效应不会重跑，rosterComplete 会长期停留在 false，
-  // 校验将一直处于放行状态；把 id:ip 指纹纳入依赖后，IP 一旦补齐即可重新下发名单。
+  // 玩家名册指纹：虚拟 IP 是异步补齐的，不能只以人数作为依赖。
   const playerRosterKey = players
     .map((p) => p.id + ':' + (p.virtualIp ?? ''))
     .sort()
     .join(',');
 
-  // 【新增】单独监听玩家列表变化，动态更新SSE连接
+  // 玩家列表变化时更新本窗口的聊天目标和相关 UI 状态。
   useEffect(() => {
     if (!lobby || !currentPlayerId || players.length === 0) {
       return;
@@ -595,45 +592,8 @@ export const MiniWindow: React.FC = () => {
     console.log('🔄 [MiniWindow] 玩家列表变化，更新P2P聊天连接');
     console.log('  - 其他玩家IPs:', playerIPs);
 
-    // 大厅身份名册：playerId -> 虚拟IP，供后端校验消息发送者身份，
-    // 防止同大厅成员冒用他人 playerId 发言。
-    //
-    // 注意 players 不含自己（见 WebRTCClient 中 players-list 的自身过滤），
-    // 因此需要显式补上本机条目，名册才是完整的大厅成员表。
-    //
-    // 后端对"名册中不存在的 playerId"是放行的（新玩家刚加入属正常现象），
-    // 因此这里即使名册暂时不完整也不会误伤合法成员，可以直接下发。
-    const roster: Array<[string, string]> = players
-      .filter((p) => p.id && p.virtualIp)
-      .map((p) => [p.id, p.virtualIp as string] as [string, string]);
-    if (currentPlayerId && lobby.virtualIp) {
-      roster.push([currentPlayerId, lobby.virtualIp]);
-    }
-
-    // 允许读取本机聊天记录/订阅消息流的成员IP。读取类接口不携带 playerId，
-    // 只能按来源IP判断，因此与共享一样，仅在所有成员虚拟IP均已就绪时才启用校验。
-    // 必须含本机：前端自订阅 SSE 走的是 http://{本机虚拟IP}:14540/api/chat/stream。
-    const peerIps = players.map((p) => p.virtualIp).filter(Boolean) as string[];
-    const rosterComplete = peerIps.length === players.length && !!lobby.virtualIp;
-    const chatReaders = rosterComplete ? [...peerIps, lobby.virtualIp] : undefined;
-
-    // 初始化P2P聊天服务（传入自己的虚拟IP用于过滤）
-    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp, roster, chatReaders);
-
-    // 同步文件共享的可访问成员：被移出大厅的玩家仍可能留在 EasyTier 虚拟网内，
-    // 后端据此拒绝非成员浏览与下载共享内容。
-    //
-    // 必须包含本机虚拟IP：查看"我的共享"同样是走 HTTP 请求本机的 14539
-    // （见 FileShareManagerNew 的 loadRemoteShares），而 players 不含自己，
-    // 漏掉本机会导致客户端把自己也拒掉。
-    //
-    // 仅在"每个成员的虚拟IP都已就绪"时才下发名单并启用校验：玩家的虚拟IP是
-    // 异步补齐的（这也是 backfillRemoteShareIps 存在的原因），名单不完整时
-    // 无法区分"非成员"与"IP 尚未同步的合法成员"，此时下发空名单以放行，
-    // 避免把共享重新退化成"有时有有时无"。
-    void fileShareService.updateAllowedPeers(
-      rosterComplete ? [...peerIps, lobby.virtualIp] : []
-    );
+    // 后端身份表与聊天/文件 token 由 WebRTCClient 从已认证信令快照统一配置。
+    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp);
     void p2pChatService.sendAvatar(config.avatarData).catch((error) => {
       console.warn('发送大厅头像同步消息失败:', error);
     });
@@ -822,9 +782,6 @@ export const MiniWindow: React.FC = () => {
       p2pChatService.reset();
       console.log('✅ P2P聊天服务已重置');
 
-      // 清空文件共享的可访问成员，避免旧大厅名单影响下一个大厅
-      await fileShareService.clearAllowedPeers();
-      
       // 等待一小段时间，确保WebSocket完全关闭
       await new Promise(resolve => setTimeout(resolve, 300));
       
@@ -958,7 +915,11 @@ export const MiniWindow: React.FC = () => {
   // 处理动态设置保存后重新加入大厅
   const handleLobbySettingsSaved = async () => {
     console.log('🎯 [MiniWindow] handleLobbySettingsSaved 被调用了！');
-    console.log('🎯 [MiniWindow] lobby:', lobby);
+    console.log('🎯 [MiniWindow] 当前大厅已就绪:', {
+      lobbyName: lobby?.name,
+      hasPassword: !!lobby?.password,
+      playerCount: players.length,
+    });
     console.log('🎯 [MiniWindow] currentPlayerId:', currentPlayerId);
     
     if (!lobby || !currentPlayerId) {
@@ -1027,7 +988,11 @@ export const MiniWindow: React.FC = () => {
         virtualDomain: virtualDomain,
       });
 
-      console.log('✅ [MiniWindow] 重新加入大厅成功:', newLobby);
+      console.log('✅ [MiniWindow] 重新加入大厅成功:', {
+        hasLobby: !!newLobby,
+        lobbyName: newLobby?.name,
+        hasPassword: !!newLobby?.password,
+      });
 
       // 4. 更新前端状态
       const { setLobby } = useAppStore.getState();
@@ -1219,7 +1184,7 @@ export const MiniWindow: React.FC = () => {
         duration: 3,
       });
       
-      console.log('已复制大厅信息:', lobbyInfo);
+      console.log('已复制大厅信息');
     } catch (error) {
       console.error('复制大厅信息失败:', error);
       message.error(tl('复制失败，请重试', 'Copy failed, please retry'));

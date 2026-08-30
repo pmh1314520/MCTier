@@ -96,7 +96,10 @@ pub fn process_voice_frames(mic: Vec<f32>, render: Vec<f32>) -> Result<Vec<f32>,
         .chunks_exact(FRAME_SAMPLES)
         .zip(render.chunks_exact(FRAME_SAMPLES))
     {
-        output.extend(process_voice_frame(mic_frame.to_vec(), render_frame.to_vec())?);
+        output.extend(process_voice_frame(
+            mic_frame.to_vec(),
+            render_frame.to_vec(),
+        )?);
     }
     Ok(output)
 }

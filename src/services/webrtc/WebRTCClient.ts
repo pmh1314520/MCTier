@@ -12,6 +12,23 @@ import { tl } from '../../i18n';
 import { voiceChangerService } from '../voice/voiceChangerService';
 import { localVqeService } from '../voice/localVqeService';
 import { appVersion, loadAppVersion } from '../version/appVersion';
+import { p2pChatService } from '../chat/P2PChatService';
+import {
+  isSafeChatToken,
+  isSafeIdentifier,
+  isSafeResourceId,
+  isSafeSessionId,
+  isSafeServerNode,
+  isSafeSignalingServer,
+  isSafeVirtualDomain,
+  isSafeVirtualIp,
+  MAX_ANNOUNCEMENT_LENGTH,
+  MAX_CHAT_TEXT_LENGTH,
+  MAX_PLAYER_NAME_LENGTH,
+  MAX_PATH_SEGMENT_LENGTH,
+  sanitizeIdentifier,
+  sanitizeUntrustedText,
+} from '../../security/trustBoundary';
 
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'player-joined' | 'player-left' | 'status-update' | 'heartbeat' | 'chat-message';
@@ -39,6 +56,12 @@ export interface PeerConnection {
   connectionTimeout?: number; // 连接超时定时器
   isNegotiating: boolean; // 是否正在协商中
   createdAt: number; // 连接创建时间
+}
+
+interface ChatPeerPayload {
+  player_id: string;
+  player_name: string;
+  virtual_ip: string;
 }
 
 /**
@@ -106,6 +129,10 @@ export class WebRTCClient {
   
   // 信令服务器地址（创建者的虚拟IP）
   private signalingServerUrl: string = '';
+  private chatToken: string = '';
+  private chatTokenEpoch: number = 0;
+  private chatHostId: string | undefined;
+  private chatPeers: Map<string, ChatPeerPayload> = new Map();
 
   // 事件回调
   private onPlayerJoinedCallback?: (playerId: string, playerName: string, virtualIp?: string, virtualDomain?: string, useDomain?: boolean) => void;
@@ -134,14 +161,27 @@ export class WebRTCClient {
    */
   async initialize(playerId: string, playerName: string, lobbyName: string, lobbyPassword: string, virtualDomain?: string, useDomain?: boolean, signalingServer?: string): Promise<void> {
     try {
+      const safePlayerId = isSafeIdentifier(playerId) ? playerId : '';
+      const safePlayerName = sanitizeUntrustedText(playerName, MAX_PLAYER_NAME_LENGTH).trim();
+      const safeLobbyName = sanitizeUntrustedText(lobbyName, 128).trim();
+      const safeLobbyPassword = sanitizeUntrustedText(lobbyPassword, 256);
+      const safeVirtualDomain = isSafeVirtualDomain(virtualDomain) ? virtualDomain.trim() : undefined;
+      const safeSignalingServer = signalingServer?.trim() || 'wss://mctier.pmhs.top/signaling';
+      if (!safePlayerId || !safePlayerName || !safeLobbyName || !isSafeSignalingServer(safeSignalingServer)) {
+        throw new Error('WebRTC 初始化参数无效');
+      }
+
       console.log('🚀 开始初始化 WebRTC 客户端...');
-      console.log('玩家ID:', playerId);
-      console.log('玩家名称:', playerName);
-      console.log('大厅名称:', lobbyName);
+      console.log('已读取 WebRTC 身份参数');
       
       // 重置麦克风的期望/实际状态，避免上一次大厅的残留状态导致本次关麦被误判为"无需操作"
       this.desiredMicEnabled = false;
       this.micActuallyEnabled = false;
+      this.chatToken = '';
+      this.chatTokenEpoch = 0;
+      this.chatHostId = undefined;
+      this.chatPeers.clear();
+      p2pChatService.setChatToken(undefined);
 
       // 重置 Store 的语音状态为默认值
       try {
@@ -164,12 +204,12 @@ export class WebRTCClient {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      this.localPlayerId = playerId;
-      this.localPlayerName = playerName;
-      this.lobbyName = lobbyName;
-      this.lobbyPassword = lobbyPassword;
-      this.virtualDomain = virtualDomain || null;
-      this.useDomain = useDomain || false;
+      this.localPlayerId = safePlayerId;
+      this.localPlayerName = safePlayerName;
+      this.lobbyName = safeLobbyName;
+      this.lobbyPassword = safeLobbyPassword;
+      this.virtualDomain = safeVirtualDomain || null;
+      this.useDomain = useDomain === true && !!safeVirtualDomain;
       
       // 重置断开标志和重连相关状态
       this.isIntentionalDisconnect = false;
@@ -194,7 +234,10 @@ export class WebRTCClient {
       try {
         const virtualIp = await invoke<string | null>('get_virtual_ip');
         if (virtualIp) {
-          this.virtualIp = virtualIp;
+          if (!isSafeVirtualIp(virtualIp)) {
+            throw new Error('虚拟IP无效');
+          }
+          this.virtualIp = virtualIp.trim();
           console.log('✅ 虚拟IP:', this.virtualIp);
         } else {
           console.warn('⚠️ 未获取到虚拟IP，WebRTC可能无法正常工作');
@@ -207,7 +250,7 @@ export class WebRTCClient {
       // 预取版本号：注册消息在 onopen 同步回调中发送，无法 await（见 src/services/version/appVersion.ts）
       await loadAppVersion();
 
-      this.signalingServerUrl = signalingServer || 'wss://mctier.pmhs.top/signaling';
+      this.signalingServerUrl = safeSignalingServer;
       console.log('📡 连接到信令服务器:', this.signalingServerUrl);
 
       // 不再在初始化时获取麦克风，只有在用户开启麦克风时才获取
@@ -239,7 +282,7 @@ export class WebRTCClient {
       try {
         const { screenShareService } = await import('../screenShare/ScreenShareService');
         if (this.websocket) {
-          screenShareService.initialize(playerId, playerName, this.websocket);
+          screenShareService.initialize(this.localPlayerId, this.localPlayerName, this.websocket);
           console.log('✅ 屏幕共享服务初始化成功');
         }
       } catch (error) {
@@ -250,7 +293,7 @@ export class WebRTCClient {
       try {
         const { remoteControlService } = await import('../remoteControl/RemoteControlService');
         if (this.websocket) {
-          remoteControlService.initialize(playerId, playerName, this.websocket);
+          remoteControlService.initialize(this.localPlayerId, this.localPlayerName, this.websocket);
           console.log('✅ 远程控制服务初始化成功');
         }
       } catch (error) {
@@ -305,7 +348,7 @@ export class WebRTCClient {
   private async connectToSignalingServer(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(`正在连接到信令服务器: ${this.signalingServerUrl}`);
+        console.log('正在连接到信令服务器');
         
         const socket = new WebSocket(this.signalingServerUrl);
         let hasOpened = false;
@@ -329,7 +372,7 @@ export class WebRTCClient {
               lobbyPassword: this.lobbyPassword,
               clientVersion: appVersion(),
             }));
-            console.log('📤 已发送注册消息，玩家名称:', this.localPlayerName, '大厅:', this.lobbyName, '虚拟域名:', this.virtualDomain, '使用域名:', this.useDomain);
+            console.log('📤 已发送注册消息');
           }
           
           // 启动 WebSocket 心跳保活
@@ -346,6 +389,7 @@ export class WebRTCClient {
         this.websocket.onmessage = (event) => {
           if (this.websocket !== socket) return;
           try {
+            if (typeof event.data !== 'string' || event.data.length > 512 * 1024) return;
             const message = JSON.parse(event.data);
             this.websocketMessageQueue = this.websocketMessageQueue
               .then(() => this.handleWebSocketMessage(message))
@@ -601,39 +645,256 @@ export class WebRTCClient {
       .catch((error) => console.error(`清理离线玩家 ${peerId} 的远程控制会话失败:`, error));
   }
 
+  private isKnownPlayer(playerId: unknown, includeLocal = true): playerId is string {
+    if (!isSafeIdentifier(playerId)) return false;
+    const normalized = playerId;
+    if (includeLocal && normalized === this.localPlayerId) return true;
+    return this.knownPlayers.has(normalized);
+  }
+
+  private authenticatedPeerId(message: unknown, requireTarget = true): string | null {
+    if (!message || typeof message !== 'object') return null;
+    const input = message as Record<string, unknown>;
+    const from = input.from;
+    const to = input.to;
+    if (!isSafeIdentifier(from) || from === this.localPlayerId || !this.knownPlayers.has(from)) {
+      return null;
+    }
+    if (requireTarget && to !== this.localPlayerId) return null;
+    if (!requireTarget && input.to !== undefined && to !== this.localPlayerId) {
+      return null;
+    }
+    return from;
+  }
+
+  private safeRouteVersion(value: unknown): number | undefined {
+    if (value === undefined || value === null) return undefined;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 1_000_000_000
+      ? value
+      : undefined;
+  }
+
+  private safeViewerCount(value: unknown): number {
+    return typeof value === 'number' && Number.isSafeInteger(value)
+      ? Math.max(0, Math.min(100_000, value))
+      : 0;
+  }
+
+  private safeScreenShareId(value: unknown): string | null {
+    return isSafeResourceId(value) ? value : null;
+  }
+
+  private safeFileShareId(value: unknown): string | null {
+    return isSafeResourceId(value) ? value : null;
+  }
+
+  private authenticatedSession(message: unknown): { peerId: string; sessionId: string } | null {
+    const peerId = this.authenticatedPeerId(message);
+    if (!peerId || !message || typeof message !== 'object') return null;
+    const sessionId = (message as Record<string, unknown>).sessionId;
+    return isSafeSessionId(sessionId) ? { peerId, sessionId } : null;
+  }
+
+  private isSafeSessionDescription(value: unknown, expectedType: 'offer' | 'answer'): value is RTCSessionDescriptionInit {
+    if (!value || typeof value !== 'object') return false;
+    const input = value as Record<string, unknown>;
+    return input.type === expectedType && typeof input.sdp === 'string' && input.sdp.length > 0 && input.sdp.length <= 256 * 1024;
+  }
+
+  private isSafeIceCandidate(value: unknown): boolean {
+    if (!value || typeof value !== 'object') return false;
+    const input = value as Record<string, unknown>;
+    if (typeof input.candidate !== 'string' || input.candidate.length === 0 || input.candidate.length > 16 * 1024) return false;
+    if (
+      input.sdpMLineIndex != null &&
+      (typeof input.sdpMLineIndex !== 'number' ||
+        !Number.isSafeInteger(input.sdpMLineIndex) ||
+        input.sdpMLineIndex < 0 ||
+        input.sdpMLineIndex > 256)
+    ) return false;
+    return input.sdpMid == null || (typeof input.sdpMid === 'string' && input.sdpMid.length <= 128);
+  }
+
+  private parseChatPeer(raw: unknown): ChatPeerPayload | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const input = raw as Record<string, unknown>;
+    const playerId = input.playerId;
+    const playerName = sanitizeUntrustedText(input.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+    const virtualIp = isSafeVirtualIp(input.virtualIp) ? input.virtualIp.trim() : '';
+    if (
+      !isSafeIdentifier(playerId) ||
+      !playerName ||
+      !virtualIp ||
+      playerId === this.localPlayerId ||
+      virtualIp === this.virtualIp
+    ) {
+      return null;
+    }
+    return { player_id: playerId, player_name: playerName, virtual_ip: virtualIp };
+  }
+
+  private chatPeerSnapshot(): ChatPeerPayload[] {
+    return Array.from(this.chatPeers.values()).sort((left, right) =>
+      left.player_id.localeCompare(right.player_id),
+    );
+  }
+
+  private refreshP2PChatFrontend(): void {
+    if (!this.virtualIp || !this.localPlayerId) return;
+    const peers = this.chatPeerSnapshot();
+    p2pChatService.initialize(
+      peers.map((peer) => peer.virtual_ip),
+      this.localPlayerId,
+      this.virtualIp,
+    );
+    p2pChatService.setChatToken(this.chatToken || undefined);
+  }
+
+  private async configureChatSession(): Promise<void> {
+    if (
+      !this.chatToken ||
+      this.chatTokenEpoch <= 0 ||
+      !this.localPlayerId ||
+      !this.localPlayerName ||
+      !this.virtualIp
+    ) {
+      return;
+    }
+    const peers = this.chatPeerSnapshot();
+    await invoke('configure_p2p_chat', {
+      chatToken: this.chatToken,
+      chatTokenEpoch: this.chatTokenEpoch,
+      playerId: this.localPlayerId,
+      playerName: this.localPlayerName,
+      hostId: this.chatHostId,
+      peers,
+    });
+    this.refreshP2PChatFrontend();
+  }
+
+  private async syncChatPeers(): Promise<void> {
+    if (!this.chatToken || this.chatTokenEpoch <= 0) return;
+    await invoke('update_p2p_chat_peers', {
+      hostId: this.chatHostId,
+      peers: this.chatPeerSnapshot(),
+    });
+    this.refreshP2PChatFrontend();
+  }
+
+  private acceptChatToken(token: unknown, epoch: unknown): 'accepted' | 'unchanged' | 'stale' | 'rejected' {
+    if (!isSafeChatToken(token)) return 'rejected';
+    const numericEpoch =
+      typeof epoch === 'number' && Number.isSafeInteger(epoch) && epoch > 0 ? epoch : 0;
+    if (numericEpoch === 0) return 'rejected';
+    if (numericEpoch < this.chatTokenEpoch) return 'stale';
+    if (numericEpoch === this.chatTokenEpoch && this.chatToken && token !== this.chatToken) {
+      console.error('拒绝同一聊天 epoch 的不一致令牌');
+      return 'rejected';
+    }
+    if (numericEpoch === this.chatTokenEpoch && token === this.chatToken) return 'unchanged';
+
+    this.chatToken = token;
+    this.chatTokenEpoch = numericEpoch;
+    p2pChatService.setChatToken(token);
+    return 'accepted';
+  }
+
+  private async failClosedChatSession(context: string, error?: unknown): Promise<void> {
+    console.error(`${context}，关闭本地聊天/文件认证服务`, error);
+    this.chatToken = '';
+    this.chatTokenEpoch = 0;
+    this.chatHostId = undefined;
+    this.chatPeers.clear();
+    p2pChatService.reset();
+    try {
+      await invoke('stop_p2p_chat');
+    } catch (stopError) {
+      console.error('清理本地聊天/文件认证服务失败:', stopError);
+    }
+    if (this.websocket?.readyState === WebSocket.OPEN) {
+      this.websocket.close(1011, 'chat-auth-sync-failed');
+    }
+  }
+
   /**
    * 处理WebSocket消息
    */
   private async handleWebSocketMessage(message: any): Promise<void> {
-    console.log(`📨 收到WebSocket消息: ${message.type}`);
+    if (!message || typeof message !== 'object') return;
+    const messageType = sanitizeIdentifier(message.type, 64);
+    if (!messageType) return;
+    console.log(`📨 收到WebSocket消息: ${messageType}`);
 
     // 【健壮性】收到任何服务器消息都视为连接存活，重置 pong 超时，
     // 避免有正常流量时因 pong 偶尔延迟而误判断线重连
     this.handleWebSocketPong();
 
     try {
-      switch (message.type) {
+      switch (messageType) {
         case 'pong':
           // 收到 pong 响应（上方已重置超时，这里仅用于明确分支）
           break;
           
         case 'register-success':
           // 注册成功
-          console.log('✅ 注册成功，大厅ID:', message.lobbyId);
+          const registeredHostId = isSafeIdentifier(message.hostId) ? message.hostId : undefined;
+          this.chatHostId = registeredHostId;
+          const initialTokenStatus = this.acceptChatToken(
+            message.chatToken,
+            message.chatTokenEpoch,
+          );
+          if (initialTokenStatus === 'rejected' || initialTokenStatus === 'stale') {
+            await this.failClosedChatSession('注册响应中的聊天认证状态无效');
+            break;
+          }
+          if (this.authoritativeSnapshotVersion > 0) {
+            try {
+              await this.configureChatSession();
+            } catch (error) {
+              await this.failClosedChatSession('恢复聊天会话失败', error);
+              break;
+            }
+          }
+          console.log('✅ 注册成功');
           // 携带房主/人数上限/公开状态/禁言列表等大厅元数据
           if (this.onLobbyMetaCallback) {
+            const mutedPlayers: string[] | undefined = Array.isArray(message.mutedPlayers)
+              ? Array.from(new Set<string>((message.mutedPlayers as unknown[])
+                .filter((id: unknown): id is string => isSafeIdentifier(id))))
+              : undefined;
+            const maxPlayers = typeof message.maxPlayers === 'number' && Number.isSafeInteger(message.maxPlayers)
+              ? Math.max(1, Math.min(100_000, message.maxPlayers))
+              : null;
             this.onLobbyMetaCallback({
-              hostId: message.hostId,
-              maxPlayers: message.maxPlayers ?? null,
-              isPublic: message.isPublic,
-              mutedPlayers: message.mutedPlayers,
+              hostId: registeredHostId,
+              maxPlayers,
+              isPublic: typeof message.isPublic === 'boolean' ? message.isPublic : undefined,
+              mutedPlayers,
             });
+          }
+          break;
+
+        case 'chat-token-rotated':
+          {
+            const rotationStatus = this.acceptChatToken(message.chatToken, message.chatTokenEpoch);
+            if (rotationStatus === 'rejected') {
+              await this.failClosedChatSession('聊天令牌轮换状态无效');
+              break;
+            }
+            if (rotationStatus === 'accepted') {
+            try {
+              await this.configureChatSession();
+            } catch (error) {
+                await this.failClosedChatSession('应用聊天令牌轮换失败', error);
+                break;
+              }
+            }
           }
           break;
           
         case 'register-error':
           // 注册失败
-          console.error('❌ 注册失败:', message.message);
+          console.error('❌ 注册失败');
           // 不要抛出错误,只记录日志
           // 用户可能输入了错误的密码,应该让他们看到错误信息而不是断开连接
           break;
@@ -641,13 +902,13 @@ export class WebRTCClient {
         case 'version-too-old':
           // 版本过低
           console.error('❌ 客户端版本过低');
-          console.error('当前版本:', message.currentVersion);
-          console.error('最低要求:', message.minimumVersion);
-          console.error('下载地址:', message.downloadUrl);
-          
           // 触发版本错误回调
           if (this.onVersionErrorCallback) {
-            this.onVersionErrorCallback(message.currentVersion, message.minimumVersion, message.downloadUrl);
+            this.onVersionErrorCallback(
+              sanitizeUntrustedText(message.currentVersion, 32),
+              sanitizeUntrustedText(message.minimumVersion, 32),
+              sanitizeUntrustedText(message.downloadUrl, 512),
+            );
           }
           
           // 停止自动重连
@@ -661,31 +922,84 @@ export class WebRTCClient {
 
         case 'host-changed':
           // 房主变更
-          console.log('👑 房主变更为:', message.hostId);
-          this.onHostChangedCallback?.(message.hostId);
+          const changedHostId = message.hostId;
+          if (!isSafeIdentifier(changedHostId) || !this.isKnownPlayer(changedHostId)) break;
+          this.chatHostId = changedHostId;
+          try {
+            await this.syncChatPeers();
+          } catch (error) {
+            await this.failClosedChatSession('同步聊天房主身份失败', error);
+            break;
+          }
+          console.log('👑 房主变更');
+          this.onHostChangedCallback?.(changedHostId);
           break;
 
         case 'player-mute-changed':
           // 禁言状态变化
-          console.log(`🔇 禁言状态变化: ${message.playerId} -> ${message.muted}`);
-          this.onMuteChangedCallback?.(message.playerId, message.muted);
+          const mutedPlayerId = message.playerId;
+          if (!this.isKnownPlayer(mutedPlayerId, false) || typeof message.muted !== 'boolean') break;
+          console.log('🔇 禁言状态变化');
+          this.onMuteChangedCallback?.(mutedPlayerId, message.muted);
           break;
 
         case 'lobby-options-changed':
           // 大厅选项变化
-          console.log('⚙️ 大厅选项变化:', message.maxPlayers, message.isPublic);
-          this.onLobbyOptionsChangedCallback?.(message.maxPlayers ?? null, message.isPublic);
+          if (typeof message.isPublic !== 'boolean') break;
+          const changedMaxPlayers = message.maxPlayers == null
+            ? null
+            : (typeof message.maxPlayers === 'number' && Number.isSafeInteger(message.maxPlayers)
+              ? Math.max(1, Math.min(100_000, message.maxPlayers))
+              : null);
+          console.log('⚙️ 大厅选项变化');
+          this.onLobbyOptionsChangedCallback?.(changedMaxPlayers, message.isPublic);
           break;
 
         case 'kicked':
           // 被房主踢出
-          console.warn('👢 被房主移出大厅:', message.reason);
+          const kickReason = sanitizeUntrustedText(message.reason, MAX_ANNOUNCEMENT_LENGTH).trim();
+          console.warn('👢 被房主移出大厅');
           this.isIntentionalDisconnect = true;
-          this.onKickedCallback?.(message.reason || '你已被房主移出大厅');
+          this.chatToken = '';
+          this.chatTokenEpoch = 0;
+          this.chatHostId = undefined;
+          this.chatPeers.clear();
+          p2pChatService.reset();
+          try {
+            await invoke('stop_p2p_chat');
+          } catch (error) {
+            console.warn('停止被踢会话的聊天服务失败:', error);
+          }
+          this.onKickedCallback?.(kickReason || '你已被房主移出大厅');
           break;
           
         case 'players-list':
           // 收到当前在线玩家列表
+          if (!Array.isArray(message.players)) {
+            console.warn('⚠️ 收到无效的玩家列表，忽略');
+            break;
+          }
+          if (message.players.length > 10_000) {
+            console.warn('⚠️ 玩家列表过大，忽略');
+            break;
+          }
+          const nextChatPeers = new Map<string, ChatPeerPayload>();
+          const chatPeerIps = new Set<string>();
+          for (const rawPlayer of message.players) {
+            const peer = this.parseChatPeer(rawPlayer);
+            if (!peer || nextChatPeers.has(peer.player_id) || chatPeerIps.has(peer.virtual_ip)) {
+              continue;
+            }
+            nextChatPeers.set(peer.player_id, peer);
+            chatPeerIps.add(peer.virtual_ip);
+          }
+          this.chatPeers = nextChatPeers;
+          try {
+            await this.configureChatSession();
+          } catch (error) {
+            await this.failClosedChatSession('配置权威聊天成员快照失败', error);
+            break;
+          }
           console.log(`当前在线玩家: ${message.players.length} 人`);
           // 自我域名映射：把自己的虚拟域名也写入 hosts，使本机也能用自己的域名访问（便于测试/本机服务）
           if (this.useDomain && this.virtualDomain && this.virtualIp) {
@@ -701,9 +1015,25 @@ export class WebRTCClient {
           // 先记录处理前的已知集合与本次列表出现的 ID，循环结束后据此清理残留幽灵。
           const knownBefore = new Set(this.knownPlayers);
           const listedIds = new Set<string>();
+          const listedIps = new Set<string>();
 
-          for (const player of message.players) {
-            console.log(`  - ${player.playerName} (${player.playerId})`);
+          for (const rawPlayer of message.players) {
+            if (!rawPlayer || typeof rawPlayer !== 'object') continue;
+            const input = rawPlayer as Record<string, unknown>;
+            const playerId = input.playerId;
+            if (!isSafeIdentifier(playerId)) continue;
+            if (!playerId) continue;
+            const playerName = sanitizeUntrustedText(input.playerName, 64).trim() || tl('未知玩家', 'Unknown player');
+            const virtualIp = isSafeVirtualIp(input.virtualIp) ? input.virtualIp.trim() : undefined;
+            const virtualDomain = isSafeVirtualDomain(input.virtualDomain) ? input.virtualDomain.trim() : undefined;
+            const player = {
+              playerId,
+              playerName,
+              virtualIp,
+              virtualDomain,
+              useDomain: input.useDomain === true && !!virtualIp && !!virtualDomain,
+            };
+            console.log('  - 收到玩家条目');
 
             if (player.playerId === this.localPlayerId) {
               continue;
@@ -711,10 +1041,19 @@ export class WebRTCClient {
             // 虚拟 IP 在大厅内唯一。服务端残留旧连接或重复广播本机身份时，
             // 不把同一台设备当成远端玩家，也不向自己的 IP 建立语音连接。
             if (player.virtualIp && this.virtualIp && player.virtualIp === this.virtualIp) {
-              console.warn(`⚠️ 忽略与本机虚拟 IP 相同的玩家条目: ${player.playerName} (${player.playerId})`);
+              console.warn('⚠️ 忽略与本机虚拟 IP 相同的玩家条目');
+              continue;
+            }
+            if (listedIds.has(player.playerId)) {
+              console.warn('⚠️ 忽略重复的玩家身份条目');
+              continue;
+            }
+            if (player.virtualIp && listedIps.has(player.virtualIp)) {
+              console.warn('⚠️ 忽略重复的玩家虚拟 IP 条目');
               continue;
             }
             listedIds.add(player.playerId);
+            if (player.virtualIp) listedIps.add(player.virtualIp);
 
             const wasPendingLeave = this.clearPendingPlayerLeave(player.playerId);
             if (wasPendingLeave) {
@@ -834,34 +1173,51 @@ export class WebRTCClient {
           
         case 'player-joined':
           // 有新玩家加入
-          console.log(`🎮 新玩家加入: ${message.playerName} (${message.playerId})`);
+           const joinedPlayerId = message.playerId;
+          const joinedPlayerName = sanitizeUntrustedText(message.playerName, 64).trim() || tl('未知玩家', 'Unknown player');
+          const joinedVirtualIp = isSafeVirtualIp(message.virtualIp) ? message.virtualIp.trim() : undefined;
+          const joinedVirtualDomain = isSafeVirtualDomain(message.virtualDomain) ? message.virtualDomain.trim() : undefined;
+          const joinedUseDomain = message.useDomain === true && !!joinedVirtualIp && !!joinedVirtualDomain;
+           if (!isSafeIdentifier(joinedPlayerId)) break;
+          console.log(`🎮 新玩家加入: ${joinedPlayerName} (${joinedPlayerId})`);
 
-          if (message.playerId === this.localPlayerId) {
+          if (joinedPlayerId === this.localPlayerId) {
             break;
           }
-          if (message.virtualIp && this.virtualIp && message.virtualIp === this.virtualIp) {
-            console.warn(`⚠️ 忽略与本机虚拟 IP 相同的加入事件: ${message.playerName} (${message.playerId})`);
+          if (joinedVirtualIp && this.virtualIp && joinedVirtualIp === this.virtualIp) {
+            console.warn(`⚠️ 忽略与本机虚拟 IP 相同的加入事件: ${joinedPlayerName} (${joinedPlayerId})`);
             break;
           }
 
-          const isRecoveredPlayer = this.clearPendingPlayerLeave(message.playerId);
+          const joinedChatPeer = this.parseChatPeer(message);
+          if (joinedChatPeer) {
+            this.chatPeers.set(joinedChatPeer.player_id, joinedChatPeer);
+            try {
+              await this.syncChatPeers();
+            } catch (error) {
+              await this.failClosedChatSession('同步新聊天成员失败', error);
+              break;
+            }
+          }
+
+          const isRecoveredPlayer = this.clearPendingPlayerLeave(joinedPlayerId);
           if (isRecoveredPlayer) {
             console.log(`♻️ 玩家 ${message.playerId} 在短时断线窗口内恢复，跳过离开/加入提示音`);
           }
 
-          const alreadyKnown = this.knownPlayers.has(message.playerId);
+          const alreadyKnown = this.knownPlayers.has(joinedPlayerId);
           if (alreadyKnown) {
-            const existingPeer = this.peerConnections.get(message.playerId);
+            const existingPeer = this.peerConnections.get(joinedPlayerId);
             if (!this.isPeerConnectedOrFresh(existingPeer)) {
-              console.log(`♻️ ${message.playerId} 重新注册且语音连接异常，调度自动修复`);
-              this.schedulePeerReconnect(message.playerId, '玩家重新注册', 500);
+              console.log(`♻️ ${joinedPlayerId} 重新注册且语音连接异常，调度自动修复`);
+              this.schedulePeerReconnect(joinedPlayerId, '玩家重新注册', 500);
             } else {
-              console.log(`⏳ ${message.playerId} 已在players-list中处理过，连接正常，跳过重复加入事件`);
+              console.log(`⏳ ${joinedPlayerId} 已在players-list中处理过，连接正常，跳过重复加入事件`);
             }
             break;
           }
 
-          this.knownPlayers.add(message.playerId);
+          this.knownPlayers.add(joinedPlayerId);
           
           // 播放玩家加入音效（短时断线恢复不播放）
           if (!isRecoveredPlayer) {
@@ -874,16 +1230,16 @@ export class WebRTCClient {
           }
           
           // 如果启用了域名访问且有虚拟域名，添加到hosts文件
-          if (message.useDomain && message.virtualDomain && message.virtualIp) {
+          if (joinedUseDomain && joinedVirtualDomain && joinedVirtualIp) {
             // 记录域名，供该玩家离开时清理 hosts（player-left 只带 playerId）
-            this.playerDomains.set(message.playerId, message.virtualDomain);
+            this.playerDomains.set(joinedPlayerId, joinedVirtualDomain);
             try {
-              console.log(`📝 添加玩家域名映射: ${message.virtualDomain} -> ${message.virtualIp}`);
+              console.log(`📝 添加玩家域名映射: ${joinedVirtualDomain} -> ${joinedVirtualIp}`);
               await invoke('add_player_domain', {
-                domain: message.virtualDomain,
-                ip: message.virtualIp,
+                domain: joinedVirtualDomain,
+                ip: joinedVirtualIp,
               });
-              console.log(`✅ 玩家域名映射已添加: ${message.virtualDomain}`);
+              console.log(`✅ 玩家域名映射已添加: ${joinedVirtualDomain}`);
             } catch (error) {
               console.error(`❌ 添加玩家域名映射失败:`, error);
               // 不中断流程，继续处理玩家加入
@@ -891,50 +1247,64 @@ export class WebRTCClient {
           }
           
           // 触发回调
-          this.notifyPlayerJoined(message.playerId, message.playerName, message.virtualIp, message.virtualDomain, message.useDomain);
+          this.notifyPlayerJoined(joinedPlayerId, joinedPlayerName, joinedVirtualIp, joinedVirtualDomain, joinedUseDomain);
           
           // HTTP模式：不需要向新玩家发送共享列表，客户端直接通过HTTP API查询
           // 只有当本地玩家ID字典序大于对方时才主动发起连接
-          if (this.localPlayerId > message.playerId) {
-            console.log(`📡 主动向新玩家 ${message.playerId} 发起连接（ID字典序较大）`);
+          if (this.localPlayerId > joinedPlayerId) {
+            console.log(`📡 主动向新玩家 ${joinedPlayerId} 发起连接（ID字典序较大）`);
             
             // 等待一小段时间，让新玩家完成初始化
             await new Promise(resolve => setTimeout(resolve, 500));
             
             // 创建连接
-            await this.createPeerConnection(message.playerId);
+            await this.createPeerConnection(joinedPlayerId);
             
             // 等待ICE候选收集开始
             await new Promise(resolve => setTimeout(resolve, 100));
             
             // 创建 Offer
-            const pc = this.peerConnections.get(message.playerId);
+            const pc = this.peerConnections.get(joinedPlayerId);
             if (pc) {
               const offer = await pc.connection.createOffer();
               await pc.connection.setLocalDescription(offer);
               
               // 发送 Offer（失败自动重试一次）
-              await this.sendOfferWithRetry(message.playerId, {
+              await this.sendOfferWithRetry(joinedPlayerId, {
                 type: offer.type,
                 sdp: offer.sdp,
               }, '新玩家连接');
             }
           } else {
-            console.log(`⏳ 等待新玩家 ${message.playerId} 主动发起连接（ID字典序较小）`);
+            console.log(`⏳ 等待新玩家 ${joinedPlayerId} 主动发起连接（ID字典序较小）`);
           }
           break;
           
         case 'player-left':
           // 有玩家离开（增加短时断线缓冲，避免误报提示音）
-          console.log(`👋 玩家离开事件: ${message.playerId}`);
+           const leftPlayerId = message.playerId;
+          if (leftPlayerId) {
+            this.chatPeers.delete(leftPlayerId);
+            if (this.chatHostId === leftPlayerId) this.chatHostId = undefined;
+            try {
+              await this.syncChatPeers();
+            } catch (error) {
+              await this.failClosedChatSession('撤销离开玩家的聊天权限失败', error);
+              break;
+            }
+          }
+           if (!isSafeIdentifier(leftPlayerId) || !this.knownPlayers.has(leftPlayerId)) {
+            break;
+          }
+          console.log('👋 玩家离开事件');
 
-          if (!message.playerId || message.playerId === this.localPlayerId) {
+          if (leftPlayerId === this.localPlayerId) {
             break;
           }
 
-          this.resetRemoteControlForPeer(message.playerId);
+          this.resetRemoteControlForPeer(leftPlayerId);
 
-          if (this.schedulePlayerLeaveConfirmation(message.playerId)) {
+          if (this.schedulePlayerLeaveConfirmation(leftPlayerId)) {
             break;
           }
           break;
@@ -962,26 +1332,31 @@ export class WebRTCClient {
           // 随后由对方作为发起方送来全新的 Offer 完成重建。
           // 必须双端同时拆掉旧连接，否则一端沿用旧 PeerConnection 会因指纹/ufrag
           // 不匹配而出现"连上了但没声音"。
-          if (message.from) {
-            console.log(`🔄 收到来自 ${message.from} 的语音重连请求，拆除旧连接等待重建`);
-            this.clearPeerReconnectState(message.from);
-            this.removePeerConnection(message.from);
+          const reconnectPlayerId = message.from;
+          if (this.isKnownPlayer(reconnectPlayerId, false) && (!message.to || message.to === this.localPlayerId)) {
+            console.log('🔄 收到语音重连请求，拆除旧连接等待重建');
+            this.clearPeerReconnectState(reconnectPlayerId);
+            this.removePeerConnection(reconnectPlayerId);
           }
           break;
           
         case 'status-update':
           // 收到状态更新
-          console.log(`📢 收到状态更新 from ${message.clientId}: 麦克风${message.micEnabled ? '开启' : '关闭'}`);
-          if (this.onStatusUpdateCallback) {
-            this.onStatusUpdateCallback(message.clientId, message.micEnabled);
-          }
+          const statusPlayerId = message.clientId;
+          if (!this.isKnownPlayer(statusPlayerId, false) || typeof message.micEnabled !== 'boolean') break;
+          console.log('📢 收到状态更新');
+          this.onStatusUpdateCallback?.(statusPlayerId, message.micEnabled);
           break;
 
         case 'chat-message':
           // 收到聊天消息
-          console.log(`💬 收到聊天消息 from ${message.playerName}: ${message.content}`);
-          if (this.onChatMessageCallback && message.playerId && message.playerName && message.content && message.timestamp) {
-            this.onChatMessageCallback(message.playerId, message.playerName, message.content, message.timestamp);
+          const chatPlayerId = message.playerId;
+          const chatPlayerName = sanitizeUntrustedText(message.playerName, 64).trim();
+          const chatContent = sanitizeUntrustedText(message.content, MAX_CHAT_TEXT_LENGTH);
+          const chatTimestamp = typeof message.timestamp === 'number' ? message.timestamp : Number.NaN;
+          console.log('💬 收到聊天消息');
+          if (this.onChatMessageCallback && this.isKnownPlayer(chatPlayerId, false) && chatPlayerName && chatContent && Number.isFinite(chatTimestamp) && chatTimestamp >= 0) {
+            this.onChatMessageCallback(chatPlayerId, chatPlayerName, chatContent, chatTimestamp);
           }
           break;
           
@@ -1014,26 +1389,8 @@ export class WebRTCClient {
           break;
           
         case 'file-transfer-response':
-          // 收到文件传输响应
-          console.log(`📥 收到文件传输响应 from ${message.from}, request:`, message.request);
-          try {
-            const requestId = message.request?.requestId;
-            if (!requestId) {
-              console.error('❌ 文件传输响应缺少requestId');
-              return;
-            }
-            
-            console.log(`📥 处理文件传输响应, requestId: ${requestId}, accepted: ${message.accepted}`);
-            
-            if (message.accepted) {
-              console.log(`✅ 文件传输请求已被接受: ${requestId}`);
-            } else {
-              console.error(`❌ 文件传输请求被拒绝: ${requestId}, ${message.error}`);
-              fileTransferService.handleTransferError(requestId, message.error || '传输被拒绝');
-            }
-          } catch (error) {
-            console.error('❌ 处理文件传输响应失败:', error);
-          }
+          // Legacy WebSocket file-transfer signaling is disabled. Ignore it
+          // rather than allowing an arbitrary peer to mutate local transfer UI.
           break;
           
         case 'file-chunk':
@@ -1052,289 +1409,370 @@ export class WebRTCClient {
           break;
           
         case 'share-added':
-          // 收到远程共享添加
-          console.log(`📁 收到远程共享添加 from ${message.from}`);
-          try {
-            if (message.share) {
-              fileShareService.handleRemoteShareAdded(message.share);
-              console.log(`✅ 远程共享已添加: ${message.share.folderName}`);
-            }
-          } catch (error) {
-            console.error('❌ 处理远程共享添加失败:', error);
-          }
+          // Legacy file-share signaling is disabled; the HTTP listing is the
+          // sole source of truth for remote shares.
           break;
           
         case 'share-removed':
-          // 收到远程共享移除
-          console.log(`📁 收到远程共享移除 from ${message.from}, shareId: ${message.shareId}`);
-          try {
-            if (message.shareId) {
-              fileShareService.handleRemoteShareRemoved(message.shareId);
-              console.log(`✅ 远程共享已移除: ${message.shareId}`);
-            }
-          } catch (error) {
-            console.error('❌ 处理远程共享移除失败:', error);
-          }
           break;
           
         case 'share-updated':
-          // 收到远程共享更新
-          console.log(`📁 收到远程共享更新 from ${message.from}`);
-          try {
-            if (message.share) {
-              fileShareService.handleRemoteShareUpdated(message.share);
-              console.log(`✅ 远程共享已更新: ${message.share.folderName}`);
-            }
-          } catch (error) {
-            console.error('❌ 处理远程共享更新失败:', error);
-          }
           break;
           
         case 'screen-share-start':
           // 收到屏幕共享开始通知
-          console.log(`🖥️ 收到屏幕共享开始通知 from ${message.playerName}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            // 将共享信息添加到本地列表
-            const share = {
-              id: message.shareId,
-              playerId: message.from,
-              playerName: message.playerName,
-              virtualIp: '', // 将由前端填充
-              requirePassword: message.hasPassword,
-              startTime: Date.now(),
-              status: 'active' as const,
-            };
-            // 直接添加到activeShares
-            (screenShareService as any).activeShares.set(share.id, share);
-            console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
-            
-            // 【事件驱动】触发自定义事件通知UI更新
-            window.dispatchEvent(new CustomEvent('screen-share-start', {
-              detail: {
-                shareId: share.id,
-                playerId: share.playerId,
-                playerName: share.playerName,
-                hasPassword: share.requirePassword,
-              }
-            }));
-          } catch (error) {
-            console.error('❌ 处理屏幕共享开始失败:', error);
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const playerName = sanitizeUntrustedText(message.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+            if (!peerId || !shareId || !shareId.startsWith('share-') || !playerName || typeof message.hasPassword !== 'boolean') break;
+            console.log('🖥️ 收到屏幕共享开始通知');
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const existing = activeShares.get(shareId);
+              if (existing && existing.playerId !== peerId) break;
+              if (!existing && activeShares.size >= 256) break;
+              // Only the roster member that announced the share may own it.
+              const share = {
+                id: shareId,
+                playerId: peerId,
+                playerName,
+                virtualIp: '',
+                requirePassword: message.hasPassword,
+                startTime: Date.now(),
+                status: 'active' as const,
+              };
+              activeShares.set(share.id, share);
+              window.dispatchEvent(new CustomEvent('screen-share-start', {
+                detail: {
+                  shareId: share.id,
+                  playerId: share.playerId,
+                  playerName: share.playerName,
+                  hasPassword: share.requirePassword,
+                },
+              }));
+            } catch (error) {
+              console.error('❌ 处理屏幕共享开始失败:', error);
+            }
           }
           break;
           
         case 'screen-share-error':
           // 收到屏幕共享错误（例如密码错误）
-          console.log(`❌ 收到屏幕共享错误: ${message.error}`);
-          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string') {
-            break;
-          }
           {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            const share = screenShareService.getActiveShares().find((item) => item.id === message.shareId);
-            if (!share || share.playerId !== message.from) break;
+            const peerId = this.authenticatedPeerId(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const errorText = sanitizeUntrustedText(message.error, MAX_ANNOUNCEMENT_LENGTH).trim();
+            if (!peerId || !shareId || !errorText) break;
+            console.log(`❌ 收到屏幕共享错误: ${errorText}`);
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const share = screenShareService.getActiveShares().find((item) => item.id === shareId);
+              if (!share || share.playerId !== peerId) break;
+              // 这里可以通过事件通知前端显示错误
+              window.dispatchEvent(new CustomEvent('screen-share-error', {
+                detail: { shareId, error: errorText },
+              }));
+            } catch (error) {
+              console.error('❌ 处理屏幕共享错误失败:', error);
+            }
           }
-          // 这里可以通过事件通知前端显示错误
-          window.dispatchEvent(new CustomEvent('screen-share-error', { 
-            detail: { 
-              shareId: message.shareId, 
-              error: message.error 
-            } 
-          }));
           break;
           
         case 'screen-share-stop':
           // 收到屏幕共享停止通知
-          console.log(`🖥️ 收到屏幕共享停止通知, shareId: ${message.shareId}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            if (typeof message.from !== 'string' || typeof message.shareId !== 'string' || !screenShareService.handleShareStop(message.shareId, message.from)) {
-              break;
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeScreenShareId(message.shareId);
+            if (!peerId || !shareId) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              if (!screenShareService.handleShareStop(shareId, peerId)) break;
+              console.log(`✅ 屏幕共享已从列表移除`);
+              window.dispatchEvent(new CustomEvent('screen-share-stop', { detail: { shareId } }));
+            } catch (error) {
+              console.error('❌ 处理屏幕共享停止失败:', error);
             }
-            console.log(`✅ 屏幕共享已从列表移除`);
-            
-            // 【事件驱动】触发自定义事件通知UI更新
-            window.dispatchEvent(new CustomEvent('screen-share-stop', {
-              detail: {
-                shareId: message.shareId,
-              }
-            }));
-          } catch (error) {
-            console.error('❌ 处理屏幕共享停止失败:', error);
           }
           break;
           
         case 'screen-share-offer':
           // 收到屏幕共享Offer
-          console.log(`🖥️ 收到屏幕共享Offer from ${message.from}, playerName: ${message.playerName}`);
-          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.offer?.sdp) break;
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            await screenShareService.handleOffer({
-              shareId: message.shareId,
-              playerId: message.from,
-              playerName: message.playerName || '未知玩家', // 【修复】从消息中获取查看者名字
-              requirePassword: false,
-              password: message.password, // 【修复】传递密码字段
-              sdp: message.offer.sdp,
-              routeVersion: message.routeVersion,
-            });
-            console.log(`✅ 屏幕共享Offer已处理`);
-          } catch (error) {
-            console.error('❌ 处理屏幕共享Offer失败:', error);
+          {
+            const session = this.authenticatedSession(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const playerName = sanitizeUntrustedText(message.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+            const password = message.password === undefined
+              ? undefined
+              : typeof message.password === 'string'
+                ? sanitizeUntrustedText(message.password, 256)
+                : null;
+            const routeVersion = this.safeRouteVersion(message.routeVersion);
+            if (!session || !shareId || !playerName || password === null || !this.isSafeSessionDescription(message.offer, 'offer')) break;
+            if (message.routeVersion !== undefined && routeVersion === undefined) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              // An offer is accepted only by the owner of the announced share.
+              if (!share || share.playerId !== this.localPlayerId) break;
+              await screenShareService.handleOffer({
+                shareId,
+                playerId: session.peerId,
+                playerName,
+                requirePassword: false,
+                password,
+                sdp: message.offer.sdp,
+                routeVersion,
+              });
+            } catch (error) {
+              console.error('❌ 处理屏幕共享Offer失败:', error);
+            }
           }
           break;
           
         case 'screen-share-answer':
           if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.answer?.sdp) break;
           // 收到屏幕共享Answer
-          console.log(`🖥️ 收到屏幕共享Answer from ${message.from}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            await screenShareService.handleAnswer({
-              shareId: message.shareId,
-              sdp: message.answer.sdp,
-              routeVersion: message.routeVersion,
-            }, message.from);
-            console.log(`✅ 屏幕共享Answer已处理`);
-          } catch (error) {
-            console.error('❌ 处理屏幕共享Answer失败:', error);
+          {
+            const session = this.authenticatedSession(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const routeVersion = this.safeRouteVersion(message.routeVersion);
+            if (!session || !shareId || !this.isSafeSessionDescription(message.answer, 'answer')) break;
+            if (message.routeVersion !== undefined && routeVersion === undefined) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              if (!share || share.playerId !== session.peerId) break;
+              await screenShareService.handleAnswer({
+                shareId,
+                sdp: message.answer.sdp,
+                routeVersion,
+              }, session.peerId);
+            } catch (error) {
+              console.error('❌ 处理屏幕共享Answer失败:', error);
+            }
           }
           break;
           
         case 'screen-share-ice-candidate':
           if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.candidate) break;
           // 收到屏幕共享ICE候选
-          console.log(`🖥️ 收到屏幕共享ICE候选 from ${message.from}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            await screenShareService.handleIceCandidate(message.shareId, message.candidate, message.from, message.connectionRole, message.routeVersion);
-            console.log(`✅ 屏幕共享ICE候选已处理`);
-          } catch (error) {
-            console.error('❌ 处理屏幕共享ICE候选失败:', error);
+          {
+            const session = this.authenticatedSession(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const role = message.connectionRole;
+            const routeVersion = this.safeRouteVersion(message.routeVersion);
+            if (!session || !shareId || !['in', 'out'].includes(role) || !this.isSafeIceCandidate(message.candidate)) break;
+            if (message.routeVersion !== undefined && routeVersion === undefined) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              if (!share) break;
+              // `out` candidates are sent to the owner; `in` candidates are
+              // sent to a viewer. Do not let a peer inject into the other role.
+              if ((role === 'out' && share.playerId !== this.localPlayerId) ||
+                  (role === 'in' && share.playerId !== session.peerId)) break;
+              await screenShareService.handleIceCandidate(
+                shareId,
+                message.candidate,
+                session.peerId,
+                role,
+                routeVersion,
+              );
+            } catch (error) {
+              console.error('❌ 处理屏幕共享ICE候选失败:', error);
+            }
           }
           break;
 
         case 'screen-share-relay':
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            await screenShareService.handleRelayControl(message);
-          } catch (error) {
-            console.error('❌ 处理屏幕共享中继控制消息失败:', error);
+          {
+            const session = this.authenticatedSession(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const action = message.action;
+            const routeVersion = this.safeRouteVersion(message.routeVersion);
+            const upstreamId = message.upstreamId === undefined ? undefined : message.upstreamId;
+            const downstreamId = message.downstreamId === undefined ? undefined : message.downstreamId;
+            const playerName = message.playerName === undefined
+              ? undefined
+              : sanitizeUntrustedText(message.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+            const password = message.password === undefined ? undefined : sanitizeUntrustedText(message.password, 256);
+            const reason = message.reason === undefined ? undefined : sanitizeUntrustedText(message.reason, MAX_ANNOUNCEMENT_LENGTH).trim();
+            const validAction = ['join', 'health', 'ready', 'failure', 'accepted', 'route', 'child', 'detach'].includes(action);
+            if (!session || !shareId || !validAction) break;
+            if (message.routeVersion !== undefined && routeVersion === undefined) break;
+            if (upstreamId !== undefined && !isSafeIdentifier(upstreamId)) break;
+            if (downstreamId !== undefined && !isSafeIdentifier(downstreamId)) break;
+            if (message.playerName !== undefined && !playerName) break;
+            if (message.password !== undefined && typeof message.password !== 'string') break;
+            if (message.reason !== undefined && !reason) break;
+            if (action === 'join' && (!playerName || (message.password !== undefined && typeof message.password !== 'string'))) break;
+            if (['ready', 'route', 'child', 'detach'].includes(action) && routeVersion === undefined) break;
+            if (action === 'route' && !isSafeIdentifier(upstreamId)) break;
+            if (['child', 'detach'] .includes(action) && !isSafeIdentifier(downstreamId)) break;
+            if (action === 'health') {
+              const sourceSequence = message.sourceSequence ?? message.sequence;
+              const sentSequence = message.sentSequence ?? message.sequence;
+              if (
+                typeof sourceSequence !== 'number' || !Number.isSafeInteger(sourceSequence) || sourceSequence < 0 || sourceSequence > 1_000_000_000 ||
+                typeof sentSequence !== 'number' || !Number.isSafeInteger(sentSequence) || sentSequence < 0 || sentSequence > 1_000_000_000 ||
+                typeof message.limited !== 'boolean'
+              ) break;
+            }
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              if (!share) break;
+              if (['join', 'ready', 'failure'].includes(action) && share.playerId !== this.localPlayerId) break;
+              if (['accepted', 'route', 'child', 'detach'].includes(action) && share.playerId !== session.peerId) break;
+              await screenShareService.handleRelayControl({
+                ...message,
+                from: session.peerId,
+                to: this.localPlayerId,
+                shareId,
+                routeVersion,
+                upstreamId,
+                downstreamId,
+                playerName,
+                password,
+                reason,
+              });
+            } catch (error) {
+              console.error('❌ 处理屏幕共享中继控制消息失败:', error);
+            }
           }
           break;
           
         case 'screen-share-viewer-left':
           // 收到查看者离开通知
-          console.log(`👋 收到查看者离开通知, shareId: ${message.shareId}, from: ${message.from}`);
-          if (typeof message.from !== 'string' || typeof message.shareId !== 'string') break;
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            screenShareService.handleViewerLeft(message.shareId, message.from);
-            console.log(`✅ 查看者离开已处理`);
-          } catch (error) {
-            console.error('❌ 处理查看者离开失败:', error);
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeScreenShareId(message.shareId);
+            if (!peerId || !shareId) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              if (!share || share.playerId !== this.localPlayerId) break;
+              screenShareService.handleViewerLeft(shareId, peerId);
+            } catch (error) {
+              console.error('❌ 处理查看者离开失败:', error);
+            }
           }
           break;
           
         case 'screen-share-list-request':
           // 收到屏幕共享列表请求
-          console.log(`📋 收到屏幕共享列表请求 from ${message.from}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            // 【修复】只返回自己创建的共享，不返回别人的共享
-            const myShares = screenShareService.getMyActiveShares();
-            
-            // 如果有活跃的共享，发送给请求者
-            if (myShares.length > 0) {
-              console.log(`📤 发送 ${myShares.length} 个屏幕共享信息给 ${message.from}`);
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            if (!peerId) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const myShares = screenShareService.getMyActiveShares().slice(0, 256);
               myShares.forEach(share => {
+                const shareId = this.safeScreenShareId(share.id);
+                const playerName = sanitizeUntrustedText(share.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+                if (!shareId || !shareId.startsWith('share-') || !playerName) return;
                 this.sendWebSocketMessage({
                   type: 'screen-share-list-response',
                   from: this.localPlayerId,
-                  to: message.from,
-                  shareId: share.id,
-                  playerName: share.playerName,
-                  hasPassword: share.requirePassword,
-                  viewerId: share.viewerId,
-                  viewerName: share.viewerName,
-                  viewerCount: share.viewerCount ?? 0,
+                  to: peerId,
+                  shareId,
+                  playerName,
+                  hasPassword: share.requirePassword === true,
+                  viewerId: isSafeIdentifier(share.viewerId) ? share.viewerId : undefined,
+                  viewerName: share.viewerName ? sanitizeUntrustedText(share.viewerName, MAX_PLAYER_NAME_LENGTH).trim() : undefined,
+                  viewerCount: this.safeViewerCount(share.viewerCount),
                 });
               });
-            } else {
-              console.log(`📭 我没有活跃的屏幕共享`);
+            } catch (error) {
+              console.error('❌ 处理屏幕共享列表请求失败:', error);
             }
-          } catch (error) {
-            console.error('❌ 处理屏幕共享列表请求失败:', error);
           }
           break;
           
         case 'screen-share-list-response':
           // 收到屏幕共享列表响应
-          console.log(`📥 收到屏幕共享列表响应 from ${message.from}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            // 将共享信息添加到本地列表
-            const share = {
-              id: message.shareId,
-              playerId: message.from,
-              playerName: message.playerName,
-              virtualIp: '', // 将由前端填充
-              requirePassword: message.hasPassword,
-              startTime: Date.now(),
-              status: 'active' as const,
-              viewerId: message.viewerId,
-              viewerName: message.viewerName,
-              viewerCount: message.viewerCount ?? 0,
-            };
-            // 直接添加到activeShares
-            (screenShareService as any).activeShares.set(share.id, share);
-            console.log(`✅ 屏幕共享已添加到列表: ${share.playerName}`);
-            
-            // 【事件驱动】触发自定义事件通知UI更新
-            window.dispatchEvent(new CustomEvent('screen-share-start', {
-              detail: {
-                shareId: share.id,
-                playerId: share.playerId,
-                playerName: share.playerName,
-                hasPassword: share.requirePassword,
-                viewerId: share.viewerId,
-                viewerName: share.viewerName,
-                viewerCount: share.viewerCount,
-              }
-            }));
-          } catch (error) {
-            console.error('❌ 处理屏幕共享列表响应失败:', error);
+          {
+            const peerId = this.authenticatedPeerId(message);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const playerName = sanitizeUntrustedText(message.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+            const viewerId = message.viewerId === undefined ? undefined : message.viewerId;
+            const viewerName = message.viewerName === undefined ? undefined : sanitizeUntrustedText(message.viewerName, MAX_PLAYER_NAME_LENGTH).trim();
+            if (!peerId || !shareId || !shareId.startsWith('share-') || !playerName || typeof message.hasPassword !== 'boolean') break;
+            if (viewerId !== undefined && !isSafeIdentifier(viewerId)) break;
+            if (message.viewerName !== undefined && !viewerName) break;
+            if (message.viewerCount !== undefined && (typeof message.viewerCount !== 'number' || !Number.isSafeInteger(message.viewerCount) || message.viewerCount < 0 || message.viewerCount > 100_000)) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const existing = activeShares.get(shareId);
+              if (existing && existing.playerId !== peerId) break;
+              if (!existing && activeShares.size >= 256) break;
+              const share = {
+                id: shareId,
+                playerId: peerId,
+                playerName,
+                virtualIp: '',
+                requirePassword: message.hasPassword,
+                startTime: Date.now(),
+                status: 'active' as const,
+                viewerId,
+                viewerName,
+                viewerCount: this.safeViewerCount(message.viewerCount),
+              };
+              activeShares.set(share.id, share);
+              window.dispatchEvent(new CustomEvent('screen-share-start', {
+                detail: {
+                  shareId: share.id,
+                  playerId: share.playerId,
+                  playerName: share.playerName,
+                  hasPassword: share.requirePassword,
+                  viewerId: share.viewerId,
+                  viewerName: share.viewerName,
+                  viewerCount: share.viewerCount,
+                },
+              }));
+            } catch (error) {
+              console.error('❌ 处理屏幕共享列表响应失败:', error);
+            }
           }
           break;
           
         case 'screen-share-update':
           // 收到共享状态更新
-          console.log(`🔄 收到共享状态更新, shareId: ${message.shareId}, viewerId: ${message.viewerId}, viewerName: ${message.viewerName}`);
-          try {
-            const { screenShareService } = await import('../screenShare/ScreenShareService');
-            // 更新本地共享列表中的查看者信息
-            const share = (screenShareService as any).activeShares.get(message.shareId);
-            if (share && share.playerId === message.from) {
-              share.viewerId = message.viewerId;
-              share.viewerName = message.viewerName;
-              share.viewerCount = message.viewerCount ?? (message.viewerId ? 1 : 0);
-              (screenShareService as any).activeShares.set(message.shareId, share);
-               screenShareService.handleShareUpdate(message.shareId, message.viewerId, message.viewerName, message.viewerCount, message.from);
-              console.log(`✅ 共享状态已更新:`, { viewerId: message.viewerId, viewerName: message.viewerName });
-              
-              // 【事件驱动】触发自定义事件通知UI更新
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeScreenShareId(message.shareId);
+            const viewerId = message.viewerId === undefined ? undefined : message.viewerId;
+            const viewerName = message.viewerName === undefined ? undefined : sanitizeUntrustedText(message.viewerName, MAX_PLAYER_NAME_LENGTH).trim();
+            const viewerCount = message.viewerCount === undefined
+              ? (viewerId ? 1 : 0)
+              : this.safeViewerCount(message.viewerCount);
+            if (!peerId || !shareId || (viewerId !== undefined && !isSafeIdentifier(viewerId))) break;
+            if (message.viewerName !== undefined && !viewerName) break;
+            if (message.viewerCount !== undefined && (typeof message.viewerCount !== 'number' || !Number.isSafeInteger(message.viewerCount) || message.viewerCount < 0 || message.viewerCount > 100_000)) break;
+            try {
+              const { screenShareService } = await import('../screenShare/ScreenShareService');
+              const activeShares = (screenShareService as any).activeShares as Map<string, any>;
+              const share = activeShares.get(shareId);
+              if (!share || share.playerId !== peerId) break;
+              share.viewerId = viewerId;
+              share.viewerName = viewerName;
+              share.viewerCount = viewerCount;
+              activeShares.set(shareId, share);
+              screenShareService.handleShareUpdate(shareId, viewerId, viewerName, viewerCount, peerId);
               window.dispatchEvent(new CustomEvent('screen-share-update', {
-                detail: {
-                  shareId: message.shareId,
-                  viewerId: message.viewerId,
-                  viewerName: message.viewerName,
-                  viewerCount: message.viewerCount,
-                }
+                detail: { shareId, viewerId, viewerName, viewerCount },
               }));
+            } catch (error) {
+              console.error('❌ 处理共享状态更新失败:', error);
             }
-          } catch (error) {
-            console.error('❌ 处理共享状态更新失败:', error);
           }
           break;
 
@@ -1350,31 +1788,47 @@ export class WebRTCClient {
               break;
             }
             const { remoteControlService } = await import('../remoteControl/RemoteControlService');
+            const session = this.authenticatedSession(message);
             switch (message.type) {
-              case 'remote-control-request':
-                remoteControlService.handleRequest(message.sessionId, message.from, message.fromName || '玩家', message.to);
+              case 'remote-control-request': {
+                const request = session;
+                const fromName = sanitizeUntrustedText(message.fromName, MAX_PLAYER_NAME_LENGTH).trim();
+                if (!request || !fromName) break;
+                remoteControlService.handleRequest(request.sessionId, request.peerId, fromName, this.localPlayerId);
                 break;
+              }
               case 'remote-control-accept':
-                await remoteControlService.handleAccept(message.sessionId, message.from, message.to);
+              {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId)) break;
+                await remoteControlService.handleAccept(session.sessionId, session.peerId, this.localPlayerId);
                 break;
-              case 'remote-control-reject':
-                remoteControlService.handleReject(message.sessionId, message.from, message.to, message.reason || 'rejected');
+              }
+              case 'remote-control-reject': {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId)) break;
+                const reason = sanitizeUntrustedText(message.reason, MAX_ANNOUNCEMENT_LENGTH).trim();
+                remoteControlService.handleReject(session.sessionId, session.peerId, this.localPlayerId, reason || 'rejected');
                 break;
-              case 'remote-control-offer':
-                if (!message.offer || typeof message.offer.sdp !== 'string') break;
-                await remoteControlService.handleOffer(message.sessionId, message.from, message.to, message.offer.sdp);
+              }
+              case 'remote-control-offer': {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId) || !this.isSafeSessionDescription(message.offer, 'offer')) break;
+                await remoteControlService.handleOffer(session.sessionId, session.peerId, this.localPlayerId, message.offer.sdp);
                 break;
-              case 'remote-control-answer':
-                if (!message.answer || typeof message.answer.sdp !== 'string') break;
-                await remoteControlService.handleAnswer(message.sessionId, message.from, message.to, message.answer.sdp);
+              }
+              case 'remote-control-answer': {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId) || !this.isSafeSessionDescription(message.answer, 'answer')) break;
+                await remoteControlService.handleAnswer(session.sessionId, session.peerId, this.localPlayerId, message.answer.sdp);
                 break;
-              case 'remote-control-ice':
-                if (!message.candidate || typeof message.candidate.candidate !== 'string') break;
-                await remoteControlService.handleIce(message.sessionId, message.from, message.to, message.candidate);
+              }
+              case 'remote-control-ice': {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId) || !this.isSafeIceCandidate(message.candidate)) break;
+                await remoteControlService.handleIce(session.sessionId, session.peerId, this.localPlayerId, message.candidate);
                 break;
-              case 'remote-control-stop':
-                remoteControlService.handleStop(message.sessionId, message.from, message.to);
+              }
+              case 'remote-control-stop': {
+                if (!session || !remoteControlService.isSessionForPeer(session.sessionId, session.peerId)) break;
+                remoteControlService.handleStop(session.sessionId, session.peerId, this.localPlayerId);
                 break;
+              }
             }
           } catch (error) {
             console.error('❌ 处理远程控制消息失败:', error);
@@ -1383,100 +1837,81 @@ export class WebRTCClient {
           
         case 'file-share-added':
           // 收到文件共享添加通知
-          console.log(`📁 收到文件共享添加通知 from ${message.playerName}`);
-          try {
-            // 【事件驱动】触发自定义事件通知UI更新
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeFileShareId(message.shareId);
+            const shareName = sanitizeUntrustedText(message.shareName, MAX_PATH_SEGMENT_LENGTH).trim();
+            const playerName = sanitizeUntrustedText(message.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+            if (!peerId || !shareId || !shareName || !playerName || typeof message.hasPassword !== 'boolean') break;
             window.dispatchEvent(new CustomEvent('file-share-added', {
-              detail: {
-                shareId: message.shareId,
-                shareName: message.shareName,
-                playerId: message.from,
-                playerName: message.playerName,
-                hasPassword: message.hasPassword,
-              }
+              detail: { shareId, shareName, playerId: peerId, playerName, hasPassword: message.hasPassword },
             }));
-            console.log(`✅ 文件共享添加事件已触发`);
-          } catch (error) {
-            console.error('❌ 处理文件共享添加失败:', error);
           }
           break;
           
         case 'file-share-removed':
           // 收到文件共享删除通知
-          console.log(`📁 收到文件共享删除通知, shareId: ${message.shareId}`);
-          try {
-            // 【事件驱动】触发自定义事件通知UI更新
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            const shareId = this.safeFileShareId(message.shareId);
+            if (!peerId || !shareId) break;
             window.dispatchEvent(new CustomEvent('file-share-removed', {
-              detail: {
-                shareId: message.shareId,
-                playerId: message.from,
-              }
+              detail: { shareId, playerId: peerId },
             }));
-            console.log(`✅ 文件共享删除事件已触发`);
-          } catch (error) {
-            console.error('❌ 处理文件共享删除失败:', error);
           }
           break;
           
         case 'file-share-list-request':
           // 收到文件共享列表请求
-          console.log(`📋 收到文件共享列表请求 from ${message.from}`);
-          try {
-            // 获取本地共享列表
-            const localShares = await invoke<any[]>('get_local_shares');
-            
-            if (localShares && localShares.length > 0) {
-              console.log(`📤 发送 ${localShares.length} 个文件共享信息给 ${message.from}`);
-              
-              // 转换为前端格式
-              const shares = localShares.map(share => ({
-                shareId: share.id,
-                shareName: share.name,
-                playerName: this.localPlayerName,
-                hasPassword: !!share.password,
-              }));
-              
-              // 发送响应
-              this.sendWebSocketMessage({
-                type: 'file-share-list-response',
-                from: this.localPlayerId,
-                to: message.from,
-                shares: shares,
-              });
-            } else {
-              console.log(`📭 我没有活跃的文件共享`);
+          {
+            const peerId = this.authenticatedPeerId(message, false);
+            if (!peerId) break;
+            try {
+              const localShares = await invoke<any[]>('get_local_shares');
+              const shares = Array.isArray(localShares)
+                ? localShares.slice(0, 256).flatMap((share) => {
+                    if (!share || typeof share !== 'object') return [];
+                    const shareId = this.safeFileShareId(share.id);
+                    const shareName = sanitizeUntrustedText(share.name, MAX_PATH_SEGMENT_LENGTH).trim();
+                    if (!shareId || !shareName) return [];
+                    return [{ shareId, shareName, playerName: this.localPlayerName, hasPassword: !!share.password }];
+                  })
+                : [];
+              if (shares.length > 0) {
+                this.sendWebSocketMessage({
+                  type: 'file-share-list-response',
+                  from: this.localPlayerId,
+                  to: peerId,
+                  shares,
+                });
+              }
+            } catch (error) {
+              console.error('❌ 处理文件共享列表请求失败:', error);
             }
-          } catch (error) {
-            console.error('❌ 处理文件共享列表请求失败:', error);
           }
           break;
           
         case 'file-share-list-response':
           // 收到文件共享列表响应
-          console.log(`📥 收到文件共享列表响应 from ${message.from}, shares: ${message.shares?.length || 0}`);
-          try {
-            if (message.shares && Array.isArray(message.shares)) {
-              // 为每个共享触发添加事件
-              message.shares.forEach((share: any) => {
-                window.dispatchEvent(new CustomEvent('file-share-added', {
-                  detail: {
-                    shareId: share.shareId,
-                    shareName: share.shareName,
-                    playerId: message.from,
-                    playerName: share.playerName,
-                    hasPassword: share.hasPassword,
-                  }
-                }));
-              });
-              console.log(`✅ 文件共享列表已添加到UI`);
+          {
+            const peerId = this.authenticatedPeerId(message);
+            if (!peerId || !Array.isArray(message.shares) || message.shares.length > 256) break;
+            for (const rawShare of message.shares) {
+              if (!rawShare || typeof rawShare !== 'object') continue;
+              const share = rawShare as Record<string, unknown>;
+              const shareId = this.safeFileShareId(share.shareId);
+              const shareName = sanitizeUntrustedText(share.shareName, MAX_PATH_SEGMENT_LENGTH).trim();
+              const playerName = sanitizeUntrustedText(share.playerName, MAX_PLAYER_NAME_LENGTH).trim();
+              if (!shareId || !shareName || !playerName || typeof share.hasPassword !== 'boolean') continue;
+              window.dispatchEvent(new CustomEvent('file-share-added', {
+                detail: { shareId, shareName, playerId: peerId, playerName, hasPassword: share.hasPassword },
+              }));
             }
-          } catch (error) {
-            console.error('❌ 处理文件共享列表响应失败:', error);
           }
           break;
           
         default:
-          console.warn(`未知消息类型: ${message.type}`);
+           console.warn(`未知消息类型: ${messageType}`);
       }
     } catch (error) {
       console.error(`❌ 处理WebSocket消息失败:`, error);
@@ -1488,7 +1923,11 @@ export class WebRTCClient {
    */
   private async handleWebSocketOffer(message: any): Promise<void> {
     try {
-      const peerId = message.from;
+      const peerId = this.authenticatedPeerId(message);
+      if (!peerId || !this.isSafeSessionDescription(message.offer, 'offer')) {
+        console.warn('⚠️ 忽略未认证或格式无效的 Offer');
+        return;
+      }
       
       console.log(`📥 处理 Offer from ${peerId}`);
       
@@ -1660,7 +2099,11 @@ export class WebRTCClient {
    */
   private async handleWebSocketAnswer(message: any): Promise<void> {
     try {
-      const peerId = message.from;
+      const peerId = this.authenticatedPeerId(message);
+      if (!peerId || !this.isSafeSessionDescription(message.answer, 'answer')) {
+        console.warn('⚠️ 忽略未认证或格式无效的 Answer');
+        return;
+      }
       const peer = this.peerConnections.get(peerId);
       
       if (!peer) {
@@ -1696,7 +2139,11 @@ export class WebRTCClient {
    */
   private async handleWebSocketIceCandidate(message: any): Promise<void> {
     try {
-      const peerId = message.from;
+      const peerId = this.authenticatedPeerId(message);
+      if (!peerId || !this.isSafeIceCandidate(message.candidate)) {
+        console.warn('⚠️ 忽略未认证或格式无效的 ICE Candidate');
+        return;
+      }
       const peer = this.peerConnections.get(peerId);
       
       if (!peer) {
@@ -1726,24 +2173,51 @@ export class WebRTCClient {
    * 发送WebSocket消息（公开方法，供外部调用）
    */
   public sendWebSocketMessage(message: any): boolean {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      return false;
+    }
+    const messageType = message.type;
+    if (!isSafeIdentifier(messageType, 64)) return false;
+    if (message.from !== undefined && message.from !== this.localPlayerId) {
+      console.warn('⚠️ 拒绝发送伪造发送者身份的信令消息');
+      return false;
+    }
+    if (message.to !== undefined && (!isSafeIdentifier(message.to) || message.to === this.localPlayerId || !this.knownPlayers.has(message.to))) {
+      console.warn('⚠️ 拒绝发送给未知信令目标');
+      return false;
+    }
+    if (messageType === 'status-update' && message.clientId !== this.localPlayerId) {
+      console.warn('⚠️ 拒绝发送伪造客户端身份的状态消息');
+      return false;
+    }
+    if (messageType === 'chat-message' && message.playerId !== this.localPlayerId) {
+      console.warn('⚠️ 拒绝发送伪造玩家身份的聊天消息');
+      return false;
+    }
+
     if (!this.websocket) {
-      console.error('❌ WebSocket实例不存在，无法发送消息:', message.type);
+      console.error('❌ WebSocket实例不存在，无法发送消息:', messageType);
       return false;
     }
 
     if (this.websocket.readyState === WebSocket.OPEN) {
       try {
-        this.websocket.send(JSON.stringify(message));
+        const serialized = JSON.stringify(message);
+        if (serialized.length > 512 * 1024) {
+          console.warn('⚠️ 拒绝发送过大的信令消息');
+          return false;
+        }
+        this.websocket.send(serialized);
         return true;
       } catch (error) {
-        console.error('❌ 发送WebSocket消息失败:', error, message.type);
+        console.error('❌ 发送WebSocket消息失败:', error, messageType);
         return false;
       }
     }
 
     const stateNames = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
     const stateName = stateNames[this.websocket.readyState] || 'UNKNOWN';
-    console.error(`❌ WebSocket未就绪(${stateName})，无法发送消息:`, message.type);
+    console.error(`❌ WebSocket未就绪(${stateName})，无法发送消息:`, messageType);
     return false;
   }
 
@@ -2927,11 +3401,21 @@ export class WebRTCClient {
     virtualDomain?: string,
     useDomain?: boolean,
   ): void {
+    if (!isSafeIdentifier(playerId) || playerId === this.localPlayerId || !this.knownPlayers.has(playerId)) return;
+    const safePlayerName = sanitizeUntrustedText(playerName, MAX_PLAYER_NAME_LENGTH).trim() || tl('未知玩家', 'Unknown player');
+    const safeVirtualIp = isSafeVirtualIp(virtualIp) ? virtualIp.trim() : undefined;
+    const safeVirtualDomain = isSafeVirtualDomain(virtualDomain) ? virtualDomain.trim() : undefined;
+    const safeUseDomain = useDomain === true && !!safeVirtualIp && !!safeVirtualDomain;
     if (this.onPlayerJoinedCallback) {
-      this.onPlayerJoinedCallback(playerId, playerName, virtualIp, virtualDomain, useDomain);
+      this.onPlayerJoinedCallback(playerId, safePlayerName, safeVirtualIp, safeVirtualDomain, safeUseDomain);
       return;
     }
-    this.pendingPlayerJoined.set(playerId, { playerName, virtualIp, virtualDomain, useDomain });
+    this.pendingPlayerJoined.set(playerId, {
+      playerName: safePlayerName,
+      virtualIp: safeVirtualIp,
+      virtualDomain: safeVirtualDomain,
+      useDomain: safeUseDomain,
+    });
   }
 
   onPlayerLeft(callback: (playerId: string) => void): void {
@@ -2995,7 +3479,9 @@ export class WebRTCClient {
 
   /** 踢出玩家（仅房主有效） */
   kickPlayer(targetId: string): boolean {
-    return this.sendWebSocketMessage({ type: 'kick-player', from: this.localPlayerId, target: targetId });
+    const safeTargetId = sanitizeIdentifier(targetId);
+    if (!this.knownPlayers.has(safeTargetId) || safeTargetId === this.localPlayerId) return false;
+    return this.sendWebSocketMessage({ type: 'kick-player', from: this.localPlayerId, target: safeTargetId });
   }
 
   /**
@@ -3014,59 +3500,78 @@ export class WebRTCClient {
    * @returns 是否成功启动重连流程
    */
   async reconnectPeerVoice(peerId: string): Promise<boolean> {
-    if (!peerId || peerId === this.localPlayerId) {
+    const safePeerId = sanitizeIdentifier(peerId);
+    if (!this.knownPlayers.has(safePeerId) || safePeerId === this.localPlayerId) {
       return false;
     }
 
-    if (this.manualReconnectingPeers.has(peerId)) {
-      console.log(`⏳ 已在对 ${peerId} 进行语音重连，忽略重复请求`);
+    if (this.manualReconnectingPeers.has(safePeerId)) {
+      console.log('⏳ 已在进行语音重连，忽略重复请求');
       return false;
     }
 
-    this.manualReconnectingPeers.add(peerId);
+    this.manualReconnectingPeers.add(safePeerId);
     try {
-      console.log(`🔄 [语音重连] 开始重建与 ${peerId} 的语音连接`);
+      console.log('🔄 [语音重连] 开始重建语音连接');
 
       // 通知对方拆除旧连接（对端不识别该消息时会被忽略，此时退化为单端重建）
       this.sendWebSocketMessage({
         type: 'voice-reconnect',
         from: this.localPlayerId,
-        to: peerId,
+        to: safePeerId,
       });
 
       // 取消可能存在的自动重连调度，避免与手动重连冲突
-      this.clearPeerReconnectState(peerId);
+      this.clearPeerReconnectState(safePeerId);
 
       // 给对端一点时间完成拆除，再发起新的 Offer
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      await this.handleReconnect(peerId, true);
-      console.log(`✅ [语音重连] 已向 ${peerId} 发起新的连接协商`);
+      await this.handleReconnect(safePeerId, true);
+      console.log('✅ [语音重连] 已发起新的连接协商');
       return true;
     } catch (error) {
-      console.error(`❌ [语音重连] 失败 (${peerId}):`, error);
+      console.error('❌ [语音重连] 失败:', error);
       return false;
     } finally {
       // 释放并发闸门，留出足够时间避免用户狂点
-      setTimeout(() => this.manualReconnectingPeers.delete(peerId), 3000);
+      setTimeout(() => this.manualReconnectingPeers.delete(safePeerId), 3000);
     }
   }
 
   /** 指定玩家当前是否正在进行手动语音重连 */
   isManualReconnecting(peerId: string): boolean {
-    return this.manualReconnectingPeers.has(peerId);
+    return this.manualReconnectingPeers.has(sanitizeIdentifier(peerId));
   }
   /** 禁言/解除禁言玩家（仅房主有效） */
   setPlayerMuted(targetId: string, muted: boolean): boolean {
-    return this.sendWebSocketMessage({ type: 'mute-player', from: this.localPlayerId, target: targetId, muted });
+    const safeTargetId = sanitizeIdentifier(targetId);
+    if (!this.knownPlayers.has(safeTargetId) || safeTargetId === this.localPlayerId || typeof muted !== 'boolean') return false;
+    return this.sendWebSocketMessage({ type: 'mute-player', from: this.localPlayerId, target: safeTargetId, muted });
   }
   /** 转让房主（仅房主有效） */
   transferHost(targetId: string): boolean {
-    return this.sendWebSocketMessage({ type: 'transfer-host', from: this.localPlayerId, target: targetId });
+    const safeTargetId = sanitizeIdentifier(targetId);
+    if (!this.knownPlayers.has(safeTargetId) || safeTargetId === this.localPlayerId) return false;
+    return this.sendWebSocketMessage({ type: 'transfer-host', from: this.localPlayerId, target: safeTargetId });
   }
   /** 设置大厅选项（仅房主有效），maxPlayers 传 0 表示取消上限 */
-  setLobbyOptions(opts: { maxPlayers?: number; isPublic?: boolean; description?: string; password?: string; serverNode?: string }): boolean {
-    return this.sendWebSocketMessage({ type: 'set-lobby-options', from: this.localPlayerId, ...opts });
+  setLobbyOptions(opts: { maxPlayers?: number; isPublic?: boolean; description?: string; serverNode?: string }): boolean {
+    const next: Record<string, unknown> = { type: 'set-lobby-options', from: this.localPlayerId };
+    if (opts.maxPlayers !== undefined) {
+      if (!Number.isSafeInteger(opts.maxPlayers) || opts.maxPlayers < 0 || opts.maxPlayers > 100_000) return false;
+      next.maxPlayers = opts.maxPlayers;
+    }
+    if (opts.isPublic !== undefined) {
+      if (typeof opts.isPublic !== 'boolean') return false;
+      next.isPublic = opts.isPublic;
+    }
+    if (opts.description !== undefined) next.description = sanitizeUntrustedText(opts.description, 200);
+    if (opts.serverNode !== undefined) {
+      if (!isSafeServerNode(opts.serverNode) || opts.serverNode === 'custom') return false;
+      next.serverNode = opts.serverNode;
+    }
+    return this.sendWebSocketMessage(next);
   }
 
   /**
@@ -3078,17 +3583,19 @@ export class WebRTCClient {
         throw new Error('WebSocket未连接');
       }
 
+      const safeContent = sanitizeUntrustedText(content, MAX_CHAT_TEXT_LENGTH);
+      if (!safeContent.trim()) throw new Error('消息内容不能为空');
       const message = {
         type: 'chat-message',
         from: this.localPlayerId,
         playerId: this.localPlayerId,
         playerName: this.localPlayerName,
-        content: content,
+        content: safeContent,
         timestamp: Date.now(),
       };
 
       this.sendWebSocketMessage(message);
-      console.log('📤 聊天消息已发送:', content);
+      console.log('📤 聊天消息已发送');
     } catch (error) {
       console.error('❌ 发送聊天消息失败:', error);
       throw error;
@@ -3134,6 +3641,16 @@ export class WebRTCClient {
         remoteControlService.handleSignalingDisconnected();
       } catch (error) {
         console.error('清理远程控制会话失败:', error);
+      }
+      this.chatToken = '';
+      this.chatTokenEpoch = 0;
+      this.chatHostId = undefined;
+      this.chatPeers.clear();
+      p2pChatService.reset();
+      try {
+        await invoke('stop_p2p_chat');
+      } catch (error) {
+        console.warn('停止聊天服务失败:', error);
       }
       
       // 清理重连定时器

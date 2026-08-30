@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -53,13 +54,24 @@ class EasyTierVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val ipv4Address = intent?.getStringExtra(EXTRA_IPV4)
+        val routes = intent?.getStringArrayListExtra(EXTRA_ROUTES)
+        val instanceName = intent?.getStringExtra(EXTRA_INSTANCE)
+        if (ipv4Address == null || routes.isNullOrEmpty() || routes.size > MAX_ROUTE_COUNT ||
+            instanceName == null || !INSTANCE_NAME_PATTERN.matches(instanceName) ||
+            !isValidCidr(ipv4Address) || routes.any { !isValidCidr(it) }
+        ) {
+            Log.w(TAG, "Rejecting invalid VPN start request")
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         // 前台服务保活：常驻通知，避免系统在后台杀掉组网
-        startAsForeground()
+        if (!startAsForeground()) {
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         acquireLocks()
-        val ipv4Address = intent?.getStringExtra(EXTRA_IPV4) ?: return START_STICKY
-        val routes = intent.getStringArrayListExtra(EXTRA_ROUTES) ?: arrayListOf("10.0.0.0/8")
-        val instanceName = intent.getStringExtra(EXTRA_INSTANCE) ?: return START_STICKY
-        val magicDns = intent.getBooleanExtra(EXTRA_MAGIC_DNS, false)
+        val magicDns = intent?.getBooleanExtra(EXTRA_MAGIC_DNS, false) == true
 
         thread(name = "mctier-easytier-vpn") {
             runCatching {
@@ -72,7 +84,7 @@ class EasyTierVpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun startAsForeground() {
+    private fun startAsForeground(): Boolean = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
@@ -87,8 +99,14 @@ class EasyTierVpnService : VpnService() {
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .build()
-        runCatching { startForeground(NOTIFICATION_ID, notification) }
-    }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+        } else {
+            // systemExempted was introduced in Android 14. Use the legacy overload on
+            // older releases rather than passing an unknown foreground-service bit.
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }.onFailure { Log.e(TAG, "Failed to start VPN foreground service", it) }.isSuccess
 
     override fun onDestroy() {
         running = false
@@ -117,12 +135,8 @@ class EasyTierVpnService : VpnService() {
             .addDnsServer("114.114.114.114")
 
         routes.forEach { cidr ->
-            runCatching {
-                val (routeIp, routePrefix) = parseCidr(cidr)
-                builder.addRoute(routeIp, routePrefix)
-            }.onFailure {
-                Log.w(TAG, "Skip invalid route $cidr", it)
-            }
+            val (routeIp, routePrefix) = parseCidr(cidr)
+            builder.addRoute(routeIp, routePrefix)
         }
 
         vpnInterface = builder.establish() ?: error("VpnService.Builder.establish returned null")
@@ -139,15 +153,25 @@ class EasyTierVpnService : VpnService() {
     }
 
     private fun parseCidr(value: String): Pair<String, Int> {
-        val parts = value.split("/")
+        val parts = value.trim().split("/", limit = 2)
         require(parts.size == 2) { "Invalid CIDR: $value" }
-        return parts[0] to parts[1].toInt()
+        val octets = parts[0].split('.')
+        require(octets.size == 4 && octets.all { it.isNotEmpty() && (it.toIntOrNull() ?: -1) in 0..255 }) {
+            "Invalid IPv4 address: ${parts[0]}"
+        }
+        val prefix = parts[1].toIntOrNull() ?: error("Invalid CIDR prefix: ${parts[1]}")
+        require(prefix in 1..32) { "Invalid CIDR prefix: $prefix" }
+        return octets.joinToString(".") to prefix
     }
+
+    private fun isValidCidr(value: String): Boolean = runCatching { parseCidr(value) }.isSuccess
 
     companion object {
         private const val TAG = "MCTierEasyTierVpn"
         private const val CHANNEL_ID = "mctier_vpn_keepalive"
         private const val NOTIFICATION_ID = 4541
+        private const val MAX_ROUTE_COUNT = 32
+        private val INSTANCE_NAME_PATTERN = Regex("[A-Za-z0-9_.-]{1,128}")
         const val EXTRA_IPV4 = "ipv4_address"
         const val EXTRA_ROUTES = "proxy_cidrs"
         const val EXTRA_INSTANCE = "instance_name"

@@ -1,19 +1,19 @@
 // AppCore 模块 - 应用程序核心
 // 负责应用程序生命周期管理、模块初始化、全局状态维护
 
+use log::{info, warn};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use log::{info, warn};
 
-use super::config_manager::ConfigManager;
-use super::lobby_manager::LobbyManager;
-use super::network_service::{NetworkService, NetworkConfig};
-use super::voice_service::VoiceService;
-use super::p2p_signaling::P2PSignalingService;
-use super::websocket_signaling::WebSocketSignalingServer;
-use super::file_transfer::FileTransferService;
 use super::chat_service::ChatService;
+use super::config_manager::ConfigManager;
 use super::error::AppError;
+use super::file_transfer::FileTransferService;
+use super::lobby_manager::LobbyManager;
+use super::network_service::{NetworkConfig, NetworkService};
+use super::p2p_signaling::P2PSignalingService;
+use super::voice_service::VoiceService;
+use super::websocket_signaling::WebSocketSignalingServer;
 
 /// 应用程序状态枚举
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub enum AppState {
 }
 
 /// 应用程序核心结构体
-/// 
+///
 /// 负责协调所有子模块的交互，管理应用程序的生命周期
 pub struct AppCore {
     /// 大厅管理器
@@ -54,19 +54,19 @@ pub struct AppCore {
 
 impl AppCore {
     /// 初始化应用核心
-    /// 
+    ///
     /// 创建所有子模块实例并初始化配置
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// * `Ok(AppCore)` - 成功初始化的应用核心实例
     /// * `Err(AppError)` - 初始化失败的错误信息
-    /// 
+    ///
     /// # 示例
-    /// 
+    ///
     /// ```no_run
     /// use mctier::modules::app_core::AppCore;
-    /// 
+    ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let app_core = AppCore::new().await.unwrap();
@@ -137,11 +137,11 @@ impl AppCore {
     }
 
     /// 启动应用
-    /// 
+    ///
     /// 执行应用启动时的必要操作
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// * `Ok(())` - 启动成功
     /// * `Err(AppError)` - 启动失败的错误信息
     pub async fn start(&self) -> Result<(), AppError> {
@@ -169,15 +169,15 @@ impl AppCore {
     }
 
     /// 关闭应用
-    /// 
+    ///
     /// 执行应用关闭时的清理操作，包括：
     /// - 断开所有网络连接
     /// - 停止所有音频流
     /// - 终止子进程
     /// - 清理资源
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// * `Ok(())` - 关闭成功
     /// * `Err(AppError)` - 关闭失败的错误信息
     pub async fn shutdown(&self) -> Result<(), AppError> {
@@ -203,7 +203,13 @@ impl AppCore {
 
         // 退出大厅（如果在大厅中）
         let network_service_ref = self.network_service.lock().await;
-        match self.lobby_manager.lock().await.leave_lobby(&*network_service_ref).await {
+        match self
+            .lobby_manager
+            .lock()
+            .await
+            .leave_lobby(&*network_service_ref)
+            .await
+        {
             Ok(_) => info!("已退出大厅"),
             Err(e) => {
                 // 如果不在大厅中，这是正常的
@@ -213,7 +219,7 @@ impl AppCore {
             }
         }
         drop(network_service_ref);
-        
+
         // 额外的hosts清理：确保清理所有可能的MCTier hosts记录
         // 这是一个保险措施，防止因为异常退出导致hosts文件残留
         info!("执行彻底的hosts文件清理...");
@@ -239,17 +245,24 @@ impl AppCore {
     }
 
     /// 设置 Tauri 应用句柄
-    /// 
+    ///
     /// 必须在使用网络服务之前调用此方法
-    /// 
+    ///
     /// # 参数
-    /// 
+    ///
     /// * `app_handle` - Tauri 应用句柄
     pub async fn set_app_handle(&self, app_handle: tauri::AppHandle) {
         info!("设置 Tauri 应用句柄");
-        self.network_service.lock().await.set_app_handle(app_handle.clone());
-        self.p2p_signaling.lock().await.set_app_handle(app_handle.clone()).await;
-        
+        self.network_service
+            .lock()
+            .await
+            .set_app_handle(app_handle.clone());
+        self.p2p_signaling
+            .lock()
+            .await
+            .set_app_handle(app_handle.clone())
+            .await;
+
         // 如果WebSocket信令服务器已创建，也设置其app_handle
         if let Some(ws_server) = self.websocket_signaling.lock().await.as_ref() {
             ws_server.set_app_handle(app_handle).await;
@@ -257,18 +270,18 @@ impl AppCore {
     }
 
     /// 获取应用状态
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// 当前应用状态的克隆
     pub async fn get_state(&self) -> AppState {
         self.state.lock().await.clone()
     }
 
     /// 设置应用状态
-    /// 
+    ///
     /// # 参数
-    /// 
+    ///
     /// * `new_state` - 新的应用状态
     pub async fn set_state(&self, new_state: AppState) {
         let mut state = self.state.lock().await;
@@ -312,28 +325,32 @@ impl AppCore {
     }
 
     /// 启动WebSocket信令服务器（创建大厅时调用）
-    /// 
+    ///
     /// # 参数
-    /// 
+    ///
     /// * `virtual_ip` - 虚拟IP地址
     /// * `port` - 监听端口（默认8445）
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// * `Ok(())` - 启动成功
     /// * `Err(AppError)` - 启动失败
-    pub async fn start_websocket_signaling(&self, virtual_ip: String, port: u16) -> Result<(), AppError> {
+    pub async fn start_websocket_signaling(
+        &self,
+        virtual_ip: String,
+        port: u16,
+    ) -> Result<(), AppError> {
         info!("启动WebSocket信令服务器: {}:{}", virtual_ip, port);
-        
+
         // 创建WebSocket信令服务器
         let ws_server = WebSocketSignalingServer::new(&virtual_ip, port);
-        
+
         // 启动服务器
         ws_server.start().await?;
-        
+
         // 保存服务器实例
         *self.websocket_signaling.lock().await = Some(ws_server);
-        
+
         info!("✅ WebSocket信令服务器启动成功");
         Ok(())
     }
@@ -341,34 +358,40 @@ impl AppCore {
     /// 停止WebSocket信令服务器
     pub async fn stop_websocket_signaling(&self) -> Result<(), AppError> {
         info!("停止WebSocket信令服务器");
-        
+
         if let Some(ws_server) = self.websocket_signaling.lock().await.as_ref() {
             ws_server.stop().await?;
         }
-        
+
         *self.websocket_signaling.lock().await = None;
-        
+
         info!("✅ WebSocket信令服务器已停止");
         Ok(())
     }
 
     /// 切换麦克风状态
-    /// 
+    ///
     /// # 返回
-    /// 
+    ///
     /// * `Ok(bool)` - 新的麦克风状态（true=开启，false=关闭）
     /// * `Err(AppError)` - 切换失败的错误信息
     pub async fn toggle_mic(&self) -> Result<bool, AppError> {
         info!("切换麦克风状态");
-        
+
         // 获取当前麦克风状态
         let voice_service = self.voice_service.lock().await;
         let current_state = voice_service.is_mic_enabled();
         let new_state = !current_state;
-        
+
         // 切换状态
         drop(voice_service);
-        match self.voice_service.lock().await.set_mic_enabled(new_state).await {
+        match self
+            .voice_service
+            .lock()
+            .await
+            .set_mic_enabled(new_state)
+            .await
+        {
             Ok(state) => {
                 info!("麦克风状态已切换: {} -> {}", current_state, state);
                 Ok(state)
@@ -418,7 +441,7 @@ mod tests {
         // 测试应用关闭
         let app_core = AppCore::new().await.unwrap();
         app_core.start().await.unwrap();
-        
+
         let result = app_core.shutdown().await;
         assert!(result.is_ok(), "应用关闭应该成功");
 
@@ -430,7 +453,7 @@ mod tests {
     async fn test_state_transitions() {
         // 测试状态转换
         let app_core = AppCore::new().await.unwrap();
-        
+
         // 初始状态
         assert_eq!(app_core.get_state().await, AppState::Idle);
 
@@ -443,7 +466,9 @@ mod tests {
         assert_eq!(app_core.get_state().await, AppState::InLobby);
 
         // 设置为错误状态
-        app_core.set_state(AppState::Error("测试错误".to_string())).await;
+        app_core
+            .set_state(AppState::Error("测试错误".to_string()))
+            .await;
         assert_eq!(
             app_core.get_state().await,
             AppState::Error("测试错误".to_string())

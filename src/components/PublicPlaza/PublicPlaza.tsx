@@ -15,7 +15,7 @@ const { Text } = Typography;
 interface PublicPlazaProps {
   visible: boolean;
   onClose: () => void;
-  /** 选择一个公开大厅加入（带出大厅名与密码） */
+  /** 选择一个无密码公开大厅直接加入。 */
   onJoin: (lobby: PublicLobby) => void;
   /** 可选自定义信令服务器 */
   signalingServer?: string;

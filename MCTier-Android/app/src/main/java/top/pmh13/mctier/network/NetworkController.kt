@@ -3,6 +3,7 @@ package top.pmh13.mctier.network
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.util.Log
 import com.easytier.jni.EasyTierJNI
 import com.easytier.jni.EasyTierVpnService
@@ -211,7 +212,11 @@ class NetworkController(private val context: Context) {
             putStringArrayListExtra(EasyTierVpnService.EXTRA_ROUTES, arrayListOf(route))
             putExtra(EasyTierVpnService.EXTRA_MAGIC_DNS, magicDns)
         }
-        context.startService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
     }
 
     // 【互通关键修复】固定使用 EasyTier 默认 DHCP 网段 10.126.126.0/24。

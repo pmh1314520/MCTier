@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
+import { isSafeResourceId, sanitizeUntrustedText } from '../../security/trustBoundary';
 import './ScreenViewer.css';
 
 interface ScreenViewerProps {
@@ -16,10 +17,16 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const safeShareId = isSafeResourceId(shareId) ? shareId : '';
+  const safePlayerName = sanitizeUntrustedText(playerName, 64).trim() || tl('未知玩家', 'Unknown Player');
 
   useEffect(() => {
-    console.log('🎬 [ScreenViewer] 组件已挂载，shareId:', shareId);
-    
+    if (!safeShareId) {
+      setError(tl('屏幕共享标识无效', 'Invalid screen share identifier'));
+      setIsLoading(false);
+      return;
+    }
+
     let checkInterval: ReturnType<typeof setInterval> | undefined;
     let attempts = 0;
     const maxAttempts = 100; // 10秒超时
@@ -31,7 +38,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         console.log(`⏳ [ScreenViewer] 尝试从服务获取流... (${attempts}/${maxAttempts})`);
         
         // 从screenShareService获取流
-        const stream = screenShareService.getRemoteStream(shareId);
+        const stream = screenShareService.getRemoteStream(safeShareId);
         
         if (stream && stream.active) {
           console.log('✅ [ScreenViewer] 从服务获取到屏幕流');
@@ -85,7 +92,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         videoRef.current.srcObject = null;
       }
     };
-  }, [shareId]);
+  }, [safeShareId]);
 
   // 添加关闭窗口的处理
   const handleClose = async () => {
@@ -108,7 +115,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
             <line x1="8" y1="21" x2="16" y2="21" />
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
-          <span>{playerName} {tl('的屏幕', '\'s Screen')}</span>
+          <span>{safePlayerName} {tl('的屏幕', '\'s Screen')}</span>
         </div>
         
         <button className="close-viewer-btn" onClick={handleClose} title={tl('关闭', 'Close')}>
@@ -153,5 +160,4 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
     </div>
   );
 };
-
 

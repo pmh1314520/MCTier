@@ -61,7 +61,7 @@ export const LobbySettingsModal: React.FC<LobbySettingsModalProps> = ({
     setLoading(true);
     try {
       const config = await invoke<any>('get_lobby_easytier_advanced_config');
-      console.log('📖 [LobbySettings] 加载的大厅高级配置:', JSON.stringify(config, null, 2));
+      console.log('📖 [LobbySettings] 已加载大厅高级配置');
       console.log('📖 [LobbySettings] use_global_config 字段值:', config.use_global_config);
       console.log('📖 [LobbySettings] dev_name 字段值:', config.dev_name);
       

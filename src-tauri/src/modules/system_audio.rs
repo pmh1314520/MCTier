@@ -53,7 +53,9 @@ mod platform {
     const CHUNK_FRAMES: usize = 768;
 
     fn qpc_100ns_now() -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
-        use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+        use windows::Win32::System::Performance::{
+            QueryPerformanceCounter, QueryPerformanceFrequency,
+        };
         let mut counter = 0_i64;
         let mut frequency = 0_i64;
         unsafe {
@@ -66,9 +68,19 @@ mod platform {
         Ok(counter.saturating_mul(10_000_000) / frequency)
     }
 
-    pub fn capture_loop(app: AppHandle, stop: Arc<AtomicBool>, requested_device_id: Option<String>, requested_device_name: Option<String>) {
+    pub fn capture_loop(
+        app: AppHandle,
+        stop: Arc<AtomicBool>,
+        requested_device_id: Option<String>,
+        requested_device_name: Option<String>,
+    ) {
         while !stop.load(Ordering::Acquire) {
-            if let Err(error) = capture_loop_inner(&app, &stop, requested_device_id.as_deref(), requested_device_name.as_deref()) {
+            if let Err(error) = capture_loop_inner(
+                &app,
+                &stop,
+                requested_device_id.as_deref(),
+                requested_device_name.as_deref(),
+            ) {
                 log::warn!("WASAPI render loopback restarting: {}", error);
                 let _ = app.emit(ERROR_EVENT, error.to_string());
             }
@@ -113,7 +125,9 @@ mod platform {
                 .unwrap_or(enumerator.get_default_device(&Direction::Render)?);
             log::info!(
                 "WASAPI loopback reference output: {} ({})",
-                device.get_friendlyname().unwrap_or_else(|_| "Unknown output".to_string()),
+                device
+                    .get_friendlyname()
+                    .unwrap_or_else(|_| "Unknown output".to_string()),
                 device.get_id().unwrap_or_else(|_| "unknown-id".to_string()),
             );
             let mut audio_client: AudioClient = device.get_iaudioclient()?;
@@ -160,7 +174,8 @@ mod platform {
                     for byte in &mut chunk {
                         *byte = queue.pop_front().unwrap_or_default();
                     }
-                    let chunk_duration_100ns = (CHUNK_FRAMES as i64 * 10_000_000) / SAMPLE_RATE as i64;
+                    let chunk_duration_100ns =
+                        (CHUNK_FRAMES as i64 * 10_000_000) / SAMPLE_RATE as i64;
                     let end_qpc_100ns = queue_start_qpc_100ns
                         .map(|start| start + chunk_duration_100ns)
                         .unwrap_or_else(|| qpc_100ns_now().unwrap_or(anchor_qpc_100ns));
@@ -168,7 +183,8 @@ mod platform {
                         data: STANDARD.encode(chunk),
                         sample_rate: SAMPLE_RATE as u32,
                         channels: CHANNELS as u16,
-                        captured_at_unix_ms: (anchor_unix_100ns + end_qpc_100ns - anchor_qpc_100ns) / 10_000,
+                        captured_at_unix_ms: (anchor_unix_100ns + end_qpc_100ns - anchor_qpc_100ns)
+                            / 10_000,
                     };
                     queue_start_qpc_100ns = Some(end_qpc_100ns);
                     if app.emit(EVENT, payload).is_err() {
@@ -196,7 +212,12 @@ mod platform {
     use super::*;
     use tauri::AppHandle;
 
-    pub fn capture_loop(_app: AppHandle, _stop: Arc<AtomicBool>, _requested_device_id: Option<String>, _requested_device_name: Option<String>) {
+    pub fn capture_loop(
+        _app: AppHandle,
+        _stop: Arc<AtomicBool>,
+        _requested_device_id: Option<String>,
+        _requested_device_name: Option<String>,
+    ) {
         log::debug!("System loopback is only available on Windows");
     }
 }

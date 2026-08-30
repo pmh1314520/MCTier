@@ -54,7 +54,7 @@ export const ExitNodeAdvancedModal: React.FC<ExitNodeAdvancedModalProps> = ({
     try {
       const config = await invoke<any>('get_exit_node_advanced_config');
       
-      console.log('📖 [ExitNodeAdvanced] 加载的配置:', config);
+      console.log('📖 [ExitNodeAdvanced] 已加载配置');
       
       // 设置状态
       setEnableSocks5(config.enableSocks5 || false);

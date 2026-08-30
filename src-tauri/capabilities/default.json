@@ -9,8 +9,6 @@
     "core:event:allow-unlisten",
     "core:event:allow-emit",
     "core:event:allow-emit-to",
-    "opener:allow-default-urls",
-    "opener:allow-open-url",
     "shell:allow-open",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
