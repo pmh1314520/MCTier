@@ -155,6 +155,7 @@ class MctierRepository(private val context: Context) {
     private var reconnectNoticeJob: Job? = null
     private var lastShareSignalRequestAt: Long = 0L
     private val pendingPlayerLeaveJobs = mutableMapOf<String, Job>()
+    private val announcedScreenShares = mutableSetOf<String>()
     private var playersSnapshotVersion = 0L
 
     /** 是否正处于聊天室界面：在聊天室内收到消息不再播放提示音(对齐桌面端 __isInChatRoom__) */
@@ -207,6 +208,20 @@ class MctierRepository(private val context: Context) {
     // 暂存待接受的控制请求（用于 UI 拿到 MediaProjection 授权后调用 accept）
     private var pendingRcRequest: top.pmh13.mctier.data.RemoteControlRequest? = null
     private val appContext = context
+    private var screenCaptureStartJob: Job? = null
+    private var screenCaptureGeneration = 0L
+    private var remoteControlAcceptJob: Job? = null
+    private var remoteControlAcceptGeneration = 0L
+
+    private fun invalidatePendingRemoteControlAccept() {
+        remoteControlAcceptGeneration += 1
+        if (remoteControlAcceptJob != null) {
+            remoteControlAcceptJob?.cancel()
+            ScreenCaptureService.stop(appContext)
+        }
+        remoteControlAcceptJob = null
+        pendingRcRequest = null
+    }
 
     private val _state = MutableStateFlow(
         MctierUiState(
@@ -281,6 +296,8 @@ class MctierRepository(private val context: Context) {
                 if (connected) {
                     _state.update { it.copy(reconnecting = false) }
                 } else if (_state.value.state == AppConnectionState.InLobby) {
+                    invalidatePendingRemoteControlAccept()
+                    remoteControlController?.handleSignalingDisconnected()
                     reconnectNoticeJob = scope.launch {
                         delay(3500)
                         if (!signalingClient.connected.value && _state.value.state == AppConnectionState.InLobby) {
@@ -488,15 +505,20 @@ class MctierRepository(private val context: Context) {
                             })
                         }
                     }
+                    controller.onCaptureStopped = { shareId ->
+                        scope.launch { handleLocalCaptureStopped(shareId) }
+                    }
                 }
                 remoteControlController = top.pmh13.mctier.network.RemoteControlController(appContext, current.playerId) { signalingClient.send(it) }.also { rc ->
                     rc.onRequest = { sid, fromId, fromName ->
+                        invalidatePendingRemoteControlAccept()
                         _state.update { it.copy(remoteControlRequest = top.pmh13.mctier.data.RemoteControlRequest(sid, fromId, fromName)) }
                     }
                     rc.onActive = { name ->
                         _state.update { it.copy(remoteControlActiveBy = name, remoteControlRequest = null) }
                     }
                     rc.onEnded = {
+                        invalidatePendingRemoteControlAccept()
                         _state.update { it.copy(remoteControlActiveBy = null, remoteControlRequest = null, remoteControllingPeer = null) }
                     }
                     rc.onControllerActive = { name ->
@@ -553,8 +575,11 @@ class MctierRepository(private val context: Context) {
 
     fun leaveLobby() {
         val leaving = _state.value
+        invalidatePendingScreenCapture()
+        invalidatePendingRemoteControlAccept()
         pendingPlayerLeaveJobs.values.forEach { it.cancel() }
         pendingPlayerLeaveJobs.clear()
+        announcedScreenShares.clear()
         playersSnapshotVersion = 0L
         runCatching { signalingClient.send(SignalingEnvelope(type = "leave", clientId = leaving.playerId)) }
         _state.update {
@@ -1137,11 +1162,52 @@ class MctierRepository(private val context: Context) {
         _state.update { it.copy(viewingShareId = null) }
     }
 
+    private fun invalidatePendingScreenCapture() {
+        screenCaptureGeneration += 1
+        screenCaptureStartJob?.cancel()
+        screenCaptureStartJob = null
+    }
+
+    private fun isCurrentScreenCaptureStart(generation: Long, shareId: String, playerId: String): Boolean =
+        generation == screenCaptureGeneration &&
+            _state.value.state == AppConnectionState.InLobby &&
+            _state.value.screenShares.any { it.id == shareId && it.playerId == playerId }
+
+    private fun handleLocalCaptureStopped(shareId: String) {
+        val playerId = _state.value.playerId
+        if (!_state.value.screenShares.any { it.id == shareId && it.playerId == playerId } && shareId !in announcedScreenShares) return
+        invalidatePendingScreenCapture()
+        val shouldAnnounceStop = announcedScreenShares.remove(shareId)
+        if (shouldAnnounceStop) {
+            signalingClient.send(SignalingEnvelope(type = "screen-share-stop", from = playerId, shareId = shareId))
+        }
+        if (_state.value.viewingShareId == shareId) {
+            screenController?.stopViewing(notify = false)
+        }
+        ScreenCaptureService.stop(appContext)
+        _state.update { state ->
+            state.copy(
+                screenShares = state.screenShares.filterNot { it.id == shareId && it.playerId == playerId },
+                viewingShareId = state.viewingShareId?.takeUnless { it == shareId },
+            )
+        }
+    }
+
     /** 开始共享自己的屏幕（需传入 MediaProjection 授权数据） */
     fun startScreenCapture(data: Intent, requirePassword: Boolean, password: String?) {
+        if (requirePassword && password?.trim().isNullOrEmpty()) {
+            _state.update { it.copy(error = L("请设置屏幕共享密码", "Set a screen sharing password")) }
+            return
+        }
+        invalidatePendingScreenCapture()
+        val generation = screenCaptureGeneration
         val playerId = _state.value.playerId
         val playerName = _state.value.settings.playerName
         val shareId = "share-$playerId-${System.currentTimeMillis()}"
+        val previousShare = _state.value.screenShares.firstOrNull { it.playerId == playerId }
+        if (previousShare != null && announcedScreenShares.remove(previousShare.id)) {
+            signalingClient.send(SignalingEnvelope(type = "screen-share-stop", from = playerId, shareId = previousShare.id))
+        }
         // 先在本地显示"正在共享"
         val share = ScreenShareInfo(shareId, playerId, playerName, requirePassword)
         _state.update { it.copy(screenShares = it.screenShares.filterNot { s -> s.playerId == playerId } + share) }
@@ -1150,20 +1216,41 @@ class MctierRepository(private val context: Context) {
         // 【关键修复】前台服务是异步启动的，必须等它就绪后再获取 MediaProjection 采集，
         // 否则 Android 10+/14 会抛"需要 mediaProjection 前台服务"异常导致采集起不来、对方看不到画面。
         // 采集就绪后再向大厅通告，避免观看者过早发起 offer 时本机尚未在共享。
-        scope.launch {
-            delay(800)
-            screenController?.startSharing(shareId, data, password)
-            delay(400)
-            signalingClient.send(
-                SignalingEnvelope(
-                    type = "screen-share-start", from = playerId, shareId = shareId,
-                    playerName = playerName, hasPassword = requirePassword, password = password?.takeIf { it.isNotBlank() },
-                ),
-            )
+        screenCaptureStartJob = scope.launch {
+            try {
+                delay(800)
+                if (!isCurrentScreenCaptureStart(generation, shareId, playerId)) return@launch
+                val started = screenController?.startSharing(shareId, data, password) == true
+                if (!isCurrentScreenCaptureStart(generation, shareId, playerId)) return@launch
+                if (!started) {
+                    ScreenCaptureService.stop(appContext)
+                    announcedScreenShares.remove(shareId)
+                    _state.update { state -> state.copy(screenShares = state.screenShares.filterNot { it.id == shareId }) }
+                    return@launch
+                }
+                delay(400)
+                if (!isCurrentScreenCaptureStart(generation, shareId, playerId)) return@launch
+                if (screenController?.isSharing != true) {
+                    ScreenCaptureService.stop(appContext)
+                    announcedScreenShares.remove(shareId)
+                    _state.update { state -> state.copy(screenShares = state.screenShares.filterNot { it.id == shareId }) }
+                    return@launch
+                }
+                announcedScreenShares += shareId
+                signalingClient.send(
+                    SignalingEnvelope(
+                        type = "screen-share-start", from = playerId, shareId = shareId,
+                        playerName = playerName, hasPassword = requirePassword, password = password?.takeIf { it.isNotBlank() },
+                    ),
+                )
+            } finally {
+                if (screenCaptureGeneration == generation) screenCaptureStartJob = null
+            }
         }
     }
 
     fun stopScreenCapture() {
+        invalidatePendingScreenCapture()
         val playerId = _state.value.playerId
         val myShare = _state.value.screenShares.firstOrNull { it.playerId == playerId }
         if (myShare != null && _state.value.viewingShareId == myShare.id) {
@@ -1171,7 +1258,9 @@ class MctierRepository(private val context: Context) {
         }
         screenController?.stopSharing()
         ScreenCaptureService.stop(appContext)
-        if (myShare != null) signalingClient.send(SignalingEnvelope(type = "screen-share-stop", from = playerId, shareId = myShare.id))
+        if (myShare != null && announcedScreenShares.remove(myShare.id)) {
+            signalingClient.send(SignalingEnvelope(type = "screen-share-stop", from = playerId, shareId = myShare.id))
+        }
         _state.update {
             it.copy(
                 screenShares = it.screenShares.filterNot { share -> share.playerId == playerId },
@@ -1185,13 +1274,14 @@ class MctierRepository(private val context: Context) {
     fun rejectRemoteControl() {
         val req = _state.value.remoteControlRequest ?: pendingRcRequest ?: return
         remoteControlController?.reject(req.sessionId, req.fromId)
-        pendingRcRequest = null
+        invalidatePendingRemoteControlAccept()
         _state.update { it.copy(remoteControlRequest = null) }
     }
 
     /** 开始接受流程：暂存请求并关闭弹窗，返回请求供 UI 去申请 MediaProjection 授权 */
     fun beginAcceptRemoteControl(): top.pmh13.mctier.data.RemoteControlRequest? {
         val req = _state.value.remoteControlRequest ?: return null
+        invalidatePendingRemoteControlAccept()
         pendingRcRequest = req
         _state.update { it.copy(remoteControlRequest = null) }
         return req
@@ -1200,16 +1290,24 @@ class MctierRepository(private val context: Context) {
     /** 拿到 MediaProjection 授权后真正接受：启动前台服务→采集屏幕→发送 accept */
     fun acceptRemoteControl(projectionData: Intent) {
         val req = pendingRcRequest ?: return
-        pendingRcRequest = null
-        ScreenCaptureService.start(appContext)
-        scope.launch {
-            delay(800)
-            remoteControlController?.accept(projectionData, req.sessionId, req.fromId, req.fromName)
+        remoteControlAcceptJob?.cancel()
+        val generation = ++remoteControlAcceptGeneration
+        remoteControlAcceptJob = scope.launch {
+            try {
+                ScreenCaptureService.start(appContext)
+                delay(800)
+                if (generation != remoteControlAcceptGeneration || pendingRcRequest != req || _state.value.state != AppConnectionState.InLobby) return@launch
+                pendingRcRequest = null
+                remoteControlController?.accept(projectionData, req.sessionId, req.fromId, req.fromName)
+            } finally {
+                if (generation == remoteControlAcceptGeneration) remoteControlAcceptJob = null
+            }
         }
     }
 
     /** 停止被远程控制 */
     fun stopRemoteControl() {
+        invalidatePendingRemoteControlAccept()
         remoteControlController?.stop(notify = true)
         ScreenCaptureService.stop(appContext)
     }
@@ -1221,6 +1319,10 @@ class MctierRepository(private val context: Context) {
     }
 
     fun announceScreenShare(requirePassword: Boolean, password: String?) {
+        if (requirePassword && password?.trim().isNullOrEmpty()) {
+            _state.update { it.copy(error = L("请设置屏幕共享密码", "Set a screen sharing password")) }
+            return
+        }
         val current = _state.value
         val share = ScreenShareInfo("share-${current.playerId}-${System.currentTimeMillis()}", current.playerId, current.settings.playerName, requirePassword)
         _state.update { it.copy(screenShares = it.screenShares + share) }
@@ -1253,6 +1355,18 @@ class MctierRepository(private val context: Context) {
             ),
         )
     }
+
+    private fun isKnownLobbyPeer(playerId: String, state: MctierUiState = _state.value): Boolean =
+        playerId == state.playerId || state.players.any { it.id == playerId }
+
+    private fun isScreenShareMessageForLocal(message: SignalingEnvelope, state: MctierUiState = _state.value): Boolean =
+        message.to == state.playerId
+
+    private fun isValidScreenShareViewer(
+        ownerId: String,
+        viewerId: String?,
+        state: MctierUiState = _state.value,
+    ): Boolean = viewerId == null || (viewerId != ownerId && isKnownLobbyPeer(viewerId, state))
 
     private fun schedulePlayerLeaveConfirmation(playerId: String): Boolean {
         pendingPlayerLeaveJobs.remove(playerId)?.cancel()
@@ -1403,6 +1517,7 @@ class MctierRepository(private val context: Context) {
             }
             "player-left" -> {
                 val id = message.playerId ?: return
+                if (id != _state.value.playerId) remoteControlController?.handlePeerLeft(id)
                 if (id != _state.value.playerId && _state.value.players.any { it.id == id }) {
                     schedulePlayerLeaveConfirmation(id)
                 }
@@ -1434,55 +1549,101 @@ class MctierRepository(private val context: Context) {
             "lobby-options-changed" -> _state.update { it.copy(maxPlayers = message.maxPlayers, isPublicLobby = message.isPublic ?: it.isPublicLobby) }
             "screen-share-start" -> {
                 val from = message.from ?: return
-                if (from == _state.value.playerId) return
-                val share = ScreenShareInfo(message.shareId ?: return, from, message.playerName ?: L("未知玩家", "Unknown player"), message.hasPassword ?: false)
-                _state.update { it.copy(screenShares = it.screenShares.filterNot { s -> s.id == share.id } + share) }
+                val state = _state.value
+                val shareId = message.shareId?.takeIf { it.isNotBlank() } ?: return
+                if (from == state.playerId || !isKnownLobbyPeer(from, state)) return
+                val existing = state.screenShares.firstOrNull { it.id == shareId }
+                // A share id is owned by the first authenticated owner that
+                // announced it; another member cannot replace that owner.
+                if (existing != null && existing.playerId != from) return
+                val ownerName = state.players.firstOrNull { it.id == from }?.name
+                    ?: message.playerName
+                    ?: L("未知玩家", "Unknown player")
+                val share = ScreenShareInfo(shareId, from, ownerName, message.hasPassword ?: false)
+                _state.update { current ->
+                    if (current.screenShares.any { it.id == share.id && it.playerId != from }) current
+                    else current.copy(screenShares = current.screenShares.filterNot { it.playerId == from || it.id == share.id } + share)
+                }
             }
             "screen-share-list-request" -> {
                 val requesterId = message.from ?: return
-                if (requesterId != _state.value.playerId) sendMyScreenShareTo(requesterId)
+                val state = _state.value
+                if (requesterId != state.playerId && isKnownLobbyPeer(requesterId, state) &&
+                    (message.to == null || message.to == state.playerId)
+                ) {
+                    sendMyScreenShareTo(requesterId)
+                }
             }
             "screen-share-list-response" -> {
                 val ownerId = message.from ?: return
-                if (ownerId == _state.value.playerId) return
+                val state = _state.value
+                if (ownerId == state.playerId || !isScreenShareMessageForLocal(message, state) || !isKnownLobbyPeer(ownerId, state)) return
+                val shareId = message.shareId?.takeIf { it.isNotBlank() } ?: return
+                val existing = state.screenShares.firstOrNull { it.id == shareId }
+                if (existing != null && existing.playerId != ownerId) return
+                val viewerId = message.viewerId
+                if (!isValidScreenShareViewer(ownerId, viewerId, state)) return
+                val viewerCount = message.viewerCount ?: if (viewerId != null) 1 else 0
+                if (viewerCount < 0 || viewerCount > state.players.count { it.id != ownerId }) return
                 val share = ScreenShareInfo(
-                    id = message.shareId ?: return,
+                    id = shareId,
                     playerId = ownerId,
-                    playerName = message.playerName ?: L("未知玩家", "Unknown player"),
+                    playerName = state.players.firstOrNull { it.id == ownerId }?.name
+                        ?: message.playerName
+                        ?: L("未知玩家", "Unknown player"),
                     requirePassword = message.hasPassword ?: false,
-                    viewerId = message.viewerId,
-                    viewerName = message.viewerName,
-                    viewerCount = message.viewerCount ?: 0,
+                    viewerId = viewerId,
+                    viewerName = viewerId?.let { id -> state.players.firstOrNull { it.id == id }?.name ?: message.viewerName },
+                    viewerCount = viewerCount,
                 )
                 _state.update { state ->
-                    state.copy(screenShares = state.screenShares.filterNot { it.id == share.id || it.playerId == ownerId } + share)
+                    if (state.screenShares.any { it.id == share.id && it.playerId != ownerId }) state
+                    else state.copy(screenShares = state.screenShares.filterNot { it.id == share.id || it.playerId == ownerId } + share)
                 }
             }
             "screen-share-stop" -> {
-                _state.update { it.copy(screenShares = it.screenShares.filterNot { share -> share.id == message.shareId }) }
-                if (_state.value.viewingShareId == message.shareId) {
+                val state = _state.value
+                val shareId = message.shareId?.takeIf { it.isNotBlank() } ?: return
+                val ownerId = message.from ?: return
+                if (message.to != null && message.to != state.playerId) return
+                val share = state.screenShares.firstOrNull { it.id == shareId } ?: return
+                if (share.playerId != ownerId) return
+                _state.update { it.copy(screenShares = it.screenShares.filterNot { screen -> screen.id == shareId }) }
+                if (state.viewingShareId == shareId) {
                     screenController?.stopViewing(notify = false)
                     _state.update { it.copy(viewingShareId = null) }
                 }
             }
             "screen-share-answer", "screen-share-ice-candidate", "screen-share-offer", "screen-share-viewer-left", "screen-share-relay" -> screenController?.handleSignal(message)
             "screen-share-update" -> {
-                val shareId = message.shareId ?: return
-                _state.update { state ->
-                    state.copy(screenShares = state.screenShares.map { share ->
-                        if (share.id == shareId && share.playerId == message.from) {
-                            share.copy(
-                                viewerId = message.viewerId,
-                                viewerName = message.viewerName,
-                                viewerCount = message.viewerCount ?: if (message.viewerId != null) 1 else 0,
+                val state = _state.value
+                val shareId = message.shareId?.takeIf { it.isNotBlank() } ?: return
+                val ownerId = message.from ?: return
+                if (message.to != null && message.to != state.playerId) return
+                val share = state.screenShares.firstOrNull { it.id == shareId } ?: return
+                if (share.playerId != ownerId) return
+                val viewerId = message.viewerId
+                if (!isValidScreenShareViewer(ownerId, viewerId, state)) return
+                val viewerCount = message.viewerCount ?: if (viewerId != null) 1 else 0
+                if (viewerCount < 0 || viewerCount > state.players.count { it.id != ownerId }) return
+                _state.update { current ->
+                    current.copy(screenShares = current.screenShares.map { currentShare ->
+                        if (currentShare.id == shareId && currentShare.playerId == ownerId) {
+                            currentShare.copy(
+                                viewerId = viewerId,
+                                viewerName = viewerId?.let { id -> current.players.firstOrNull { it.id == id }?.name ?: message.viewerName },
+                                viewerCount = viewerCount,
                             )
-                        } else share
+                        } else currentShare
                     })
                 }
             }
             "remote-control-request", "remote-control-offer", "remote-control-ice", "remote-control-stop", "remote-control-accept", "remote-control-answer", "remote-control-reject" -> remoteControlController?.handleSignal(message)
             "screen-share-error" -> {
-                if (message.shareId != null && _state.value.viewingShareId == message.shareId) {
+                val state = _state.value
+                val shareId = message.shareId ?: return
+                val share = state.screenShares.firstOrNull { it.id == shareId } ?: return
+                if (isScreenShareMessageForLocal(message, state) && share.playerId == message.from && state.viewingShareId == shareId) {
                     screenController?.stopViewing(notify = false)
                     _state.update { it.copy(viewingShareId = null, error = message.error ?: L("无法观看该屏幕", "Cannot view this screen")) }
                 }

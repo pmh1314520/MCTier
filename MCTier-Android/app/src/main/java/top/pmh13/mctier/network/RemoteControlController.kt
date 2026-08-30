@@ -25,6 +25,7 @@ import top.pmh13.mctier.data.SdpPayload
 import top.pmh13.mctier.data.SignalingEnvelope
 import top.pmh13.mctier.service.MctierAccessibilityService
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 /**
  * 远程控制（被控端 = 手机）。
@@ -39,6 +40,12 @@ class RemoteControlController(
     private val localPlayerId: String,
     private val sendSignal: (SignalingEnvelope) -> Unit,
 ) {
+    private data class PendingControlRequest(
+        val sessionId: String,
+        val controllerId: String,
+        val controllerName: String,
+    )
+
     val eglBase: EglBase = EglBase.create()
     private val factory: PeerConnectionFactory
 
@@ -51,6 +58,7 @@ class RemoteControlController(
     private var sessionId: String? = null
     private var controllerId: String? = null
     private var controllerName: String? = null
+    private var pendingRequest: PendingControlRequest? = null
 
     // 角色：idle / controlled(本机被控) / controller(本机去控制别人)
     private var role: String = "idle"
@@ -63,7 +71,7 @@ class RemoteControlController(
     var onControllerVideoTrack: ((VideoTrack?) -> Unit)? = null
     var onControllerActive: ((peerName: String) -> Unit)? = null
     var onRejected: ((reason: String) -> Unit)? = null
-    private val pendingIce = ArrayList<IceCandidate>()
+    private val pendingIce = linkedMapOf<String, MutableList<IceCandidate>>()
 
     // 真实屏幕尺寸（把归一化坐标 0..1 映射为像素）
     private var screenW = 1080f
@@ -83,6 +91,26 @@ class RemoteControlController(
         watchdog.postDelayed({ if (pc == null && sessionId != null) stop(notify = true) }, ms)
     }
     private fun cancelWatchdog() { watchdog.removeCallbacksAndMessages(null) }
+
+    private fun isCurrentPeerMessage(message: SignalingEnvelope): Boolean {
+        val expectedPeer = if (role == "controller") peerId else controllerId
+        return role != "idle"
+            && message.to == localPlayerId
+            && message.sessionId != null
+            && message.sessionId == sessionId
+            && message.from != null
+            && message.from == expectedPeer
+    }
+
+    private fun isCurrentConnection(expectedSessionId: String, expectedPeerId: String, expectedPc: PeerConnection): Boolean {
+        return role != "idle"
+            && sessionId == expectedSessionId
+            && (if (role == "controller") peerId else controllerId) == expectedPeerId
+            && pc === expectedPc
+    }
+
+    private fun pendingIceKey(expectedSessionId: String, expectedPeerId: String): String =
+        "$expectedSessionId|$expectedPeerId"
 
     var onRequest: ((sessionId: String, fromId: String, fromName: String) -> Unit)? = null
     var onActive: ((controllerName: String) -> Unit)? = null
@@ -135,14 +163,21 @@ class RemoteControlController(
     fun handleSignal(message: SignalingEnvelope) {
         when (message.type) {
             "remote-control-request" -> {
+                if (message.to != localPlayerId) return
                 val from = message.from ?: return
                 val sid = message.sessionId ?: return
+                if (from == localPlayerId || sid.isBlank()) return
                 val name = message.fromName ?: message.playerName ?: "玩家"
                 Log.i(TAG, "收到控制请求 from=$from active=$isActive")
                 if (isActive) {
                     sendSignal(SignalingEnvelope(type = "remote-control-reject", from = localPlayerId, to = from, sessionId = sid, reason = "busy"))
                     return
                 }
+                if (pendingRequest != null) {
+                    sendSignal(SignalingEnvelope(type = "remote-control-reject", from = localPlayerId, to = from, sessionId = sid, reason = "busy"))
+                    return
+                }
+                pendingRequest = PendingControlRequest(sid, from, name)
                 onRequest?.invoke(sid, from, name)
             }
             "remote-control-offer" -> {
@@ -150,52 +185,86 @@ class RemoteControlController(
                 val sid = message.sessionId ?: return
                 val offer = message.offer ?: return
                 Log.i(TAG, "收到 offer from=$from sid匹配=${sid == sessionId}")
-                if (sid != sessionId || from != controllerId) return
+                if (role != "controlled" || !isCurrentPeerMessage(message)) return
                 handleOffer(from, sid, offer.sdp)
             }
             "remote-control-accept" -> {
                 val sid = message.sessionId ?: return
                 Log.i(TAG, "收到 accept role=$role sid匹配=${sid == sessionId}")
-                if (role == "controller" && sid == sessionId) handleAccept(sid)
+                if (role == "controller" && isCurrentPeerMessage(message)) handleAccept(sid)
             }
             "remote-control-answer" -> {
                 val sid = message.sessionId ?: return
                 val answer = message.answer ?: return
-                if (role == "controller" && sid == sessionId) {
-                    pc?.setRemoteDescription(object : SimpleSdpObserver() {
-                        override fun onSetSuccess() { flushPendingIce() }
+                val expectedPeerId = message.from ?: return
+                val connection = pc ?: return
+                if (role == "controller" && isCurrentPeerMessage(message)
+                    && connection.signalingState() == PeerConnection.SignalingState.HAVE_LOCAL_OFFER
+                    && isCurrentConnection(sid, expectedPeerId, connection)
+                ) {
+                    connection.setRemoteDescription(object : SimpleSdpObserver() {
+                        override fun onSetSuccess() {
+                            if (isCurrentConnection(sid, expectedPeerId, connection)) flushPendingIce(sid, expectedPeerId, connection)
+                        }
+
+                        override fun onSetFailure(error: String) {
+                            if (isCurrentConnection(sid, expectedPeerId, connection)) stop(notify = false)
+                        }
                     }, SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
                 }
             }
             "remote-control-reject" -> {
-                if (role == "controller" && message.sessionId == sessionId) {
+                if (role == "controller" && isCurrentPeerMessage(message)) {
                     onRejected?.invoke(message.reason ?: "rejected")
                     stop(notify = false)
                 }
             }
             "remote-control-ice" -> {
                 val c = message.candidate ?: return
+                if (!isCurrentPeerMessage(message)) return
                 val ice = IceCandidate(c.sdpMid, c.sdpMLineIndex ?: 0, c.candidate)
                 val conn = pc
-                if (conn?.remoteDescription != null) conn.addIceCandidate(ice) else pendingIce.add(ice)
+                val expectedPeerId = message.from ?: return
+                if (conn != null && isCurrentConnection(message.sessionId ?: return, expectedPeerId, conn) && conn.remoteDescription != null) {
+                    conn.addIceCandidate(ice)
+                } else {
+                    pendingIce.getOrPut(pendingIceKey(message.sessionId ?: return, expectedPeerId)) { mutableListOf() }.add(ice)
+                }
             }
-            "remote-control-stop" -> stop(notify = false)
+            "remote-control-stop" -> {
+                val pending = pendingRequest
+                if (role == "idle" && pending != null
+                    && message.to == localPlayerId
+                    && message.from == pending.controllerId
+                    && message.sessionId == pending.sessionId
+                ) {
+                    pendingRequest = null
+                    onEnded?.invoke()
+                } else if (isCurrentPeerMessage(message)) {
+                    stop(notify = false)
+                }
+            }
         }
     }
 
-    private fun flushPendingIce() {
-        val conn = pc ?: return
-        val list = ArrayList(pendingIce)
-        pendingIce.clear()
-        list.forEach { runCatching { conn.addIceCandidate(it) } }
+    private fun flushPendingIce(expectedSessionId: String, expectedPeerId: String, expectedPc: PeerConnection) {
+        if (!isCurrentConnection(expectedSessionId, expectedPeerId, expectedPc)) return
+        val key = pendingIceKey(expectedSessionId, expectedPeerId)
+        val list = pendingIce.remove(key) ?: return
+        list.forEach {
+            if (isCurrentConnection(expectedSessionId, expectedPeerId, expectedPc)) {
+                runCatching { expectedPc.addIceCandidate(it) }
+            }
+        }
     }
 
     // ========================= 控制端（本机去控制对方设备） =========================
     /** 发起远程控制请求 */
     fun requestControl(targetId: String, targetName: String) {
-        if (isActive) return
+        if (isActive || targetId.isBlank() || targetId == localPlayerId) return
+        val nextSessionId = "rc-$localPlayerId-${UUID.randomUUID()}"
         role = "controller"
-        sessionId = "rc-$localPlayerId-${System.currentTimeMillis()}"
+        sessionId = nextSessionId
         peerId = targetId
         peerName = targetName
         sendSignal(SignalingEnvelope(type = "remote-control-request", from = localPlayerId, to = targetId, sessionId = sessionId, fromName = localPlayerName))
@@ -204,31 +273,79 @@ class RemoteControlController(
 
     /** 控制端：对方接受后建立连接并发 offer（接收对方屏幕 + 建输入数据通道） */
     private fun handleAccept(sid: String) {
-        val target = peerId ?: return
+        val expectedSessionId = sid
+        val expectedPeerId = peerId ?: return
+        if (role != "controller" || sessionId != expectedSessionId || pc != null) return
+
+        var expectedPc: PeerConnection? = null
+        fun currentConnection(): PeerConnection? = expectedPc?.takeIf {
+            isCurrentConnection(expectedSessionId, expectedPeerId, it)
+        }
+
         val connection = factory.createPeerConnection(
             rtcConfig(),
             object : PeerConnection.Observer {
                 override fun onIceCandidate(candidate: IceCandidate) {
-                    sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = target, sessionId = sid, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
+                    val callbackPc = currentConnection() ?: return
+                    sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = expectedPeerId, sessionId = expectedSessionId, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
                 }
-                override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
+                override fun onSignalingChange(s: PeerConnection.SignalingState) {
+                    if (currentConnection() == null) return
+                }
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {
+                    val callbackPc = currentConnection() ?: return
                     Log.i(TAG, "控制端 ICE: $s")
-                    if (s == PeerConnection.IceConnectionState.FAILED) watchdog.post { stop(notify = false) }
+                    if (s == PeerConnection.IceConnectionState.FAILED) {
+                        watchdog.post {
+                            if (isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) {
+                                stop(notify = false)
+                            }
+                        }
+                    }
                 }
-                override fun onIceConnectionReceivingChange(b: Boolean) = Unit
-                override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
-                override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) = Unit
-                override fun onAddStream(s: org.webrtc.MediaStream) = Unit
-                override fun onRemoveStream(s: org.webrtc.MediaStream) = Unit
-                override fun onRenegotiationNeeded() = Unit
-                override fun onDataChannel(d: DataChannel) = Unit
+                override fun onIceConnectionReceivingChange(b: Boolean) {
+                    if (currentConnection() == null) return
+                }
+                override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) {
+                    if (currentConnection() == null) return
+                }
+                override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) {
+                    if (currentConnection() == null) return
+                }
+                override fun onAddStream(s: org.webrtc.MediaStream) {
+                    if (currentConnection() == null) return
+                }
+                override fun onRemoveStream(s: org.webrtc.MediaStream) {
+                    if (currentConnection() == null) return
+                }
+                override fun onRenegotiationNeeded() {
+                    if (currentConnection() == null) return
+                }
+                override fun onDataChannel(d: DataChannel) {
+                    if (currentConnection() == null) {
+                        d.close()
+                        return
+                    }
+                    d.close()
+                }
                 override fun onAddTrack(receiver: org.webrtc.RtpReceiver, streams: Array<out org.webrtc.MediaStream>) {
+                    val callbackPc = currentConnection() ?: return
                     val track = receiver.track()
                     if (track is VideoTrack) onControllerVideoTrack?.invoke(track)
                 }
             },
         ) ?: return
+        expectedPc = connection
+        if (role != "controller" || sessionId != expectedSessionId || peerId != expectedPeerId || pc != null) {
+            connection.close()
+            return
+        }
+        pc = connection
+        if (currentConnection() == null) {
+            if (pc === connection) pc = null
+            connection.close()
+            return
+        }
         // 接收对方屏幕视频
         connection.addTransceiver(
             org.webrtc.MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
@@ -236,16 +353,48 @@ class RemoteControlController(
         )
         // 输入数据通道（控制端→被控端）
         val ch = connection.createDataChannel("rc-input", DataChannel.Init().apply { ordered = true })
+        if (currentConnection() == null) {
+            ch.close()
+            return
+        }
         inputChannelOut = ch
         connection.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(desc: SessionDescription) {
-                connection.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal(SignalingEnvelope(type = "remote-control-offer", from = localPlayerId, to = target, sessionId = sid, offer = SdpPayload(desc.type.canonicalForm(), desc.description)))
+                val callbackPc = currentConnection() ?: run {
+                    connection.close()
+                    return
+                }
+                callbackPc.setLocalDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        if (!isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) {
+                            callbackPc.close()
+                            return
+                        }
+                        sendSignal(SignalingEnvelope(type = "remote-control-offer", from = localPlayerId, to = expectedPeerId, sessionId = expectedSessionId, offer = SdpPayload(desc.type.canonicalForm(), desc.description)))
+                        if (!isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) return
+                        onControllerActive?.invoke(peerName ?: "")
+                        if (isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) cancelWatchdog()
+                    }
+
+                    override fun onSetFailure(error: String) {
+                        if (isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) {
+                            stop(notify = false)
+                        } else {
+                            callbackPc.close()
+                        }
+                    }
+                }, desc)
+            }
+
+            override fun onCreateFailure(error: String) {
+                val callbackPc = expectedPc ?: return
+                if (isCurrentConnection(expectedSessionId, expectedPeerId, callbackPc)) {
+                    stop(notify = false)
+                } else {
+                    callbackPc.close()
+                }
             }
         }, MediaConstraints())
-        pc = connection
-        onControllerActive?.invoke(peerName ?: "")
-        cancelWatchdog()
     }
 
     /** 控制端：发送一批输入事件（归一化坐标） */
@@ -260,22 +409,32 @@ class RemoteControlController(
 
     /** 拒绝控制请求 */
     fun reject(sid: String, fromId: String) {
+        val pending = pendingRequest ?: return
+        if (pending.sessionId != sid || pending.controllerId != fromId) return
         sendSignal(SignalingEnvelope(type = "remote-control-reject", from = localPlayerId, to = fromId, sessionId = sid, reason = "rejected"))
+        pendingRequest = null
     }
 
     /** 用户接受（被控端）：启动屏幕采集并发送 accept，等待控制端 offer */
-    fun accept(projectionData: Intent, sid: String, fromId: String, fromName: String) {
+    fun accept(projectionData: Intent, sid: String, fromId: String, _fromName: String) {
+        val pending = pendingRequest ?: return
+        if (pending.sessionId != sid || pending.controllerId != fromId || role != "idle") return
+        pendingRequest = null
         role = "controlled"
         sessionId = sid
         controllerId = fromId
-        controllerName = fromName
+        controllerName = pending.controllerName
         updateScreenSize()
-        startCapture(projectionData)
+        startCapture(projectionData, sid)
+        if (localVideoTrack == null) {
+            stop(notify = true)
+            return
+        }
         sendSignal(SignalingEnvelope(type = "remote-control-accept", from = localPlayerId, to = fromId, sessionId = sid))
         armWatchdog(40000)
     }
 
-    private fun startCapture(permissionData: Intent) {
+    private fun startCapture(permissionData: Intent, expectedSessionId: String) {
         runCatching {
             val metrics = DisplayMetrics()
             @Suppress("DEPRECATION")
@@ -287,7 +446,10 @@ class RemoteControlController(
             val source = factory.createVideoSource(true)
             videoSource = source
             val cap = ScreenCapturerAndroid(permissionData, object : MediaProjection.Callback() {
-                override fun onStop() { Log.i(TAG, "MediaProjection 已停止") }
+                override fun onStop() {
+                    Log.i(TAG, "MediaProjection 已停止")
+                    if (role == "controlled" && sessionId == expectedSessionId) stop(notify = true)
+                }
             })
             capturer = cap
             cap.initialize(helper, context, source.capturerObserver)
@@ -298,50 +460,151 @@ class RemoteControlController(
     }
 
     private fun handleOffer(from: String, sid: String, sdp: String) {
+        val expectedSessionId = sid
+        val expectedControllerId = from
+        if (role != "controlled" || sessionId != expectedSessionId || controllerId != expectedControllerId || pc != null) return
         val track = localVideoTrack ?: run { Log.w(TAG, "无屏幕轨，无法应答"); return }
+
+        var expectedPc: PeerConnection? = null
+        fun currentConnection(): PeerConnection? = expectedPc?.takeIf {
+            isCurrentConnection(expectedSessionId, expectedControllerId, it)
+        }
+
         val connection = factory.createPeerConnection(
             rtcConfig(),
             object : PeerConnection.Observer {
                 override fun onIceCandidate(candidate: IceCandidate) {
-                    sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = from, sessionId = sid, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
+                    val callbackPc = currentConnection() ?: return
+                    sendSignal(SignalingEnvelope(type = "remote-control-ice", from = localPlayerId, to = expectedControllerId, sessionId = expectedSessionId, candidate = IcePayload(candidate.sdp, candidate.sdpMLineIndex, candidate.sdpMid)))
                 }
-                override fun onSignalingChange(s: PeerConnection.SignalingState) = Unit
+                override fun onSignalingChange(s: PeerConnection.SignalingState) {
+                    if (currentConnection() == null) return
+                }
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {
+                    val callbackPc = currentConnection() ?: return
                     Log.i(TAG, "被控端 ICE: $s")
-                    if (s == PeerConnection.IceConnectionState.FAILED) watchdog.post { stop(notify = false) }
+                    if (s == PeerConnection.IceConnectionState.FAILED) {
+                        watchdog.post {
+                            if (isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                                stop(notify = false)
+                            }
+                        }
+                    }
                 }
-                override fun onIceConnectionReceivingChange(b: Boolean) = Unit
-                override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) = Unit
-                override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) = Unit
-                override fun onAddStream(s: org.webrtc.MediaStream) = Unit
-                override fun onRemoveStream(s: org.webrtc.MediaStream) = Unit
-                override fun onRenegotiationNeeded() = Unit
-                override fun onAddTrack(receiver: org.webrtc.RtpReceiver, streams: Array<out org.webrtc.MediaStream>) = Unit
+                override fun onIceConnectionReceivingChange(b: Boolean) {
+                    if (currentConnection() == null) return
+                }
+                override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) {
+                    if (currentConnection() == null) return
+                }
+                override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) {
+                    if (currentConnection() == null) return
+                }
+                override fun onAddStream(s: org.webrtc.MediaStream) {
+                    if (currentConnection() == null) return
+                }
+                override fun onRemoveStream(s: org.webrtc.MediaStream) {
+                    if (currentConnection() == null) return
+                }
+                override fun onRenegotiationNeeded() {
+                    if (currentConnection() == null) return
+                }
+                override fun onAddTrack(receiver: org.webrtc.RtpReceiver, streams: Array<out org.webrtc.MediaStream>) {
+                    if (currentConnection() == null) return
+                }
                 override fun onDataChannel(channel: DataChannel) {
-                    if (channel.label() == "rc-input") registerInputChannel(channel)
+                    val callbackPc = currentConnection() ?: run {
+                        channel.close()
+                        return
+                    }
+                    if (channel.label() == "rc-input") {
+                        registerInputChannel(channel, expectedSessionId, expectedControllerId, callbackPc)
+                    } else {
+                        channel.close()
+                    }
                 }
             },
         ) ?: return
+        expectedPc = connection
+        if (role != "controlled" || sessionId != expectedSessionId || controllerId != expectedControllerId || pc != null) {
+            connection.close()
+            return
+        }
+        pc = connection
+        if (currentConnection() == null) {
+            if (pc === connection) pc = null
+            connection.close()
+            return
+        }
         connection.addTrack(track, listOf("rc-stream-$localPlayerId"))
         connection.setRemoteDescription(object : SimpleSdpObserver() {
-            override fun onSetSuccess() { flushPendingIce() }
-        }, SessionDescription(SessionDescription.Type.OFFER, sdp))
-        connection.createAnswer(object : SimpleSdpObserver() {
-            override fun onCreateSuccess(desc: SessionDescription) {
-                connection.setLocalDescription(SimpleSdpObserver(), desc)
-                sendSignal(SignalingEnvelope(type = "remote-control-answer", from = localPlayerId, to = from, sessionId = sid, answer = SdpPayload(desc.type.canonicalForm(), desc.description)))
+            override fun onSetSuccess() {
+                val callbackPc = currentConnection() ?: run {
+                    connection.close()
+                    return
+                }
+                flushPendingIce(expectedSessionId, expectedControllerId, callbackPc)
+                if (!isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) return
+                callbackPc.createAnswer(object : SimpleSdpObserver() {
+                    override fun onCreateSuccess(desc: SessionDescription) {
+                        if (!isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                            callbackPc.close()
+                            return
+                        }
+                        callbackPc.setLocalDescription(object : SimpleSdpObserver() {
+                            override fun onSetSuccess() {
+                                if (!isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                                    callbackPc.close()
+                                    return
+                                }
+                                sendSignal(SignalingEnvelope(type = "remote-control-answer", from = localPlayerId, to = expectedControllerId, sessionId = expectedSessionId, answer = SdpPayload(desc.type.canonicalForm(), desc.description)))
+                                if (!isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) return
+                                onActive?.invoke(controllerName ?: "")
+                                if (isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) cancelWatchdog()
+                            }
+
+                            override fun onSetFailure(error: String) {
+                                if (isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                                    stop(notify = false)
+                                } else {
+                                    callbackPc.close()
+                                }
+                            }
+                        }, desc)
+                    }
+
+                    override fun onCreateFailure(error: String) {
+                        if (isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                            stop(notify = false)
+                        } else {
+                            callbackPc.close()
+                        }
+                    }
+                }, MediaConstraints())
             }
-        }, MediaConstraints())
-        pc = connection
-        onActive?.invoke(controllerName ?: "")
-        cancelWatchdog()
+
+            override fun onSetFailure(error: String) {
+                val callbackPc = expectedPc ?: return
+                if (isCurrentConnection(expectedSessionId, expectedControllerId, callbackPc)) {
+                    stop(notify = false)
+                } else {
+                    callbackPc.close()
+                }
+            }
+        }, SessionDescription(SessionDescription.Type.OFFER, sdp))
     }
 
-    private fun registerInputChannel(channel: DataChannel) {
+    private fun registerInputChannel(
+        channel: DataChannel,
+        expectedSessionId: String,
+        expectedControllerId: String,
+        expectedPc: PeerConnection,
+    ) {
         channel.registerObserver(object : DataChannel.Observer {
             override fun onBufferedAmountChange(previousAmount: Long) = Unit
             override fun onStateChange() = Unit
             override fun onMessage(buffer: DataChannel.Buffer) {
+                if (!isCurrentConnection(expectedSessionId, expectedControllerId, expectedPc)) return
                 val bytes = ByteArray(buffer.data.remaining())
                 buffer.data.get(bytes)
                 val text = String(bytes, StandardCharsets.UTF_8)
@@ -352,6 +615,7 @@ class RemoteControlController(
 
     // ========================= 输入注入 =========================
     private fun handleInputBatch(json: String) {
+        if (json.length > 64 * 1024) return
         val arr = JSONArray(json)
         for (i in 0 until arr.length()) {
             val ev = arr.optJSONObject(i) ?: continue
@@ -461,12 +725,36 @@ class RemoteControlController(
         controllerName = null
         peerId = null
         peerName = null
+        pendingRequest = null
         role = "idle"
         pendingIce.clear()
         isDown = false
         pathPoints.clear()
         onEnded?.invoke()
         stopping = false
+    }
+
+    fun handlePeerLeft(playerId: String) {
+        var hadPending = false
+        if (pendingRequest?.controllerId == playerId) {
+            pendingRequest = null
+            hadPending = true
+        }
+        if (role != "idle" && (controllerId == playerId || peerId == playerId)) {
+            stop(notify = false)
+        } else if (hadPending) {
+            onEnded?.invoke()
+        }
+    }
+
+    fun handleSignalingDisconnected() {
+        val hadPending = pendingRequest != null
+        pendingRequest = null
+        if (isActive) {
+            stop(notify = false)
+        } else if (hadPending) {
+            onEnded?.invoke()
+        }
     }
 
     fun release() {

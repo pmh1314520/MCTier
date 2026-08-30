@@ -88,6 +88,9 @@ class ScreenShareService {
    */
   async startSharing(requirePassword: boolean, password?: string): Promise<string> {
     try {
+      if (requirePassword && !password?.trim()) {
+        throw new Error('屏幕共享密码不能为空');
+      }
       console.log('🖥️ [ScreenShareService] 开始捕获屏幕...');
       
       // 捕获屏幕
@@ -261,12 +264,14 @@ class ScreenShareService {
           relayPc.close();
           this.peerConnections.delete(key);
         }
+        const previousUpstream = this.viewingUpstreams.get(shareId);
         this.viewingUpstreams.set(shareId, share.playerId);
         const routeVersion = this.viewingRouteVersions.get(shareId);
-        if (!isNullish(routeVersion)) {
+        if (!isNullish(routeVersion) && previousUpstream) {
           this.sendWebSocketMessage({
             type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId,
-            to: share.playerId, shareId, routeVersion, reason: 'direct-fallback',
+            to: share.playerId, shareId, upstreamId: previousUpstream,
+            routeVersion, reason: 'direct-fallback',
           });
         }
         window.clearTimeout(pending.timer);
@@ -448,15 +453,15 @@ class ScreenShareService {
   /**
    * 停止查看屏幕（清理viewer的PeerConnection）
    */
-  stopViewingScreen(shareId: string): void {
+  stopViewingScreen(shareId: string, notify = true): void {
     console.log('🛑 [ScreenShareService] 停止查看屏幕:', shareId);
 
     const share = this.activeShares.get(shareId);
-    if (share?.playerId === this.currentPlayerId) {
+    if (notify && share?.playerId === this.currentPlayerId) {
       // 兼容旧版本曾把“自己看自己”加入观看者列表的状态。
       // 本地直出不应占用观看者名额，停止时主动清理并广播最新人数。
       this.handleViewerLeft(shareId, this.currentPlayerId);
-    } else if (share) {
+    } else if (notify && share) {
       this.sendWebSocketMessage({
         type: 'screen-share-viewer-left',
         from: this.currentPlayerId,
@@ -505,6 +510,15 @@ class ScreenShareService {
     }
 
     console.log('✅ [ScreenShareService] 已清理查看资源');
+  }
+
+  /** Apply a remote stop only when it is signed by the share owner. */
+  handleShareStop(shareId: string, senderId: string): boolean {
+    const share = this.activeShares.get(shareId);
+    if (!share || !senderId || share.playerId !== senderId) return false;
+    this.stopViewingScreen(shareId, false);
+    this.activeShares.delete(shareId);
+    return true;
   }
 
   /**
@@ -592,12 +606,14 @@ class ScreenShareService {
 
   /** 处理链式中继控制面。共享者是唯一拓扑协调者。 */
   async handleRelayControl(message: any): Promise<void> {
-    const shareId = message.shareId as string;
+    const shareId = typeof message.shareId === 'string' ? message.shareId : '';
+    const senderId = typeof message.from === 'string' ? message.from : '';
     const share = this.activeShares.get(shareId);
-    if (!share) return;
+    if (!share || !senderId) return;
     const ownerId = share.playerId;
 
     if (message.action === 'join' && this.currentPlayerId === ownerId) {
+      if (message.to !== this.currentPlayerId || senderId === this.currentPlayerId) return;
       if (share.requirePassword && message.password !== share.password) {
         this.sendWebSocketMessage({ type: 'screen-share-error', from: this.currentPlayerId, to: message.from, shareId, error: '密码错误' });
         return;
@@ -614,8 +630,12 @@ class ScreenShareService {
     }
 
     if (message.action === 'health' && message.to === this.currentPlayerId) {
+      const currentUpstream = this.viewingUpstreams.get(shareId);
+      const currentRouteVersion = this.viewingRouteVersions.get(shareId);
+      if (currentUpstream !== senderId) return;
+      if (!isNullish(message.routeVersion) && currentRouteVersion !== Number(message.routeVersion)) return;
       this.upstreamHealth.set(shareId, {
-        upstreamId: message.from,
+        upstreamId: senderId,
         routeVersion: isNullish(message.routeVersion) ? undefined : Number(message.routeVersion),
         sourceSequence: Number(message.sourceSequence ?? message.sequence ?? 0),
         sentSequence: Number(message.sentSequence ?? message.sequence ?? 0),
@@ -626,26 +646,26 @@ class ScreenShareService {
     }
 
     if (message.action === 'ready' && this.currentPlayerId === ownerId) {
-      if (!(this.viewerOrder.get(shareId) ?? []).includes(message.from)) return;
-      const assignedVersion = this.assignedRouteVersions.get(shareId)?.get(message.from);
+      if (message.to !== this.currentPlayerId || !(this.viewerOrder.get(shareId) ?? []).includes(senderId)) return;
+      const assignedVersion = this.assignedRouteVersions.get(shareId)?.get(senderId);
       if (isNullish(assignedVersion) || assignedVersion !== Number(message.routeVersion || 0)) return;
       const ready = this.readyViewers.get(shareId) ?? new Set<string>();
-      ready.add(message.from);
+      ready.add(senderId);
       this.readyViewers.set(shareId, ready);
-      const pendingDetach = this.pendingDetachUpstreams.get(shareId)?.get(message.from);
-      if (pendingDetach && pendingDetach !== this.assignedUpstreams.get(shareId)?.get(message.from)) {
+      const pendingDetach = this.pendingDetachUpstreams.get(shareId)?.get(senderId);
+      if (pendingDetach && pendingDetach !== this.assignedUpstreams.get(shareId)?.get(senderId)) {
         if (pendingDetach === this.currentPlayerId) {
-          const oldKey = shareId + '-out-' + message.from;
+          const oldKey = shareId + '-out-' + senderId;
           this.stopOutboundHealthHeartbeat(oldKey);
           this.peerConnections.get(oldKey)?.close();
           this.peerConnections.delete(oldKey);
-          this.expectedDownstreams.get(shareId)?.delete(message.from);
+          this.expectedDownstreams.get(shareId)?.delete(senderId);
         } else {
-          this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: pendingDetach, shareId, downstreamId: message.from, routeVersion: Number(message.routeVersion || 0) });
+          this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: pendingDetach, shareId, downstreamId: senderId, routeVersion: Number(message.routeVersion || 0) });
         }
-        this.pendingDetachUpstreams.get(shareId)?.delete(message.from);
+        this.pendingDetachUpstreams.get(shareId)?.delete(senderId);
       } else if (pendingDetach) {
-        this.pendingDetachUpstreams.get(shareId)?.delete(message.from);
+        this.pendingDetachUpstreams.get(shareId)?.delete(senderId);
       }
       this.rebuildRelayRoutes(shareId);
       return;
@@ -653,52 +673,67 @@ class ScreenShareService {
 
     if (message.action === 'failure' && this.currentPlayerId === ownerId) {
       const order = this.viewerOrder.get(shareId) ?? [];
-      if (!order.includes(message.from)) return;
-      const assignedUpstream = this.assignedUpstreams.get(shareId)?.get(message.from);
-      if (message.upstreamId && assignedUpstream && message.upstreamId !== assignedUpstream) return;
-      const assignedVersion = this.assignedRouteVersions.get(shareId)?.get(message.from);
-      if (!isNullish(message.routeVersion) && assignedVersion !== Number(message.routeVersion)) return;
-      this.markRelayFailure(shareId, message.from, assignedUpstream, message.reason || 'connection');
+      if (message.to !== this.currentPlayerId || !order.includes(senderId)) return;
+      const assignedUpstream = this.assignedUpstreams.get(shareId)?.get(senderId);
+      if (isNullish(message.upstreamId) || isNullish(message.routeVersion)) return;
+      if (!assignedUpstream || message.upstreamId !== assignedUpstream) return;
+      const assignedVersion = this.assignedRouteVersions.get(shareId)?.get(senderId);
+      if (isNullish(assignedVersion) || Number(message.routeVersion) !== assignedVersion) return;
+      this.markRelayFailure(shareId, senderId, assignedUpstream, message.reason || 'connection');
       if (assignedUpstream === this.currentPlayerId) {
-        const oldKey = shareId + '-out-' + message.from;
+        const oldKey = shareId + '-out-' + senderId;
         this.stopOutboundHealthHeartbeat(oldKey);
         this.peerConnections.get(oldKey)?.close();
         this.peerConnections.delete(oldKey);
-        this.expectedDownstreams.get(shareId)?.delete(message.from);
+        this.expectedDownstreams.get(shareId)?.delete(senderId);
       } else if (assignedUpstream) {
-        this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: assignedUpstream, shareId, downstreamId: message.from, routeVersion: assignedVersion });
+        this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: assignedUpstream, shareId, downstreamId: senderId, routeVersion: assignedVersion });
       }
       // The failed edge is removed from the assignment before rebuilding;
       // healthy replacement routes are confirmed with a real decoded frame.
-      this.readyViewers.get(shareId)?.delete(message.from);
-      this.assignedUpstreams.get(shareId)?.delete(message.from);
-      this.assignedRouteVersions.get(shareId)?.delete(message.from);
+      this.readyViewers.get(shareId)?.delete(senderId);
+      this.assignedUpstreams.get(shareId)?.delete(senderId);
+      this.assignedRouteVersions.get(shareId)?.delete(senderId);
       this.rebuildRelayRoutes(shareId);
       return;
     }
 
-    if (message.from !== ownerId) return;
+    if (senderId !== ownerId || message.to !== this.currentPlayerId) return;
 
-    if (message.action === 'accepted' && message.to === this.currentPlayerId) {
+    if (message.action === 'accepted' && message.to === this.currentPlayerId && isNullish(message.routeVersion) && isNullish(message.upstreamId) && isNullish(message.downstreamId)) {
       this.relayProtocolConfirmed.add(shareId);
       return;
     }
 
     if (message.action === 'route' && message.to === this.currentPlayerId && message.upstreamId) {
+      const routeVersion = Number(message.routeVersion);
+      if (!Number.isInteger(routeVersion) || routeVersion <= 0 || message.upstreamId === this.currentPlayerId) return;
+      const currentRouteVersion = this.viewingRouteVersions.get(shareId);
+      const currentUpstream = this.viewingUpstreams.get(shareId);
+      if (!isNullish(currentRouteVersion) && routeVersion < currentRouteVersion) return;
+      if (currentRouteVersion === routeVersion && currentUpstream && currentUpstream !== message.upstreamId) return;
       this.relayProtocolConfirmed.add(shareId);
-      await this.connectRelayUpstream(shareId, message.upstreamId, Number(message.routeVersion || 0));
+      await this.connectRelayUpstream(shareId, message.upstreamId, routeVersion);
       return;
     }
 
     if (message.action === 'child' && message.to === this.currentPlayerId && message.downstreamId) {
       const expected = this.expectedDownstreams.get(shareId) ?? new Map<string, number>();
-      expected.set(message.downstreamId, Number(message.routeVersion || 0));
+      const routeVersion = Number(message.routeVersion);
+      if (!Number.isInteger(routeVersion) || routeVersion <= 0) return;
+      const previousVersion = expected.get(message.downstreamId);
+      if (!isNullish(previousVersion) && routeVersion < previousVersion) return;
+      expected.set(message.downstreamId, routeVersion);
       this.expectedDownstreams.set(shareId, expected);
-      const pendingKey = shareId + ':' + message.downstreamId;
+      const pendingKey = this.relayOfferKey(shareId, message.downstreamId, routeVersion);
       const pending = this.pendingRelayOffers.get(pendingKey);
       if (pending) {
         this.pendingRelayOffers.delete(pendingKey);
         await this.handleOffer(pending);
+      }
+      const pc = this.peerConnections.get(shareId + '-out-' + message.downstreamId);
+      if (pc?.remoteDescription) {
+        await this.flushPendingIce(this.iceKey(shareId, 'out', message.downstreamId, routeVersion), pc);
       }
       return;
     }
@@ -709,6 +744,7 @@ class ScreenShareService {
       this.stopOutboundHealthHeartbeat(key);
       this.peerConnections.get(key)?.close();
       this.peerConnections.delete(key);
+      this.clearPendingIceForPeer(shareId, 'out', message.downstreamId);
     }
   }
 
@@ -948,8 +984,8 @@ class ScreenShareService {
         this.startViewingHealthMonitor(shareId, pc, track, upstreamId, routeVersion);
 
         const expected = this.expectedDownstreams.get(shareId) ?? new Map<string, number>();
-        for (const downstreamId of expected.keys()) {
-          const pendingKey = shareId + ':' + downstreamId;
+        for (const [downstreamId, expectedVersion] of expected.entries()) {
+          const pendingKey = this.relayOfferKey(shareId, downstreamId, expectedVersion);
           const pendingOffer = this.pendingRelayOffers.get(pendingKey);
           if (pendingOffer) {
             this.pendingRelayOffers.delete(pendingKey);
@@ -1128,8 +1164,16 @@ class ScreenShareService {
       const isOwner = share.playerId === this.currentPlayerId;
       const expectedVersion = this.expectedDownstreams.get(offer.shareId)?.get(offer.playerId);
       const isLegacyDirectOffer = isOwner && isNullish(offer.routeVersion);
+      // Only the owner may use the legacy password-gated direct path. A relay
+      // viewer must have an owner-issued child route before it can accept an
+      // offer, otherwise a member can bypass the owner's password by dialing
+      // an already-watching relay directly.
+      if (!isOwner && isNullish(offer.routeVersion)) return;
+      if (!isLegacyDirectOffer && (!Number.isInteger(offer.routeVersion) || Number(offer.routeVersion) <= 0)) return;
       if (!isLegacyDirectOffer && (isNullish(expectedVersion) || expectedVersion !== Number(offer.routeVersion || 0))) {
-        this.pendingRelayOffers.set(offer.shareId + ':' + offer.playerId, offer);
+        if (!isOwner && Number.isInteger(offer.routeVersion) && Number(offer.routeVersion) > 0) {
+          this.pendingRelayOffers.set(this.relayOfferKey(offer.shareId, offer.playerId, Number(offer.routeVersion)), offer);
+        }
         return;
       }
       if (isLegacyDirectOffer && share.requirePassword && offer.password !== share.password) {
@@ -1139,7 +1183,7 @@ class ScreenShareService {
 
       const sourceStream = isOwner ? this.localStream : this.remoteStreams.get(offer.shareId);
       if (!sourceStream || sourceStream.getVideoTracks().length === 0) {
-        this.pendingRelayOffers.set(offer.shareId + ':' + offer.playerId, offer);
+        this.pendingRelayOffers.set(this.relayOfferKey(offer.shareId, offer.playerId, offer.routeVersion), offer);
         return;
       }
 
@@ -1213,7 +1257,7 @@ class ScreenShareService {
         type: 'offer',
         sdp: offer.sdp,
       });
-      await this.flushPendingIce(connectionKey, pc);
+      await this.flushPendingIce(this.iceKey(offer.shareId, 'out', offer.playerId, offer.routeVersion), pc);
 
       // 创建Answer
       const answer = await pc.createAnswer();
@@ -1271,7 +1315,7 @@ class ScreenShareService {
         type: 'answer',
         sdp: answer.sdp,
       });
-      await this.flushPendingIce(connectionKey, foundPc);
+      await this.flushPendingIce(this.iceKey(answer.shareId, 'in', upstreamPlayerId, answer.routeVersion), foundPc);
 
       console.log('✅ [ScreenShareService] Answer已设置');
     } catch (error) {
@@ -1285,29 +1329,48 @@ class ScreenShareService {
    */
   async handleIceCandidate(shareId: string, candidate: RTCIceCandidateInit, remotePlayerId: string, connectionRole?: 'in' | 'out', routeVersion?: number): Promise<void> {
     try {
+      const share = this.activeShares.get(shareId);
+      if (!share || !remotePlayerId) return;
+      const normalizedRouteVersion = isNullish(routeVersion) ? undefined : Number(routeVersion);
+      if (!isNullish(normalizedRouteVersion) && (!Number.isInteger(normalizedRouteVersion) || normalizedRouteVersion <= 0)) return;
       const outboundKey = `${shareId}-out-${remotePlayerId}`;
       const inboundKey = `${shareId}-in-${remotePlayerId}`;
       const legacyViewerKey = Array.from(this.peerConnections.keys()).find((key) => key.startsWith(`${shareId}-viewer-`));
-      const connectionKey = connectionRole === 'in'
-        ? isNullish(routeVersion) && legacyViewerKey
-          ? legacyViewerKey
-          : inboundKey
-        : connectionRole === 'out'
-          ? outboundKey
-          : this.peerConnections.has(outboundKey)
-            ? outboundKey
-            : this.peerConnections.has(inboundKey)
-              ? inboundKey
-              : legacyViewerKey ?? inboundKey;
-      if (!isNullish(routeVersion)) {
-        if (connectionKey === inboundKey && this.viewingRouteVersions.get(shareId) !== routeVersion) return;
-        if (connectionKey === outboundKey && this.expectedDownstreams.get(shareId)?.get(remotePlayerId) !== routeVersion) return;
+      const isOwner = share.playerId === this.currentPlayerId;
+      let direction: 'in' | 'out';
+      if (connectionRole === 'in') {
+        // Upstream ICE is accepted only for the current owner-issued route.
+        // Before route creation, retain it by routeVersion for later flush.
+        if (isNullish(normalizedRouteVersion) && remotePlayerId !== share.playerId) return;
+        const currentRoute = this.viewingRouteVersions.get(shareId);
+        if (!isNullish(currentRoute) && normalizedRouteVersion !== currentRoute) return;
+        direction = 'in';
+      } else if (connectionRole === 'out') {
+        // Legacy no-route ICE is valid only on the owner's direct path.
+        if (isNullish(normalizedRouteVersion) && !isOwner) return;
+        const expectedRoute = this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
+        if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
+        direction = 'out';
+      } else if (this.peerConnections.has(outboundKey) || this.expectedDownstreams.get(shareId)?.has(remotePlayerId)) {
+        direction = 'out';
+      } else if (this.peerConnections.has(inboundKey) || remotePlayerId === this.viewingUpstreams.get(shareId) || remotePlayerId === share.playerId) {
+        direction = 'in';
+      } else if (legacyViewerKey) {
+        direction = 'in';
+      } else {
+        return;
       }
+      const connectionKey = direction === 'in' && isNullish(normalizedRouteVersion) && legacyViewerKey ? legacyViewerKey : direction === 'in' ? inboundKey : outboundKey;
+      const expectedRoute = direction === 'in'
+        ? this.viewingRouteVersions.get(shareId)
+        : this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
+      if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
       const pc = this.peerConnections.get(connectionKey);
       if (!pc || !pc.remoteDescription) {
-        const pending = this.pendingIceCandidates.get(connectionKey) ?? [];
+        const pendingKey = this.iceKey(shareId, direction, remotePlayerId, normalizedRouteVersion);
+        const pending = this.pendingIceCandidates.get(pendingKey) ?? [];
         pending.push(candidate);
-        this.pendingIceCandidates.set(connectionKey, pending);
+        this.pendingIceCandidates.set(pendingKey, pending);
         return;
       }
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -1325,13 +1388,21 @@ class ScreenShareService {
     
     const share = this.activeShares.get(shareId);
     if (!share) return;
+    const isOwner = share.playerId === this.currentPlayerId;
+    const isKnownViewer = (this.viewerOrder.get(shareId) ?? []).includes(viewerId);
+    const isKnownDownstream = this.expectedDownstreams.get(shareId)?.has(viewerId) ?? false;
+    if ((isOwner && !isKnownViewer && viewerId !== this.currentPlayerId) || (!isOwner && !isKnownDownstream)) return;
     const outKey = `${shareId}-out-${viewerId}`;
     this.stopOutboundHealthHeartbeat(outKey);
     this.peerConnections.get(outKey)?.close();
     this.peerConnections.delete(outKey);
     this.expectedDownstreams.get(shareId)?.delete(viewerId);
+    for (const key of this.pendingRelayOffers.keys()) {
+      if (key.startsWith(`${shareId}:${viewerId}:`)) this.pendingRelayOffers.delete(key);
+    }
+    this.clearPendingIceForPeer(shareId, 'out', viewerId);
 
-    if (share.playerId === this.currentPlayerId) {
+    if (isOwner) {
       const order = this.viewerOrder.get(shareId) ?? [];
       const nextOrder = order.filter((id) => id !== viewerId);
       this.viewerOrder.set(shareId, nextOrder);
@@ -1355,7 +1426,7 @@ class ScreenShareService {
       if (this.viewingUpstreams.get(share.id) === playerId) {
         this.sendWebSocketMessage({
           type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId, to: share.playerId,
-          shareId: share.id, upstreamId: playerId,
+          shareId: share.id, upstreamId: playerId, routeVersion: this.viewingRouteVersions.get(share.id),
         });
       }
       if (share.playerId === this.currentPlayerId || this.expectedDownstreams.get(share.id)?.has(playerId)) {
@@ -1367,20 +1438,35 @@ class ScreenShareService {
   /**
    * 处理共享状态更新
    */
-  handleShareUpdate(shareId: string, viewerId?: string, viewerName?: string, viewerCount?: number): void {
+  handleShareUpdate(shareId: string, viewerId?: string, viewerName?: string, viewerCount?: number, senderId?: string): void {
     const share = this.activeShares.get(shareId);
-    if (!share) return;
+    if (!share || (senderId !== undefined && share.playerId !== senderId)) return;
     share.viewerId = viewerId;
     share.viewerName = viewerName;
     share.viewerCount = viewerCount ?? (viewerId ? 1 : 0);
     this.activeShares.set(shareId, share);
   }
 
-  private async flushPendingIce(connectionKey: string, pc: RTCPeerConnection): Promise<void> {
-    const candidates = this.pendingIceCandidates.get(connectionKey) ?? [];
-    this.pendingIceCandidates.delete(connectionKey);
+  private async flushPendingIce(pendingKey: string, pc: RTCPeerConnection): Promise<void> {
+    const candidates = this.pendingIceCandidates.get(pendingKey) ?? [];
+    this.pendingIceCandidates.delete(pendingKey);
     for (const candidate of candidates) {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+  }
+
+  private iceKey(shareId: string, direction: 'in' | 'out', peerId: string, routeVersion?: number): string {
+    return `${shareId}-${direction}-${peerId}-${isNullish(routeVersion) ? 'legacy' : routeVersion}`;
+  }
+
+  private relayOfferKey(shareId: string, peerId: string, routeVersion?: number): string {
+    return `${shareId}:${peerId}:${isNullish(routeVersion) ? 'legacy' : routeVersion}`;
+  }
+
+  private clearPendingIceForPeer(shareId: string, direction: 'in' | 'out', peerId: string): void {
+    const prefix = `${shareId}-${direction}-${peerId}-`;
+    for (const key of this.pendingIceCandidates.keys()) {
+      if (key.startsWith(prefix)) this.pendingIceCandidates.delete(key);
     }
   }
 
