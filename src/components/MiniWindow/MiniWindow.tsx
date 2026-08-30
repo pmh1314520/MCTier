@@ -574,6 +574,15 @@ export const MiniWindow: React.FC = () => {
     };
   }, [lobby, currentPlayerId, config.playerName, addChatMessage]);
 
+  // 玩家名册指纹：仅用 players.length 作依赖无法反映"虚拟IP异步补齐"（补齐时人数不变），
+  // 而共享浏览/聊天记录读取的成员校验依赖"每个成员虚拟IP均已就绪"才会启用。
+  // 若只看人数，IP 补齐后本效应不会重跑，rosterComplete 会长期停留在 false，
+  // 校验将一直处于放行状态；把 id:ip 指纹纳入依赖后，IP 一旦补齐即可重新下发名单。
+  const playerRosterKey = players
+    .map((p) => p.id + ':' + (p.virtualIp ?? ''))
+    .sort()
+    .join(',');
+
   // 【新增】单独监听玩家列表变化，动态更新SSE连接
   useEffect(() => {
     if (!lobby || !currentPlayerId || players.length === 0) {
@@ -653,7 +662,7 @@ export const MiniWindow: React.FC = () => {
       console.warn('恢复记忆音量失败（忽略）:', e);
     }
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
-  }, [players.length, lobby?.virtualIp, currentPlayerId]);
+  }, [playerRosterKey, lobby?.virtualIp, currentPlayerId]);
 
   // 【新增】周期性测量到各玩家的延迟，用于连接质量显示（每5秒一次）
   useEffect(() => {
