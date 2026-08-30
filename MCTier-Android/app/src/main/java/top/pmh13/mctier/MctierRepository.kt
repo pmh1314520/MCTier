@@ -90,6 +90,9 @@ data class MctierUiState(
     val favoritePlayers: List<String> = emptyList(),
     val publicLobbies: List<top.pmh13.mctier.data.PublicLobbyWire> = emptyList(),
     val publicLoading: Boolean = false,
+    val communityNodes: List<top.pmh13.mctier.data.CommunityNodeWire> = emptyList(),
+    val communityNodesLoading: Boolean = false,
+    val communityNodeSubmitting: Boolean = false,
     val showOnboarding: Boolean = false,
     val viewingShareId: String? = null,
     val customNodes: List<top.pmh13.mctier.data.CustomNode> = emptyList(),
@@ -150,6 +153,7 @@ class MctierRepository(private val context: Context) {
     private val downloadCancelers = ConcurrentHashMap<String, () -> Unit>()
     private val canceledDownloads = ConcurrentHashMap.newKeySet<String>()
     private val publicLobbyClient = PublicLobbyClient()
+    private val communityNodeClient = top.pmh13.mctier.network.CommunityNodeClient()
     private val updateChecker = UpdateChecker(context)
     private val soundManager = top.pmh13.mctier.network.SoundManager(context)
     private var reconnectNoticeJob: Job? = null
@@ -1768,6 +1772,97 @@ class MctierRepository(private val context: Context) {
 
     private fun saveCustomNodes(list: List<CustomNode>) {
         prefs.edit { putString("customNodes", MctierJson.encodeToString(ListSerializer(CustomNode.serializer()), list)) }
+    }
+
+    /**
+     * 轻量提示。
+     *
+     * 共享节点的投稿/拉取都是异步网络操作，结果可能在用户已经离开该页面后才回来，
+     * 用 Toast 而不是 state.error：后者是常驻状态行，会把一次性的网络提示长期挂在界面上。
+     * 统一切到 Main 派发，避免从 OkHttp 回调线程直接弹 Toast。
+     */
+    private fun toast(msg: String) {
+        scope.launch {
+            runCatching {
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // ==================== 用户共享节点（社区投稿） ====================
+    //
+    // 节点存活探测与「失效超过 1 天自动移除」都由信令服务器负责，
+    // 客户端只负责拉列表、投稿，以及把中意的节点保存到本地自定义节点。
+
+    /** 拉取共享节点列表 */
+    fun fetchCommunityNodes() {
+        val url = _state.value.settings.signalingServer.ifBlank { DefaultSignalingServer }
+        _state.update { it.copy(communityNodesLoading = true) }
+        communityNodeClient.fetch(
+            url,
+            onResult = { list ->
+                scope.launch { _state.update { it.copy(communityNodes = list, communityNodesLoading = false) } }
+            },
+            onError = { msg ->
+                scope.launch {
+                    _state.update { it.copy(communityNodesLoading = false) }
+                    toast(L("获取共享节点失败：", "Failed to fetch shared nodes: ") + msg)
+                }
+            },
+        )
+    }
+
+    /**
+     * 投稿一个共享节点。
+     *
+     * 地址格式先本地校验一遍，减少一次无效往返；服务器还会再做一次校验并探测可达性。
+     */
+    fun submitCommunityNode(name: String, address: String, submitter: String?) {
+        val trimmedName = name.trim()
+        val trimmedAddress = address.trim()
+        if (trimmedName.isBlank()) {
+            toast(L("请输入节点名称", "Please enter a node name"))
+            return
+        }
+        if (!Regex("^(tcp|udp|ws|wss)://\\S+").matches(trimmedAddress)) {
+            toast(L("节点地址必须以 tcp:// udp:// ws:// wss:// 开头", "Node address must start with tcp://, udp://, ws:// or wss://"))
+            return
+        }
+        if (_state.value.communityNodeSubmitting) return
+
+        val url = _state.value.settings.signalingServer.ifBlank { DefaultSignalingServer }
+        _state.update { it.copy(communityNodeSubmitting = true) }
+        communityNodeClient.submit(
+            url,
+            trimmedName,
+            trimmedAddress,
+            submitter,
+            onResult = { result ->
+                scope.launch {
+                    _state.update { it.copy(communityNodeSubmitting = false) }
+                    toast(result.message.ifBlank { if (result.ok) L("投稿成功", "Submitted") else L("投稿失败", "Submission failed") })
+                    if (result.ok) fetchCommunityNodes()
+                }
+            },
+            onError = { msg ->
+                scope.launch {
+                    _state.update { it.copy(communityNodeSubmitting = false) }
+                    toast(L("投稿失败：", "Submission failed: ") + msg)
+                }
+            },
+        )
+    }
+
+    /** 把共享节点保存进本地自定义节点，之后即可在节点列表中选用 */
+    fun adoptCommunityNode(node: top.pmh13.mctier.data.CommunityNodeWire) {
+        val known = top.pmh13.mctier.data.BuiltinNodes.map { it.address } +
+            _state.value.customNodes.map { it.address }
+        if (node.address in known) {
+            toast(L("该节点已在你的节点列表中", "This node is already in your node list"))
+            return
+        }
+        addCustomNode(node.name, node.address)
+        toast(L("已添加到我的节点：", "Added to your nodes: ") + node.name)
     }
 
     // ==================== 新手引导 / 自动大厅 ====================

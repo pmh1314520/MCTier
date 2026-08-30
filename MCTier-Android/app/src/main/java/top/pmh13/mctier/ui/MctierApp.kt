@@ -205,6 +205,7 @@ import top.pmh13.mctier.data.AppClientVersion
 import top.pmh13.mctier.data.AvailableUpdate
 import top.pmh13.mctier.data.BuiltinNodes
 import top.pmh13.mctier.data.ChatMessage
+import top.pmh13.mctier.data.CommunityNodeMaxOfflineSecs
 import top.pmh13.mctier.data.RemoteFileInfo
 import top.pmh13.mctier.data.RemoteShareEntry
 import top.pmh13.mctier.data.ScreenShareInfo
@@ -3437,6 +3438,137 @@ private fun ScreenRenderSurface(
     }
 }
 
+// ============================ 用户共享节点（社区投稿） ============================
+//
+// 节点存活探测与「失效超过 1 天自动移除」都由信令服务器负责，
+// 这里只展示服务器下发的状态，不做本地判活，避免两端结论不一致。
+@Composable
+private fun CommunityNodesSection(state: MctierUiState, repository: MctierRepository) {
+    var formOpen by remember { mutableStateOf(false) }
+    var nodeName by remember { mutableStateOf("") }
+    var nodeAddr by remember { mutableStateOf("") }
+    var submitter by remember { mutableStateOf("") }
+    var confirmSubmit by remember { mutableStateOf(false) }
+
+    // 进入设置页时拉一次，避免用户还要手动点刷新
+    LaunchedEffect(Unit) { repository.fetchCommunityNodes() }
+
+    val knownAddresses = remember(state.customNodes) {
+        (BuiltinNodes.map { it.address } + state.customNodes.map { it.address }).toSet()
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(L("用户共享节点", "Community Shared Nodes"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
+        IconButton(onClick = { repository.fetchCommunityNodes() }, enabled = !state.communityNodesLoading) {
+            Icon(Icons.Rounded.Refresh, L("刷新", "Refresh"), tint = GrassGreen, modifier = Modifier.size(18.dp))
+        }
+        TextButton(onClick = { formOpen = !formOpen }) {
+            Text(if (formOpen) L("收起", "Hide") else L("投稿", "Submit"), color = GrassGreen, fontSize = 12.sp)
+        }
+    }
+    Text(
+        L("其他玩家分享的节点，可添加到我的节点。失效超过 1 天的节点会被自动移除", "Nodes shared by other players; add them to your list. Nodes offline for more than 1 day are removed automatically"),
+        fontSize = 11.sp,
+        color = TextPrimary.copy(alpha = 0.45f),
+    )
+    Spacer(Modifier.height(8.dp))
+
+    if (formOpen) {
+        MctierField(nodeName, { nodeName = it }, L("节点名称", "Node name"))
+        Spacer(Modifier.height(6.dp))
+        MctierField(nodeAddr, { nodeAddr = it }, L("节点地址(tcp/udp/ws/wss://)", "Node address (tcp/udp/ws/wss://)"))
+        Spacer(Modifier.height(6.dp))
+        MctierField(submitter, { submitter = it }, L("你的昵称(可选)", "Your nickname (optional)"))
+        Spacer(Modifier.height(8.dp))
+        PrimaryButton(
+            if (state.communityNodeSubmitting) L("提交中…", "Submitting...") else L("投稿共享节点", "Submit shared node"),
+            icon = Icons.Rounded.Public,
+            enabled = !state.communityNodeSubmitting && nodeName.isNotBlank() && nodeAddr.isNotBlank(),
+        ) { confirmSubmit = true }
+        Spacer(Modifier.height(10.dp))
+    }
+
+    if (confirmSubmit) {
+        AlertDialog(
+            onDismissRequest = { confirmSubmit = false },
+            title = { Text(L("投稿共享节点", "Submit shared node"), color = TextPrimary) },
+            text = {
+                Text(
+                    L(
+                        "投稿后该节点地址将对所有用户公开可见。请确认你有权分享该节点，且它能长期稳定运行。服务器会先探测可达性，失效超过 1 天的节点会被自动移除。",
+                        "Once submitted, this node address becomes visible to all users. Make sure you are allowed to share it and that it runs reliably. The server probes reachability first, and nodes offline for more than 1 day are removed automatically.",
+                    ),
+                    color = TextPrimary.copy(alpha = 0.8f),
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSubmit = false
+                    repository.submitCommunityNode(nodeName, nodeAddr, submitter.takeIf { it.isNotBlank() })
+                    nodeName = ""; nodeAddr = ""; submitter = ""
+                    formOpen = false
+                }) { Text(L("确认投稿", "Submit"), color = GrassGreen) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSubmit = false }) { Text(L("取消", "Cancel"), color = TextPrimary.copy(alpha = 0.7f)) }
+            },
+            containerColor = Panel,
+        )
+    }
+
+    if (state.communityNodes.isEmpty()) {
+        Text(
+            if (state.communityNodesLoading) L("正在获取共享节点…", "Loading shared nodes...")
+            else L("暂无共享节点，欢迎投稿你的节点", "No shared nodes yet — feel free to submit yours"),
+            fontSize = 12.sp,
+            color = TextPrimary.copy(alpha = 0.45f),
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+    } else {
+        state.communityNodes.forEach { node ->
+            val added = node.address in knownAddresses
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp))
+                    .background(PanelHigh.copy(alpha = 0.3f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(node.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(6.dp))
+                        // 在线显示延迟；离线显示还剩多久被服务器移除，让用户知道列表会自净
+                        val statusColor = if (node.online) GrassGreen else DirtBrown
+                        val statusText = if (node.online) {
+                            node.latencyMs?.let { "${it}ms" } ?: L("可用", "online")
+                        } else {
+                            val offline = (System.currentTimeMillis() / 1000 - node.lastOkAt).coerceAtLeast(0)
+                            val remain = (CommunityNodeMaxOfflineSecs - offline).coerceAtLeast(0)
+                            val hours = ((remain + 3599) / 3600).toInt()
+                            if (hours > 0) L("离线·${hours}小时后移除", "offline - ${hours}h left") else L("离线·即将移除", "offline - removing")
+                        }
+                        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(statusColor.copy(alpha = 0.2f)).padding(horizontal = 5.dp, vertical = 1.dp)) {
+                            Text(statusText, fontSize = 9.sp, color = statusColor)
+                        }
+                    }
+                    Text(node.address, color = TextPrimary.copy(alpha = 0.45f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    node.submitter?.let {
+                        Text(L("由 $it 分享", "Shared by $it"), color = TextPrimary.copy(alpha = 0.35f), fontSize = 10.sp)
+                    }
+                }
+                TextButton(onClick = { repository.adoptCommunityNode(node) }, enabled = !added) {
+                    Text(
+                        if (added) L("已添加", "Added") else L("添加", "Add"),
+                        color = if (added) TextPrimary.copy(alpha = 0.35f) else GrassGreen,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ============================ 设置面板 ============================
 @Composable
 private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
@@ -3570,6 +3702,8 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         PrimaryButton(L("添加自定义节点", "Add custom node"), icon = Icons.Rounded.Add, enabled = newNodeName.isNotBlank() && newNodeAddr.isNotBlank()) {
             repository.addCustomNode(newNodeName, newNodeAddr); newNodeName = ""; newNodeAddr = ""
         }
+        Spacer(Modifier.height(16.dp))
+        CommunityNodesSection(state, repository)
         Spacer(Modifier.height(12.dp))
         MctierField(settings.signalingServer, { onChange(settings.copy(signalingServer = it)) }, L("信令服务器", "Signaling server"))
         Spacer(Modifier.height(12.dp))

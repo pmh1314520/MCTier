@@ -1172,3 +1172,215 @@ html[data-theme='light'] .settings-avatar-profile .settings-card-desc {
     padding-inline: 7px;
   }
 }
+
+/* ==================== 用户共享节点（社区投稿） ==================== */
+
+.community-node-manager {
+  margin-top: 12px;
+}
+
+.community-node-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* 与 .snd-text-btn 同一视觉语言：只做颜色过渡，不做位移缩放，
+   避免亮色主题下纯色背景按钮在悬停时出现重绘闪烁。 */
+.community-node-text-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  cursor: pointer;
+  backface-visibility: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.community-node-text-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.95);
+  transform: none;
+}
+
+.community-node-text-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.community-node-form {
+  margin-bottom: 12px;
+}
+
+.community-node-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.community-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.community-node-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.community-node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.community-node-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.community-node-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-node-status {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.community-node-status.is-online {
+  background: rgba(82, 196, 26, 0.16);
+  border: 1px solid rgba(82, 196, 26, 0.38);
+  color: #6fd13c;
+}
+
+.community-node-status.is-offline {
+  background: rgba(255, 169, 64, 0.14);
+  border: 1px solid rgba(255, 169, 64, 0.36);
+  color: #ffb851;
+}
+
+.community-node-address {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Consolas', 'Monaco', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-node-submitter {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.community-node-btn {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  cursor: pointer;
+  backface-visibility: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.community-node-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  transform: none;
+}
+
+.community-node-btn-primary {
+  background: linear-gradient(135deg, #00e5ff, #00bcd4);
+  border-color: transparent;
+  color: #06222b;
+  font-weight: 600;
+}
+
+.community-node-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #22ebff, #14c9e0);
+  transform: none;
+}
+
+.community-node-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.community-node-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+
+/* 亮色主题：与 .node-item / .snd-card 保持一致的白底卡片 */
+html[data-theme='light'] .community-node-item {
+  background: #ffffff;
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .community-node-name {
+  color: var(--mct-text);
+}
+
+html[data-theme='light'] .community-node-address {
+  color: var(--mct-text-secondary);
+}
+
+html[data-theme='light'] .community-node-submitter {
+  color: var(--mct-text-secondary);
+}
+
+html[data-theme='light'] .community-node-empty {
+  color: var(--mct-text-secondary);
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .community-node-text-btn,
+html[data-theme='light'] .community-node-btn:not(.community-node-btn-primary) {
+  background: #ffffff;
+  color: var(--mct-text-secondary);
+  border-color: var(--mct-border);
+}
+
+html[data-theme='light'] .community-node-text-btn:hover:not(:disabled),
+html[data-theme='light'] .community-node-btn:not(.community-node-btn-primary):hover:not(:disabled) {
+  background: var(--mct-surface-soft);
+  color: var(--mct-text);
+  border-color: rgba(24, 32, 43, 0.2);
+}
+
+html[data-theme='light'] .community-node-status.is-online {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: rgba(46, 160, 67, 0.4);
+  color: #1f7a33;
+}
+
+html[data-theme='light'] .community-node-status.is-offline {
+  background: rgba(197, 120, 0, 0.12);
+  border-color: rgba(197, 120, 0, 0.4);
+  color: #96590a;
+}

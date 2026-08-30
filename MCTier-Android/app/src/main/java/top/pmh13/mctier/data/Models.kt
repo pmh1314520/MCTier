@@ -317,6 +317,51 @@ data class FavoriteLobby(
 @Serializable
 data class CustomNode(val name: String, val address: String)
 
+/**
+ * 用户共享节点（社区投稿，与桌面端 CommunityNodeInfo 对齐）。
+ *
+ * 存活探测与「失效超过 1 天自动移除」都由信令服务器负责，客户端只做展示与投稿。
+ * [lastOkAt] 是最近一次探测成功的 Unix 秒，服务器据此淘汰节点。
+ */
+@Serializable
+data class CommunityNodeWire(
+    val name: String,
+    val address: String,
+    val submitter: String? = null,
+    @SerialName("submittedAt") val submittedAt: Long = 0,
+    @SerialName("lastOkAt") val lastOkAt: Long = 0,
+    val online: Boolean = false,
+    @SerialName("latencyMs") val latencyMs: Long? = null,
+)
+
+/** 投稿共享节点请求（community-node-submit） */
+@Serializable
+data class CommunityNodeSubmitWire(
+    val type: String = "community-node-submit",
+    val name: String,
+    val address: String,
+    val submitter: String? = null,
+)
+
+/** 投稿结果（community-node-submit-result） */
+@Serializable
+data class CommunityNodeSubmitResultWire(
+    val type: String = "",
+    val ok: Boolean = false,
+    val message: String = "",
+    val node: CommunityNodeWire? = null,
+)
+
+/** 共享节点列表响应（community-node-list-response） */
+@Serializable
+data class CommunityNodeListWire(
+    val type: String = "",
+    val nodes: List<CommunityNodeWire> = emptyList(),
+)
+
+/** 服务器侧的自动淘汰阈值（1 天），仅用于前端「还剩多久被移除」文案 */
+const val CommunityNodeMaxOfflineSecs: Long = 24 * 60 * 60
+
 /** 待办事项（房间工具，多人协同同步；字段名与桌面端一致） */
 @Serializable
 data class TodoItem(

@@ -17,6 +17,13 @@ import { clearAvatarData, saveAvatarData } from '../../services/avatar/avatarSer
 import { useAppStore } from '../../stores';
 import { SettingsAvatarPicker } from '../SettingsAvatar/SettingsAvatarPicker';
 import { persistThemePreference, readThemePreference, type ThemePreference } from '../../theme/themePreference';
+import {
+  describeNodeFreshness,
+  fetchCommunityNodes,
+  submitCommunityNode,
+  validateCommunityNodeAddress,
+  type CommunityNode,
+} from '../../services/lobby/communityNodes';
 import './SettingsWindow.css';
 
 /** 可自定义的全局快捷键项 */
@@ -813,6 +820,24 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
             <motion.div className="settings-card" variants={itemVariants}>
               <div className="settings-card-header">
+                <div className="settings-card-icon settings-card-icon-cyan">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.93 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14a7.9 7.9 0 0 1 0-4h3.38a16.6 16.6 0 0 0 0 4H4.26zm.81 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.07 16zm2.95-8H5.07a7.99 7.99 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.02 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82A13.9 13.9 0 0 1 12 19.96zM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4zm.26 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a7.99 7.99 0 0 1-4.33 3.56zM16.36 14a16.6 16.6 0 0 0 0-4h3.38a7.9 7.9 0 0 1 0 4h-3.38z"/>
+                  </svg>
+                </div>
+                <span className="settings-card-title">{tl('用户共享节点', 'Community Shared Nodes')}</span>
+              </div>
+              <div className="settings-card-desc">
+                {tl(
+                  '浏览其他玩家投稿的 EasyTier 节点并添加到我的节点，也可以投稿自己的节点。节点失效超过 1 天会被自动移除',
+                  'Browse EasyTier nodes shared by other players and add them to your list, or submit your own. Nodes offline for more than 1 day are removed automatically',
+                )}
+              </div>
+              <CommunityNodeManager />
+            </motion.div>
+
+            <motion.div className="settings-card" variants={itemVariants}>
+              <div className="settings-card-header">
                 <div className="settings-card-icon settings-card-icon-green">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.70l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.70L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.70l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.70l-2.32-1.9z" />
@@ -1495,6 +1520,290 @@ const CustomNodeManager: React.FC = () => {
           </svg>
           <span>{tl('添加节点', 'Add Node')}</span>
         </motion.button>
+      )}
+    </div>
+  );
+};
+
+// 用户共享节点组件（社区投稿的 EasyTier 节点）
+//
+// 节点的存活探测与「失效超过 1 天自动移除」全部由信令服务器负责，
+// 这里只负责展示与投稿，避免两端各自维护一套判活逻辑而产生分歧。
+const CommunityNodeManager: React.FC = () => {
+  useTranslation();
+  const { modal } = App.useApp();
+  const [nodes, setNodes] = useState<CommunityNode[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: '', address: '', submitter: '' });
+  // 已保存到本地自定义节点的地址集合，用于标记「已添加」
+  const [savedAddresses, setSavedAddresses] = useState<Set<string>>(new Set());
+
+  // 共享节点走用户当前配置的信令服务器：私有部署的用户应该看到自己服务器上的节点
+  const resolveSignaling = useCallback(async (): Promise<string | undefined> => {
+    try {
+      const settings = await invoke<any>('get_settings');
+      if (settings?.usePrivateServer && typeof settings.privateSignalingServer === 'string') {
+        const trimmed = settings.privateSignalingServer.trim();
+        if (trimmed) return trimmed;
+      }
+    } catch {
+      /* 读取失败时回退到官方信令服务器 */
+    }
+    return undefined;
+  }, []);
+
+  const loadSavedAddresses = useCallback(async () => {
+    try {
+      const settings = await invoke<any>('get_settings');
+      const custom: unknown = settings?.customEasytierNodes;
+      const addresses = Array.isArray(custom)
+        ? custom
+            .map((n) => (typeof (n as any)?.address === 'string' ? (n as any).address.trim() : ''))
+            .filter(Boolean)
+        : [];
+      setSavedAddresses(new Set([...BUILTIN_NODE_ADDRESSES, ...addresses]));
+    } catch {
+      setSavedAddresses(new Set(BUILTIN_NODE_ADDRESSES));
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const signaling = await resolveSignaling();
+      const list = await fetchCommunityNodes(signaling);
+      setNodes(list);
+    } catch (error) {
+      message.error(tl(`获取共享节点失败：${error}`, `Failed to fetch shared nodes: ${error}`));
+      setNodes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [resolveSignaling]);
+
+  useEffect(() => {
+    void refresh();
+    void loadSavedAddresses();
+  }, [refresh, loadSavedAddresses]);
+
+  // 把共享节点保存进本地自定义节点列表，之后创建/加入大厅即可在下拉中选用
+  const handleAdopt = async (node: CommunityNode) => {
+    try {
+      const cur = await invoke<any>('get_settings').catch(() => ({} as any));
+      const existing: Array<{ name: string; address: string }> = Array.isArray(cur?.customEasytierNodes)
+        ? cur.customEasytierNodes.filter(
+            (n: any) => typeof n?.name === 'string' && typeof n?.address === 'string',
+          )
+        : [];
+      if (
+        BUILTIN_NODE_ADDRESSES.includes(node.address) ||
+        existing.some((n) => n.address.trim() === node.address)
+      ) {
+        message.info(tl('该节点已在你的节点列表中', 'This node is already in your node list'));
+        return;
+      }
+      const merged = [...existing, { name: node.name, address: node.address }];
+      // 与 CustomNodeManager 一致：连同当前设置一起回写，避免把其它设置覆盖成默认值
+      await invoke('save_settings', {
+        language: cur.language ?? 'system',
+        autoStartup: cur.autoStartup ?? false,
+        autoLobbyEnabled: cur.autoLobbyEnabled ?? false,
+        lobbyName: cur.lobbyName ?? null,
+        lobbyPassword: cur.lobbyPassword ?? null,
+        playerName: cur.playerName ?? null,
+        useDomain: cur.useDomain ?? false,
+        virtualDomain: cur.virtualDomain ?? null,
+        usePrivateServer: cur.usePrivateServer ?? false,
+        privateEasytierServer: cur.privateEasytierServer ?? null,
+        privateSignalingServer: cur.privateSignalingServer ?? null,
+        alwaysOnTop: cur.alwaysOnTop ?? null,
+        rememberWindowPosition: cur.rememberWindowPosition ?? null,
+        closeToTray: cur.closeToTray ?? null,
+        startMinimized: cur.startMinimized ?? null,
+        customEasytierNodes: merged,
+        voiceVolume: cur.voiceVolume ?? null,
+        enableGpuRendering: cur.enableGpuRendering ?? null,
+      });
+      setSavedAddresses((prev) => new Set([...prev, node.address]));
+      // 让「自定义 EasyTier 节点」列表与创建大厅的下拉同步刷新
+      window.dispatchEvent(new Event('configImported'));
+      message.success(tl(`已添加到我的节点：${node.name}`, `Added to your nodes: ${node.name}`));
+    } catch (error) {
+      message.error(tl(`添加失败：${error}`, `Failed to add: ${error}`));
+    }
+  };
+
+  const handleSubmit = async () => {
+    const name = form.name.trim();
+    const address = form.address.trim();
+    if (!name) {
+      message.error(tl('请输入节点名称', 'Please enter a node name'));
+      return;
+    }
+    const invalid = validateCommunityNodeAddress(address);
+    if (invalid) {
+      message.error(tl(invalid, 'Invalid node address'));
+      return;
+    }
+
+    modal.confirm({
+      title: tl('投稿共享节点', 'Submit shared node'),
+      content: tl(
+        '投稿后该节点地址将对所有用户公开可见。请确认你有权分享该节点，且它能长期稳定运行。服务器会先探测可达性，失效超过 1 天的节点会被自动移除。',
+        'Once submitted, this node address becomes visible to all users. Make sure you are allowed to share it and that it runs reliably. The server probes reachability first, and nodes offline for more than 1 day are removed automatically.',
+      ),
+      okText: tl('确认投稿', 'Submit'),
+      cancelText: tl('取消', 'Cancel'),
+      centered: true,
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          const signaling = await resolveSignaling();
+          const result = await submitCommunityNode(
+            { name, address, submitter: form.submitter.trim() || undefined },
+            signaling,
+          );
+          if (result.ok) {
+            message.success(result.message || tl('投稿成功', 'Submitted'));
+            setForm({ name: '', address: '', submitter: '' });
+            setAdding(false);
+            await refresh();
+          } else {
+            message.error(result.message || tl('投稿失败', 'Submission failed'));
+          }
+        } catch (error) {
+          message.error(tl(`投稿失败：${error}`, `Submission failed: ${error}`));
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
+  };
+
+  // 离线节点显示还剩多久被自动移除，让用户知道列表会自净
+  const renderStatus = (node: CommunityNode) => {
+    if (node.online) {
+      const latency = typeof node.latencyMs === 'number' ? `${node.latencyMs}ms` : tl('可用', 'online');
+      return <span className="community-node-status is-online">{latency}</span>;
+    }
+    const { secsUntilRemoval } = describeNodeFreshness(node.lastOkAt);
+    const hours = Math.ceil((secsUntilRemoval ?? 0) / 3600);
+    return (
+      <span className="community-node-status is-offline">
+        {hours > 0
+          ? tl(`离线（${hours}小时后移除）`, `offline (removed in ${hours}h)`)
+          : tl('离线（即将移除）', 'offline (removing)')}
+      </span>
+    );
+  };
+
+  return (
+    <div className="community-node-manager">
+      <div className="community-node-toolbar">
+        <button
+          type="button"
+          className="community-node-text-btn"
+          onClick={() => void refresh()}
+          disabled={loading}
+        >
+          {loading ? tl('刷新中...', 'Refreshing...') : tl('刷新列表', 'Refresh')}
+        </button>
+        <button
+          type="button"
+          className="community-node-text-btn"
+          onClick={() => setAdding((v) => !v)}
+        >
+          {adding ? tl('收起投稿', 'Hide form') : tl('投稿节点', 'Submit node')}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {adding && (
+          <motion.div
+            className="community-node-form"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <Input
+              placeholder={tl('节点名称', 'Node name')}
+              value={form.name}
+              maxLength={32}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              style={{ marginBottom: 8 }}
+            />
+            <Input
+              placeholder={tl('节点地址（例如 tcp://example.com:11010）', 'Node address (e.g. tcp://example.com:11010)')}
+              value={form.address}
+              maxLength={128}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              style={{ marginBottom: 8 }}
+            />
+            <Input
+              placeholder={tl('你的昵称（可选）', 'Your nickname (optional)')}
+              value={form.submitter}
+              maxLength={24}
+              onChange={(e) => setForm({ ...form, submitter: e.target.value })}
+              style={{ marginBottom: 8 }}
+            />
+            <div className="community-node-form-actions">
+              <button
+                type="button"
+                className="community-node-btn community-node-btn-primary"
+                onClick={() => void handleSubmit()}
+                disabled={submitting}
+              >
+                {submitting ? tl('提交中...', 'Submitting...') : tl('提交', 'Submit')}
+              </button>
+              <button
+                type="button"
+                className="community-node-btn"
+                onClick={() => { setAdding(false); setForm({ name: '', address: '', submitter: '' }); }}
+              >
+                {tl('取消', 'Cancel')}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {nodes.length === 0 ? (
+        <div className="community-node-empty">
+          {loading
+            ? tl('正在获取共享节点...', 'Loading shared nodes...')
+            : tl('暂无共享节点，欢迎投稿你的节点', 'No shared nodes yet — feel free to submit yours')}
+        </div>
+      ) : (
+        <div className="community-node-list">
+          {nodes.map((node) => (
+            <div className="community-node-item" key={node.address}>
+              <div className="community-node-info">
+                <div className="community-node-name">
+                  <span className="community-node-name-text">{node.name}</span>
+                  {renderStatus(node)}
+                </div>
+                <div className="community-node-address">{node.address}</div>
+                {node.submitter && (
+                  <div className="community-node-submitter">
+                    {tl(`由 ${node.submitter} 分享`, `Shared by ${node.submitter}`)}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="community-node-btn community-node-btn-primary"
+                onClick={() => void handleAdopt(node)}
+                disabled={savedAddresses.has(node.address)}
+              >
+                {savedAddresses.has(node.address) ? tl('已添加', 'Added') : tl('添加', 'Add')}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
