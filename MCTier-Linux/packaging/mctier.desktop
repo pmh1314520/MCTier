@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MCTier
+Name[en]=MCTier
+GenericName=虚拟局域网通用联机工具
+GenericName[en]=Virtual LAN Gaming Tool
+Comment=通过虚拟局域网实现跨网络联机，支持语音通话、屏幕共享与文件共享
+Comment[en]=Cross-network LAN gaming over a virtual network, with voice chat, screen sharing and file sharing
+Exec=mctier %u
+Icon=mctier
+Terminal=false
+Categories=Network;Game;
+Keywords=Minecraft;LAN;VPN;联机;组网;
+StartupNotify=true
+StartupWMClass=MCTier
+MimeType=x-scheme-handler/mctier;

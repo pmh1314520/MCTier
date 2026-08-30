@@ -152,34 +152,10 @@ impl HostsManager {
             let new_content = format!("{}\n", new_content);
 
             // 写回hosts文件
-            let mut file = OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(&hosts_path)
-                .map_err(|e| {
-                    AppError::FileError(format!(
-                        "无法打开hosts文件进行写入: {}. 请确保以管理员权限运行",
-                        e
-                    ))
-                })?;
-
-            file.write_all(new_content.as_bytes())
-                .map_err(|e| AppError::FileError(format!("无法写入hosts文件: {}", e)))?;
+            Self::write_hosts_file(&hosts_path, &new_content)?;
         } else {
             // 写回hosts文件
-            let mut file = OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(&hosts_path)
-                .map_err(|e| {
-                    AppError::FileError(format!(
-                        "无法打开hosts文件进行写入: {}. 请确保以管理员权限运行",
-                        e
-                    ))
-                })?;
-
-            file.write_all(new_content.as_bytes())
-                .map_err(|e| AppError::FileError(format!("无法写入hosts文件: {}", e)))?;
+            Self::write_hosts_file(&hosts_path, &new_content)?;
         }
 
         // 刷新DNS缓存
@@ -192,6 +168,83 @@ impl HostsManager {
         }
 
         Ok(())
+    }
+
+    /// 写入 hosts 文件内容（三处写回共用）。
+    ///
+    /// 优先直接写；无权限时在类 Unix 上通过 polkit（`pkexec`）提权覆盖。
+    ///
+    /// 安全要点：提权命令用 **argv 数组**调用 `cp`，绝不把路径拼进 `sh -c`
+    /// 字符串。临时目录路径可能含空格、引号甚至 `$(...)`，一旦经过 shell 解析
+    /// 就是一个以 root 执行的命令注入点。`cp` 收到的两个参数始终是独立 argv，
+    /// 内容再怪也只会被当成文件名。
+    fn write_hosts_file(path: &std::path::Path, content: &str) -> Result<(), AppError> {
+        match OpenOptions::new().write(true).truncate(true).open(path) {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes())
+                    .map_err(|e| AppError::FileError(format!("无法写入hosts文件: {}", e)))?;
+                Ok(())
+            }
+            Err(open_error) => {
+                #[cfg(windows)]
+                {
+                    Err(AppError::FileError(format!(
+                        "无法打开hosts文件进行写入: {}. 请确保以管理员权限运行",
+                        open_error
+                    )))
+                }
+
+                // Linux/macOS：应用本体以普通用户运行，/etc/hosts 需要一次 polkit 授权。
+                #[cfg(not(windows))]
+                {
+                    log::info!("🔐 [HostsManager] 无直接写权限，请求 pkexec 授权写入 hosts");
+
+                    // 临时文件放在私有目录并用 0o644，避免其它用户在覆盖前篡改内容
+                    // （root 随后会把它原样拷到 /etc/hosts）。
+                    let temp_dir = std::env::temp_dir();
+                    let temp_path = temp_dir.join(format!(
+                        "mctier-hosts-{}-{}",
+                        std::process::id(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos())
+                            .unwrap_or(0)
+                    ));
+                    std::fs::write(&temp_path, content).map_err(|e| {
+                        AppError::FileError(format!("无法写入临时hosts文件: {}", e))
+                    })?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            &temp_path,
+                            std::fs::Permissions::from_mode(0o644),
+                        );
+                    }
+
+                    let status = std::process::Command::new("pkexec")
+                        .arg("/bin/cp")
+                        .arg("--")
+                        .arg(&temp_path)
+                        .arg(path)
+                        .status();
+                    let _ = std::fs::remove_file(&temp_path);
+
+                    match status {
+                        Ok(status) if status.success() => Ok(()),
+                        Ok(_) => Err(AppError::FileError(format!(
+                            "hosts 提权写入被取消或失败（原始错误: {}）。可改用手动方式：sudo 编辑 {}",
+                            open_error,
+                            path.display()
+                        ))),
+                        Err(e) => Err(AppError::FileError(format!(
+                            "无法启动 pkexec（需要 polkit 授权代理）: {}",
+                            e
+                        ))),
+                    }
+                }
+            }
+        }
     }
 
     /// 刷新DNS缓存（静态方法）
@@ -402,19 +455,7 @@ impl HostsManager {
 
     /// 写入hosts文件内容
     fn write_hosts(&self, content: &str) -> Result<(), AppError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&self.hosts_path)
-            .map_err(|e| {
-                AppError::FileError(format!(
-                    "无法打开hosts文件进行写入: {}. 请确保以管理员权限运行",
-                    e
-                ))
-            })?;
-
-        file.write_all(content.as_bytes())
-            .map_err(|e| AppError::FileError(format!("无法写入hosts文件: {}", e)))?;
+        Self::write_hosts_file(&self.hosts_path, content)?;
 
         // 刷新DNS缓存
         self.flush_dns_cache()?;

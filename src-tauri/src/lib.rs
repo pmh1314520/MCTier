@@ -1180,6 +1180,13 @@ pub fn run() {
             println!("🚀 [Setup] Tauri 应用设置开始");
             let app_handle = app.handle().clone();
 
+            // Linux：必须显式打开 WebKitGTK 的 MediaStream 开关，否则页面里的
+            // RTCPeerConnection 是 undefined，语音/屏幕共享/远程控制全部无法启动。
+            #[cfg(target_os = "linux")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                crate::modules::linux_platform::enable_webview_media(&main_window);
+            }
+
             #[cfg(target_os = "windows")]
             if let Some(main_window) = app.get_webview_window("main") {
                 install_minimize_to_hide(&main_window);

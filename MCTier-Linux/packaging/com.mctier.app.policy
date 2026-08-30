@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+
+<!--
+  MCTier 的 polkit 策略。
+
+  为什么需要：Linux 上创建 TUN 虚拟网卡需要 CAP_NET_ADMIN。MCTier 不让整个应用
+  以 root 运行，而是只给 easytier-core 这个文件授予能力（setcap），因此需要一次
+  提权来执行 setcap。
+
+  为什么是 auth_admin_keep 而不是 yes：
+  授予文件能力是持久化的系统改动，必须由用户明确授权。这里刻意不做免密放行——
+  免密等于任何本地进程都能拿到 CAP_NET_ADMIN 提权路径。keep 表示同一会话短时间内
+  不重复询问，兼顾体验。
+  allow_inactive=no：非活动会话（比如切走的 TTY、远程未授权会话）一律拒绝。
+
+  这个文件是可选的：不装它也能工作，pkexec 会回落到默认的
+  org.freedesktop.policykit.exec 规则（同样弹框要求管理员口令）。
+  装上的意义是把动作名称和提示文案本地化，用户能看清自己在授权什么。
+-->
+<policyconfig>
+  <vendor>MCTier Team</vendor>
+  <vendor_url>https://github.com/pmh1314520/MCTier</vendor_url>
+
+  <action id="com.mctier.app.grant-tun-capability">
+    <description>为 MCTier 的组网组件授予创建虚拟网卡的权限</description>
+    <description xml:lang="en">Grant MCTier's networking component permission to create a virtual network adapter</description>
+    <message>MCTier 需要授权才能创建虚拟局域网网卡（仅授予组网组件 CAP_NET_ADMIN，应用本体仍以普通用户运行）</message>
+    <message xml:lang="en">MCTier needs authorization to create a virtual LAN adapter (only the networking component receives CAP_NET_ADMIN; the app itself keeps running as a normal user)</message>
+    <icon_name>mctier</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/sbin/setcap</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

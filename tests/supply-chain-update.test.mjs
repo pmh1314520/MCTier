@@ -59,7 +59,14 @@ test('CI actions and Gradle distribution use immutable or verified sources', () 
   for (const line of workflow.split(/\r?\n/).filter((entry) => entry.includes('uses:'))) {
     assert.match(line, /@[0-9a-f]{40}/i, `mutable action reference: ${line}`);
   }
-  assert.equal((workflow.match(/persist-credentials:\s*false/g) ?? []).length, 5);
+  // 每一个 checkout 都必须关掉凭据落盘，否则后续步骤能读到 GITHUB_TOKEN。
+  // 这里不写死数量：新增 job 时数量会变，但"每个 checkout 都要有"这条性质不变。
+  const checkoutCount = (workflow.match(/uses:\s*actions\/checkout@/g) ?? []).length;
+  assert.ok(checkoutCount >= 5, `unexpected checkout count: ${checkoutCount}`);
+  assert.equal(
+    (workflow.match(/persist-credentials:\s*false/g) ?? []).length,
+    checkoutCount,
+  );
   assert.match(workflow, /cargo-audit --version 0\.22\.2 --locked/);
   assert.match(workflow, /cargo-deny --version 0\.20\.2 --locked/);
 

@@ -570,6 +570,18 @@ impl NetworkService {
 
         log::info!("使用 EasyTier 路径: {:?}", easytier_path);
 
+        // Linux：创建 TUN 需要 easytier-core 具备 cap_net_admin 文件能力。
+        // 这里在启动前先确认（缺失时弹一次 polkit 授权），失败就明确报错，
+        // 而不是让 easytier-core 起来后再以看不懂的退出码死掉。
+        #[cfg(target_os = "linux")]
+        if let Err(error) =
+            crate::modules::linux_platform::ensure_easytier_tun_capability(app_handle).await
+        {
+            log::error!("TUN 能力检查失败: {}", error);
+            *self.status.lock().await = ConnectionStatus::Error(error.clone());
+            return Err(AppError::NetworkError(error));
+        }
+
         // 获取 EasyTier 所在目录作为工作目录
         let working_dir = easytier_path
             .parent()
@@ -578,58 +590,70 @@ impl NetworkService {
         log::info!("设置工作目录: {:?}", working_dir);
 
         // 【优化】使用ResourceManager提取必需的DLL文件到easytier-core.exe所在目录
-        // 这些DLL文件是easytier-core.exe运行所必需的
-        log::info!("开始提取必需的DLL文件...");
-
-        // 提取Packet.dll
-        let packet_dll_source = ResourceManager::get_packet_dll_path(app_handle)?;
-        let packet_dll_target = working_dir.join("Packet.dll");
-        if !packet_dll_target.exists()
-            || std::fs::metadata(&packet_dll_target)
-                .map(|m| m.len())
-                .unwrap_or(0)
-                != std::fs::metadata(&packet_dll_source)
-                    .map(|m| m.len())
-                    .unwrap_or(1)
+        // 这些DLL文件是easytier-core.exe运行所必需的。
+        // 仅 Windows：Linux 的虚拟网卡由内核 TUN 提供，不存在对应的用户态驱动文件。
+        #[cfg(windows)]
         {
-            std::fs::copy(&packet_dll_source, &packet_dll_target)
-                .map_err(|e| AppError::ProcessError(format!("复制Packet.dll失败: {}", e)))?;
-            log::info!("✅ 已复制 Packet.dll");
+            log::info!("开始提取必需的DLL文件...");
+
+            // 提取Packet.dll
+            let packet_dll_source = ResourceManager::get_packet_dll_path(app_handle)?;
+            let packet_dll_target = working_dir.join("Packet.dll");
+            if !packet_dll_target.exists()
+                || std::fs::metadata(&packet_dll_target)
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+                    != std::fs::metadata(&packet_dll_source)
+                        .map(|m| m.len())
+                        .unwrap_or(1)
+            {
+                std::fs::copy(&packet_dll_source, &packet_dll_target)
+                    .map_err(|e| AppError::ProcessError(format!("复制Packet.dll失败: {}", e)))?;
+                log::info!("✅ 已复制 Packet.dll");
+            }
+
+            // 提取wintun.dll
+            let wintun_dll_source = ResourceManager::get_wintun_dll_path(app_handle)?;
+            let wintun_dll_target = working_dir.join("wintun.dll");
+            if !wintun_dll_target.exists()
+                || std::fs::metadata(&wintun_dll_target)
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+                    != std::fs::metadata(&wintun_dll_source)
+                        .map(|m| m.len())
+                        .unwrap_or(1)
+            {
+                std::fs::copy(&wintun_dll_source, &wintun_dll_target)
+                    .map_err(|e| AppError::ProcessError(format!("复制wintun.dll失败: {}", e)))?;
+                log::info!("✅ 已复制 wintun.dll");
+            }
+
+            // 提取WinDivert64.sys
+            let windivert_sys_source = ResourceManager::get_windivert_sys_path(app_handle)?;
+            let windivert_sys_target = working_dir.join("WinDivert64.sys");
+            if !windivert_sys_target.exists()
+                || std::fs::metadata(&windivert_sys_target)
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+                    != std::fs::metadata(&windivert_sys_source)
+                        .map(|m| m.len())
+                        .unwrap_or(1)
+            {
+                std::fs::copy(&windivert_sys_source, &windivert_sys_target).map_err(|e| {
+                    AppError::ProcessError(format!("复制WinDivert64.sys失败: {}", e))
+                })?;
+                log::info!("✅ 已复制 WinDivert64.sys");
+            }
+
+            log::info!("✅ 所有必需的DLL文件已准备就绪");
         }
 
-        // 提取wintun.dll
-        let wintun_dll_source = ResourceManager::get_wintun_dll_path(app_handle)?;
-        let wintun_dll_target = working_dir.join("wintun.dll");
-        if !wintun_dll_target.exists()
-            || std::fs::metadata(&wintun_dll_target)
-                .map(|m| m.len())
-                .unwrap_or(0)
-                != std::fs::metadata(&wintun_dll_source)
-                    .map(|m| m.len())
-                    .unwrap_or(1)
+        #[cfg(not(windows))]
         {
-            std::fs::copy(&wintun_dll_source, &wintun_dll_target)
-                .map_err(|e| AppError::ProcessError(format!("复制wintun.dll失败: {}", e)))?;
-            log::info!("✅ 已复制 wintun.dll");
+            // working_dir 在非 Windows 分支没有其他用途，显式消费避免 unused 告警。
+            let _ = working_dir;
+            log::info!("Linux 平台：EasyTier 使用内核 TUN（/dev/net/tun），无需驱动文件");
         }
-
-        // 提取WinDivert64.sys
-        let windivert_sys_source = ResourceManager::get_windivert_sys_path(app_handle)?;
-        let windivert_sys_target = working_dir.join("WinDivert64.sys");
-        if !windivert_sys_target.exists()
-            || std::fs::metadata(&windivert_sys_target)
-                .map(|m| m.len())
-                .unwrap_or(0)
-                != std::fs::metadata(&windivert_sys_source)
-                    .map(|m| m.len())
-                    .unwrap_or(1)
-        {
-            std::fs::copy(&windivert_sys_source, &windivert_sys_target)
-                .map_err(|e| AppError::ProcessError(format!("复制WinDivert64.sys失败: {}", e)))?;
-            log::info!("✅ 已复制 WinDivert64.sys");
-        }
-
-        log::info!("✅ 所有必需的DLL文件已准备就绪");
 
         // 生成唯一的实例名称（基于时间戳和随机数）
         let instance_name = format!(
@@ -1158,9 +1182,34 @@ impl NetworkService {
         }
     }
 
+    /// 类 Unix 版：用 pkill 按可执行名清理残留进程。
+    ///
+    /// 只匹配 `easytier-core` 这个精确名字（-x 全名匹配，不用 -f 匹配整条命令行），
+    /// 避免命令行里恰好出现该字样的无关进程被误杀。pkill 无匹配时返回非 0，
+    /// 与 Windows 的 taskkill 一致，不视为错误。
     #[cfg(not(target_os = "windows"))]
     async fn cleanup_orphan_processes() {
-        // 非 Windows 平台不做处理
+        log::info!("🧹 [PreStart] 检查并清理可能残留的孤儿 easytier-core 进程...");
+        let output = tokio::process::Command::new("pkill")
+            .args(["-9", "-x", "easytier-core"])
+            .output()
+            .await;
+
+        match output {
+            Ok(o) if o.status.success() => {
+                log::warn!(
+                    "⚠️ [PreStart] 发现并清理了残留的 easytier-core 进程，等待 TUN 网卡释放..."
+                );
+                // 给内核一点时间回收 TUN 设备与 RPC 端口
+                sleep(Duration::from_millis(800)).await;
+            }
+            Ok(_) => {
+                log::info!("✅ [PreStart] 未发现残留进程，环境干净");
+            }
+            Err(e) => {
+                log::warn!("⚠️ [PreStart] 清理孤儿进程命令执行失败（忽略）: {}", e);
+            }
+        }
     }
 
     /// 根据进程退出码推断常见失败原因，返回更可读的错误说明

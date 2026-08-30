@@ -1772,9 +1772,18 @@ pub async fn check_virtual_adapter() -> Result<bool, String> {
         Ok(has_adapter)
     }
 
-    #[cfg(not(windows))]
+    // Linux：扫描 /sys/class/net 找 EasyTier 建的 TUN 网卡。语义与 Windows 解析
+    // ipconfig 一致 —— 网卡只在组网期间存在，未组网时返回 false 属正常。
+    #[cfg(target_os = "linux")]
     {
-        // 非 Windows 平台暂不支持
+        let has_adapter = crate::modules::linux_platform::has_virtual_adapter();
+        log::info!("虚拟网卡检查结果: {}", has_adapter);
+        Ok(has_adapter)
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        // 其余平台尚未适配虚拟网卡检测，返回 true 避免阻断流程
         Ok(true)
     }
 }
@@ -1812,7 +1821,14 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
         Ok(has_rules)
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        let allowed = crate::modules::linux_platform::check_firewall_rules().await;
+        log::info!("防火墙规则检查结果: {}", allowed);
+        Ok(allowed)
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Ok(true)
     }
@@ -1933,10 +1949,16 @@ pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, 
             ))
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
         let _ = app_handle;
-        Ok("非 Windows 平台无需配置防火墙".to_string())
+        crate::modules::linux_platform::add_firewall_rules().await
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = app_handle;
+        Ok("当前平台无需配置防火墙".to_string())
     }
 }
 
@@ -1976,7 +1998,17 @@ pub async fn restart_as_admin(app_handle: tauri::AppHandle) -> Result<(), String
             Err(e) => Err(format!("以管理员身份重启失败: {}", e)),
         }
     }
-    #[cfg(not(windows))]
+    // Linux 没有"以管理员重启整个应用"这一步 —— 应用本体本来就不需要 root。
+    // 前端这条"一键修复"在 Linux 上真正要做的是给 EasyTier 补 TUN 文件能力，
+    // 所以这里复用同一入口，成功后不重启进程。
+    #[cfg(target_os = "linux")]
+    {
+        crate::modules::linux_platform::ensure_easytier_tun_capability(&app_handle).await?;
+        log::info!("Linux 权限修复完成（EasyTier TUN 能力已就绪，无需重启应用）");
+        Ok(())
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = app_handle;
         Err("当前平台不支持".to_string())
@@ -2128,8 +2160,15 @@ pub async fn set_auto_start(enable: bool) -> Result<(), String> {
         }
     }
 
-    #[cfg(not(windows))]
+    // Linux：写 XDG autostart 的 .desktop 文件（~/.config/autostart/）
+    #[cfg(target_os = "linux")]
     {
+        crate::modules::linux_platform::set_auto_start(enable)
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = enable;
         log::warn!("当前平台不支持开机自启动设置");
         Err("当前平台不支持开机自启动设置".to_string())
     }
@@ -2164,7 +2203,12 @@ pub async fn check_auto_start() -> Result<bool, String> {
         Ok(is_enabled)
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        Ok(crate::modules::linux_platform::auto_start_enabled())
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Ok(false)
     }
@@ -5595,6 +5639,10 @@ pub async fn open_screen_viewer_window(
     .build()
     .map_err(|e| format!("创建窗口失败: {}", e))?;
 
+    // 查看窗口自己也跑一条 WebRTC 接收链路，同样需要打开媒体开关
+    #[cfg(target_os = "linux")]
+    crate::modules::linux_platform::enable_webview_media(&_window);
+
     log::info!("✅ 屏幕查看窗口已打开");
     Ok(())
 }
@@ -5641,9 +5689,15 @@ pub async fn open_danmaku_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = window.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
         let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
     }
-    let _ = window.set_ignore_cursor_events(true);
+    // 注意顺序：必须先 show() 再设鼠标穿透。
+    // 这些窗口以 visible(false) 创建，在 Linux/Wayland 下 GTK 尚未 realize 时调用
+    // set_ignore_cursor_events 会命中 tao 内部的 window().unwrap() 而 panic，
+    // 表现为"进大厅瞬间闪退"。先 show 让主循环完成 realize 再设穿透即可规避；
+    // Windows 上两种顺序都成立，因此这里统一用兼容写法而不加 cfg 分支。
     let _ = window.set_always_on_top(true);
     let _ = window.show();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let _ = window.set_ignore_cursor_events(true);
 
     log::info!("✅ 弹幕窗口已打开");
     Ok(())
@@ -5718,9 +5772,11 @@ pub async fn open_game_hud_window(app: tauri::AppHandle) -> Result<(), String> {
         let y = pos.y + (60.0 * scale) as i32;
         let _ = window.set_position(tauri::PhysicalPosition::new(x.max(pos.x), y));
     }
-    let _ = window.set_ignore_cursor_events(true);
+    // 同 open_danmaku_window：先 show 完成 realize 再设穿透，规避 tao/Wayland 竞态 panic
     let _ = window.set_always_on_top(true);
     let _ = window.show();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let _ = window.set_ignore_cursor_events(true);
     log::info!("✅ 游戏HUD窗口已打开");
     Ok(())
 }
@@ -6322,7 +6378,12 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
                 }
             }
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            crate::modules::linux_platform::auto_start_enabled()
+        }
+
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             false
         }

@@ -95,6 +95,7 @@
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
@@ -115,6 +116,28 @@
       },
       "allowDowngrades": false,
       "wix": null
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37",
+          "libgtk-3-0",
+          "libcap2-bin",
+          "policykit-1 | polkitd"
+        ],
+        "recommends": [
+          "libayatana-appindicator3-1 | libappindicator3-1",
+          "pulseaudio-utils"
+        ],
+        "section": "net",
+        "priority": "optional",
+        "files": {
+          "/usr/share/polkit-1/actions/com.mctier.app.policy": "../MCTier-Linux/packaging/com.mctier.app.policy"
+        }
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     },
     "externalBin": [],
     "resources": {

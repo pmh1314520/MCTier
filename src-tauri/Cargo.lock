@@ -2810,6 +2810,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "wasapi",
+ "webkit2gtk",
  "windows 0.58.0",
  "zip",
 ]

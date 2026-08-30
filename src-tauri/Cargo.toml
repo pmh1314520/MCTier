@@ -57,6 +57,15 @@ zip = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Linux 专用：WebKitGTK 的 MediaStream/WebRTC 开关默认关闭，且 wry 未处理
+# permission-request 信号，必须直接操作底层 WebView 才能拿到麦克风/摄像头能力。
+# 版本需与 tauri 2.x 依赖的 wry 所用 webkit2gtk 保持一致（2.x → webkit2gtk-4.1）。
+[target.'cfg(target_os = "linux")'.dependencies]
+# 特性与 tauri 自身对 webkit2gtk 的声明保持一致（v2_40 链式包含 v2_4）。
+# 不能省：set_enable_media_stream / set_enable_mediasource 由 v2_4 门控，
+# 若只依赖 cargo 的特性合并，将来 tauri 调整特性就会突然编译失败。
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"
 windows = { version = "0.58", features = [

@@ -1,5 +1,5 @@
+# Windows 使用静态 CRT，避免安装包依赖 VC++ 运行库。
+# 注意：这里刻意不设置 [build] target —— 一旦写死三元组，Linux/macOS 上的
+# cargo 会强制交叉编译到 msvc 并立刻失败。目标由各平台的构建脚本决定。
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
-
-[build]
-target = "x86_64-pc-windows-msvc"

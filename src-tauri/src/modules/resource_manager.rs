@@ -4,17 +4,46 @@ use std::io::Write;
 use std::path::PathBuf;
 use tauri::Manager;
 
-// 将二进制文件嵌入到可执行文件中
+// 将二进制文件嵌入到可执行文件中。
+//
+// Windows：easytier-core.exe / easytier-cli.exe，外加 3 个驱动类文件
+//   （Packet.dll / wintun.dll / WinDivert64.sys）。
+// Linux：只需 easytier-core / easytier-cli —— 虚拟网卡由内核 TUN
+//   （/dev/net/tun）提供，不存在与 wintun/WinDivert 对应的用户态驱动，
+//   因此那 3 个文件在 Linux 上既不内嵌也不提取。
+#[cfg(windows)]
 #[allow(dead_code)]
 static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-core.exe");
+#[cfg(windows)]
 #[allow(dead_code)]
 static EASYTIER_CLI_BYTES: &[u8] = include_bytes!("../../resources/binaries/easytier-cli.exe");
+#[cfg(windows)]
 #[allow(dead_code)]
 static PACKET_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/Packet.dll");
+#[cfg(windows)]
 #[allow(dead_code)]
 static WINTUN_DLL_BYTES: &[u8] = include_bytes!("../../resources/binaries/wintun.dll");
+#[cfg(windows)]
 #[allow(dead_code)]
 static WINDIVERT_SYS_BYTES: &[u8] = include_bytes!("../../resources/binaries/WinDivert64.sys");
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+static EASYTIER_CORE_BYTES: &[u8] = include_bytes!("../../resources/binaries/linux/easytier-core");
+#[cfg(not(windows))]
+#[allow(dead_code)]
+static EASYTIER_CLI_BYTES: &[u8] = include_bytes!("../../resources/binaries/linux/easytier-cli");
+
+/// EasyTier 可执行文件名（Windows 带 .exe 扩展名，类 Unix 不带）。
+/// 集中成常量，避免路径拼接处散落平台判断。
+#[cfg(windows)]
+const EASYTIER_CORE_FILE: &str = "easytier-core.exe";
+#[cfg(windows)]
+const EASYTIER_CLI_FILE: &str = "easytier-cli.exe";
+#[cfg(not(windows))]
+const EASYTIER_CORE_FILE: &str = "easytier-core";
+#[cfg(not(windows))]
+const EASYTIER_CLI_FILE: &str = "easytier-cli";
 
 /// 资源管理器
 ///
@@ -34,12 +63,23 @@ impl ResourceManager {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 candidates.push(exe_dir.join("binaries").join(filename));
-                candidates.push(exe_dir.join("..\\..\\..\\binaries").join(filename));
-                candidates.push(
-                    exe_dir
-                        .join("..\\..\\..\\resources\\binaries")
-                        .join(filename),
-                );
+                // 逐段 join 而不是写 "..\..\..\binaries"：反斜杠只有 Windows 认，
+                // 在 Linux 上它是合法文件名字符，会拼出一个永不存在的路径。
+                let up3 = exe_dir.join("..").join("..").join("..");
+                candidates.push(up3.join("binaries").join(filename));
+                candidates.push(up3.join("resources").join("binaries").join(filename));
+                // Linux 侧二进制放在 resources/binaries/linux/ 下
+                #[cfg(not(windows))]
+                {
+                    candidates.push(exe_dir.join("binaries").join("linux").join(filename));
+                    candidates.push(up3.join("binaries").join("linux").join(filename));
+                    candidates.push(
+                        up3.join("resources")
+                            .join("binaries")
+                            .join("linux")
+                            .join(filename),
+                    );
+                }
             }
         }
 
@@ -114,6 +154,16 @@ impl ResourceManager {
         file.write_all(bytes)
             .map_err(|e| AppError::ConfigError(format!("无法写入文件 {}: {}", filename, e)))?;
 
+        // 类 Unix：提取出来的文件默认没有可执行位，必须显式补上，否则 spawn 会 EACCES。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            drop(file);
+            fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755)).map_err(|e| {
+                AppError::ConfigError(format!("无法设置可执行权限 {}: {}", filename, e))
+            })?;
+        }
+
         log::info!("成功提取文件到: {:?}", target_path);
         Ok(target_path)
     }
@@ -130,19 +180,19 @@ impl ResourceManager {
         // 在开发模式下，优先使用 target 目录中的 binaries；不存在时退回到嵌入提取
         #[cfg(debug_assertions)]
         {
-            if let Some(path) = Self::find_debug_binary(app_handle, "easytier-core.exe") {
+            if let Some(path) = Self::find_debug_binary(app_handle, EASYTIER_CORE_FILE) {
                 log::info!("开发模式 - 使用 EasyTier 路径: {:?}", path);
                 return Ok(path);
             }
 
-            log::warn!("开发模式 - 未找到外部 easytier-core.exe，回退到内嵌资源提取");
-            return Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES);
+            log::warn!("开发模式 - 未找到外部 EasyTier，回退到内嵌资源提取");
+            return Self::extract_binary(app_handle, EASYTIER_CORE_FILE, EASYTIER_CORE_BYTES);
         }
 
         // 在生产模式下，从嵌入的二进制文件中提取
         #[cfg(not(debug_assertions))]
         {
-            Self::extract_binary(app_handle, "easytier-core.exe", EASYTIER_CORE_BYTES)
+            Self::extract_binary(app_handle, EASYTIER_CORE_FILE, EASYTIER_CORE_BYTES)
         }
     }
 
@@ -150,18 +200,19 @@ impl ResourceManager {
     pub fn get_easytier_cli_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
-            if let Some(path) = Self::find_debug_binary(app_handle, "easytier-cli.exe") {
+            if let Some(path) = Self::find_debug_binary(app_handle, EASYTIER_CLI_FILE) {
                 return Ok(path);
             }
-            return Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES);
+            return Self::extract_binary(app_handle, EASYTIER_CLI_FILE, EASYTIER_CLI_BYTES);
         }
         #[cfg(not(debug_assertions))]
         {
-            Self::extract_binary(app_handle, "easytier-cli.exe", EASYTIER_CLI_BYTES)
+            Self::extract_binary(app_handle, EASYTIER_CLI_FILE, EASYTIER_CLI_BYTES)
         }
     }
 
-    /// 获取 Packet.dll 的路径
+    /// 获取 Packet.dll 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
+    #[cfg(windows)]
     pub fn get_packet_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
@@ -177,7 +228,8 @@ impl ResourceManager {
         }
     }
 
-    /// 获取 wintun.dll 的路径
+    /// 获取 wintun.dll 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
+    #[cfg(windows)]
     pub fn get_wintun_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {
@@ -193,7 +245,8 @@ impl ResourceManager {
         }
     }
 
-    /// 获取 WinDivert64.sys 的路径
+    /// 获取 WinDivert64.sys 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
+    #[cfg(windows)]
     pub fn get_windivert_sys_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         #[cfg(debug_assertions)]
         {

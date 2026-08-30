@@ -44,6 +44,10 @@ src-tauri/WixTools
 *.dll
 *.lib
 *.sys
+# Linux 侧的 EasyTier 二进制没有扩展名，*.exe 之类的规则挡不住，需要显式忽略。
+# 与 Windows 二进制同理：第三方产物、体积大，构建前用
+# MCTier-Linux/scripts/fetch-binaries.sh 获取并校验 SHA-256。
+src-tauri/resources/binaries/linux/
 
 # Config directories
 config_mctier-*
