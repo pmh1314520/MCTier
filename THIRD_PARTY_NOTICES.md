@@ -19,9 +19,9 @@ their licenses, upstream sources, versions and modification status.
 | WinDivert (`WinDivert64.sys`) | https://reqrypt.org/windivert.html | 2.2.2 | — | LGPL-3.0（双许可中所选分支） | 否 / No（见 §7） |
 | Npcap (`Packet.dll`) | https://npcap.com | 1.79 | — | 专有 / Proprietary | 否 / No（授权状态见 §8） |
 | Javassist（内嵌于 offline agent） | https://github.com/jboss-javassist/javassist | 3.29.2-GA | — | Apache-2.0（三重许可中所选分支） | 否 / No（见 §9） |
-| LocalVQE (`liblocalvqe.so` / `localvqe.wasm`) | https://github.com/localai-org/LocalVQE | 见 §10 | — | Apache-2.0 | 否 / No（见 §10） |
+| LocalVQE (`liblocalvqe.so`，仅 Android 端) | https://github.com/localai-org/LocalVQE | 见 §10 | — | Apache-2.0 | 否 / No（见 §10） |
 | GGML（内嵌于 LocalVQE） | https://github.com/ggerganov/ggml | 见 §10 | — | MIT | 否 / No（见 §10） |
-| GTCRN 模型权重 (`*.gguf`) | https://huggingface.co/LocalAI-io/LocalVQE | pi-v1-49k-f32 | — | 训练数据含 CC BY 4.0 素材 | 否 / No（见 §10） |
+| GTCRN 模型权重 (`*.gguf`，仅 Android 端) | https://huggingface.co/LocalAI-io/LocalVQE | pi-v1-49k-f32 | — | 训练数据含 CC BY 4.0 素材 | 否 / No（见 §10） |
 | WebRTC | https://webrtc.googlesource.com/src | 见 §11 | — | BSD-3-Clause | 否 / No |
 
 > 说明：本表覆盖 MCTier 分发物中所有**内嵌或随包分发**的第三方二进制与模型。
@@ -319,20 +319,20 @@ Apache-2.0 全文见 `licenses/LICENSE-Apache-2.0.txt`。
 
 ## 10. LocalVQE / GGML / 模型权重 / LocalVQE, GGML and Model Weights
 
+> **桌面端已移除**：桌面端不再做任何语音降噪/回声消除处理，改为直接发送未经处理的
+> 麦克风原声。原先随前端分发的 Web 版 LocalVQE 资产（`localvqe.wasm`、`localvqe.js`、
+> `localvqe-worker.js`、`localvqe-bridge-worklet.js`、`localvqe-pi-v1-49k-f32.gguf`）
+> 以及纯 Rust 的 `sonora` APM 依赖均已从仓库与发布物中删除。本节现仅适用于 Android 端。
+
 | 组件 | 平台 | 许可证 | SHA-256 |
 | --- | --- | --- | --- |
 | `liblocalvqe.so` | Android | Apache-2.0（含 GGML，MIT） | `F89813078AE254854807BF2577F59CA42691CAE6E94C4DDFC01DFE2260EF2B51` |
-| `localvqe.wasm` | Web | Apache-2.0（含 GGML，MIT） | `C367083AF7E7D32C1F23D57605AC1B6A48B592A750FA5C39CA806AE8D3C46297` |
-| `localvqe.js` | Web | Apache-2.0 | `C34FB01E761D598025349564E9D41CEC516F9B6E89EA3FA2A2D41E8DEAAAAEEE` |
-| `localvqe-worker.js` | Web | Apache-2.0 | `8D415D7CD35A6C626C877A9841CAC8F8AF62B370EAC4D512DC60154F5E0E91F3` |
-| `localvqe-bridge-worklet.js` | Web | Apache-2.0 | `5CC288154122DE24003BCB6676E2000FA6AF59A3BAC80425B8C7393EA701D92A` |
-| `localvqe-pi-v1-49k-f32.gguf` | Web + Android | 模型权重，见下 | `0E0C82A8E9703E818B64DEDD0FC306394CF5BBB59FCEC1CCCA82099D352D0C26` |
+| `localvqe-pi-v1-49k-f32.gguf` | Android | 模型权重，见下 | `0E0C82A8E9703E818B64DEDD0FC306394CF5BBB59FCEC1CCCA82099D352D0C26` |
 
 - **LocalVQE**：Apache-2.0，https://github.com/localai-org/LocalVQE
   （全文：`licenses/LICENSE-Apache-2.0.txt`）
 - **GGML**：MIT，Copyright (c) 2023 Georgi Gerganov，https://github.com/ggerganov/ggml
-  （全文：`licenses/LICENSE-MIT.txt`）。`liblocalvqe.so` 与 `localvqe.wasm` 中包含
-  `ggml_*` 符号，即运行时静态包含 GGML。
+  （全文：`licenses/LICENSE-MIT.txt`）。`liblocalvqe.so` 中包含 `ggml_*` 符号，即运行时静态包含 GGML。
 - **模型权重**：GTCRN 结构，模型来源 https://huggingface.co/LocalAI-io/LocalVQE 。
   其训练数据来自 **ICASSP 2023 Deep Noise Suppression (DNS) Challenge**
   与 **AEC Challenge**（Microsoft，**CC BY 4.0**）。按 CC BY 4.0 要求保留数据集署名：
@@ -344,7 +344,7 @@ Apache-2.0 全文见 `licenses/LICENSE-Apache-2.0.txt`。
   https://creativecommons.org/licenses/by/4.0/
   ```
 
-- **安全说明**：音频增强全程在本地完成，麦克风与播放音频不会被上传。
+- **安全说明**：Android 端音频增强全程在本地完成，麦克风与播放音频不会被上传。
 
 ---
 

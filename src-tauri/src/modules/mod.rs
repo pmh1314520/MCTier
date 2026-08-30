@@ -58,8 +58,3 @@ pub mod mc_lan_bridge;
 // 远程控制（输入注入）模块
 pub mod remote_control;
 
-// Windows render-loopback reference for desktop voice AEC3.
-pub mod system_audio;
-
-// Pure-Rust WebRTC AEC3/NS/AGC processing for the desktop voice path.
-pub mod sonora_audio;

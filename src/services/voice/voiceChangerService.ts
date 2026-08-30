@@ -64,8 +64,10 @@ class VoiceChangerService {
    */
   async startAudition(): Promise<void> {
     await this.stopAudition();
+    // 试听必须与实际发送链路一致：桌面端已取消全部降噪/回声消除/自动增益，
+    // 若这里仍开启处理，用户试听到的音色就不是对方真正听到的声音。
     const raw = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
     this.auditionMic = raw;
     this.auditionEngine = new VoiceChanger();

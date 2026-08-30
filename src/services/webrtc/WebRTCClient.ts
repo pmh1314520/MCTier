@@ -10,7 +10,6 @@ import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
 import { tl } from '../../i18n';
 import { voiceChangerService } from '../voice/voiceChangerService';
-import { localVqeService } from '../voice/localVqeService';
 import { appVersion, loadAppVersion } from '../version/appVersion';
 
 export interface SignalingMessage {
@@ -212,11 +211,6 @@ export class WebRTCClient {
 
       // 不再在初始化时获取麦克风，只有在用户开启麦克风时才获取
       console.log('⏭️ 跳过麦克风初始化，等待用户手动开启');
-      // Warm LocalVQE after joining without requesting microphone permission.
-      // The first open-mic action can then attach a track immediately.
-      void localVqeService.preload().catch((error) => {
-        console.warn('LocalVQE preload failed; WebRTC capture AEC/NS remains active:', error);
-      });
       this.localStream = null;
 
       // 连接到WebSocket信令服务器（带重试，缓解二次加入时的瞬时 DNS 解析失败）
@@ -2317,11 +2311,6 @@ export class WebRTCClient {
               peerConn.audioStream = event.streams[0];
               peerConn.audioElement = audioElement;
               console.log(`✅ 音频元素已保存 for ${peerId}`);
-              localVqeService.setReferenceStreams(
-                Array.from(this.peerConnections.values())
-                  .map((peer) => peer.audioStream)
-                  .filter((stream): stream is MediaStream => Boolean(stream)),
-              );
             }
 
             // 【修复】对新建立 / 重连的对端应用当前已有的静音和音量设置，
@@ -2500,10 +2489,8 @@ export class WebRTCClient {
     try {
       console.log('🎤 正在请求麦克风权限...');
       const preferredInput = audioDevices.getInputDeviceId();
+      // 纯原声采集：不接任何降噪/回声消除/自动增益处理层，麦克风波形直接发送。
       const audioConstraints: MediaTrackConstraints = {
-        // Sonora owns AEC and noise suppression on the desktop path. Keeping
-        // Chromium AEC enabled here would process the same speech twice and
-        // is audible as clipped consonants and swallowed word endings.
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
@@ -2590,15 +2577,8 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
         }
         this.rawMicStream = rawStream;
-        // AEC must see the original microphone waveform. Applying pitch/time
-        // effects first breaks the relationship with the render reference.
-        const cleanStream = await localVqeService.processStream(rawStream);
-        const newStream = voiceChangerService.process(cleanStream);
-        localVqeService.setReferenceStreams(
-          Array.from(this.peerConnections.values())
-            .map((peer) => peer.audioStream)
-            .filter((stream): stream is MediaStream => Boolean(stream)),
-        );
+        // 原始麦克风流直接进变声器（变声是用户主动选择的效果，不是降噪处理层）。
+        const newStream = voiceChangerService.process(rawStream);
         const newAudioTrack = newStream.getAudioTracks()[0];
 
         for (const [peerId, pc] of this.peerConnections) {
@@ -2652,8 +2632,6 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
           this.rawMicStream = null;
         }
-        // Keep the warmed model alive while the user is still in the lobby.
-        await localVqeService.deactivate();
         voiceChangerService.dispose();
         try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
         console.log('✅ 麦克风已关闭，资源已释放');
@@ -3219,7 +3197,6 @@ export class WebRTCClient {
         this.rawMicStream.getTracks().forEach((t) => t.stop());
         this.rawMicStream = null;
       }
-      try { await localVqeService.dispose(); } catch { /* ignore */ }
       try { voiceChangerService.dispose(); } catch { /* ignore */ }
       try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
 

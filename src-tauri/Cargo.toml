@@ -54,7 +54,6 @@ tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
 async-stream = "0.3"
 # ZIP 压缩
 zip = "2"
-sonora = "0.2.0"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"

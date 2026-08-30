@@ -4,8 +4,6 @@ pub mod modules;
 use log::{error, info};
 use modules::app_core::AppCore;
 use modules::tauri_commands::AppState;
-use modules::system_audio::{start_system_audio_loopback, stop_system_audio_loopback};
-use modules::sonora_audio::{process_voice_frame, process_voice_frames, reset_voice_processor};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::Manager;
@@ -1029,8 +1027,6 @@ pub fn run() {
             greet, open_devtools,
             create_lobby, join_lobby, leave_lobby,
             toggle_mic, set_mic_enabled, open_microphone_privacy_settings, reset_microphone_permission, mute_player, mute_all,
-            start_system_audio_loopback, stop_system_audio_loopback,
-            process_voice_frame, process_voice_frames, reset_voice_processor,
             get_config, update_config, save_opacity,
             get_audio_devices, get_app_state, get_current_lobby, get_players,
             get_mic_status, get_global_mute_status, is_player_muted,

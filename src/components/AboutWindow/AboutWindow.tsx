@@ -560,14 +560,14 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 </Text>
                 <Paragraph className="third-party-line">
                   {tl(
-                    'LocalVQE 依据 Apache-2.0 授权；其内嵌的 GGML 依据 MIT 授权（Copyright (c) 2023 Georgi Gerganov）。语音增强全程在本地完成，不上传任何音频。',
-                    'LocalVQE is licensed under Apache-2.0; the bundled GGML is licensed under MIT (Copyright (c) 2023 Georgi Gerganov). Voice enhancement runs entirely locally; no audio is uploaded.'
+                    'LocalVQE 依据 Apache-2.0 授权；其内嵌的 GGML 依据 MIT 授权（Copyright (c) 2023 Georgi Gerganov）。仅 Android 端使用；桌面端已改为不加处理的原声通话，不再包含该组件。',
+                    'LocalVQE is licensed under Apache-2.0; the bundled GGML is licensed under MIT (Copyright (c) 2023 Georgi Gerganov). Used by the Android client only; the desktop client now sends unprocessed microphone audio and no longer bundles this component.'
                   )}
                 </Paragraph>
                 <Paragraph className="third-party-line">
                   {tl(
-                    '语音降噪模型的训练数据包含 Microsoft DNS Challenge / AEC Challenge 素材，依 CC BY 4.0 授权。',
-                    'The noise-suppression model\u2019s training data includes material from the Microsoft DNS Challenge / AEC Challenge, licensed under CC BY 4.0.'
+                    'Android 端语音降噪模型的训练数据包含 Microsoft DNS Challenge / AEC Challenge 素材，依 CC BY 4.0 授权。',
+                    'The Android noise-suppression model\u2019s training data includes material from the Microsoft DNS Challenge / AEC Challenge, licensed under CC BY 4.0.'
                   )}
                 </Paragraph>
                 <Paragraph className="third-party-line">
