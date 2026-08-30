@@ -83,12 +83,31 @@ class ScreenShareController(
     var onViewerCountChanged: ((String, Int) -> Unit)? = null
     var onCaptureStopped: ((String) -> Unit)? = null
 
+    /**
+     * 被采集内容的可见性变化（Android 14+ 的“单个应用”采集才会回调）。
+     *
+     * 采集单个应用时，一旦该应用退到后台（例如用户切回 MCTier 看本地预览），
+     * 系统就停止投送画面，采集侧收不到任何新帧。此时界面若只显示“等待画面…”，
+     * 用户无法判断是卡住还是设计如此——issue #44 正是这个现象。
+     * 这里把可见性透出给界面，由界面给出明确说明。
+     */
+    var onCaptureVisibilityChanged: ((String, Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            // 订阅时立即回放当前状态（与 onRemoteVideoTrack 同样的处理）。
+            // 否则若可见性在订阅之前就已变化，这次变化会被永久丢掉，
+            // 界面显示的就是过期状态。
+            sharingShareId?.let { shareId -> value?.invoke(shareId, captureContentVisible) }
+        }
+
     private var screenCapturer: ScreenCapturerAndroid? = null
     private var videoSource: VideoSource? = null
     private var localVideoTrack: VideoTrack? = null
     private var surfaceHelper: SurfaceTextureHelper? = null
     private var sharingShareId: String? = null
     private var sharePassword: String? = null
+    // 仅“单个应用”采集会被系统置为不可见；整屏采集始终为 true。
+    private var captureContentVisible: Boolean = true
 
     private val viewerOrder = mutableListOf<String>()
     private val viewerNames = linkedMapOf<String, String>()
@@ -418,11 +437,13 @@ class ScreenShareController(
         relayRecoveryCheck = null
         routeVersion = 0
         return runCatching {
+            captureContentVisible = true
             val metrics = DisplayMetrics()
             @Suppress("DEPRECATION")
             (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getMetrics(metrics)
-            val width = metrics.widthPixels.coerceAtMost(1280)
-            val height = metrics.heightPixels.coerceAtMost(2280)
+            // 等比缩放而不是两个维度各自截断，避免画面被拉伸。
+            // “单个应用”采集的真实尺寸由 onCapturedContentResize 再纠正一次。
+            val (width, height) = captureDimensions(metrics.widthPixels, metrics.heightPixels)
             val helper = SurfaceTextureHelper.create("MCTierScreenCapture", eglBase.eglBaseContext)
             surfaceHelper = helper
             val source = factory.createVideoSource(true)
@@ -436,10 +457,33 @@ class ScreenShareController(
                         onCaptureStopped?.invoke(shareId)
                     }
                 }
+
+                // Android 14+ “单个应用”采集：被采集应用退到后台时系统停止投帧。
+                // 不是故障，但必须让界面能说清楚，否则表现为“预览一直等待画面”。
+                override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                    mainHandler.post {
+                        if (sharingShareId != shareId) return@post
+                        captureContentVisible = isVisible
+                        Log.i(TAG, "Captured content visibility changed: $isVisible")
+                        onCaptureVisibilityChanged?.invoke(shareId, isVisible)
+                    }
+                }
+
+                // “单个应用”采集区域的尺寸与整屏不同，且会随应用窗口变化（分屏/自由窗口）。
+                // 不跟随调整的话，编码分辨率与实际内容不匹配，观看端会看到黑边或拉伸。
+                override fun onCapturedContentResize(contentWidth: Int, contentHeight: Int) {
+                    mainHandler.post {
+                        if (sharingShareId != shareId) return@post
+                        val (targetWidth, targetHeight) = captureDimensions(contentWidth, contentHeight)
+                        Log.i(TAG, "Captured content resized: ${contentWidth}x$contentHeight -> ${targetWidth}x$targetHeight")
+                        runCatching { screenCapturer?.changeCaptureFormat(targetWidth, targetHeight, CAPTURE_FPS) }
+                            .onFailure { Log.w(TAG, "changeCaptureFormat failed: ${it.message}") }
+                    }
+                }
             })
             screenCapturer = capturer
             capturer.initialize(helper, context, source.capturerObserver)
-            capturer.startCapture(width, height, 15)
+            capturer.startCapture(width, height, CAPTURE_FPS)
             localVideoTrack = factory.createVideoTrack("screen-$localPlayerId", source)
             localFrameProbe?.let { probe -> localVideoTrack?.removeSink(probe) }
             sourceFrameSequences[shareId] = AtomicLong(0L)
@@ -637,6 +681,9 @@ class ScreenShareController(
     fun stopSharing() {
         val shareId = sharingShareId
         sharingShareId = null
+        // 复位为 true：下次采集若是整屏，系统不会再回调可见性，
+        // 残留的 false 会让界面一直显示“被采集应用已退到后台”。
+        captureContentVisible = true
         viewerOrder.clear()
         viewerNames.clear()
         readyViewers.clear()
@@ -970,5 +1017,37 @@ class ScreenShareController(
 
     private companion object {
         private const val TAG = "ScreenShareController"
+
+        /** 采集帧率。startCapture 与 changeCaptureFormat 必须用同一个值，否则重设格式会顺带改帧率。 */
+        private const val CAPTURE_FPS = 15
+
+        /** 编码分辨率上限。按长短边约束而不是按宽高分别约束，见 captureDimensions 的说明。 */
+        private const val CAPTURE_MAX_SHORT_EDGE = 1280
+        private const val CAPTURE_MAX_LONG_EDGE = 2280
+
+        /**
+         * 把内容尺寸压到编码上限内，并保持宽高比。
+         *
+         * 原实现用 `width.coerceAtMost(1280)` / `height.coerceAtMost(2280)` 分别裁剪，
+         * 两个维度独立设限会改变宽高比（横屏设备、以及“单个应用”采集的窄窗口尤其明显），
+         * 观看端看到的画面会被拉伸。这里改为按长短边等比缩放。
+         *
+         * 结果强制为偶数：多数硬件 H.264 编码器要求宽高为偶数，奇数会导致初始化失败或画面错位。
+         */
+        fun captureDimensions(contentWidth: Int, contentHeight: Int): Pair<Int, Int> {
+            // 兜底：拿不到有效尺寸时退回竖屏上限，不能返回 0（VirtualDisplay 会直接抛异常）
+            if (contentWidth <= 0 || contentHeight <= 0) {
+                return CAPTURE_MAX_SHORT_EDGE to CAPTURE_MAX_LONG_EDGE
+            }
+            val shortEdge = minOf(contentWidth, contentHeight)
+            val longEdge = maxOf(contentWidth, contentHeight)
+            val scale = minOf(
+                1.0,
+                CAPTURE_MAX_SHORT_EDGE.toDouble() / shortEdge,
+                CAPTURE_MAX_LONG_EDGE.toDouble() / longEdge,
+            )
+            fun even(value: Double): Int = (value.toInt() / 2 * 2).coerceAtLeast(2)
+            return even(contentWidth * scale) to even(contentHeight * scale)
+        }
     }
 }

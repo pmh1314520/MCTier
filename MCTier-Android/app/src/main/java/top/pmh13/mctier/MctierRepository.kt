@@ -100,6 +100,9 @@ data class MctierUiState(
     val communityNodeSubmitting: Boolean = false,
     val showOnboarding: Boolean = false,
     val viewingShareId: String? = null,
+    // 仅“单个应用”采集有意义：被采集的应用退到后台时系统停止投帧（Android 14+）。
+    // 整屏采集始终为 true。用于把“没有画面”的原因说清楚，见 issue #44。
+    val capturedContentVisible: Boolean = true,
     val customNodes: List<top.pmh13.mctier.data.CustomNode> = emptyList(),
     val todos: List<top.pmh13.mctier.data.TodoItem> = emptyList(),
     val countdownRemaining: Int = 0,
@@ -536,6 +539,9 @@ class MctierRepository(private val context: Context) {
                     }
                     controller.onCaptureStopped = { shareId ->
                         scope.launch { handleLocalCaptureStopped(shareId) }
+                    }
+                    controller.onCaptureVisibilityChanged = { _, isVisible ->
+                        _state.update { it.copy(capturedContentVisible = isVisible) }
                     }
                 }
                 remoteControlController = top.pmh13.mctier.network.RemoteControlController(appContext, current.playerId) { signalingClient.send(it) }.also { rc ->
@@ -1245,6 +1251,7 @@ class MctierRepository(private val context: Context) {
             state.copy(
                 screenShares = state.screenShares.filterNot { it.id == shareId && it.playerId == playerId },
                 viewingShareId = state.viewingShareId?.takeUnless { it == shareId },
+                capturedContentVisible = true,
             )
         }
     }
@@ -1321,6 +1328,7 @@ class MctierRepository(private val context: Context) {
             it.copy(
                 screenShares = it.screenShares.filterNot { share -> share.playerId == playerId },
                 viewingShareId = it.viewingShareId?.takeUnless { id -> id == myShare?.id },
+                capturedContentVisible = true,
             )
         }
     }

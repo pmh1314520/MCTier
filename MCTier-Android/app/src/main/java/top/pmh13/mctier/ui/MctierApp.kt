@@ -182,6 +182,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -3347,7 +3348,43 @@ private fun ScreenViewer(state: MctierUiState, repository: MctierRepository, sha
                     onFrameSize = { w, h -> shareFrameW = w; shareFrameH = h },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 460.dp),
                 )
-                if (!frameRendered) Text(L("等待画面…", "Waiting for video..."), color = TextPrimary.copy(alpha = 0.4f))
+                if (!frameRendered) {
+                    // 采集“单个应用”时，被采集的应用退到后台后系统就不再投帧（Android 14+ 的
+                    // 部分屏幕采集语义）。看本地预览必然要切回 MCTier，也就必然让那个应用退到
+                    // 后台，于是预览永远停在“等待画面”。这不是故障，但只显示“等待画面…”
+                    // 无法让用户判断，所以这里说明原因和处理办法（issue #44）。
+                    val isOwnShare = share?.playerId == state.playerId
+                    val paused = isOwnShare && !state.capturedContentVisible
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    ) {
+                        Text(
+                            if (paused) L("被共享的应用已退到后台", "The shared app is in the background")
+                            else L("等待画面…", "Waiting for video..."),
+                            color = TextPrimary.copy(alpha = if (paused) 0.85f else 0.4f),
+                            fontWeight = if (paused) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        if (paused) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                L(
+                                    "你共享的是「单个应用」，系统只在该应用位于前台时才投送画面。" +
+                                        "所以切回 MCTier 看本地预览时必然没有画面，这是系统限制而不是故障。" +
+                                        "其他成员那边同样会暂停，切回被共享的应用即可恢复；" +
+                                        "若想随时预览，请改为共享「整个屏幕」。",
+                                    "You are sharing a single app, and the system only streams it while that app is " +
+                                        "in the foreground. Returning to MCTier therefore pauses the video: this is a " +
+                                        "platform limitation, not a bug. Other viewers are paused too; switch back to " +
+                                        "the shared app to resume, or share the entire screen if you want a live preview.",
+                                ),
+                                fontSize = 11.sp,
+                                color = TextPrimary.copy(alpha = 0.6f),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(L("提示：点右上角全屏按钮可横屏放大查看，看电脑画面更清晰", "Tip: tap fullscreen at the top right for a clearer landscape view"), fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.45f))
