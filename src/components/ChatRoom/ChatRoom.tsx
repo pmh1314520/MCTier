@@ -14,6 +14,7 @@ import { saveAvatarData } from '../../services/avatar/avatarService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { isSafeHttpUrl, isSafeImageDataUrl } from '../../security/trustBoundary';
+import { shouldSubmitOnEnter } from '../../utils/imeSubmitPolicy';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
@@ -79,6 +80,8 @@ export const ChatRoom: React.FC = () => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   const textAreaRef = useRef<any>(null);
+  // 输入法组合会话标记：候选词面板打开期间的回车属于输入法，不能当作发送。
+  const composingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewDragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -726,11 +729,14 @@ export const ChatRoom: React.FC = () => {
         setMentionIndex((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
         return;
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      // 组合态下的回车属于输入法确认候选词，必须放行给输入法而不是选中 @ 候选。
+      const composingNow = e.nativeEvent.isComposing || e.keyCode === 229 || composingRef.current;
+      if ((e.key === 'Enter' && !composingNow) || e.key === 'Tab') {
         e.preventDefault();
         selectMention(mentionCandidates[mentionIndex]);
         return;
       }
+      if (e.key === 'Enter') return;
       if (e.key === 'Escape') {
         e.preventDefault();
         setMentionOpen(false);
@@ -738,7 +744,15 @@ export const ChatRoom: React.FC = () => {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (
+      shouldSubmitOnEnter({
+        key: e.key,
+        shiftKey: e.shiftKey,
+        isComposing: e.nativeEvent.isComposing,
+        keyCode: e.keyCode,
+        composingSession: composingRef.current,
+      })
+    ) {
       e.preventDefault();
       e.stopPropagation();
       handleSendMessage();
@@ -1256,6 +1270,8 @@ export const ChatRoom: React.FC = () => {
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={() => { composingRef.current = false; }}
             onPaste={handlePaste}
             placeholder={tl('输入消息…', 'Type a message...')}
             autoSize={{ minRows: 1, maxRows: 3 }}

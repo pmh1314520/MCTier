@@ -14,6 +14,7 @@ import { tl } from '../../i18n';
 import { useAppStore } from '../../stores';
 import type { TodoItem } from '../../stores/appStore';
 import { p2pChatService } from '../../services/chat/P2PChatService';
+import { shouldSubmitOnEnter } from '../../utils/imeSubmitPolicy';
 import { countdownService } from '../../services/roomtools/countdownService';
 import type { ChatMessage } from '../../types';
 import './RoomTools.css';
@@ -214,7 +215,20 @@ export const RoomTools: React.FC<RoomToolsProps> = ({ visible, onClose, onOpenWo
         <Input
           value={newTodo}
           onChange={(e) => setNewTodo(e.target.value)}
-          onPressEnter={addTodo}
+          onKeyDown={(event) => {
+            // antd 的 onPressEnter 不区分输入法组合态，中文候选词确认会误触发添加。
+            if (
+              shouldSubmitOnEnter({
+                key: event.key,
+                shiftKey: event.shiftKey,
+                isComposing: event.nativeEvent.isComposing,
+                keyCode: event.keyCode,
+              })
+            ) {
+              event.preventDefault();
+              addTodo();
+            }
+          }}
           placeholder={t('roomTools.addTodoPlaceholder')}
           maxLength={100}
         />
