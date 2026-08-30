@@ -14,6 +14,10 @@ export const MAX_TODO_TEXT_LENGTH = 200;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_IMAGE_DATA_URL_LENGTH = 14 * 1024 * 1024;
 export const CHAT_TOKEN_LENGTH = 64;
+/** Uncompressed P-256 SubjectPublicKeyInfo DER is 91 bytes (~124 chars of
+ * base64). The cap leaves room for encoder differences while still rejecting
+ * anything absurd; the backend re-validates by actually parsing the key. */
+export const MAX_CHAT_PUBLIC_KEY_LENGTH = 512;
 export const MAX_RESOURCE_ID_LENGTH = 128;
 export const MAX_SESSION_ID_LENGTH = 192;
 export const MAX_RELATIVE_PATH_LENGTH = 4096;
@@ -23,6 +27,7 @@ const DISALLOWED_CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]
 const ENDPOINT_CONTROL_OR_SPACE = /[\u0000-\u0020\u007F]/;
 const IMAGE_DATA_URL_PATTERN = /^data:image\/(?:jpeg|png|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i;
 const CHAT_TOKEN_PATTERN = /^[A-Fa-f0-9]{64}$/;
+const CHAT_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SERVER_NODE_PROTOCOLS = new Set(['tcp:', 'udp:', 'ws:', 'wss:', 'txt:']);
@@ -83,6 +88,18 @@ export function isSafeRelativePath(value: unknown): value is string {
 
 export function isSafeChatToken(value: unknown): value is string {
   return typeof value === 'string' && value.length === CHAT_TOKEN_LENGTH && CHAT_TOKEN_PATTERN.test(value);
+}
+
+/** Shape check only. The renderer never verifies signatures itself, so it just
+ * has to avoid passing anything unparseable (or injection-shaped) down to the
+ * backend, which does the real cryptographic validation. */
+export function isSafeChatPublicKey(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_CHAT_PUBLIC_KEY_LENGTH &&
+    CHAT_PUBLIC_KEY_PATTERN.test(value)
+  );
 }
 
 export function isSafeImageDataUrl(value: unknown): value is string {

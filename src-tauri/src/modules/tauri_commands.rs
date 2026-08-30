@@ -5007,6 +5007,10 @@ pub async fn read_file(path: String) -> Result<Vec<u8>, String> {
 
 // ==================== P2P 聊天命令 ====================
 
+use crate::modules::chat_auth::{
+    SignedRequestHeaders, CHAT_KEY_ID_HEADER, CHAT_NONCE_HEADER, CHAT_SIGNATURE_HEADER,
+    CHAT_TIMESTAMP_HEADER,
+};
 use crate::modules::chat_service::{
     is_message_id_for_player, ChatMessage as ChatServiceMessage, ChatPeerIdentity, MessageType,
     SendMessageRequest, CHAT_TOKEN_HEADER, MAX_ANNOUNCE_BYTES, MAX_AVATAR_BYTES,
@@ -5014,6 +5018,22 @@ use crate::modules::chat_service::{
     MAX_RECALL_BYTES, MAX_TEXT_BYTES, MAX_TODO_BYTES, MAX_VOICE_GROUP_BYTES, MAX_WHITEBOARD_BYTES,
     RECALL_WINDOW_SECS,
 };
+
+/// Attach the per-member signature material to an outgoing chat request.
+///
+/// Kept in one helper so no call site can accidentally send a request that
+/// carries the lobby token but no signature - the peer would reject it, and the
+/// failure would look like a network problem rather than a coding mistake.
+fn with_chat_signature(
+    request: reqwest::RequestBuilder,
+    signed: &SignedRequestHeaders,
+) -> reqwest::RequestBuilder {
+    request
+        .header(CHAT_KEY_ID_HEADER, &signed.key_id)
+        .header(CHAT_SIGNATURE_HEADER, &signed.signature)
+        .header(CHAT_TIMESTAMP_HEADER, &signed.timestamp)
+        .header(CHAT_NONCE_HEADER, &signed.nonce)
+}
 
 fn chat_http_host(raw: &str) -> Result<String, String> {
     let ip = raw
@@ -5117,6 +5137,22 @@ fn validate_outgoing_chat_payload(
         }
     }
     Ok(())
+}
+
+/// Create (or reuse) this session's chat signing key and return its public half.
+///
+/// The renderer must call this *before* registering with signaling, because the
+/// public key has to travel inside the authenticated `register` message: that
+/// is what binds the key to a player id nobody else can claim. The private key
+/// never leaves the backend.
+#[tauri::command]
+pub async fn prepare_p2p_chat_identity(state: State<'_, AppState>) -> Result<String, String> {
+    let chat_service = {
+        let core = state.core.lock().await;
+        core.get_chat_service()
+    };
+    let key = chat_service.lock().await.ensure_signing_key();
+    key
 }
 
 #[tauri::command]
@@ -5313,21 +5349,46 @@ pub async fn send_p2p_chat_message(
             message_type: msg_type.clone(),
             image_data: image_data.clone(),
         };
+        // Serialize once and send those exact bytes, because the signature
+        // covers a digest of the body: letting reqwest re-serialize could in
+        // principle emit different bytes and break verification.
+        let body = serde_json::to_vec(&request)
+            .map_err(|error| format!("序列化聊天消息失败: {}", error))?;
 
         let client_clone = client.clone();
         let url_clone = url.clone();
         let chat_token_clone = chat_token.clone();
+        let chat_service_clone = Arc::clone(&chat_service);
+        let audience = peer_ip.clone();
 
         // 创建并发任务，返回是否送达成功（带一次快速重试，降低瞬时抖动导致的漏发）
         let task = tokio::spawn(async move {
             for attempt in 0..2 {
+                // Sign per attempt: the nonce is single-use at the receiver, so
+                // reusing one signature for the retry would look like a replay.
+                let signed = match chat_service_clone.lock().await.sign_request(
+                    "POST",
+                    "/api/chat/send",
+                    &audience,
+                    &body,
+                ) {
+                    Some(signed) => signed,
+                    None => {
+                        log::warn!("⚠️ 聊天签名不可用，放弃发送到 {}", url_clone);
+                        return false;
+                    }
+                };
                 let start = std::time::Instant::now();
-                match client_clone
-                    .post(&url_clone)
-                    .header(CHAT_TOKEN_HEADER, &chat_token_clone)
-                    .json(&request)
-                    .send()
-                    .await
+                match with_chat_signature(
+                    client_clone
+                        .post(&url_clone)
+                        .header(CHAT_TOKEN_HEADER, &chat_token_clone)
+                        .header(reqwest::header::CONTENT_TYPE, "application/json")
+                        .body(body.clone()),
+                    &signed,
+                )
+                .send()
+                .await
                 {
                     Ok(response) => {
                         let elapsed = start.elapsed();
@@ -5495,12 +5556,30 @@ pub async fn get_p2p_chat_messages(
         let expected = peer.clone();
         let expected_ip = peer.virtual_ip.clone();
         let expected_host_id = host_id.clone();
+        let chat_service_clone = Arc::clone(&chat_service);
+        let audience = peer.virtual_ip.clone();
         tasks.push(tokio::spawn(async move {
-            match client_clone
-                .get(&url)
-                .header(CHAT_TOKEN_HEADER, token)
-                .send()
-                .await
+            // History reads are signed with an empty body: the query string is
+            // not covered, so the receiver treats `since` as a filter hint only
+            // and never as an authorization input.
+            let signed = match chat_service_clone.lock().await.sign_request(
+                "GET",
+                "/api/chat/messages",
+                &audience,
+                &[],
+            ) {
+                Some(signed) => signed,
+                None => {
+                    log::warn!("⚠️ 聊天签名不可用，跳过历史拉取 ({})", expected_ip);
+                    return Vec::new();
+                }
+            };
+            match with_chat_signature(
+                client_clone.get(&url).header(CHAT_TOKEN_HEADER, token),
+                &signed,
+            )
+            .send()
+            .await
             {
                 Ok(response) => {
                     if response.status().is_success() {

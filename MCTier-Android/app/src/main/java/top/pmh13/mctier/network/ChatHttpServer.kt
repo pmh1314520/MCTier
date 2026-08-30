@@ -24,9 +24,22 @@ import java.util.UUID
 /**
  * P2P chat HTTP server.
  *
- * Every request needs the signaling-issued token and a TCP source IP present in
- * the current signaling identity snapshot. Request-body identity fields are
- * retained only for wire compatibility and are never used for attribution.
+ * Authentication has two independent layers:
+ *
+ * 1. The signaling-issued per-lobby token proves the caller is a member of this
+ *    lobby. Every member holds the same value, so it says nothing about *which*
+ *    member is calling.
+ * 2. A per-request ECDSA signature proves *who* is calling. The signer is
+ *    resolved by key id against the roster of public keys signaling published,
+ *    and the signature is verified against that key before anything else is
+ *    trusted.
+ *
+ * The TCP source IP is consulted only after a signature verifies, purely to
+ * confirm it matches the address signaling recorded for that member. Forging a
+ * virtual IP therefore gains an attacker nothing: it would still need the
+ * victim's private key to produce an acceptable signature. Request-body identity
+ * fields are retained only for wire compatibility and are never used for
+ * attribution.
  */
 class ChatHttpServer(
     private val ownerId: String,
@@ -41,6 +54,7 @@ class ChatHttpServer(
     private var historyBytes = 0
     private var authSession: AuthSession? = null
     private val requestTimes = HashMap<RateLimitKey, ArrayDeque<Long>>()
+    private val replayGuard = ChatAuth.ReplayGuard()
 
     /** 收到他人 POST 的新消息时回调（用于推送到 UI） */
     var onMessageReceived: ((ChatWireMessage) -> Unit)? = null
@@ -61,15 +75,23 @@ class ChatHttpServer(
         val normalizedLocal = normalizeIdentity(local) ?: return false
         if (normalizedLocal.virtualIp != boundIp) return false
         val identities = buildIdentityMap(normalizedLocal, peers) ?: return false
+        val peersByKey = buildKeyMap(identities) ?: return false
         synchronized(sessionLock) {
             val current = authSession
             if (current != null) {
-                if (current.local != normalizedLocal) return false
+                // The local member's own signing key legitimately appears on a
+                // fresh session, so only the stable identity fields are compared.
+                if (current.local.playerId != normalizedLocal.playerId ||
+                    current.local.playerName != normalizedLocal.playerName ||
+                    current.local.virtualIp != normalizedLocal.virtualIp
+                ) {
+                    return false
+                }
                 if (tokenEpoch < current.tokenEpoch) return false
                 if (tokenEpoch == current.tokenEpoch && current.token != token) return false
             }
             if (!isValidHostId(hostId, identities)) return false
-            authSession = AuthSession(token, tokenEpoch, normalizedLocal, hostId, identities)
+            authSession = AuthSession(token, tokenEpoch, normalizedLocal, hostId, identities, peersByKey)
         }
         return true
     }
@@ -91,8 +113,9 @@ class ChatHttpServer(
         synchronized(sessionLock) {
             val current = authSession ?: return false
             val identities = buildIdentityMap(current.local, peers) ?: return false
+            val peersByKey = buildKeyMap(identities) ?: return false
             if (!isValidHostId(current.hostId, identities)) return false
-            authSession = current.copy(identities = identities)
+            authSession = current.copy(identities = identities, peersByKey = peersByKey)
         }
         return true
     }
@@ -132,6 +155,7 @@ class ChatHttpServer(
     fun clearSession() {
         synchronized(sessionLock) { authSession = null }
         synchronized(rateLimitLock) { requestTimes.clear() }
+        replayGuard.clear()
         synchronized(historyLock) {
             messages.clear()
             historyBytes = 0
@@ -162,7 +186,9 @@ class ChatHttpServer(
     }
 
     private fun handleMessages(session: IHTTPSession, origin: String?): Response {
-        val auth = authenticate(session)
+        // History reads are signed too: otherwise a member could spoof another
+        // member's address and harvest the history attributed to them.
+        val auth = authenticate(session, "GET", "/api/chat/messages", EMPTY_BODY)
         if (!allowRequest(auth.identity, auth.sourceIp)) reject(Response.Status.TOO_MANY_REQUESTS)
         val rawSince = session.parameters["since"]?.firstOrNull()
         val since = when {
@@ -174,11 +200,14 @@ class ChatHttpServer(
     }
 
     private fun handleSend(session: IHTTPSession, origin: String?): Response {
-        val auth = authenticate(session)
+        // The body is consumed before authentication because the signature
+        // covers these exact bytes, binding attribution and content together:
+        // neither can be swapped without invalidating the signature.
+        val bodyBytes = readJsonBody(session)
+        val auth = authenticate(session, "POST", "/api/chat/send", bodyBytes)
         if (!allowRequest(auth.identity, auth.sourceIp)) reject(Response.Status.TOO_MANY_REQUESTS)
-        val body = readJsonBody(session)
         val req = runCatching {
-            MctierJson.decodeFromString(ChatSendRequest.serializer(), body)
+            MctierJson.decodeFromString(ChatSendRequest.serializer(), bodyBytes.toString(Charsets.UTF_8))
         }.getOrElse { reject(Response.Status.BAD_REQUEST) }
         val type = req.messageType.trim().lowercase(Locale.US)
         val id = req.id?.trim()?.takeIf { it.isNotEmpty() }
@@ -199,17 +228,86 @@ class ChatHttpServer(
         return json(message, origin)
     }
 
-    private fun authenticate(session: IHTTPSession): AuthenticatedRequest {
+    /**
+     * Resolve and verify the caller's identity from its request signature.
+     *
+     * The order matters: the shared lobby token is checked first so
+     * unauthenticated probes never reach the verifier, then the signer is
+     * resolved *by key id* and the signature is verified against the
+     * roster-published public key. Only after that is the source address
+     * examined, and then merely to confirm it matches the address signaling
+     * recorded for that member.
+     *
+     * Consequence: forging a virtual IP is useless. The attacker would still
+     * have to produce a signature under the victim's key, and lacking the
+     * private key it cannot. Conversely a member signing with its own key but
+     * arriving from someone else's address is refused as inconsistent.
+     */
+    private fun authenticate(
+        session: IHTTPSession,
+        method: String,
+        path: String,
+        body: ByteArray,
+    ): AuthenticatedRequest {
         val snapshot = synchronized(sessionLock) { authSession }
             ?: reject(Response.Status.UNAUTHORIZED)
         val supplied = singleHeader(session, ChatTokenHeader) ?: reject(Response.Status.UNAUTHORIZED)
         if (!constantTimeEquals(supplied, snapshot.token)) reject(Response.Status.UNAUTHORIZED)
+
+        val keyId = singleHeader(session, ChatAuth.KeyIdHeader)?.trim()
+            ?: reject(Response.Status.UNAUTHORIZED)
+        val signature = singleHeader(session, ChatAuth.SignatureHeader)?.trim()
+            ?: reject(Response.Status.UNAUTHORIZED)
+        val nonce = singleHeader(session, ChatAuth.NonceHeader)?.trim()
+            ?: reject(Response.Status.UNAUTHORIZED)
+        val rawTimestamp = singleHeader(session, ChatAuth.TimestampHeader)
+            ?: reject(Response.Status.UNAUTHORIZED)
+        val timestamp = ChatAuth.parseTimestamp(rawTimestamp) ?: reject(Response.Status.BAD_REQUEST)
+        if (!ChatAuth.isValidKeyId(keyId) || !ChatAuth.isValidNonce(nonce)) {
+            reject(Response.Status.BAD_REQUEST)
+        }
+        val now = ChatAuth.unixSeconds()
+        if (!ChatAuth.isFreshTimestamp(timestamp, now)) reject(Response.Status.UNAUTHORIZED)
+
+        // An unknown key id means the member is not in the authoritative roster,
+        // or published no key at all. Either way it cannot be attributed.
+        val peer = snapshot.peersByKey[keyId.lowercase(Locale.US)] ?: reject(Response.Status.FORBIDDEN)
+
+        // We are the audience: the signature must have been produced for this
+        // member specifically, not for some other peer in the lobby.
+        val canonical = ChatAuth.canonicalRequest(
+            method,
+            path,
+            snapshot.local.virtualIp,
+            snapshot.tokenEpoch,
+            timestamp,
+            nonce,
+            body,
+            snapshot.token,
+        )
+        if (!ChatAuth.verifySignature(peer.publicKeyDer, signature, canonical)) {
+            reject(Response.Status.UNAUTHORIZED)
+        }
+
+        // A captured request must not be usable twice inside the freshness window.
+        if (!replayGuard.accept(keyId, nonce, timestamp, now)) {
+            Log.w(TAG, "拒绝重放的聊天请求: signer=${peer.identity.playerId}")
+            reject(Response.Status.UNAUTHORIZED)
+        }
+
+        // Source address is now only a consistency check against the roster.
         val source = parseUsableIp(session.remoteIpAddress) ?: reject(Response.Status.FORBIDDEN)
-        val identity = snapshot.identities[source] ?: reject(Response.Status.FORBIDDEN)
-        return AuthenticatedRequest(snapshot.hostId, source, identity)
+        if (peer.identity.virtualIp != source.hostAddress) {
+            Log.w(
+                TAG,
+                "拒绝签名与来源地址不一致的聊天请求: signer=${peer.identity.playerId}, 来源=${source.hostAddress}",
+            )
+            reject(Response.Status.FORBIDDEN)
+        }
+        return AuthenticatedRequest(snapshot.hostId, source, peer.identity)
     }
 
-    private fun readJsonBody(session: IHTTPSession): String {
+    private fun readJsonBody(session: IHTTPSession): ByteArray {
         if (session.headers.keys.any { it.equals("transfer-encoding", ignoreCase = true) }) {
             reject(Response.Status.BAD_REQUEST)
         }
@@ -232,7 +330,7 @@ class ChatHttpServer(
             offset += read
         }
         if (bytes.isEmpty()) reject(Response.Status.BAD_REQUEST)
-        return bytes.toString(Charsets.UTF_8)
+        return bytes
     }
 
     private fun allowRequest(identity: ChatPeerIdentity, sourceIp: InetAddress): Boolean {
@@ -333,7 +431,25 @@ class ChatHttpServer(
         val local: ChatPeerIdentity,
         val hostId: String?,
         val identities: Map<InetAddress, ChatPeerIdentity>,
+        /** Signing keys of every roster member, indexed by key id. */
+        val peersByKey: Map<String, VerifiedPeer>,
     )
+
+    /** A roster member together with the decoded public key bound to it. */
+    private data class VerifiedPeer(
+        val identity: ChatPeerIdentity,
+        val publicKeyDer: ByteArray,
+    ) {
+        // ByteArray needs structural equality for the enclosing data classes to
+        // compare sensibly.
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is VerifiedPeer) return false
+            return identity == other.identity && publicKeyDer.contentEquals(other.publicKeyDer)
+        }
+
+        override fun hashCode(): Int = 31 * identity.hashCode() + publicKeyDer.contentHashCode()
+    }
 
     private data class AuthenticatedRequest(
         val hostId: String?,
@@ -347,6 +463,9 @@ class ChatHttpServer(
 
     companion object {
         private const val TAG = "ChatHttpServer"
+
+        /** Signed-but-bodyless requests (history reads) hash the empty string. */
+        private val EMPTY_BODY = ByteArray(0)
         private const val MAX_ID_BYTES = 128
         private const val MAX_PLAYER_NAME_BYTES = 256
         private const val MAX_CONTENT_BYTES = 512 * 1024
@@ -408,6 +527,30 @@ class ChatHttpServer(
                 if (!ids.add(identity.playerId) || map.put(ip, identity) != null) return null
             }
             return map
+        }
+
+        /**
+         * Index the roster by key id so a request can be attributed from its
+         * signature alone.
+         *
+         * A duplicate key id is refused outright: two members presenting the
+         * same public key would make attribution ambiguous, which is exactly
+         * the property this mechanism exists to guarantee. A malformed key
+         * fails here, at roster installation, rather than silently breaking
+         * every later request. Members without a published key are simply
+         * absent from the map, so their requests cannot be verified.
+         */
+        private fun buildKeyMap(
+            identities: Map<InetAddress, ChatPeerIdentity>,
+        ): Map<String, VerifiedPeer>? {
+            val byKey = LinkedHashMap<String, VerifiedPeer>()
+            for (identity in identities.values) {
+                val encoded = identity.chatPublicKey?.takeIf { it.isNotBlank() } ?: continue
+                val der = ChatAuth.parsePublicKey(encoded) ?: return null
+                val keyId = ChatAuth.keyIdForPublicKey(der)
+                if (byKey.put(keyId, VerifiedPeer(identity, der)) != null) return null
+            }
+            return byKey
         }
 
         private fun isValidChatToken(token: String): Boolean =

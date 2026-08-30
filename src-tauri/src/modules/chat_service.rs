@@ -2,10 +2,19 @@
  * P2P chat service.
  *
  * The HTTP service is deliberately scoped to the current EasyTier interface.
- * A signaling-issued, per-lobby token authenticates every request; the TCP
- * peer address is then mapped to the authoritative player identity received
- * from signaling. Request fields such as player_id/player_name are never used
- * for authorization or attribution.
+ * Authentication has two independent layers:
+ *
+ * 1. The signaling-issued per-lobby token gates the endpoint at all. Every
+ *    member of the lobby knows it, so on its own it only proves membership.
+ * 2. Cross-peer requests must additionally carry a per-member signature (see
+ *    [`super::chat_auth`]). The signer is resolved by key id and verified
+ *    against the public key that signaling published for that player, so
+ *    attribution no longer depends on the TCP source address.
+ *
+ * The source IP is still cross-checked, but only as a consistency hint: a
+ * member that spoofs another member's virtual IP cannot produce a signature for
+ * that member's key, so the request is refused. Request fields such as
+ * player_id/player_name are never used for authorization or attribution.
  */
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -27,6 +36,11 @@ use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
+use super::chat_auth::{
+    canonical_request, is_fresh_timestamp, is_valid_key_id, is_valid_nonce, key_id_for_public_key,
+    parse_public_key_b64, parse_timestamp, verify_signature, ChatSigner, ReplayGuard,
+    CHAT_KEY_ID_HEADER, CHAT_NONCE_HEADER, CHAT_SIGNATURE_HEADER, CHAT_TIMESTAMP_HEADER,
+};
 use super::http_cors::lan_cors_layer;
 
 pub const CHAT_SERVER_PORT: u16 = 14540;
@@ -86,6 +100,11 @@ pub struct ChatPeerIdentity {
     pub player_id: String,
     pub player_name: String,
     pub virtual_ip: String,
+    /// Base64 X.509 SubjectPublicKeyInfo DER of this member's chat signing key,
+    /// as published by signaling. `None` means the peer did not present one
+    /// (an older client); such a peer cannot pass signature verification.
+    #[serde(default)]
+    pub chat_public_key: Option<String>,
 }
 
 /// Player fields are retained for wire compatibility but are ignored by the
@@ -130,6 +149,14 @@ struct AppState {
     message_tx: broadcast::Sender<ChatMessage>,
     session: Arc<RwLock<Option<ChatSession>>>,
     rate_limiter: Arc<Mutex<HashMap<RateLimitKey, VecDeque<Instant>>>>,
+    replay_guard: Arc<Mutex<ReplayGuard>>,
+}
+
+/// A roster entry resolved by signing key id.
+#[derive(Debug, Clone)]
+struct VerifiedPeer {
+    identity: ChatPeerIdentity,
+    public_key_der: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +164,9 @@ struct ChatSession {
     token: String,
     epoch: u64,
     identities: HashMap<IpAddr, ChatPeerIdentity>,
+    /// Key id -> roster entry. This is the authoritative attribution path;
+    /// `identities` is only used for the source-IP consistency check.
+    peers_by_key: HashMap<String, VerifiedPeer>,
     local_identity: ChatPeerIdentity,
     host_id: Option<String>,
 }
@@ -149,6 +179,10 @@ pub struct ChatService {
     message_tx: broadcast::Sender<ChatMessage>,
     session: Arc<RwLock<Option<ChatSession>>>,
     rate_limiter: Arc<Mutex<HashMap<RateLimitKey, VecDeque<Instant>>>>,
+    replay_guard: Arc<Mutex<ReplayGuard>>,
+    /// Signing identity for the current lobby session. Recreated on every
+    /// session so leaving a lobby retires the key permanently.
+    signer: Arc<RwLock<Option<Arc<ChatSigner>>>>,
 }
 
 impl ChatService {
@@ -162,7 +196,67 @@ impl ChatService {
             message_tx,
             session: Arc::new(RwLock::new(None)),
             rate_limiter: Arc::new(Mutex::new(HashMap::new())),
+            replay_guard: Arc::new(Mutex::new(ReplayGuard::new())),
+            signer: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Public key the renderer must hand to signaling before registering.
+    ///
+    /// The key pair is created on first use and then reused until the session
+    /// is cleared, so the value published to signaling and the value used to
+    /// sign requests cannot drift apart.
+    pub fn ensure_signing_key(&self) -> Result<String, String> {
+        if let Some(signer) = self.signer.read().as_ref() {
+            return Ok(signer.public_key_b64());
+        }
+        let mut slot = self.signer.write();
+        // Re-check under the write lock: two callers may race here.
+        if let Some(signer) = slot.as_ref() {
+            return Ok(signer.public_key_b64());
+        }
+        let signer = Arc::new(ChatSigner::generate()?);
+        let encoded = signer.public_key_b64();
+        *slot = Some(signer);
+        Ok(encoded)
+    }
+
+    pub fn signing_public_key(&self) -> Option<String> {
+        self.signer
+            .read()
+            .as_ref()
+            .map(|signer| signer.public_key_b64())
+    }
+
+    fn signer(&self) -> Option<Arc<ChatSigner>> {
+        self.signer.read().clone()
+    }
+
+    /// Sign an outgoing request for the current session.
+    ///
+    /// `audience` is the recipient peer's virtual IP; binding it stops one
+    /// member from relaying a request it received to a third member. Returns
+    /// `None` when no session or no key is active, in which case the caller
+    /// must not send at all.
+    pub fn sign_request(
+        &self,
+        method: &str,
+        path: &str,
+        audience: &str,
+        body: &[u8],
+    ) -> Option<super::chat_auth::SignedRequestHeaders> {
+        let signer = self.signer()?;
+        let session = self.session.read();
+        let session = session.as_ref()?;
+        Some(signer.sign(
+            method,
+            path,
+            audience,
+            session.epoch,
+            unix_seconds(),
+            body,
+            &session.token,
+        ))
     }
 
     pub fn set_virtual_ip(&self, ip: String) {
@@ -205,13 +299,20 @@ impl ChatService {
         let virtual_ip = self
             .get_virtual_ip()
             .ok_or_else(|| "虚拟IP未设置".to_string())?;
+        // The local signing key must exist before a session opens, otherwise
+        // this peer could neither sign its own sends nor be verified by others.
+        let local_public_key = self
+            .signing_public_key()
+            .ok_or_else(|| "聊天签名密钥尚未生成".to_string())?;
         let local = ChatPeerIdentity {
             player_id,
             player_name,
             virtual_ip,
+            chat_public_key: Some(local_public_key),
         };
         let map = build_identity_map(&local, peers)?;
         validate_host_id(host_id.as_deref(), &map)?;
+        let peers_by_key = build_key_map(&map)?;
 
         let mut session = self.session.write();
         if let Some(current) = session.as_ref() {
@@ -229,6 +330,7 @@ impl ChatService {
             token,
             epoch,
             identities: map,
+            peers_by_key,
             local_identity: local,
             host_id,
         });
@@ -247,8 +349,10 @@ impl ChatService {
         let local = current.local_identity.clone();
         let map = build_identity_map(&local, peers)?;
         validate_host_id(host_id.as_deref(), &map)?;
+        let peers_by_key = build_key_map(&map)?;
         current.host_id = host_id;
         current.identities = map;
+        current.peers_by_key = peers_by_key;
         Ok(())
     }
 
@@ -298,8 +402,11 @@ impl ChatService {
             .and_then(|session| session.host_id.clone())
     }
 
+    /// Clearing a session is a security boundary: the signing key is retired
+    /// and the replay window is forgotten along with the roster.
     pub fn clear_session(&self) {
         *self.session.write() = None;
+        *self.signer.write() = None;
     }
 
     /// Start only after a signaling-issued token has configured this session.
@@ -336,6 +443,7 @@ impl ChatService {
                 message_tx: self.message_tx.clone(),
                 session: Arc::clone(&self.session),
                 rate_limiter: Arc::clone(&self.rate_limiter),
+                replay_guard: Arc::clone(&self.replay_guard),
             });
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(ip), CHAT_SERVER_PORT))
@@ -361,6 +469,7 @@ impl ChatService {
         self.clear_session();
         self.clear_local_messages();
         self.rate_limiter.lock().await.clear();
+        self.replay_guard.lock().await.clear();
         *self.virtual_ip.write() = None;
     }
 
@@ -427,6 +536,34 @@ fn build_identity_map(
     Ok(map)
 }
 
+/// Index the roster by signing key id.
+///
+/// A duplicate key id is refused outright: two members presenting the same
+/// public key would make attribution ambiguous, which is exactly the property
+/// this mechanism exists to guarantee. Members without a published key are
+/// simply absent from the map, so their requests cannot be verified.
+fn build_key_map(
+    identities: &HashMap<IpAddr, ChatPeerIdentity>,
+) -> Result<HashMap<String, VerifiedPeer>, String> {
+    let mut by_key = HashMap::new();
+    for identity in identities.values() {
+        let Some(encoded) = identity.chat_public_key.as_deref() else {
+            continue;
+        };
+        let public_key_der = parse_public_key_b64(encoded)
+            .ok_or_else(|| "大厅成员的聊天签名公钥无效".to_string())?;
+        let key_id = key_id_for_public_key(&public_key_der);
+        let entry = VerifiedPeer {
+            identity: identity.clone(),
+            public_key_der,
+        };
+        if by_key.insert(key_id, entry).is_some() {
+            return Err("大厅成员聊天签名公钥重复".to_string());
+        }
+    }
+    Ok(by_key)
+}
+
 fn parse_chat_ipv4(raw: &str) -> Option<Ipv4Addr> {
     let ip = raw.trim().parse::<Ipv4Addr>().ok()?;
     let octets = ip.octets();
@@ -475,11 +612,19 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
-fn authenticated_identity(
-    headers: &HeaderMap,
-    peer: SocketAddr,
-    state: &AppState,
-) -> Result<ChatPeerIdentity, StatusCode> {
+/// Outcome of a fully authenticated request.
+struct SignedAuth {
+    identity: ChatPeerIdentity,
+    key_id: String,
+    nonce: String,
+    timestamp: u64,
+}
+
+/// Membership gate: the shared per-lobby token.
+///
+/// This proves the caller is in the lobby but says nothing about *which*
+/// member it is, because every member holds the same value.
+fn authenticated_session_token(headers: &HeaderMap, state: &AppState) -> Result<(), StatusCode> {
     let supplied = headers
         .get(CHAT_TOKEN_HEADER)
         .and_then(|value| value.to_str().ok())
@@ -489,11 +634,122 @@ fn authenticated_identity(
     if !constant_time_eq(supplied.as_bytes(), session.token.as_bytes()) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    session
-        .identities
-        .get(&peer.ip())
-        .cloned()
-        .ok_or(StatusCode::FORBIDDEN)
+    Ok(())
+}
+
+/// Resolve and verify the caller's identity from its request signature.
+///
+/// The order matters: the token is checked first so unauthenticated probes
+/// never reach the verifier, then the signer is resolved *by key id* and the
+/// signature is verified against the roster-published public key. Only after
+/// that is the source address examined, and then merely to confirm it matches
+/// the address signaling recorded for that member.
+///
+/// Consequence: forging a virtual IP is useless. The attacker would still have
+/// to produce a signature under the victim's key, and lacking the private key
+/// it cannot. Conversely a member signing with its own key but arriving from
+/// someone else's address is refused as inconsistent.
+///
+/// Replay protection is applied by the caller, which owns the async lock.
+fn authenticate_signed_request(
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    state: &AppState,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<SignedAuth, StatusCode> {
+    authenticated_session_token(headers, state)?;
+
+    let header_value = |name: &str| -> Result<&str, StatusCode> {
+        let mut values = headers.get_all(name).iter();
+        let first = values.next().ok_or(StatusCode::UNAUTHORIZED)?;
+        // A duplicated header is ambiguous; refuse rather than pick one.
+        if values.next().is_some() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        first.to_str().map_err(|_| StatusCode::BAD_REQUEST)
+    };
+
+    let key_id = header_value(CHAT_KEY_ID_HEADER)?.trim().to_string();
+    let signature = header_value(CHAT_SIGNATURE_HEADER)?.trim().to_string();
+    let nonce = header_value(CHAT_NONCE_HEADER)?.trim().to_string();
+    let timestamp =
+        parse_timestamp(header_value(CHAT_TIMESTAMP_HEADER)?).ok_or(StatusCode::BAD_REQUEST)?;
+    if !is_valid_key_id(&key_id) || !is_valid_nonce(&nonce) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !is_fresh_timestamp(timestamp, unix_seconds()) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let session = state.session.read();
+    let session = session.as_ref().ok_or(StatusCode::UNAUTHORIZED)?;
+    // Unknown key id means the member is not in the authoritative roster, or
+    // published no key at all. Either way it cannot be attributed.
+    let peer_entry = session
+        .peers_by_key
+        .get(&key_id)
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    // We are the audience: the signature must have been produced for this
+    // member specifically, not for some other peer in the lobby.
+    let canonical = canonical_request(
+        method,
+        path,
+        &session.local_identity.virtual_ip,
+        session.epoch,
+        timestamp,
+        &nonce,
+        body,
+        &session.token,
+    );
+    if !verify_signature(&peer_entry.public_key_der, &signature, &canonical) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // Source address is now only a consistency check against the roster.
+    if peer_entry.identity.virtual_ip != peer.ip().to_string() {
+        log::warn!(
+            "拒绝签名与来源地址不一致的聊天请求: signer={}, 来源={}",
+            peer_entry.identity.player_id,
+            peer.ip()
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(SignedAuth {
+        identity: peer_entry.identity.clone(),
+        key_id,
+        nonce,
+        timestamp,
+    })
+}
+
+/// Full authentication for one request, including replay rejection.
+async fn authorize_request(
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    state: &AppState,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<ChatPeerIdentity, StatusCode> {
+    let auth = authenticate_signed_request(headers, peer, state, method, path, body)?;
+    let accepted = state.replay_guard.lock().await.accept(
+        &auth.key_id,
+        &auth.nonce,
+        auth.timestamp,
+        unix_seconds(),
+    );
+    if !accepted {
+        log::warn!("拒绝重放的聊天请求: signer={}", auth.identity.player_id);
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    if !allow_request(state, &auth.identity, peer.ip()).await {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+    Ok(auth.identity)
 }
 
 fn require_json_body(headers: &HeaderMap, body: &Bytes) -> Result<(), StatusCode> {
@@ -697,10 +953,9 @@ async fn get_messages(
     headers: HeaderMap,
     Query(params): Query<GetMessagesQuery>,
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
-    let identity = authenticated_identity(&headers, peer, &state)?;
-    if !allow_request(&state, &identity, peer.ip()).await {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
+    // History reads are signed too: otherwise a member could spoof another
+    // member's address and harvest the history attributed to them.
+    authorize_request(&headers, peer, &state, "GET", "/api/chat/messages", &[]).await?;
     let messages = state.local_messages.read();
     let result = messages
         .iter()
@@ -720,10 +975,10 @@ async fn send_message(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<ChatMessage>, StatusCode> {
-    let identity = authenticated_identity(&headers, peer, &state)?;
-    if !allow_request(&state, &identity, peer.ip()).await {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
+    // The signature covers the exact body bytes, so attribution and content
+    // are bound together: neither can be swapped without invalidating it.
+    let identity =
+        authorize_request(&headers, peer, &state, "POST", "/api/chat/send", &body).await?;
     require_json_body(&headers, &body)?;
     let request =
         serde_json::from_slice::<SendMessageRequest>(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -755,15 +1010,21 @@ async fn stream_messages(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
-    let identity = authenticated_identity(&headers, peer, &state)?;
-    if state
-        .session
-        .read()
-        .as_ref()
-        .is_none_or(|session| session.local_identity.player_id != identity.player_id)
-    {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    // This endpoint exists purely for the local WebView to receive its own
+    // messages, and the renderer holds no private key, so it cannot sign.
+    // Instead it is restricted to the loopback-equivalent case: the request
+    // must arrive from this host's own virtual IP. Traffic addressed to our own
+    // address never leaves the machine, so a remote peer - even one that has
+    // hijacked the overlay route for some other member - cannot reach it.
+    authenticated_session_token(&headers, &state)?;
+    let identity = {
+        let session = state.session.read();
+        let session = session.as_ref().ok_or(StatusCode::UNAUTHORIZED)?;
+        if session.local_identity.virtual_ip != peer.ip().to_string() {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        session.local_identity.clone()
+    };
     if !allow_request(&state, &identity, peer.ip()).await {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -790,7 +1051,145 @@ mod tests {
             player_id: id.to_string(),
             player_name: id.to_string(),
             virtual_ip: ip.to_string(),
+            chat_public_key: None,
         }
+    }
+
+    /// Identity carrying a real, freshly generated signing key.
+    fn keyed_identity(ip: &str, id: &str) -> (ChatPeerIdentity, ChatSigner) {
+        let signer = ChatSigner::generate().expect("generate signer");
+        let mut identity = identity(ip, id);
+        identity.chat_public_key = Some(signer.public_key_b64());
+        (identity, signer)
+    }
+
+    #[test]
+    fn key_map_indexes_members_by_their_signing_key() {
+        let (local, local_signer) = keyed_identity("10.126.126.1", "local");
+        let (peer, peer_signer) = keyed_identity("10.126.126.2", "peer");
+        let identities =
+            build_identity_map(&local, vec![peer.clone()]).expect("identity map should build");
+        let by_key = build_key_map(&identities).expect("key map should build");
+
+        assert_eq!(by_key.len(), 2);
+        let local_key = key_id_for_public_key(
+            &parse_public_key_b64(&local_signer.public_key_b64()).expect("local key"),
+        );
+        let peer_key = key_id_for_public_key(
+            &parse_public_key_b64(&peer_signer.public_key_b64()).expect("peer key"),
+        );
+        assert_eq!(by_key[&local_key].identity.player_id, "local");
+        assert_eq!(by_key[&peer_key].identity.player_id, "peer");
+        // Attribution comes from the key, so the mapped virtual IP is the one
+        // signaling published rather than anything the sender asserted.
+        assert_eq!(by_key[&peer_key].identity.virtual_ip, "10.126.126.2");
+    }
+
+    #[test]
+    fn key_map_rejects_two_members_sharing_one_signing_key() {
+        // Duplicate keys would make attribution ambiguous, defeating the whole
+        // mechanism, so the roster is refused rather than silently collapsed.
+        let (local, signer) = keyed_identity("10.126.126.1", "local");
+        let mut impostor = identity("10.126.126.2", "impostor");
+        impostor.chat_public_key = Some(signer.public_key_b64());
+        let identities = build_identity_map(&local, vec![impostor]).expect("identity map");
+        assert!(build_key_map(&identities).is_err());
+    }
+
+    #[test]
+    fn key_map_rejects_malformed_public_keys_and_skips_absent_ones() {
+        let (local, _) = keyed_identity("10.126.126.1", "local");
+
+        let mut broken = identity("10.126.126.2", "broken");
+        broken.chat_public_key = Some("not-a-key".to_string());
+        let identities = build_identity_map(&local, vec![broken]).expect("identity map");
+        assert!(build_key_map(&identities).is_err());
+
+        // A peer with no published key is simply not verifiable: it is absent
+        // from the map instead of being trusted on address alone.
+        let identities =
+            build_identity_map(&local, vec![identity("10.126.126.3", "legacy")]).expect("map");
+        let by_key = build_key_map(&identities).expect("key map");
+        assert_eq!(by_key.len(), 1);
+        assert!(by_key
+            .values()
+            .all(|entry| entry.identity.player_id != "legacy"));
+    }
+
+    #[test]
+    fn a_session_signs_with_the_key_it_published() {
+        let service = ChatService::new();
+        service.set_virtual_ip("10.126.126.1".to_string());
+        let published = service.ensure_signing_key().expect("key generation");
+        // Repeated calls must not rotate the key, or the value handed to
+        // signaling would stop matching the value used to sign.
+        assert_eq!(service.ensure_signing_key().expect("stable key"), published);
+
+        let (peer, _) = keyed_identity("10.126.126.2", "peer");
+        service
+            .set_session(
+                "a".repeat(CHAT_TOKEN_HEX_BYTES),
+                1,
+                "local".to_string(),
+                "local".to_string(),
+                None,
+                vec![peer],
+            )
+            .expect("session should install");
+
+        let body = br#"{"content":"hi"}"#;
+        let signed = service
+            .sign_request("POST", "/api/chat/send", "10.126.126.2", body)
+            .expect("request should be signable");
+        let der = parse_public_key_b64(&published).expect("published key must parse");
+        assert_eq!(signed.key_id, key_id_for_public_key(&der));
+        let canonical = canonical_request(
+            "POST",
+            "/api/chat/send",
+            "10.126.126.2",
+            1,
+            signed.timestamp.parse().expect("numeric timestamp"),
+            &signed.nonce,
+            body,
+            &"a".repeat(CHAT_TOKEN_HEX_BYTES),
+        );
+        assert!(verify_signature(&der, &signed.signature, &canonical));
+        // The same signature must not satisfy a different recipient.
+        let other_audience = canonical_request(
+            "POST",
+            "/api/chat/send",
+            "10.126.126.3",
+            1,
+            signed.timestamp.parse().expect("numeric timestamp"),
+            &signed.nonce,
+            body,
+            &"a".repeat(CHAT_TOKEN_HEX_BYTES),
+        );
+        assert!(!verify_signature(&der, &signed.signature, &other_audience));
+
+        // Clearing the session retires the key and disables signing.
+        service.clear_session();
+        assert!(service.signing_public_key().is_none());
+        assert!(service
+            .sign_request("POST", "/api/chat/send", "10.126.126.2", body)
+            .is_none());
+    }
+
+    #[test]
+    fn a_session_cannot_open_before_a_signing_key_exists() {
+        let service = ChatService::new();
+        service.set_virtual_ip("10.126.126.1".to_string());
+        let error = service
+            .set_session(
+                "a".repeat(CHAT_TOKEN_HEX_BYTES),
+                1,
+                "local".to_string(),
+                "local".to_string(),
+                None,
+                Vec::new(),
+            )
+            .expect_err("session must require a signing key");
+        assert!(error.contains("签名密钥"));
     }
 
     #[test]
@@ -843,6 +1242,7 @@ mod tests {
     fn session_rejects_epoch_rollback_and_equivocation() {
         let service = ChatService::new();
         service.set_virtual_ip("10.126.126.1".to_string());
+        service.ensure_signing_key().expect("signing key");
         service
             .set_session(
                 "a".repeat(CHAT_TOKEN_HEX_BYTES),
@@ -919,6 +1319,7 @@ mod tests {
     async fn stopping_service_clears_session_history_and_bind_ip() {
         let service = ChatService::new();
         service.set_virtual_ip("10.126.126.1".to_string());
+        service.ensure_signing_key().expect("signing key");
         service
             .set_session(
                 "a".repeat(CHAT_TOKEN_HEX_BYTES),
@@ -964,10 +1365,12 @@ mod tests {
                 token: "a".repeat(CHAT_TOKEN_HEX_BYTES),
                 epoch: 1,
                 identities: HashMap::new(),
+                peers_by_key: HashMap::new(),
                 local_identity: identity("10.126.126.1", "owner"),
                 host_id: Some("owner".to_string()),
             }))),
             rate_limiter: Arc::new(Mutex::new(HashMap::new())),
+            replay_guard: Arc::new(Mutex::new(ReplayGuard::new())),
         };
         let request = SendMessageRequest {
             id: None,

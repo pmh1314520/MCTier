@@ -19,6 +19,9 @@ const secureStore = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/Secu
 const models = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/data/Models.kt');
 const chatServer = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/ChatHttpServer.kt');
 const chatClient = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/ChatP2PClient.kt');
+const chatAuth = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/ChatAuth.kt');
+const lanCors = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/LanCors.kt');
+const signalingClient = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/SignalingClient.kt');
 
 test('Android manifest keeps non-entry components private and disables global cleartext', () => {
   assert.match(manifest, /android:usesCleartextTraffic="false"/);
@@ -73,7 +76,7 @@ test('lobby credentials use Keystore-backed encryption and no new plaintext writ
   assert.doesNotMatch(repository, /putString\("recentLobbies"/);
 });
 
-test('Android P2P chat is gated by signaling token, epoch, and source IP identity', () => {
+test('Android P2P chat is gated by signaling token, epoch, and member signatures', () => {
   assert.match(models, /val chatToken: String\? = null/);
   assert.match(models, /val chatTokenEpoch: Long\? = null/);
   assert.match(repository, /"register-success"[\s\S]{0,1800}chatTokenEpoch/);
@@ -82,8 +85,6 @@ test('Android P2P chat is gated by signaling token, epoch, and source IP identit
   assert.doesNotMatch(repository, /ChatP2PClient\([^\n]+\)\.also\s*\{\s*it\.start/);
 
   assert.match(chatServer, /ChatTokenHeader/);
-  assert.match(chatServer, /session\.remoteIpAddress/);
-  assert.match(chatServer, /snapshot\.identities\[source\]/);
   assert.match(chatServer, /it is Inet4Address/);
   assert.match(chatServer, /byteArrayOf\(10, 126, 126\)/);
   assert.match(chatServer, /isMessageIdForPlayer/);
@@ -93,6 +94,69 @@ test('Android P2P chat is gated by signaling token, epoch, and source IP identit
   assert.match(chatClient, /followSslRedirects\(false\)/);
   assert.match(chatClient, /\.header\(ChatTokenHeader, token\)/);
   assert.match(chatClient, /Chat send suppressed before authenticated session/);
+});
+
+// The shared lobby token only proves membership; every member holds the same
+// value. These assertions pin the property that decides *which* member a request
+// is attributed to, so a future refactor cannot quietly fall back to trusting a
+// spoofable virtual IP again.
+test('Android chat attributes requests by member signature, never by source IP', () => {
+  // Canonical form must stay byte-identical to the desktop implementation.
+  assert.match(chatAuth, /MCTIER-CHAT-V1/);
+  assert.match(chatAuth, /SHA256withECDSA/);
+  assert.match(chatAuth, /ECGenParameterSpec\("?secp256r1"?\)|CurveName = "secp256r1"/);
+  assert.match(chatAuth, /X509EncodedKeySpec/);
+  assert.match(chatAuth, /joinToString\("\\n"\)/);
+  // Every canonical field, in order.
+  assert.match(
+    chatAuth,
+    /CANONICAL_DOMAIN,[\s\S]{0,400}method\.uppercase[\s\S]{0,200}path,[\s\S]{0,200}audience,[\s\S]{0,200}tokenEpoch[\s\S]{0,200}timestamp[\s\S]{0,200}nonce,[\s\S]{0,200}sha256Hex\(body\)[\s\S]{0,200}sha256Hex\(lobbyToken/,
+  );
+  // Freshness plus single-use nonces bound the replay window.
+  assert.match(chatAuth, /MaxTimestampSkewSecs = 120L/);
+  assert.match(chatAuth, /class ReplayGuard/);
+  assert.match(chatAuth, /MaxTrackedNonces = 8192/);
+
+  // The server resolves the signer by key id and verifies before trusting anything.
+  assert.match(chatServer, /snapshot\.peersByKey\[keyId\.lowercase\(Locale\.US\)\]/);
+  assert.match(chatServer, /ChatAuth\.verifySignature\(peer\.publicKeyDer, signature, canonical\)/);
+  assert.match(chatServer, /replayGuard\.accept\(keyId, nonce, timestamp, now\)/);
+  // The audience is our own virtual IP, so a signed request cannot be relayed.
+  assert.match(chatServer, /snapshot\.local\.virtualIp/);
+  // Source IP is only ever a consistency check, and only after verification.
+  assert.match(chatServer, /peer\.identity\.virtualIp != source\.hostAddress/);
+  assert.doesNotMatch(chatServer, /snapshot\.identities\[source\]/);
+  // A duplicate or malformed key must fail at roster installation.
+  assert.match(chatServer, /if \(byKey\.put\(keyId, VerifiedPeer\(identity, der\)\) != null\) return null/);
+  assert.match(chatServer, /ChatAuth\.parsePublicKey\(encoded\) \?: return null/);
+  // The body is read before authentication so the signature covers exact bytes.
+  assert.match(chatServer, /val bodyBytes = readJsonBody\(session\)[\s\S]{0,200}authenticate\(session, "POST", "\/api\/chat\/send", bodyBytes\)/);
+  // History reads are signed too.
+  assert.match(chatServer, /authenticate\(session, "GET", "\/api\/chat\/messages", EMPTY_BODY\)/);
+
+  // The client signs every attempt separately and retires the key on leave.
+  assert.match(chatClient, /fun ensureSigningKey\(\): String\?/);
+  assert.match(chatClient, /ChatAuth\.KeyIdHeader/);
+  assert.match(chatClient, /ChatAuth\.SignatureHeader/);
+  assert.match(chatClient, /ChatAuth\.TimestampHeader/);
+  assert.match(chatClient, /ChatAuth\.NonceHeader/);
+  assert.match(chatClient, /audience = ip/);
+  assert.match(chatClient, /synchronized\(signerLock\) \{ signer = null \}/);
+  assert.match(chatClient, /Rejected chat peer snapshot with duplicate signing keys/);
+
+  // Public keys are published through the authenticated signaling socket only,
+  // and travel bound to a player id the sender could not forge.
+  assert.match(signalingClient, /chatPublicKey = args\.chatPublicKey/);
+  assert.match(models, /data class PlayerWire[\s\S]{0,400}chatPublicKey/);
+  assert.match(models, /data class ChatPeerIdentity[\s\S]{0,400}chatPublicKey/);
+  assert.match(repository, /chatClient\?\.ensureSigningKey\(\)/);
+  assert.match(repository, /ChatPeerIdentity\(player\.id, player\.name, player\.virtualIp!!\.trim\(\), player\.chatPublicKey\)/);
+
+  // The WebView needs the new headers allowed through CORS.
+  assert.match(lanCors, /X-MCTier-Chat-Key/);
+  assert.match(lanCors, /X-MCTier-Chat-Sig/);
+  assert.match(lanCors, /X-MCTier-Chat-Ts/);
+  assert.match(lanCors, /X-MCTier-Chat-Nonce/);
 });
 
 test('public lobbies are passwordless and plaza metadata has no credential field', () => {

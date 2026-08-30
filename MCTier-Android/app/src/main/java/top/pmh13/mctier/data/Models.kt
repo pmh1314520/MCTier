@@ -50,6 +50,8 @@ data class Player(
     val virtualIp: String? = null,
     val virtualDomain: String? = null,
     val useDomain: Boolean = false,
+    /** 该成员由信令名册下发的聊天签名公钥（base64 X.509 SPKI DER），缺失表示旧版客户端。 */
+    val chatPublicKey: String? = null,
     val micEnabled: Boolean = false,
     val muted: Boolean = false,
     val speaking: Boolean = false,
@@ -162,6 +164,7 @@ data class SignalingEnvelope(
     val lobbyId: String? = null,
     val chatToken: String? = null,
     val chatTokenEpoch: Long? = null,
+    val chatPublicKey: String? = null,
     val from: String? = null,
     val to: String? = null,
     val clientId: String? = null,
@@ -222,6 +225,7 @@ data class PlayerWire(
     val virtualIp: String? = null,
     val virtualDomain: String? = null,
     val useDomain: Boolean? = null,
+    val chatPublicKey: String? = null,
 )
 
 @Serializable
@@ -252,11 +256,19 @@ data class ChatWireMessage(
     @SerialName("image_data") val imageData: List<Int>? = null, // 图片字节(0~255)
 )
 
-/** 权威聊天身份：playerId/name 来自已认证信令快照，virtualIp 用于 TCP 源地址绑定。 */
+/**
+ * 权威聊天身份：playerId/name 来自已认证信令快照。
+ *
+ * [chatPublicKey] 是该成员自己发布、由信令绑定到其 playerId 的签名公钥；
+ * 请求的归属完全由签名校验决定，virtualIp 退化为一致性校验的辅助信息，
+ * 因此伪造虚拟 IP 已无法冒充他人。为空表示该成员未发布公钥（旧版客户端），
+ * 其请求无法被验证。
+ */
 data class ChatPeerIdentity(
     val playerId: String,
     val playerName: String,
     val virtualIp: String,
+    val chatPublicKey: String? = null,
 )
 
 /** P2P 聊天发送请求体（与桌面端 SendMessageRequest 对齐） */

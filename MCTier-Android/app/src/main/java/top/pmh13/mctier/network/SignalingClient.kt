@@ -145,6 +145,9 @@ class SignalingClient {
             virtualIp = args.virtualIp,
             virtualDomain = args.virtualDomain,
             useDomain = args.useDomain,
+            // 聊天签名公钥随注册一并上送：它只在这条已认证的 WebSocket 上出现，
+            // 由服务器绑定到本连接的 playerId 后再分发给其他成员，成员无法替他人发布。
+            chatPublicKey = args.chatPublicKey,
             lobbyName = args.lobbyName,
             lobbyPassword = args.lobbyPassword,
             clientVersion = AppClientVersion,
@@ -185,4 +188,5 @@ data class ConnectArgs(
     val virtualIp: String,
     val virtualDomain: String?,
     val useDomain: Boolean,
+    val chatPublicKey: String? = null,
 )

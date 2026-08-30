@@ -40,6 +40,12 @@ pub fn lan_cors_layer() -> CorsLayer {
             header::RANGE,
             header::HeaderName::from_static("x-share-password"),
             header::HeaderName::from_static("x-mctier-chat-token"),
+            // 聊天请求签名材料：缺一个都会让签名校验失败，
+            // 因此必须与令牌头一起列入白名单。
+            header::HeaderName::from_static("x-mctier-chat-key"),
+            header::HeaderName::from_static("x-mctier-chat-sig"),
+            header::HeaderName::from_static("x-mctier-chat-ts"),
+            header::HeaderName::from_static("x-mctier-chat-nonce"),
         ])
         .expose_headers([
             header::CONTENT_LENGTH,

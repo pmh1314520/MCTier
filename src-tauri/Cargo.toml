@@ -42,6 +42,12 @@ reqwest = { version = "0.12", features = ["blocking", "stream", "json"] }
 rfd = "0.15"
 urlencoding = "2.1"
 base64 = "0.22"
+# 聊天鉴权：每个成员一对 P-256 密钥，消息由私钥签名、接收方用信令下发的
+# 公钥验签。选 P-256 而非 Ed25519 是为了与 Android 端互通——Android 的
+# `KeyPairGenerator("Ed25519")` 要 API 33+，而本项目 minSdk 为 26，
+# secp256r1 + SHA256withECDSA 则在所有支持的系统版本上都可用。
+p256 = "0.13"
+sha2 = "0.10"
 # 高性能文件传输
 bytes = "1"
 dashmap = "6"

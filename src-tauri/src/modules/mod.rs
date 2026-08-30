@@ -49,6 +49,9 @@ pub mod file_transfer;
 // P2P聊天服务模块
 pub mod chat_service;
 
+// 聊天鉴权：每成员密钥对 + 请求签名（消除虚拟IP伪造空间）
+pub mod chat_auth;
+
 // Minecraft 局域网世界自动发现模块
 pub mod minecraft_discovery;
 

@@ -22,6 +22,10 @@ import java.util.concurrent.TimeUnit
  * The HTTP listener is deliberately inert until the signaling session has
  * supplied a valid chat token and epoch. Peer destinations and message
  * identities are populated from the same authenticated signaling snapshot.
+ *
+ * Outgoing requests are signed with an ephemeral P-256 key whose public half is
+ * published through signaling, so the receiver attributes the request to this
+ * member by signature rather than by TCP source address.
  */
 class ChatP2PClient(
     private val playerId: String,
@@ -41,11 +45,33 @@ class ChatP2PClient(
     @Volatile private var peerIdentities: List<ChatPeerIdentity> = emptyList()
     @Volatile private var localPlayerName: String = ""
     @Volatile private var started = false
+    @Volatile private var signer: ChatAuth.ChatSigner? = null
+    private val signerLock = Any()
+
+    /**
+     * Public key that must be handed to signaling before registering.
+     *
+     * The key pair is created on first use and then reused until [stop], so the
+     * value published to signaling and the value used to sign requests cannot
+     * drift apart. Returns null only if the platform cannot generate P-256 keys,
+     * in which case chat must not start at all.
+     */
+    fun ensureSigningKey(): String? = synchronized(signerLock) {
+        signer?.let { return it.publicKeyBase64() }
+        val generated = ChatAuth.ChatSigner.generate()
+        if (generated == null) {
+            Log.e(TAG, "无法生成聊天签名密钥")
+            return null
+        }
+        signer = generated
+        return generated.publicKeyBase64()
+    }
 
     /** Install the first session or a newer registration snapshot. */
     fun configureSession(token: String, tokenEpoch: Long, playerName: String, hostId: String?): Boolean {
         localPlayerName = playerName
-        val local = ChatPeerIdentity(playerId, playerName, bindIp)
+        val publicKey = ensureSigningKey() ?: return false
+        val local = ChatPeerIdentity(playerId, playerName, bindIp, publicKey)
         return server.configureSession(token, tokenEpoch, local, peerIdentities, hostId)
     }
 
@@ -83,6 +109,8 @@ class ChatP2PClient(
         seen.clear()
         peerIdentities = emptyList()
         localPlayerName = ""
+        // 离开大厅即永久作废该会话的签名凭据。
+        synchronized(signerLock) { signer = null }
     }
 
     /** Update the authoritative peer IP-to-player map from signaling. */
@@ -94,6 +122,12 @@ class ChatP2PClient(
                 ChatHttpServer.parseUsableIp(peer.virtualIp)?.hostAddress?.let { ip -> peer.copy(virtualIp = ip) }
             }
             .toList()
+        // 两名成员出现同一把公钥会让归属产生歧义，直接拒绝整份快照。
+        val publishedKeys = normalized.mapNotNull { it.chatPublicKey?.takeIf { key -> key.isNotBlank() } }
+        if (publishedKeys.distinct().size != publishedKeys.size) {
+            Log.w(TAG, "Rejected chat peer snapshot with duplicate signing keys")
+            return false
+        }
         if (
             normalized.size > MAX_PEERS ||
             normalized.map { it.playerId }.distinct().size != normalized.size ||
@@ -146,7 +180,9 @@ class ChatP2PClient(
         }
         remember(id)
         val req = ChatSendRequest(id, playerId, effectiveName, content, type, imageData)
+        // 编码一次并复用同一份字节：签名覆盖的正是这些字节。
         val body = MctierWireJson.encodeToString(ChatSendRequest.serializer(), req)
+            .toByteArray(Charsets.UTF_8)
         peerIdentities.map { it.virtualIp }.distinct().forEach { ip ->
             scope.launch { postWithRetry(ip, body) }
         }
@@ -160,14 +196,41 @@ class ChatP2PClient(
         onMessage(msg)
     }
 
-    private fun postWithRetry(ip: String, body: String) {
+    /**
+     * POST to one peer, signing each attempt separately.
+     *
+     * A retry must not reuse the previous nonce or timestamp: the receiver's
+     * replay guard would reject the identical request as a replay. The audience
+     * is the destination peer's virtual IP, which stops that peer from relaying
+     * this request to a third member as if freshly authored here.
+     */
+    private fun postWithRetry(ip: String, body: ByteArray) {
         repeat(2) { attempt ->
-            val token = server.currentToken()
-            if (token == null) return
+            val token = server.currentToken() ?: return
+            val epoch = server.currentTokenEpoch()
+            if (epoch <= 0L) return
+            val activeSigner = synchronized(signerLock) { signer } ?: return
+            val signed = activeSigner.sign(
+                method = "POST",
+                path = CHAT_SEND_PATH,
+                audience = ip,
+                tokenEpoch = epoch,
+                timestamp = ChatAuth.unixSeconds(),
+                body = body,
+                lobbyToken = token,
+            )
+            if (signed == null) {
+                Log.w(TAG, "聊天请求签名失败，已放弃发送")
+                return
+            }
             val ok = runCatching {
                 val req = Request.Builder()
-                    .url("http://${formatHost(ip)}:14540/api/chat/send")
+                    .url("http://${formatHost(ip)}:14540$CHAT_SEND_PATH")
                     .header(ChatTokenHeader, token)
+                    .header(ChatAuth.KeyIdHeader, signed.keyId)
+                    .header(ChatAuth.SignatureHeader, signed.signature)
+                    .header(ChatAuth.TimestampHeader, signed.timestamp)
+                    .header(ChatAuth.NonceHeader, signed.nonce)
                     .post(body.toRequestBody("application/json".toMediaType()))
                     .build()
                 client.newCall(req).execute().use { it.isSuccessful }
@@ -193,5 +256,6 @@ class ChatP2PClient(
         private const val MAX_SEEN_IDS = 1000
         private const val MAX_PEERS = 64
         private const val ChatTokenHeader = "x-mctier-chat-token"
+        private const val CHAT_SEND_PATH = "/api/chat/send"
     }
 }
