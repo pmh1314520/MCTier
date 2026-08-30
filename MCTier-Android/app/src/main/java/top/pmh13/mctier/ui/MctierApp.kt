@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -151,6 +153,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
@@ -174,6 +177,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -4575,11 +4579,41 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * 随 APK 打包的许可证/声明文档。
+ *
+ * LGPL-3.0 要求许可证文本随发行版一同提供，因此这些文件由 build.gradle.kts 的
+ * syncLicenseAssets 任务从仓库根目录复制进 assets，离线安装的用户也能读到全文。
+ * 枚举里的 assetName 必须与该任务复制出的文件名一致。
+ */
+private enum class LicenseDoc(
+    val assetName: String,
+    val titleZh: String,
+    val titleEn: String,
+) {
+    ThirdPartyNotices("THIRD_PARTY_NOTICES.md", "第三方组件完整声明", "Full Third-Party Notices"),
+    Lgpl("LICENSE-LGPL-3.0.txt", "LGPL-3.0 许可证全文", "LGPL-3.0 License Text"),
+    Gpl("LICENSE-GPL-3.0.txt", "GPL-3.0 许可证全文", "GPL-3.0 License Text"),
+    McTier("LICENSE.txt", "MCTier 自有代码许可证", "MCTier Own-Code License"),
+    EasyTierPatch(
+        "easytier-2.6.0-mctier-android.patch",
+        "EasyTier 修改补丁（Android）",
+        "EasyTier Modification Patch (Android)",
+    ),
+}
+
+/** 读取 assets 中的文本；失败时返回提示而不是抛出，避免"关于"页因读文件崩溃。 */
+private fun readLicenseAsset(ctx: android.content.Context, name: String): String =
+    runCatching { ctx.assets.open(name).bufferedReader().use { it.readText() } }
+        .getOrElse { "读取失败 / Failed to read: $name\n${it.message ?: it::class.java.simpleName}" }
+
 @Composable
 private fun AboutScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var showSponsor by remember { mutableStateOf(false) }
     var enlargedSponsor by remember { mutableStateOf<Int?>(null) }
+    // 离线可读的许可证/声明全文（随 APK 打包，见 build.gradle.kts 的 syncLicenseAssets）
+    var licenseAsset by remember { mutableStateOf<LicenseDoc?>(null) }
     fun open(url: String) { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp)) {
         Spacer(Modifier.height(10.dp))
@@ -4649,8 +4683,20 @@ private fun AboutScreen(onBack: () -> Unit) {
                         fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.7f), lineHeight = 19.sp
                     )
                     Spacer(Modifier.height(12.dp))
+                    // 以下为随 APK 打包的本地全文，离线亦可查看（LGPL-3.0 要求许可证文本随发行版提供）。
+                    Text(
+                        L("以下文本已随应用打包，无需联网即可查看：", "The following texts ship with the app and can be read offline:"),
+                        fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.6f), lineHeight = 18.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LicenseDoc.entries.forEach { doc ->
+                        AboutLinkVectorRow(L(doc.titleZh, doc.titleEn), doc.assetName, R.drawable.ic_github) {
+                            licenseAsset = doc
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
                     AboutLinkVectorRow(
-                        L("第三方组件完整声明", "Full Third-Party Notices"),
+                        L("第三方组件完整声明（在线）", "Full Third-Party Notices (online)"),
                         "THIRD_PARTY_NOTICES.md",
                         R.drawable.ic_github
                     ) { open("https://github.com/pmh1314520/MCTier/blob/master/THIRD_PARTY_NOTICES.md") }
@@ -4681,6 +4727,34 @@ private fun AboutScreen(onBack: () -> Unit) {
             }
             item { Spacer(Modifier.height(20.dp)) }
         }
+    }
+    licenseAsset?.let { doc ->
+        // 大文件（GPL-3.0 约 35KB、补丁约 37KB）在 IO 线程读取，避免阻塞主线程。
+        val content by produceState<String?>(initialValue = null, doc) {
+            value = withContext(Dispatchers.IO) { readLicenseAsset(ctx, doc.assetName) }
+        }
+        AlertDialog(
+            onDismissRequest = { licenseAsset = null },
+            containerColor = Panel,
+            title = { Text(L(doc.titleZh, doc.titleEn), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                val text = content
+                if (text == null) {
+                    Text(L("正在读取…", "Loading…"), fontSize = 13.sp, color = TextPrimary.copy(alpha = 0.6f))
+                } else {
+                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        Text(
+                            text,
+                            fontSize = 11.sp,
+                            color = TextPrimary.copy(alpha = 0.85f),
+                            lineHeight = 16.sp,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { licenseAsset = null }) { Text(L("关闭", "Close"), color = GrassGreen) } },
+        )
     }
     if (showSponsor) {
         AlertDialog(

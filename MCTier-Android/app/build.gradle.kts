@@ -51,6 +51,32 @@ android {
     }
 }
 
+// LGPL-3.0 要求许可证文本随发行版一同提供，仅在"关于"页放 GitHub 链接不够：
+// 离线安装 APK 的用户必须也能在本地读到全文。这里把仓库根目录的许可证/声明
+// 复制进 assets，使其打进 APK；由构建任务从单一来源同步，避免副本与根目录不一致。
+val licenseAssetDir = layout.buildDirectory.dir("generated/licenseAssets")
+
+val syncLicenseAssets by tasks.registering(Sync::class) {
+    description = "Copy repository license texts into APK assets for offline access."
+    val repoRoot = rootProject.layout.projectDirectory.dir("..")
+    from(repoRoot.file("LICENSE")) { rename { "LICENSE.txt" } }
+    from(repoRoot.file("LICENSE-LGPL-3.0.txt"))
+    from(repoRoot.file("LICENSE-GPL-3.0.txt"))
+    from(repoRoot.file("THIRD_PARTY_NOTICES.md"))
+    from(repoRoot.file("patches/easytier-2.6.0-mctier-android.patch"))
+    into(licenseAssetDir)
+}
+
+android.sourceSets.getByName("main").assets.srcDir(licenseAssetDir)
+
+// 仅把目录登记为 assets 源不够：AGP 的资产合并任务不会因此依赖上面的复制任务，
+// 结果是根目录文本更新后 APK 里仍是旧副本（实测 mergeReleaseAssets 直接 UP-TO-DATE）。
+// 这里显式建立依赖，确保每次构建都先同步再合并。
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(syncLicenseAssets)
+}
+tasks.named("preBuild") { dependsOn(syncLicenseAssets) }
+
 // Kotlin 2.2+ 起 android.kotlinOptions 已废弃（2.4 起为错误），改用 compilerOptions DSL。
 kotlin {
     compilerOptions {

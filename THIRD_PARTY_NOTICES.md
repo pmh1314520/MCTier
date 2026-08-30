@@ -64,6 +64,20 @@ MCTier 不对 EasyTier 的版权主体作任何额外主张。
 
 详细条款见 `LICENSE` 中的“第三方组件与许可证边界”一节。
 
+### 3.1 许可证文本如何随发行版交付 / How License Texts Are Delivered
+
+LGPL-3.0 要求许可证文本随发行版一同提供，因此两端均**不依赖联网**即可读到全文：
+
+- **Windows 桌面端**：`src-tauri/tauri.conf.json` 的 `bundle.resources` 将 `LICENSE`、
+  `THIRD_PARTY_NOTICES.md`、`licenses/*`（含 LGPL-3.0 与 GPL-3.0 全文）以及 Android 端的
+  EasyTier 补丁一并打进安装包的 `licenses/` 目录；应用「关于」窗口另有第三方组件声明区块。
+- **Android 端**：`MCTier-Android/app/build.gradle.kts` 的 `syncLicenseAssets` 任务在构建时
+  从仓库根目录复制 `LICENSE`（打包为 `LICENSE.txt`）、`LICENSE-LGPL-3.0.txt`、
+  `LICENSE-GPL-3.0.txt`、`THIRD_PARTY_NOTICES.md` 与 EasyTier 补丁进 APK 的 `assets/`；
+  「关于 → 开源许可与第三方组件」可直接在应用内查看这些全文。
+  这些文件由构建任务从**单一来源**同步，不存在与仓库根目录不一致的副本；
+  `isShrinkResources` 不会移除 `assets/` 下的文件（已在 release 产物中核验）。
+
 ---
 
 ## 4. Windows 端 EasyTier 集成 / Windows Integration
