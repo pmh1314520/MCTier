@@ -88,6 +88,11 @@ jobs:
         working-directory: src-tauri
         run: cargo check --lib --tests
 
+      - name: Unit tests
+        working-directory: src-tauri
+        # `cargo check --tests` 只编译不执行；测试必须单独跑，否则断言回归不会被发现。
+        run: cargo test --lib
+
   android:
     name: Android (assembleDebug)
     runs-on: ubuntu-latest
