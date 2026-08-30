@@ -72,6 +72,26 @@ jobs:
         run: .\scripts\fetch-binaries.ps1
         shell: pwsh
 
+      - name: Stage compile-only EasyTier placeholders
+        # easytier-core/cli 不再从官方发布包获取：官方构建在 PE 导入表中静态导入
+        # Npcap 的 packet.dll，而 Npcap 不得随本项目再分发（见 THIRD_PARTY_NOTICES.md §8）。
+        # 真实产物由 scripts/build-easytier-npcap-free.ps1 重建，但那需要克隆并完整编译
+        # 一遍 EasyTier（数分钟以上），对每次 CI 而言过于昂贵。
+        #
+        # 本任务只验证「代码能否编译、单元测试是否通过」，全程不执行这两个二进制，
+        # 因此放占位文件让 include_bytes! 有东西可读即可。占位内容刻意是可识别的文本：
+        # 一旦被误用于发行构建，EasyTier 会立即以明显的方式失败，而不是悄悄产出坏包。
+        run: |
+          $dir = 'src-tauri/resources/binaries'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          foreach ($name in @('easytier-core.exe', 'easytier-cli.exe')) {
+            $path = Join-Path $dir $name
+            if (Test-Path -LiteralPath $path) { continue }
+            Set-Content -LiteralPath $path -Encoding ascii -NoNewline -Value 'MCTIER-CI-PLACEHOLDER-NOT-A-REAL-BINARY'
+            Write-Host "staged placeholder: $name"
+          }
+        shell: pwsh
+
       - name: Format check
         working-directory: src-tauri
         # 存量文件（build.rs / lib.rs 等）尚未按 rustfmt 规范化，暂不阻塞。
