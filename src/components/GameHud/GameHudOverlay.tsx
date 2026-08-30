@@ -3,6 +3,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { tl } from '../../i18n';
+import { sanitizeIdentifier, sanitizeUntrustedText } from '../../security/trustBoundary';
 import './GameHudOverlay.css';
 
 interface HudPeer {
@@ -21,6 +22,29 @@ interface HudPayload {
   peers: HudPeer[];
   opacity?: number;
   scale?: number;
+}
+
+function normalizeHudPeers(value: unknown): HudPeer[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const peer = candidate as Record<string, unknown>;
+    const playerId = sanitizeIdentifier(peer.playerId);
+    if (!playerId) return [];
+    const numberOrNull = (input: unknown): number | null =>
+      typeof input === 'number' && Number.isFinite(input) ? input : null;
+    return [{
+      playerId,
+      name: sanitizeUntrustedText(peer.name, 64).trim() || tl('未知玩家', 'Unknown player'),
+      ping: numberOrNull(peer.ping),
+      loss: Math.max(0, Math.min(100, numberOrNull(peer.loss) ?? 0)),
+      speaking: peer.speaking === true,
+      self: peer.self === true,
+      muted: peer.muted === true,
+      down: Math.max(0, Math.min(1_000_000, numberOrNull(peer.down) ?? 0)),
+      up: Math.max(0, Math.min(1_000_000, numberOrNull(peer.up) ?? 0)),
+    }];
+  });
 }
 
 /**
@@ -49,15 +73,23 @@ export const GameHudOverlay: React.FC = () => {
 
     let un: (() => void) | undefined;
     listen<HudPayload>('hud-update', (e) => {
-      if (e.payload && Array.isArray(e.payload.peers)) setPeers(e.payload.peers);
-      if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
-      if (e.payload && typeof e.payload.scale === 'number') setScale(e.payload.scale);
+      if (e.payload && Array.isArray(e.payload.peers)) setPeers(normalizeHudPeers(e.payload.peers));
+      if (e.payload && typeof e.payload.opacity === 'number' && Number.isFinite(e.payload.opacity)) {
+        setOpacity(Math.max(0, Math.min(1, e.payload.opacity)));
+      }
+      if (e.payload && typeof e.payload.scale === 'number' && Number.isFinite(e.payload.scale)) {
+        setScale(Math.max(0.5, Math.min(2, e.payload.scale)));
+      }
     }).then((fn) => { un = fn; });
     // 透明度/尺寸实时变更（设置界面拖动滑块时）
     let unCfg: (() => void) | undefined;
     listen<{ opacity?: number; scale?: number }>('hud-config', (e) => {
-      if (e.payload && typeof e.payload.opacity === 'number') setOpacity(e.payload.opacity);
-      if (e.payload && typeof e.payload.scale === 'number') setScale(e.payload.scale);
+      if (e.payload && typeof e.payload.opacity === 'number' && Number.isFinite(e.payload.opacity)) {
+        setOpacity(Math.max(0, Math.min(1, e.payload.opacity)));
+      }
+      if (e.payload && typeof e.payload.scale === 'number' && Number.isFinite(e.payload.scale)) {
+        setScale(Math.max(0.5, Math.min(2, e.payload.scale)));
+      }
     }).then((fn) => { unCfg = fn; });
     let unLang: (() => void) | undefined;
     listen<string>('mctier-lang-changed', (e) => {

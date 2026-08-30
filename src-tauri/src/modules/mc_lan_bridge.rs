@@ -150,7 +150,10 @@ fn ensure_emit_thread() {
                         if !b.running {
                             Vec::new()
                         } else {
-                            b.proxies.values().map(|p| (p.proxy_port, p.motd.clone())).collect()
+                            b.proxies
+                                .values()
+                                .map(|p| (p.proxy_port, p.motd.clone()))
+                                .collect()
                         }
                     }
                     Err(_) => Vec::new(), // 锁中毒时本轮跳过，不 panic

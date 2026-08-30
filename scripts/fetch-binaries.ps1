@@ -33,9 +33,54 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $TargetDir = Join-Path $RepoRoot 'src-tauri\resources\binaries'
-$WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('mctier-fetch-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('mctier-fetch-' + [Guid]::NewGuid().ToString('N'))
+$MaximumArchiveBytes = 128MB
+$MaximumExtractedBytes = 128MB
+$MaximumEntryBytes = 64MB
+$MaximumEntryCount = 1000
+$MaximumRedirects = 3
+$repoFullPath = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$repoPrefix = $repoFullPath + [System.IO.Path]::DirectorySeparatorChar
+
+function Test-PathWithinRepo([string]$Path) {
+    $fullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    return $fullPath.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-SafeTargetDirectory {
+    $parent = Split-Path -Parent $TargetDir
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw '目标目录的父目录不存在。'
+    }
+    $resolvedParent = (Resolve-Path -LiteralPath $parent).Path
+    if (-not (Test-PathWithinRepo $resolvedParent)) {
+        throw '目标目录必须位于仓库目录内。'
+    }
+
+    $target = Get-Item -LiteralPath $TargetDir -Force -ErrorAction SilentlyContinue
+    if (-not $target) { return }
+    if (-not $target.PSIsContainer) {
+        throw '目标路径不是目录。'
+    }
+    if (($target.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw '拒绝使用重解析点作为目标目录。'
+    }
+    $resolvedTarget = (Resolve-Path -LiteralPath $TargetDir).Path
+    if (-not (Test-PathWithinRepo $resolvedTarget)) {
+        throw '目标目录解析后位于仓库外。'
+    }
+}
+
+function Assert-SafeTargetFile([string]$Name) {
+    $path = Join-Path $TargetDir $Name
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return }
+    if ($item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "拒绝覆盖非普通目标文件: $Name"
+    }
+}
 
 # EasyTier 官方 Windows 发布包（tag v2.5.0 / commit 88a45d115670631dfe6a05ba192387d615ddb95b）
 $EasyTierVersion = 'v2.5.0'
@@ -68,8 +113,187 @@ function Get-Sha256([string]$Path) {
 
 function Test-ExistingFile([string]$Name) {
     $path = Join-Path $TargetDir $Name
-    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        return $false
+    }
     return (Get-Sha256 $path) -eq $Expected[$Name]
+}
+
+function Test-AllowedDownloadUri([System.Uri]$Uri) {
+    if (-not $Uri.IsAbsoluteUri -or $Uri.Scheme -ne 'https' -or $Uri.UserInfo) {
+        throw "拒绝不安全的下载重定向: $Uri"
+    }
+    $uriHost = $Uri.Host.ToLowerInvariant()
+    $allowed = $uriHost -eq 'github.com' -or
+        $uriHost.EndsWith('.github.com', [System.StringComparison]::OrdinalIgnoreCase) -or
+        $uriHost -eq 'githubusercontent.com' -or
+        $uriHost.EndsWith('.githubusercontent.com', [System.StringComparison]::OrdinalIgnoreCase)
+    if (-not $allowed) {
+        throw "拒绝非 GitHub 官方下载主机: $uriHost"
+    }
+}
+
+function Save-HttpDownload([System.Uri]$Uri, [string]$Destination, [long]$MaximumBytes) {
+    Test-AllowedDownloadUri $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::None
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [System.TimeSpan]::FromSeconds(90)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd('MCTier-fetch-binaries')
+    $currentUri = $Uri
+    try {
+        for ($redirect = 0; $redirect -le $MaximumRedirects; $redirect++) {
+            Test-AllowedDownloadUri $currentUri
+            $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $currentUri)
+            try {
+                $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            } finally {
+                $request.Dispose()
+            }
+
+            try {
+                $statusCode = [int]$response.StatusCode
+                if ($statusCode -ge 300 -and $statusCode -lt 400) {
+                    if ($redirect -ge $MaximumRedirects -or -not $response.Headers.Location) {
+                        throw '下载重定向次数超过上限或缺少 Location。'
+                    }
+                    $nextUri = $response.Headers.Location
+                    if (-not $nextUri.IsAbsoluteUri) { $nextUri = [System.Uri]::new($currentUri, $nextUri) }
+                    Test-AllowedDownloadUri $nextUri
+                    $currentUri = $nextUri
+                    continue
+                }
+                if (-not $response.IsSuccessStatusCode) {
+                    throw "下载失败，HTTP 状态码 $statusCode。"
+                }
+
+                $contentLength = $response.Content.Headers.ContentLength
+                if ($null -ne $contentLength -and [long]$contentLength -gt $MaximumBytes) {
+                    throw "下载内容超过大小上限 ($MaximumBytes 字节)。"
+                }
+
+                $input = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                $output = [System.IO.File]::Open($Destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+                try {
+                    $buffer = New-Object byte[] 65536
+                    [long]$total = 0
+                    while (($read = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        $total += $read
+                        if ($total -gt $MaximumBytes) {
+                            throw "下载内容超过大小上限 ($MaximumBytes 字节)。"
+                        }
+                        $output.Write($buffer, 0, $read)
+                    }
+                    $output.Flush()
+                } finally {
+                    $output.Dispose()
+                    $input.Dispose()
+                }
+                return
+            } finally {
+                $response.Dispose()
+            }
+        }
+        throw '下载重定向次数超过上限。'
+    } finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
+function Test-ZipArchive([string]$Path) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    [long]$totalBytes = 0
+    [int]$entryCount = 0
+    try {
+        foreach ($entry in $archive.Entries) {
+            $entryCount++
+            if ($entryCount -gt $MaximumEntryCount) {
+                throw "ZIP 条目数量超过上限 ($MaximumEntryCount)。"
+            }
+            $entryName = $entry.FullName.Replace('\', '/')
+            if ([string]::IsNullOrWhiteSpace($entryName) -or $entryName.IndexOf([char]0) -ge 0) {
+                throw 'ZIP 包含无效条目名称。'
+            }
+            if ($entryName.StartsWith('/') -or $entryName -match '^[A-Za-z]:/' -or $entryName -match '(^|/)\.\.(/|$)') {
+                throw "ZIP 包含不安全的路径: $($entry.FullName)"
+            }
+            if ($entry.Length -gt $MaximumEntryBytes) {
+                throw "ZIP 条目超过大小上限: $($entry.FullName)"
+            }
+            if ($entry.Length -gt ($MaximumExtractedBytes - $totalBytes)) {
+                throw "ZIP 解压总大小超过上限 ($MaximumExtractedBytes 字节)。"
+            }
+            $totalBytes += $entry.Length
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
+function Copy-VerifiedZipEntries([string]$ZipPath, [string]$DestinationDir) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    $failed = @()
+    $copied = 0
+    [long]$totalExtractedBytes = 0
+    try {
+        foreach ($name in $Expected.Keys) {
+            $matches = @($archive.Entries | Where-Object {
+                -not $_.FullName.EndsWith('/') -and
+                [System.IO.Path]::GetFileName($_.FullName.Replace('/', [System.IO.Path]::DirectorySeparatorChar)) -ceq $name
+            })
+            if ($matches.Count -eq 0) {
+                if ($Required -contains $name) { $failed += "${name}: 未在发布包中找到" }
+                continue
+            }
+            if ($matches.Count -ne 1) {
+                $failed += "${name}: 发布包中存在多个同名条目"
+                continue
+            }
+
+            $entry = $matches[0]
+            $destination = Join-Path $DestinationDir $name
+            $input = $entry.Open()
+            $output = [System.IO.File]::Open($destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try {
+                $buffer = New-Object byte[] 65536
+                [long]$total = 0
+                while (($read = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $total += $read
+                    $totalExtractedBytes += $read
+                    if ($total -gt $MaximumEntryBytes) { throw "ZIP 条目超过大小上限: $name" }
+                    if ($totalExtractedBytes -gt $MaximumExtractedBytes) {
+                        throw "ZIP 实际解压总大小超过上限 ($MaximumExtractedBytes 字节)。"
+                    }
+                    $output.Write($buffer, 0, $read)
+                }
+                $output.Flush()
+            } finally {
+                $output.Dispose()
+                $input.Dispose()
+            }
+
+            $actual = Get-Sha256 $destination
+            if ($actual -ne $Expected[$name]) {
+                Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+                $failed += "${name}: SHA-256 不匹配`n    期望 $($Expected[$name])`n    实际 $actual"
+                continue
+            }
+            Write-Host ("  [OK] {0,-24} {1}" -f $name, $actual) -ForegroundColor Green
+            $copied++
+        }
+    } finally {
+        $archive.Dispose()
+    }
+    if ($failed.Count -gt 0) {
+        $failed | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+        throw '依赖校验未通过，已中止。请勿使用未校验的二进制进行构建。'
+    }
+    return $copied
 }
 
 Write-Host 'MCTier 构建依赖获取脚本' -ForegroundColor Cyan
@@ -79,7 +303,9 @@ Write-Host 'Npcap 许可提示: Packet.dll 属 Npcap (Insecure.Com LLC)，非开
 Write-Host '未经 Nmap Project 书面许可不得随其他软件再分发。详见 THIRD_PARTY_NOTICES.md 第 8 节。' -ForegroundColor Yellow
 Write-Host ''
 
+Assert-SafeTargetDirectory
 New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+Assert-SafeTargetDirectory
 
 if (-not $Force) {
     $missing = @($Required | Where-Object { -not (Test-ExistingFile $_) })
@@ -92,54 +318,33 @@ if (-not $Force) {
     Write-Host ''
 }
 
-New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+New-Item -ItemType Directory -Path $WorkDir | Out-Null
 try {
     $zipPath = Join-Path $WorkDir 'easytier.zip'
+    $stagingDir = Join-Path $WorkDir 'verified'
+    $workItem = Get-Item -LiteralPath $WorkDir -Force
+    if (($workItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw '拒绝使用重解析点作为临时工作目录。'
+    }
+    New-Item -ItemType Directory -Path $stagingDir | Out-Null
     Write-Host "正在下载 EasyTier $EasyTierVersion ..."
     Write-Host "  $EasyTierUrl"
-    $progressPreferenceBackup = $ProgressPreference
-    $ProgressPreference = 'SilentlyContinue'
-    try {
-        Invoke-WebRequest -Uri $EasyTierUrl -OutFile $zipPath -UseBasicParsing -Headers @{ 'User-Agent' = 'MCTier-fetch-binaries' }
-    } finally {
-        $ProgressPreference = $progressPreferenceBackup
-    }
+    Save-HttpDownload ([System.Uri]::new($EasyTierUrl)) $zipPath $MaximumArchiveBytes
     Write-Host ("  下载完成: {0:N0} 字节" -f (Get-Item -LiteralPath $zipPath).Length)
 
-    $extractDir = Join-Path $WorkDir 'extracted'
-    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
-
-    $failed = @()
-    $copied = 0
-    foreach ($name in $Expected.Keys) {
-        $found = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter $name -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if (-not $found) {
-            if ($Required -contains $name) { $failed += "${name}: 未在发布包中找到" }
-            continue
-        }
-
-        $actual = Get-Sha256 $found.FullName
-        if ($actual -ne $Expected[$name]) {
-            $failed += "${name}: SHA-256 不匹配`n    期望 $($Expected[$name])`n    实际 $actual"
-            continue
-        }
-
-        Copy-Item -LiteralPath $found.FullName -Destination (Join-Path $TargetDir $name) -Force
-        Write-Host ("  [OK] {0,-24} {1}" -f $name, $actual) -ForegroundColor Green
-        $copied++
-    }
-
-    if ($failed.Count -gt 0) {
-        Write-Host ''
-        Write-Host '以下文件校验失败：' -ForegroundColor Red
-        $failed | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
-        throw '依赖校验未通过，已中止。请勿使用未校验的二进制进行构建。'
-    }
+    Test-ZipArchive $zipPath
+    $copied = Copy-VerifiedZipEntries $zipPath $stagingDir
 
     Write-Host ''
     Write-Host "完成，共放置 $copied 个文件。" -ForegroundColor Green
+
+    # Only publish after every required entry has passed verification, so a
+    # failed download can never leave a mixed set of dependencies in place.
+    Get-ChildItem -LiteralPath $stagingDir -File | ForEach-Object {
+        Assert-SafeTargetFile $_.Name
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetDir $_.Name) -Force
+    }
+    Assert-SafeTargetDirectory
 
     $stillMissing = @($Required | Where-Object { -not (Test-ExistingFile $_) })
     if ($stillMissing.Count -gt 0) {
@@ -147,7 +352,8 @@ try {
     }
     Write-Host 'include_bytes! 所需的 5 个二进制均已就位，现在可以执行 npm run tauri build。' -ForegroundColor Green
 } finally {
-    if (Test-Path -LiteralPath $WorkDir) {
+    $workItem = Get-Item -LiteralPath $WorkDir -Force -ErrorAction SilentlyContinue
+    if ($workItem -and $workItem.PSIsContainer -and (($workItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)) {
         Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

@@ -13,6 +13,7 @@ import { Avatar } from '../Avatar/Avatar';
 import { saveAvatarData } from '../../services/avatar/avatarService';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
+import { isSafeHttpUrl, isSafeImageDataUrl } from '../../security/trustBoundary';
 import type { ChatMessage } from '../../types';
 import './ChatRoom.css';
 
@@ -821,10 +822,11 @@ export const ChatRoom: React.FC = () => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const segments = text.split(urlRegex);
     return segments.map((seg, i) => {
-      if (urlRegex.test(seg)) {
+      if (/^https?:\/\//i.test(seg)) {
         // 去掉结尾常见标点，避免把句号带进链接
         const trimmed = seg.replace(/[。，、,.!?；;）)】\]]+$/, '');
         const tail = seg.slice(trimmed.length);
+        if (!isSafeHttpUrl(trimmed)) return <React.Fragment key={`u-${i}`}>{seg}</React.Fragment>;
         return (
           <React.Fragment key={`u-${i}`}>
             <a
@@ -894,6 +896,7 @@ export const ChatRoom: React.FC = () => {
             const isOwnMessage = message.playerId === currentPlayerId;
             const canRecallMessage = isOwnMessage && !message.recalled && isWithinRecallWindow(message.timestamp, recallClock);
             const showUnreadDivider = firstUnreadId && message.id === firstUnreadId;
+            const imageData = isSafeImageDataUrl(message.imageData) ? message.imageData : undefined;
             
             return (
               <React.Fragment key={message.id}>
@@ -937,23 +940,23 @@ export const ChatRoom: React.FC = () => {
                 </span>
                 
                 <div className="message-bubble-stack">
-                <div className={`message-content${message.type === 'image' && message.imageData ? ' message-content-image' : ''}${message.recalled ? ' message-content-recalled' : ''}`}>
+                <div className={`message-content${message.type === 'image' && imageData ? ' message-content-image' : ''}${message.recalled ? ' message-content-recalled' : ''}`}>
                   {message.recalled ? (
                     <span className="message-recalled-text message-text-body">{tl('此消息已撤回', 'This message was recalled')}</span>
-                  ) : message.type === 'image' && message.imageData ? (
+                  ) : message.type === 'image' && imageData ? (
                     <div className="chat-image-wrapper">
                       <img 
-                        src={message.imageData} 
+                         src={imageData}
                         alt={tl('聊天图片', 'Chat image')} 
                         className="chat-image"
-                        onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setPreviewImage(message.imageData!); }}
+                         onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setPreviewImage(imageData); }}
                         onLoad={() => { if (isAtBottom) { try { scrollToBottom(); } catch { /* ignore */ } } }}
                       />
                       <button
                         className="image-download-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDownloadImage(message.imageData!, message.id);
+                           handleDownloadImage(imageData, message.id);
                         }}
                         disabled={downloadingImageId === message.id}
                         title={tl('下载图片', 'Download image')}

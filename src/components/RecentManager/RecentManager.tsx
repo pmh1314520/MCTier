@@ -60,7 +60,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
       okButtonProps: { danger: true },
       centered: true,
       onOk: () => {
-        recentService.removeLobby(l.name, l.password);
+        recentService.removeLobby(l.name, l.lastJoined);
         refresh();
         message.success(tl('已移除', 'Removed'));
       },
@@ -75,7 +75,7 @@ export const RecentManager: React.FC<RecentManagerProps> = ({ visible, onClose, 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {lobbies.map((l) => (
             <div
-              key={`${l.name}|${l.password}`}
+              key={`${l.name}|${l.lastJoined}`}
               className="recent-lobby-item"
               onClick={() => handleSelect(l)}
               style={{

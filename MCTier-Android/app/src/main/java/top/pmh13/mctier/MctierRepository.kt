@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.pmh13.mctier.data.AppConnectionState
 import top.pmh13.mctier.data.ChatMessage
+import top.pmh13.mctier.data.ChatPeerIdentity
+import top.pmh13.mctier.data.ChatTokenHexLength
 import top.pmh13.mctier.data.ChatWireMessage
 import top.pmh13.mctier.data.AppClientVersion
 import top.pmh13.mctier.data.AvailableUpdate
@@ -42,6 +44,7 @@ import top.pmh13.mctier.network.FileShareHttpServer
 import top.pmh13.mctier.network.NetworkController
 import top.pmh13.mctier.network.RemoteFileClient
 import top.pmh13.mctier.network.ScreenShareController
+import top.pmh13.mctier.network.LobbyInviteCodec
 import top.pmh13.mctier.service.ScreenCaptureService
 import top.pmh13.mctier.network.SignalingClient
 import top.pmh13.mctier.data.FileShareWire
@@ -125,6 +128,12 @@ class MctierRepository(private val context: Context) {
         private const val TAG = "MctierRepository"
         private const val MaxPlayerNameLength = 8
         private const val RecallWindowMs = 2 * 60 * 1000L
+        private const val SecureAutoLobbyPasswordKey = "secure_autoLobbyPassword"
+        private const val SecureFavoritesKey = "secure_favorites"
+        private const val SecureRecentLobbiesKey = "secure_recentLobbies"
+        private const val LegacyAutoLobbyPasswordKey = "autoLobbyPassword"
+        private const val LegacyFavoritesKey = "favorites"
+        private const val LegacyRecentLobbiesKey = "recentLobbies"
 
         private fun normalizePlayerName(name: String): String =
             name.replace(Regex("\\s+"), "").take(MaxPlayerNameLength)
@@ -142,11 +151,15 @@ class MctierRepository(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs = context.getSharedPreferences("mctier", Context.MODE_PRIVATE)
+    private val securePrefs = SecurePreferenceStore(prefs)
     private val networkController = NetworkController(context)
     private val signalingClient = SignalingClient()
     private val rtcController = AndroidRtcController(context)
     private var fileServer: FileShareHttpServer? = null
     private var chatClient: ChatP2PClient? = null
+    private var chatLobbyId: String? = null
+    private var chatToken: String? = null
+    private var chatTokenEpoch: Long = 0L
     private val pendingChatRecalls = mutableMapOf<String, String>()
     private val remoteFileClient = RemoteFileClient(context)
     private val downloadJobs = ConcurrentHashMap<String, Job>()
@@ -345,6 +358,7 @@ class MctierRepository(private val context: Context) {
 
     fun updateSettings(settings: UserSettings) {
         val normalizedSettings = settings.copy(playerName = normalizePlayerName(settings.playerName))
+        saveSecurePreference(SecureAutoLobbyPasswordKey, LegacyAutoLobbyPasswordKey, normalizedSettings.autoLobbyPassword)
         prefs.edit {
             putString("playerName", normalizedSettings.playerName)
             putString("avatarData", normalizedSettings.avatarData)
@@ -355,7 +369,6 @@ class MctierRepository(private val context: Context) {
             putString("virtualDomain", settings.virtualDomain)
             putBoolean("autoLobbyEnabled", settings.autoLobbyEnabled)
             putString("autoLobbyName", settings.autoLobbyName)
-            putString("autoLobbyPassword", settings.autoLobbyPassword)
             putBoolean("enableExitNode", settings.enableExitNode)
             putBoolean("enableAsExitNode", settings.enableAsExitNode)
             putString("proxyCidrs", settings.proxyCidrs)
@@ -462,15 +475,25 @@ class MctierRepository(private val context: Context) {
         nodeOverride: String? = null,
         signalingOverride: String? = null,
     ) {
+        val safeLobbyName = lobbyName.trim()
+        val safePassword = password.trim()
+        if (!LobbyInviteCodec.isValidLobbyName(lobbyName) || !LobbyInviteCodec.isValidLobbyPassword(password)) {
+            _state.update { it.copy(error = L("大厅名称或密码格式无效", "Invalid lobby name or password")) }
+            return
+        }
         val current = _state.value
         val settings = current.settings
         val effectiveNode = nodeOverride?.takeIf { it.isNotBlank() } ?: settings.preferredServer
         val effectiveSignaling = signalingOverride?.takeIf { it.isNotBlank() } ?: settings.signalingServer.ifBlank { DefaultSignalingServer }
+        if (!LobbyInviteCodec.isValidEasyTierNode(effectiveNode) || !LobbyInviteCodec.isValidSignalingServer(effectiveSignaling)) {
+            _state.update { it.copy(error = L("节点或信令服务器地址无效", "Invalid node or signaling server address")) }
+            return
+        }
         scope.launch {
             _state.update { it.copy(state = AppConnectionState.Connecting, error = null) }
             runCatching {
                 val session = networkController.startEasyTier(
-                    lobbyName.trim(), password, settings.playerName, effectiveNode,
+                    safeLobbyName, safePassword, settings.playerName, effectiveNode,
                     mtu = settings.mtu.takeIf { it in 500..1500 } ?: 1420,
                     latencyFirst = settings.latencyFirst,
                     proxyCidrs = settings.proxyCidrs.split('\n', ',').map { it.trim() }.filter { it.isNotBlank() },
@@ -489,8 +512,8 @@ class MctierRepository(private val context: Context) {
                 )
                 val lobby = Lobby(
                     id = UUID.randomUUID().toString(),
-                    name = lobbyName.trim(),
-                    password = password,
+                    name = safeLobbyName,
+                    password = safePassword,
                     createdAt = System.currentTimeMillis(),
                     virtualIp = session.virtualIp,
                     virtualDomain = settings.virtualDomain.ifBlank { "${settings.playerName}.mct.net" },
@@ -500,7 +523,7 @@ class MctierRepository(private val context: Context) {
                 )
                 fileServer = FileShareHttpServer(context, current.playerId, session.virtualIp).also { it.start(5_000, false) }
                 // 启动 P2P 聊天（与桌面端 14540 互通）
-                chatClient = ChatP2PClient(current.playerId, ioScope, session.virtualIp) { wire -> onIncomingChat(wire) }.also { it.start() }
+                chatClient = ChatP2PClient(current.playerId, ioScope, session.virtualIp) { wire -> onIncomingChat(wire) }
                 screenController = ScreenShareController(appContext, current.playerId) { signalingClient.send(it) }.also { controller ->
                     controller.onViewerCountChanged = { shareId, count ->
                         _state.update { state ->
@@ -581,6 +604,14 @@ class MctierRepository(private val context: Context) {
         val leaving = _state.value
         invalidatePendingScreenCapture()
         invalidatePendingRemoteControlAccept()
+        val leavingChatClient = chatClient
+        fileServer?.clearLobbyToken()
+        chatClient = null
+        chatLobbyId = null
+        chatToken = null
+        chatTokenEpoch = 0L
+        pendingChatRecalls.clear()
+        runCatching { leavingChatClient?.stop() }
         pendingPlayerLeaveJobs.values.forEach { it.cancel() }
         pendingPlayerLeaveJobs.clear()
         announcedScreenShares.clear()
@@ -611,8 +642,6 @@ class MctierRepository(private val context: Context) {
             runCatching { rtcController.cleanup() }
             runCatching { top.pmh13.mctier.service.VoiceForegroundService.stop(appContext) }
             runCatching { top.pmh13.mctier.ui.MicKeepAliveOverlay.hide() }
-            runCatching { chatClient?.stop() }
-            chatClient = null
             runCatching { screenController?.release() }
             screenController = null
             runCatching { remoteControlController?.release() }
@@ -735,7 +764,7 @@ class MctierRepository(private val context: Context) {
         if (trimmed.isEmpty()) return
         val current = _state.value
         val client = chatClient ?: return
-        val wire = client.sendText(current.settings.playerName, trimmed)
+        val wire = client.sendText(current.settings.playerName, trimmed) ?: return
         val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, trimmed, wire.timestamp * 1000, mine = true)
         _state.update { it.copy(chatMessages = (it.chatMessages + message).takeLast(500)) }
     }
@@ -773,7 +802,7 @@ class MctierRepository(private val context: Context) {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, baos)
                 val bytes = baos.toByteArray()
                 val intList = bytes.map { it.toInt() and 0xFF }
-                val wire = client.sendImage(current.settings.playerName, intList)
+                val wire = client.sendImage(current.settings.playerName, intList) ?: return@runCatching
                 val base64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
                 val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, "[图片]", wire.timestamp * 1000, mine = true, type = "image", imageBase64 = base64)
                 _state.update { it.copy(chatMessages = (it.chatMessages + message).takeLast(500)) }
@@ -890,38 +919,6 @@ class MctierRepository(private val context: Context) {
         broadcastMyShares()
     }
 
-    /**
-     * 同步 P2P 聊天的 peer 列表与身份名册，并同步文件共享的可访问成员。
-     *
-     * 名册为 playerId -> 虚拟IP（含自己），聊天服务器据此校验收到的消息是否
-     * 真的来自其自称的玩家，避免同大厅成员冒用他人身份发言；文件共享服务据同一
-     * 份成员表拒绝已被移出大厅但仍留在虚拟网内的节点访问共享内容。
-     */
-    private fun syncChatPeers() {
-        val players = _state.value.players
-        val selfId = _state.value.playerId
-        val roster = players
-            .filter { it.id.isNotBlank() && !it.virtualIp.isNullOrBlank() }
-            .associate { it.id to it.virtualIp!! }
-
-        // 仅在"每个成员的虚拟IP都已就绪"时才启用来源校验：玩家虚拟IP 是异步补齐的
-        // （这也是 backfillRemoteShareIps 存在的原因），名单不完整时无法区分
-        // "非成员"与"IP 尚未同步的合法成员"，此时下发空名单放行，避免共享/聊天历史
-        // 重新退化成"有时有有时无"。
-        //
-        // 注意 Android 的 players 含自己（加入大厅时即写入本机条目），因此 roster
-        // 已覆盖本机地址，无需额外补。
-        val rosterComplete = players.isNotEmpty() && roster.size == players.size
-        val memberIps = if (rosterComplete) roster.values else emptyList()
-
-        chatClient?.let { client ->
-            client.setPeers(players.filter { it.id != selfId }.mapNotNull { it.virtualIp })
-            client.setPeerRoster(roster)
-            client.setAllowedReaders(memberIps)
-        }
-        fileServer?.setAllowedPeers(memberIps)
-    }
-
     /** 玩家列表更新后，回填此前 ownerIp 为空的远端共享（修“共享时有时无”） */
     private fun backfillRemoteShareIps() {
         val players = _state.value.players
@@ -956,13 +953,18 @@ class MctierRepository(private val context: Context) {
 
     private fun refreshRemoteSharesByHttp() {
         val cur = _state.value
+        val lobbyToken = chatToken ?: return
         val peers = cur.players.filter { it.id != cur.playerId && !it.virtualIp.isNullOrBlank() }
         if (peers.isEmpty()) return
         ioScope.launch {
+            val routedPeers = runCatching { networkController.peerConnectionTypes().keys }.getOrDefault(emptySet())
             val entries = mutableListOf<RemoteShareEntry>()
             val successOwners = mutableSetOf<String>()
-            peers.forEach { p ->
-                runCatching { remoteFileClient.listShares(p.virtualIp!!) }
+            peers.filter { p ->
+                val ip = p.virtualIp.orEmpty()
+                ip in routedPeers && chatClient?.isAuthoritativePeer(p.id, ip) == true
+            }.forEach { p ->
+                runCatching { remoteFileClient.listShares(p.virtualIp!!, lobbyToken) }
                     .onSuccess { shares ->
                         successOwners += p.id
                         entries += shares.map { w ->
@@ -1053,7 +1055,16 @@ class MctierRepository(private val context: Context) {
         onError: (String) -> Unit,
     ) {
         ioScope.launch {
-            runCatching { remoteFileClient.listFiles(entry.ownerIp, entry.shareId, path, password) }
+            if (!isAuthorizedRemoteShare(entry)) {
+                scope.launch { onError(L("目标已不在当前大厅", "The target is no longer in the current lobby")) }
+                return@launch
+            }
+            val lobbyToken = chatToken
+            if (lobbyToken == null) {
+                scope.launch { onError(L("文件认证会话尚未就绪", "File authentication session is not ready")) }
+                return@launch
+            }
+            runCatching { remoteFileClient.listFiles(entry.ownerIp, entry.shareId, path, password, lobbyToken) }
                 .onSuccess { files -> scope.launch { onResult(files) } }
                 .onFailure { e -> scope.launch { onError(e.message ?: L("浏览失败", "Browse failed")) } }
         }
@@ -1121,8 +1132,15 @@ class MctierRepository(private val context: Context) {
 
         val job = ioScope.launch {
             runCatching {
+                if (!isAuthorizedRemoteShare(entry)) {
+                    error(L("目标已不在当前大厅", "The target is no longer in the current lobby"))
+                }
+                val lobbyToken = chatToken
+                    ?: error(L("文件认证会话尚未就绪", "File authentication session is not ready"))
                 remoteFileClient.download(entry.ownerIp, entry.shareId, file.path, file.name, password,
+                    lobbyToken = lobbyToken,
                     downloadTreeUri = _state.value.settings.fileShareDownloadTreeUri,
+                    expectedSize = file.size,
                     onProgress = { downloaded, total ->
                     val pct = if (total > 0) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else -1
                     scope.launch { _state.update { it.copy(downloadProgress = it.downloadProgress + (key to pct)) } }
@@ -1434,6 +1452,48 @@ class MctierRepository(private val context: Context) {
         return true
     }
 
+    private fun currentChatPeers(excludedIds: Set<String> = emptySet()): List<ChatPeerIdentity> {
+        val state = _state.value
+        return state.players.asSequence()
+            .filter { player ->
+                player.id != state.playerId && player.id !in excludedIds && !player.virtualIp.isNullOrBlank()
+            }
+            .map { player -> ChatPeerIdentity(player.id, player.name, player.virtualIp!!.trim()) }
+            .distinctBy { it.playerId }
+            .toList()
+    }
+
+    private fun isAuthorizedRemoteShare(entry: RemoteShareEntry): Boolean {
+        val player = _state.value.players.singleOrNull { it.id == entry.ownerId } ?: return false
+        val ip = player.virtualIp?.takeIf { it == entry.ownerIp } ?: return false
+        if (chatClient?.isAuthoritativePeer(entry.ownerId, ip) != true) return false
+        return runCatching { ip in networkController.peerConnectionTypes() }.getOrDefault(false)
+    }
+
+    private fun isValidChatToken(token: String?): Boolean {
+        val value = token ?: return false
+        return value.length == ChatTokenHexLength && value.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
+    }
+
+    private fun configureAuthenticatedChat(): Boolean {
+        val client = chatClient ?: return false
+        val token = chatToken ?: return false
+        val epoch = chatTokenEpoch
+        if (epoch <= 0L) return false
+        val state = _state.value
+        if (!client.setPeers(currentChatPeers())) return false
+        if (!client.configureSession(token, epoch, state.settings.playerName, state.hostId)) return false
+        if (!client.start()) return false
+        client.sendAvatar(state.settings.avatarData)
+        return true
+    }
+
+    private fun rejectChatProtocol(reason: String) {
+        Log.e("MctierRepository", "Rejecting chat protocol state: $reason")
+        _state.update { it.copy(error = reason) }
+        scope.launch { leaveLobby() }
+    }
+
     private fun handleSignal(message: SignalingEnvelope) {
         // player-left 必须先由权威成员快照确认，避免旧信令连接的延迟事件拆掉已恢复的语音链路。
         if (message.type != "player-left") rtcController.handleSignal(message)
@@ -1449,10 +1509,63 @@ class MctierRepository(private val context: Context) {
                 scope.launch { runCatching { leaveLobby() } }
             }
             "register-success" -> {
+                val lobbyId = message.lobbyId
+                val token = message.chatToken
+                val epoch = message.chatTokenEpoch ?: 0L
+                if (lobbyId.isNullOrBlank() || !isValidChatToken(token) || epoch <= 0L) {
+                    rejectChatProtocol(L("聊天认证信息无效", "Invalid chat authentication state"))
+                    return
+                }
+                if (chatLobbyId != null && chatLobbyId != lobbyId) {
+                    rejectChatProtocol(L("聊天大厅身份发生冲突", "Chat lobby identity conflict"))
+                    return
+                }
+                if (epoch < chatTokenEpoch || (epoch == chatTokenEpoch && chatToken != null && chatToken != token)) {
+                    rejectChatProtocol(L("聊天令牌版本发生冲突", "Chat token epoch conflict"))
+                    return
+                }
+                chatLobbyId = lobbyId
+                chatToken = token
+                chatTokenEpoch = epoch
+                if (fileServer?.configureLobbyToken(token!!, epoch) != true) {
+                    rejectChatProtocol(L("无法配置文件认证凭据", "Unable to configure file authentication token"))
+                    return
+                }
                 _state.update { it.copy(hostId = message.hostId, maxPlayers = message.maxPlayers, isPublicLobby = message.isPublic ?: false, mutedPlayers = message.mutedPlayers?.toSet() ?: it.mutedPlayers) }
+                if (message.hostId == _state.value.playerId && !configureAuthenticatedChat()) {
+                    rejectChatProtocol(L("无法启动认证聊天服务", "Unable to start authenticated chat service"))
+                    return
+                }
                 // 请求大厅内其他玩家的文件共享列表
                 refreshRemoteSharesByHttp()
                 signalingClient.send(SignalingEnvelope(type = "screen-share-list-request", from = _state.value.playerId))
+            }
+            "chat-token-rotated" -> {
+                val lobbyId = message.lobbyId
+                val token = message.chatToken
+                val epoch = message.chatTokenEpoch ?: 0L
+                if (lobbyId != chatLobbyId || !isValidChatToken(token) || epoch <= 0L) {
+                    rejectChatProtocol(L("聊天令牌轮换信息无效", "Invalid chat token rotation"))
+                    return
+                }
+                if (epoch < chatTokenEpoch) return
+                if (epoch == chatTokenEpoch) {
+                    if (token != chatToken) {
+                        rejectChatProtocol(L("同一聊天版本收到不同令牌", "Conflicting token for the same chat epoch"))
+                    }
+                    return
+                }
+                val client = chatClient
+                if (client?.isReady() == true && !client.rotateToken(token!!, epoch)) {
+                    rejectChatProtocol(L("聊天令牌轮换被拒绝", "Chat token rotation was rejected"))
+                    return
+                }
+                if (fileServer?.configureLobbyToken(token!!, epoch) != true) {
+                    rejectChatProtocol(L("文件认证凭据轮换被拒绝", "File authentication token rotation was rejected"))
+                    return
+                }
+                chatToken = token
+                chatTokenEpoch = epoch
             }
             "players-list" -> {
                 val selfId = _state.value.playerId
@@ -1493,8 +1606,10 @@ class MctierRepository(private val context: Context) {
                 val others = remotes.map { it.id }.filter { it != selfId }
                 rtcController.connectToPlayers(others)
                 // 更新 P2P 聊天 peer 列表
-                syncChatPeers()
-                chatClient?.sendAvatar(_state.value.settings.avatarData)
+                if (!configureAuthenticatedChat()) {
+                    rejectChatProtocol(L("无法应用聊天成员快照", "Unable to apply chat member snapshot"))
+                    return
+                }
                 // 玩家列表变化后，主动重发一次自己的共享，确保新加入/刚获取 IP 的玩家能看到
                 if (_state.value.sharedFolders.isNotEmpty()) broadcastMyShares()
             }
@@ -1509,7 +1624,10 @@ class MctierRepository(private val context: Context) {
                 if (alreadyKnown) {
                     if (id != _state.value.playerId) rtcController.connectToPlayer(id)
                     backfillRemoteShareIps()
-                    syncChatPeers()
+                    if (chatClient?.isReady() == true && chatClient?.setPeers(currentChatPeers()) != true) {
+                        rejectChatProtocol(L("聊天成员身份无效", "Invalid chat member identity"))
+                        return
+                    }
                     chatClient?.sendAvatar(_state.value.settings.avatarData)
                     return
                 }
@@ -1519,7 +1637,10 @@ class MctierRepository(private val context: Context) {
                     rtcController.connectToPlayer(id)
                 }
                 backfillRemoteShareIps()
-                syncChatPeers()
+                if (chatClient?.isReady() == true && chatClient?.setPeers(currentChatPeers()) != true) {
+                    rejectChatProtocol(L("聊天成员身份无效", "Invalid chat member identity"))
+                    return
+                }
                 if (id != _state.value.playerId) {
                     soundManager.playerJoin()
                     // 有新玩家加入时，把自己的文件共享列表推送给对方，确保对方能看到我的共享
@@ -1554,6 +1675,13 @@ class MctierRepository(private val context: Context) {
             "player-left" -> {
                 val id = message.playerId ?: return
                 if (id != _state.value.playerId) remoteControlController?.handlePeerLeft(id)
+                if (chatClient?.isReady() == true) {
+                    if (_state.value.hostId == id) chatClient?.updateHostId(null)
+                    if (chatClient?.setPeers(currentChatPeers(setOf(id))) != true) {
+                        rejectChatProtocol(L("无法撤销离开玩家的聊天权限", "Unable to revoke the leaving chat peer"))
+                        return
+                    }
+                }
                 if (id != _state.value.playerId && _state.value.players.any { it.id == id }) {
                     schedulePlayerLeaveConfirmation(id)
                 }
@@ -1565,7 +1693,14 @@ class MctierRepository(private val context: Context) {
             "chat-message" -> {
                 // 已废弃：聊天改为 P2P（14540）传输，不再走信令
             }
-            "host-changed" -> _state.update { it.copy(hostId = message.hostId) }
+            "host-changed" -> {
+                val hostId = message.hostId ?: return
+                _state.update { it.copy(hostId = hostId) }
+                val client = chatClient
+                if (client?.isReady() == true && !client.updateHostId(hostId) && !configureAuthenticatedChat()) {
+                    rejectChatProtocol(L("无法更新聊天房主身份", "Unable to update chat host identity"))
+                }
+            }
             "player-mute-changed" -> {
                 val id = message.playerId ?: return
                 val muted = message.muted ?: false
@@ -1893,7 +2028,16 @@ class MctierRepository(private val context: Context) {
         )
     }
 
-    fun setLobbyOptions(maxPlayers: Int?, isPublic: Boolean, description: String, publicPassword: String?) {
+    fun setLobbyOptions(maxPlayers: Int?, isPublic: Boolean, description: String) {
+        if (isPublic && !_state.value.lobby?.password.isNullOrEmpty()) {
+            _state.update {
+                it.copy(
+                    isPublicLobby = false,
+                    error = L("公开大厅必须不设密码", "Public lobbies must not have a password"),
+                )
+            }
+            return
+        }
         signalingClient.send(
             SignalingEnvelope(
                 type = "set-lobby-options",
@@ -1901,7 +2045,6 @@ class MctierRepository(private val context: Context) {
                 maxPlayers = maxPlayers,
                 isPublic = isPublic,
                 description = description.ifBlank { null },
-                password = publicPassword?.takeIf { it.isNotBlank() },
                 // 公开时附带房主使用的节点地址，供广场加入者自动同步
                 serverNode = if (isPublic) _state.value.lobby?.serverNode?.takeIf { it.isNotBlank() } else null,
             ),
@@ -1965,19 +2108,29 @@ class MctierRepository(private val context: Context) {
     }
 
     private fun loadFavorites(): List<FavoriteLobby> = runCatching {
-        prefs.getString("favorites", null)?.let { MctierJson.decodeFromString(ListSerializer(FavoriteLobby.serializer()), it) }
+        readSecurePreference(SecureFavoritesKey, LegacyFavoritesKey)
+            ?.let { MctierJson.decodeFromString(ListSerializer(FavoriteLobby.serializer()), it) }
     }.getOrNull().orEmpty()
 
     private fun saveFavorites(list: List<FavoriteLobby>) {
-        prefs.edit { putString("favorites", MctierJson.encodeToString(ListSerializer(FavoriteLobby.serializer()), list)) }
+        saveSecurePreference(
+            SecureFavoritesKey,
+            LegacyFavoritesKey,
+            MctierJson.encodeToString(ListSerializer(FavoriteLobby.serializer()), list),
+        )
     }
 
     private fun loadRecentLobbies(): List<RecentLobby> = runCatching {
-        prefs.getString("recentLobbies", null)?.let { MctierJson.decodeFromString(ListSerializer(RecentLobby.serializer()), it) }
+        readSecurePreference(SecureRecentLobbiesKey, LegacyRecentLobbiesKey)
+            ?.let { MctierJson.decodeFromString(ListSerializer(RecentLobby.serializer()), it) }
     }.getOrNull().orEmpty()
 
     private fun saveRecentLobbies(list: List<RecentLobby>) {
-        prefs.edit { putString("recentLobbies", MctierJson.encodeToString(ListSerializer(RecentLobby.serializer()), list)) }
+        saveSecurePreference(
+            SecureRecentLobbiesKey,
+            LegacyRecentLobbiesKey,
+            MctierJson.encodeToString(ListSerializer(RecentLobby.serializer()), list),
+        )
     }
 
     private fun loadRecentPlayers(): List<RecentPlayer> = runCatching {
@@ -1986,6 +2139,26 @@ class MctierRepository(private val context: Context) {
 
     private fun saveRecentPlayers(list: List<RecentPlayer>) {
         prefs.edit { putString("recentPlayers", MctierJson.encodeToString(ListSerializer(RecentPlayer.serializer()), list)) }
+    }
+
+    /** Read a protected value and migrate the legacy plaintext value once, if present. */
+    private fun readSecurePreference(secureKey: String, legacyKey: String): String? {
+        securePrefs.getString(secureKey)?.let { return it }
+        val legacy = prefs.getString(legacyKey, null) ?: return null
+        if (securePrefs.putStringRemoving(secureKey, legacy, legacyKey)) {
+            return legacy
+        }
+        Log.w(TAG, "Secure preference migration failed")
+        securePrefs.remove(legacyKey)
+        return null
+    }
+
+    /** Never write a new credential in plaintext; discard legacy plaintext after migration. */
+    private fun saveSecurePreference(secureKey: String, legacyKey: String, value: String) {
+        if (!securePrefs.putStringRemoving(secureKey, value, legacyKey)) {
+            Log.w(TAG, "Secure preference write failed")
+            securePrefs.remove(secureKey, legacyKey)
+        }
     }
 
     // ==================== 收藏队友（本地存储，按名字） ====================
@@ -2228,7 +2401,7 @@ class MctierRepository(private val context: Context) {
         virtualDomain = prefs.getString("virtualDomain", null).orEmpty(),
         autoLobbyEnabled = prefs.getBoolean("autoLobbyEnabled", false),
         autoLobbyName = prefs.getString("autoLobbyName", null).orEmpty(),
-        autoLobbyPassword = prefs.getString("autoLobbyPassword", null).orEmpty(),
+        autoLobbyPassword = readSecurePreference(SecureAutoLobbyPasswordKey, LegacyAutoLobbyPasswordKey).orEmpty(),
         enableExitNode = prefs.getBoolean("enableExitNode", false),
         enableAsExitNode = prefs.getBoolean("enableAsExitNode", false),
         proxyCidrs = prefs.getString("proxyCidrs", null).orEmpty(),

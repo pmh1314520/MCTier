@@ -288,7 +288,11 @@ fun MctierApp(repository: MctierRepository, onConsentGranted: () -> Unit = {}) {
     val state by repository.state.collectAsState()
     val consentCtx = androidx.compose.ui.platform.LocalContext.current
     var agreed by remember { mutableStateOf(ConsentStore.isAgreed(consentCtx)) }
-    LaunchedEffect(Unit) { repository.maybeAutoJoin() }
+    // An external invite launches the activity and leaves a pending join form. Do not
+    // connect to the separately saved auto-join lobby in the same startup pass.
+    LaunchedEffect(Unit) {
+        if (state.pendingJoin == null) repository.maybeAutoJoin()
+    }
     // 主题：根据设置实时应用（深/浅色 + 自定义主色），切换即重组整个界面
     LaunchedEffect(state.settings.themeMode, state.settings.themePrimary) {
         applyAppTheme(state.settings.themeMode, state.settings.themePrimary)
@@ -930,7 +934,7 @@ private fun HomeScreen(state: MctierUiState, repository: MctierRepository) {
                     Spacer(Modifier.height(16.dp))
                     MctierField(lobbyName, { lobbyName = it; joinNodeOverride = null; joinSignalingOverride = null }, L("大厅名称（4-32位）", "Lobby Name (4-32 chars)"), enabled = !connecting)
                     Spacer(Modifier.height(12.dp))
-                    MctierField(password, { password = it }, L("大厅密码（8-32位，含字母和数字）", "Password (8-32, letters & digits)"), enabled = !connecting, isPassword = true)
+                    MctierField(password, { password = it }, L("留空为无密码大厅，或输入8-32位密码", "Leave blank for no password, or enter 8-32 characters"), enabled = !connecting, isPassword = true)
                     Spacer(Modifier.height(12.dp))
                     MctierField(state.settings.playerName, {
                         val name = it.replace(Regex("\\s+"), "")
@@ -1017,7 +1021,7 @@ private fun PublicPlazaDialog(state: MctierUiState, repository: MctierRepository
                         items(state.publicLobbies, key = { it.lobbyName + it.hostName }) { lobby ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(PanelHigh)
-                                    .clickable { onFill(lobby.lobbyName, lobby.password, lobby.serverNode); onDismiss() }.padding(12.dp),
+                                    .clickable { onFill(lobby.lobbyName, "", lobby.serverNode); onDismiss() }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(Modifier.weight(1f)) {
@@ -2146,8 +2150,12 @@ private fun LobbySettingsCard(state: MctierUiState, repository: MctierRepository
         }
         Spacer(Modifier.height(14.dp))
         PrimaryButton(L("保存大厅设置", "Save Lobby Settings")) {
-            val lobbyPwd = state.lobby?.password
-            repository.setLobbyOptions(maxText.toIntOrNull()?.takeIf { it > 0 }, isPublic, description, lobbyPwd)
+            if (isPublic && !state.lobby?.password.isNullOrEmpty()) {
+                isPublic = false
+                android.widget.Toast.makeText(ctx, L("公开大厅必须不设密码", "Public lobbies must not have a password"), android.widget.Toast.LENGTH_SHORT).show()
+                return@PrimaryButton
+            }
+            repository.setLobbyOptions(maxText.toIntOrNull()?.takeIf { it > 0 }, isPublic, description)
             android.widget.Toast.makeText(ctx, L("大厅设置已保存", "Lobby settings saved"), android.widget.Toast.LENGTH_SHORT).show()
         }
     }

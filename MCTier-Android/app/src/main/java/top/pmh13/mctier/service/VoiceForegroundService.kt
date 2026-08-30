@@ -1,5 +1,6 @@
 package top.pmh13.mctier.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,8 +9,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import top.pmh13.mctier.MainActivity
 import top.pmh13.mctier.ui.L
 
@@ -27,6 +30,13 @@ class VoiceForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "Rejecting voice foreground service without microphone permission")
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         ensureChannel()
         val tapIntent = runCatching {
             PendingIntent.getActivity(
@@ -42,13 +52,17 @@ class VoiceForegroundService : Service() {
             .setOngoing(true)
             .also { if (tapIntent != null) it.setContentIntent(tapIntent) }
             .build()
-        runCatching {
+        val started = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-        }
+        }.onFailure {
+            Log.e(TAG, "Failed to start voice foreground service", it)
+            stopSelfResult(startId)
+        }.isSuccess
+        if (!started) return START_NOT_STICKY
         // 进程存活期间维持后台语音；进程被系统杀掉后无需自动重建（届时大厅连接也已断开）
         return START_NOT_STICKY
     }
@@ -72,6 +86,7 @@ class VoiceForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "MCTierVoiceService"
         private const val CHANNEL_ID = "mctier_voice_mic"
         private const val NOTIFICATION_ID = 4542
 

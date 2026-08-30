@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { tl } from '../../i18n';
+import { isSafeImageDataUrl } from '../../security/trustBoundary';
 import './SettingsAvatarPicker.css';
 
 const MAX_SIZE = 256;
@@ -55,7 +56,7 @@ export const SettingsAvatarPicker: React.FC<SettingsAvatarPickerProps> = ({
   onError,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const hasAvatar = typeof avatarData === 'string' && avatarData.startsWith('data:image/');
+  const hasAvatar = isSafeImageDataUrl(avatarData);
 
   const chooseAvatar = () => inputRef.current?.click();
 

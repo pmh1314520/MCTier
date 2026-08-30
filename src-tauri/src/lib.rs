@@ -5,10 +5,10 @@ use log::{error, info};
 use modules::app_core::AppCore;
 use modules::tauri_commands::AppState;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tauri::Manager;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tokio::sync::Mutex;
 static TRAY_NOTIFICATION_TEXT: std::sync::OnceLock<std::sync::RwLock<(String, String)>> =
     std::sync::OnceLock::new();
 static TRAY_SUMMON_HOTKEY: std::sync::OnceLock<std::sync::RwLock<String>> =
@@ -27,20 +27,21 @@ fn apply_gpu_settings_on_startup() {
     } else {
         return;
     };
-    
+
     if !config_path.exists() {
         println!("配置文件不存在，使用默认GPU设置（启用）");
         return;
     }
-    
+
     // 读取配置文件
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
             // 检查 GPU 渲染设置（配置文件使用 snake_case）
-            let enable_gpu = config.get("enable_gpu_rendering")
+            let enable_gpu = config
+                .get("enable_gpu_rendering")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            
+
             if !enable_gpu {
                 // 设置环境变量完全禁用 GPU（包括GPU进程）
                 std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
@@ -48,8 +49,10 @@ fn apply_gpu_settings_on_startup() {
                 println!("✅ GPU 渲染已完全禁用（包括GPU进程）");
             } else {
                 // 启用 GPU 时，明确设置启用硬件加速的参数
-                std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
-                    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist");
+                std::env::set_var(
+                    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist",
+                );
                 println!("✅ GPU 渲染已启用（通过环境变量）");
             }
         }
@@ -81,58 +84,43 @@ fn reset_microphone_permission_cache_on_startup() {
     }
 }
 
-
 use modules::tauri_commands::{
-    create_lobby, join_lobby, leave_lobby,
-    toggle_mic, set_mic_enabled, open_microphone_privacy_settings, reset_microphone_permission, mute_player, mute_all,
-    get_config, update_config, save_opacity,
-    get_audio_devices, get_app_state, get_current_lobby, get_players,
-    get_mic_status, get_global_mute_status, is_player_muted,
-    get_network_status, get_virtual_ip, get_peer_connection_types,
-    set_always_on_top, toggle_mini_mode, set_window_opacity,
-    send_signaling_message, broadcast_status_update, send_heartbeat,
-    force_stop_easytier,
-    cancel_lobby_connecting,
-    check_virtual_adapter, check_firewall_rules, ping_virtual_ip, check_udp_port,
-    is_admin, add_firewall_rules, restart_as_admin,
-    save_window_position, exit_app,
-    add_player_domain, remove_player_domain,
-    get_folder_name, get_folder_info, list_directory_files,
-    read_file_bytes, write_file_bytes, select_folder, select_file, select_save_location,
-    select_file_share_download_folder, get_file_share_download_dir, set_file_share_download_dir,
-    get_file_share_download_path,
-    save_file, save_chat_image, read_file, delete_file, extract_zip,
-    open_file_location, open_folder,
-    start_file_server, stop_file_server, check_file_server_status,
-    add_shared_folder, remove_shared_folder, get_local_shares,
-    cleanup_expired_shares, get_remote_shares, get_remote_files,
-    verify_share_password, get_download_url, diagnose_file_share_connection,
-    download_remote_file, cancel_remote_download, export_logs, test_node_latency,
-    download_remote_batch, detect_security_software,
-    send_p2p_chat_message, get_p2p_chat_messages, clear_p2p_chat_messages,
-    set_chat_peer_roster, clear_chat_peer_roster,
-    set_share_allowed_peers, clear_share_allowed_peers,
-    open_screen_viewer_window,
-    open_danmaku_window, close_danmaku_window,
-    set_danmaku_ignore_cursor, danmaku_cursor_pos, save_danmaku_image,
-    open_game_hud_window, close_game_hud_window,
-    set_gamehud_ignore_cursor, gamehud_cursor_pos,
-    open_log_folder, open_log_file, get_log_file_path, read_log_file, set_avatar_data, clear_avatar_cache,
-    save_settings, get_settings, set_auto_start, check_auto_start,
-    reset_config_to_default, save_voice_volume,
-    export_config, import_config,
-    restart_app_with_gpu_settings,
-    save_exit_node_advanced_config, get_exit_node_advanced_config,
+    add_firewall_rules, add_player_domain, add_shared_folder, broadcast_status_update,
+    cancel_lobby_connecting, cancel_remote_download, check_auto_start, check_file_server_status,
+    check_firewall_rules, check_udp_port, check_virtual_adapter, cleanup_expired_shares,
+    clear_avatar_cache, clear_p2p_chat_messages, close_danmaku_window, close_game_hud_window,
+    configure_p2p_chat, create_lobby, danmaku_cursor_pos, delete_file, detect_security_software,
+    diagnose_file_share_connection, download_remote_batch, download_remote_file, exit_app,
+    export_config, export_logs, extract_zip, force_stop_easytier, gamehud_cursor_pos,
+    get_app_state, get_audio_devices, get_config, get_current_lobby, get_download_url,
+    get_exit_node_advanced_config, get_file_share_download_dir, get_file_share_download_path,
+    get_folder_info, get_folder_name, get_global_mute_status, get_local_shares, get_log_file_path,
+    get_mic_status, get_network_status, get_p2p_chat_messages, get_peer_connection_types,
+    get_players, get_remote_files, get_remote_shares, get_settings, get_virtual_ip, import_config,
+    is_admin, is_player_muted, join_lobby, leave_lobby, list_directory_files, mute_all,
+    mute_player, open_danmaku_window, open_file_location, open_folder, open_game_hud_window,
+    open_log_file, open_log_folder, open_microphone_privacy_settings, open_screen_viewer_window,
+    ping_virtual_ip, read_file, read_file_bytes, read_log_file, remove_player_domain,
+    remove_shared_folder, reset_config_to_default, reset_microphone_permission,
+    restart_app_with_gpu_settings, restart_as_admin, save_chat_image, save_danmaku_image,
+    save_exit_node_advanced_config, save_file, save_opacity, save_settings, save_voice_volume,
+    save_window_position, select_file, select_file_share_download_folder, select_folder,
+    select_save_location, send_heartbeat, send_p2p_chat_message, send_signaling_message,
+    set_always_on_top, set_auto_start, set_avatar_data, set_danmaku_ignore_cursor,
+    set_file_share_download_dir, set_gamehud_ignore_cursor, set_mic_enabled, set_window_opacity,
+    start_file_server, stop_file_server, stop_p2p_chat, test_node_latency, toggle_mic,
+    toggle_mini_mode, update_config, update_p2p_chat_peers, verify_share_password,
+    write_file_bytes,
 };
 
 use modules::easytier_advanced_commands::{
-    save_global_easytier_advanced_config, get_global_easytier_advanced_config,
-    save_lobby_easytier_advanced_config, get_lobby_easytier_advanced_config,
-    clear_lobby_easytier_advanced_config,
+    clear_lobby_easytier_advanced_config, get_global_easytier_advanced_config,
+    get_lobby_easytier_advanced_config, save_global_easytier_advanced_config,
+    save_lobby_easytier_advanced_config,
 };
 
 use modules::minecraft_discovery::{
-    scan_minecraft_servers, query_minecraft_server, measure_peers_latency,
+    measure_peers_latency, query_minecraft_server, scan_minecraft_servers,
 };
 
 use modules::mc_lan_bridge::{start_mc_lan_broadcast, stop_mc_lan_broadcast};
@@ -157,7 +145,9 @@ fn open_devtools(_app: tauri::AppHandle) {
         }
     }
     #[cfg(not(debug_assertions))]
-    { log::warn!("开发者工具仅在 debug 模式下可用"); }
+    {
+        log::warn!("开发者工具仅在 debug 模式下可用");
+    }
 }
 
 /// 【#1】确保窗口在可视范围内：若窗口已完全移出所有显示器，则自动居中。
@@ -299,7 +289,10 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
         return;
     };
     if window.is_visible().unwrap_or(true) {
-        info!("窗口已恢复，跳过托盘后台运行通知任务：generation={}", generation);
+        info!(
+            "窗口已恢复，跳过托盘后台运行通知任务：generation={}",
+            generation
+        );
         return;
     }
     let _notification_lock = match TRAY_NOTIFICATION_LOCK.lock() {
@@ -307,7 +300,10 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
         Err(error) => error.into_inner(),
     };
     if TRAY_NOTIFICATION_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation {
-        info!("跳过已被新托盘状态取代的通知任务：generation={}", generation);
+        info!(
+            "跳过已被新托盘状态取代的通知任务：generation={}",
+            generation
+        );
         return;
     }
 
@@ -315,7 +311,8 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
         .get_or_init(|| {
             std::sync::RwLock::new((
                 "MCTier 正在后台运行".to_string(),
-                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。"
+                    .to_string(),
             ))
         })
         .read()
@@ -323,7 +320,8 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
         .unwrap_or_else(|_| {
             (
                 "MCTier 正在后台运行".to_string(),
-                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。"
+                    .to_string(),
             )
         });
     let summon_hotkey = TRAY_SUMMON_HOTKEY
@@ -405,9 +403,9 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
         let mut previous = HWND::default();
         let mut tray_window = None;
         loop {
-            let Ok(candidate) = (unsafe {
-                FindWindowExW(HWND::default(), previous, w!("tray_icon_app"), None)
-            }) else {
+            let Ok(candidate) =
+                (unsafe { FindWindowExW(HWND::default(), previous, w!("tray_icon_app"), None) })
+            else {
                 break;
             };
             if candidate.0.is_null() {
@@ -447,7 +445,11 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
             clear_data.uID = tray_id;
             clear_data.uFlags = NIF_INFO;
             let cleared = unsafe { Shell_NotifyIconW(NIM_MODIFY, &clear_data).as_bool() };
-            let clear_error = if cleared { 0 } else { unsafe { GetLastError().0 } };
+            let clear_error = if cleared {
+                0
+            } else {
+                unsafe { GetLastError().0 }
+            };
             if cleared {
                 std::thread::sleep(std::time::Duration::from_millis(80));
             }
@@ -468,7 +470,11 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
             write_wide(&mut data.szInfoTitle, &title);
             write_wide(&mut data.szInfo, &notification_body);
             let shown = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() };
-            let show_error = if shown { 0 } else { unsafe { GetLastError().0 } };
+            let show_error = if shown {
+                0
+            } else {
+                unsafe { GetLastError().0 }
+            };
             log::info!(
                 "Windows tray balloon on MCTier tray icon: hwnd={:?}, pid={}, id={}, cb_size={}, cleared={} error={}, shown={} error={}",
                 tray_window.0,
@@ -509,7 +515,11 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
                 add_data.hIcon = fallback_icon;
                 let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &add_data) };
                 let added = unsafe { Shell_NotifyIconW(NIM_ADD, &add_data).as_bool() };
-                let add_error = if added { 0 } else { unsafe { GetLastError().0 } };
+                let add_error = if added {
+                    0
+                } else {
+                    unsafe { GetLastError().0 }
+                };
                 if added {
                     std::thread::sleep(std::time::Duration::from_millis(80));
                     let mut fallback_data = NOTIFYICONDATAW::default();
@@ -521,9 +531,8 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
                     fallback_data.Anonymous.uTimeout = 7000;
                     write_wide(&mut fallback_data.szInfoTitle, &title);
                     write_wide(&mut fallback_data.szInfo, &notification_body);
-                    let fallback_shown = unsafe {
-                        Shell_NotifyIconW(NIM_MODIFY, &fallback_data).as_bool()
-                    };
+                    let fallback_shown =
+                        unsafe { Shell_NotifyIconW(NIM_MODIFY, &fallback_data).as_bool() };
                     let fallback_error = if fallback_shown {
                         0
                     } else {
@@ -567,7 +576,6 @@ fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
             log::warn!("MCTier tray window was not found for balloon notification");
         }
     }
-
 }
 
 /// Hide the main window without closing its WebView and tell the user where it went.
@@ -580,7 +588,10 @@ fn hide_main_window_to_tray(app: &tauri::AppHandle, source: &str) {
 
     let was_visible = window.is_visible().unwrap_or(false);
     if !was_visible && source != "关闭按钮" {
-        info!("{}：MCTier 已经处于系统托盘，不重复发送后台运行通知", source);
+        info!(
+            "{}：MCTier 已经处于系统托盘，不重复发送后台运行通知",
+            source
+        );
         return;
     }
 
@@ -588,10 +599,7 @@ fn hide_main_window_to_tray(app: &tauri::AppHandle, source: &str) {
     // stale taskbar/Win+D state from the previous transition.
     let _ = window.unminimize();
     let was_always_on_top = window.is_always_on_top().unwrap_or(false);
-    RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.store(
-        was_always_on_top,
-        std::sync::atomic::Ordering::Release,
-    );
+    RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.store(was_always_on_top, std::sync::atomic::Ordering::Release);
     if was_always_on_top {
         let _ = window.set_always_on_top(false);
     }
@@ -602,11 +610,12 @@ fn hide_main_window_to_tray(app: &tauri::AppHandle, source: &str) {
     #[cfg(target_os = "windows")]
     release_windows_foreground_after_hide(&window);
 
-    info!("{}：MCTier 已最小化到系统托盘，准备发送后台运行通知", source);
-    let generation = TRAY_NOTIFICATION_GENERATION.fetch_add(
-        1,
-        std::sync::atomic::Ordering::AcqRel,
-    ) + 1;
+    info!(
+        "{}：MCTier 已最小化到系统托盘，准备发送后台运行通知",
+        source
+    );
+    let generation =
+        TRAY_NOTIFICATION_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
     let notification_app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -640,9 +649,11 @@ fn minimize_main_window_to_tray(app: tauri::AppHandle) {
 }
 
 #[cfg(target_os = "windows")]
-static SUMMON_FALLBACK_TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<()>> = std::sync::OnceLock::new();
+static SUMMON_FALLBACK_TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<()>> =
+    std::sync::OnceLock::new();
 #[cfg(target_os = "windows")]
-static SUMMON_FALLBACK_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SUMMON_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
 fn start_summon_fallback_listener(app: &tauri::AppHandle) {
@@ -662,7 +673,9 @@ fn start_summon_fallback_listener(app: &tauri::AppHandle) {
         }
     });
     std::thread::spawn(move || {
-        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_M, VK_MENU};
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            GetAsyncKeyState, VK_CONTROL, VK_M, VK_MENU,
+        };
 
         let mut triggered = false;
         loop {
@@ -702,7 +715,9 @@ unsafe extern "system" fn window_subclass_proc(
 ) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::Foundation::LRESULT;
     use windows::Win32::UI::Shell::DefSubclassProc;
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SC_MINIMIZE, SW_HIDE, WM_SYSCOMMAND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        ShowWindow, SC_MINIMIZE, SW_HIDE, WM_SYSCOMMAND,
+    };
 
     if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
         let _ = ShowWindow(hwnd, SW_HIDE);
@@ -790,7 +805,9 @@ fn normalize_hotkey(raw: &str) -> String {
         .map(|part| {
             let lower = part.to_lowercase();
             match lower.as_str() {
-                "ctrl" | "control" | "commandorcontrol" | "cmdorctrl" => "CommandOrControl".to_string(),
+                "ctrl" | "control" | "commandorcontrol" | "cmdorctrl" => {
+                    "CommandOrControl".to_string()
+                }
                 "alt" | "option" => "Alt".to_string(),
                 "shift" => "Shift".to_string(),
                 "meta" | "cmd" | "command" | "super" | "win" => "Super".to_string(),
@@ -839,8 +856,8 @@ fn register_global_hotkeys(
     );
 
     // ===== 唤出主窗口 =====
-    let use_default_summon_fallback = cfg!(target_os = "windows")
-        && summon_hotkey.eq_ignore_ascii_case("CommandOrControl+Alt+M");
+    let use_default_summon_fallback =
+        cfg!(target_os = "windows") && summon_hotkey.eq_ignore_ascii_case("CommandOrControl+Alt+M");
     #[cfg(target_os = "windows")]
     if use_default_summon_fallback {
         start_summon_fallback_listener(app);
@@ -849,99 +866,173 @@ fn register_global_hotkeys(
     }
     if !summon_hotkey.is_empty() && !use_default_summon_fallback {
         let hs = app.clone();
-        if let Err(e) = app.global_shortcut().on_shortcut(summon_hotkey.as_str(), move |_, _, ev| {
-            if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released { return; }
-            toggle_main_window(&hs);
-        }) {
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(summon_hotkey.as_str(), move |_, _, ev| {
+                    if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                        return;
+                    }
+                    toggle_main_window(&hs);
+                })
+        {
             error!("唤出窗口快捷键 {} 注册失败: {}", summon_hotkey, e);
         }
     }
 
-    let ltm = Arc::new(Mutex::new(std::time::Instant::now() - std::time::Duration::from_millis(500)));
-    let ltt = Arc::new(Mutex::new(std::time::Instant::now() - std::time::Duration::from_millis(500)));
+    let ltm = Arc::new(Mutex::new(
+        std::time::Instant::now() - std::time::Duration::from_millis(500),
+    ));
+    let ltt = Arc::new(Mutex::new(
+        std::time::Instant::now() - std::time::Duration::from_millis(500),
+    ));
     let ltf = Arc::new(Mutex::new((false, false))); // (is_pressed, original_mic_state)
 
     // ===== 麦克风开关 =====
     if !mic_hotkey.is_empty() {
-        let cm = Arc::clone(&core); let hm = app.clone(); let lm = Arc::clone(&ltm);
-        if let Err(e) = app.global_shortcut().on_shortcut(mic_hotkey.as_str(), move |_, _, ev| {
-            if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released { return; }
-            let mut lt = match lm.try_lock() { Ok(g) => g, Err(_) => return };
-            let now = std::time::Instant::now();
-            if now.duration_since(*lt) < std::time::Duration::from_millis(200) { return; }
-            *lt = now; drop(lt);
-            let c = Arc::clone(&cm); let h = hm.clone();
-            tauri::async_runtime::spawn(async move {
-                match c.lock().await.toggle_mic().await {
-                    Ok(s) => { let _ = h.emit("mic-toggled", s); }
-                    Err(e) => { error!("切换麦克风失败: {}", e); }
+        let cm = Arc::clone(&core);
+        let hm = app.clone();
+        let lm = Arc::clone(&ltm);
+        if let Err(e) = app
+            .global_shortcut()
+            .on_shortcut(mic_hotkey.as_str(), move |_, _, ev| {
+                if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                    return;
                 }
-            });
-        }) {
+                let mut lt = match lm.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                let now = std::time::Instant::now();
+                if now.duration_since(*lt) < std::time::Duration::from_millis(200) {
+                    return;
+                }
+                *lt = now;
+                drop(lt);
+                let c = Arc::clone(&cm);
+                let h = hm.clone();
+                tauri::async_runtime::spawn(async move {
+                    match c.lock().await.toggle_mic().await {
+                        Ok(s) => {
+                            let _ = h.emit("mic-toggled", s);
+                        }
+                        Err(e) => {
+                            error!("切换麦克风失败: {}", e);
+                        }
+                    }
+                });
+            })
+        {
             error!("麦克风快捷键 {} 注册失败: {}", mic_hotkey, e);
         }
     }
 
     // ===== 全局听筒 =====
     if !global_mute_hotkey.is_empty() {
-        let ct = Arc::clone(&core); let ht = app.clone(); let lt2 = Arc::clone(&ltt);
-        if let Err(e) = app.global_shortcut().on_shortcut(global_mute_hotkey.as_str(), move |_, _, ev| {
-            if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released { return; }
-            let mut lt = match lt2.try_lock() { Ok(g) => g, Err(_) => return };
-            let now = std::time::Instant::now();
-            if now.duration_since(*lt) < std::time::Duration::from_millis(200) { return; }
-            *lt = now; drop(lt);
-            let c = Arc::clone(&ct); let h = ht.clone();
-            tauri::async_runtime::spawn(async move {
-                let vs = c.lock().await.get_voice_service();
-                let v = vs.lock().await;
-                let ns = !v.is_global_muted();
-                match v.mute_all(ns).await {
-                    Ok(_) => { let _ = h.emit("global-mute-toggled", ns); }
-                    Err(e) => { error!("切换静音失败: {}", e); }
-                }
-            });
-        }) {
+        let ct = Arc::clone(&core);
+        let ht = app.clone();
+        let lt2 = Arc::clone(&ltt);
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(global_mute_hotkey.as_str(), move |_, _, ev| {
+                    if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                        return;
+                    }
+                    let mut lt = match lt2.try_lock() {
+                        Ok(g) => g,
+                        Err(_) => return,
+                    };
+                    let now = std::time::Instant::now();
+                    if now.duration_since(*lt) < std::time::Duration::from_millis(200) {
+                        return;
+                    }
+                    *lt = now;
+                    drop(lt);
+                    let c = Arc::clone(&ct);
+                    let h = ht.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let vs = c.lock().await.get_voice_service();
+                        let v = vs.lock().await;
+                        let ns = !v.is_global_muted();
+                        match v.mute_all(ns).await {
+                            Ok(_) => {
+                                let _ = h.emit("global-mute-toggled", ns);
+                            }
+                            Err(e) => {
+                                error!("切换静音失败: {}", e);
+                            }
+                        }
+                    });
+                })
+        {
             error!("全局听筒快捷键 {} 注册失败: {}", global_mute_hotkey, e);
         }
     }
 
     // ===== 临时开麦（按住说话）=====
     if !push_to_talk_hotkey.is_empty() {
-        let cf = Arc::clone(&core); let hf = app.clone(); let ltf2 = Arc::clone(&ltf);
-        if let Err(e) = app.global_shortcut().on_shortcut(push_to_talk_hotkey.as_str(), move |_, _, ev| {
-            let c = Arc::clone(&cf); let h = hf.clone(); let lf = Arc::clone(&ltf2);
-            tauri::async_runtime::spawn(async move {
-                let mut state = match lf.try_lock() { Ok(g) => g, Err(_) => return };
+        let cf = Arc::clone(&core);
+        let hf = app.clone();
+        let ltf2 = Arc::clone(&ltf);
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(push_to_talk_hotkey.as_str(), move |_, _, ev| {
+                    let c = Arc::clone(&cf);
+                    let h = hf.clone();
+                    let lf = Arc::clone(&ltf2);
+                    tauri::async_runtime::spawn(async move {
+                        let mut state = match lf.try_lock() {
+                            Ok(g) => g,
+                            Err(_) => return,
+                        };
 
-                if ev.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    if state.0 { return; } // 已按下，防重复触发
-                    state.0 = true;
-                    let current_mic_state = c.lock().await.get_voice_service().lock().await.is_mic_enabled();
-                    state.1 = current_mic_state;
-                    drop(state);
-                    if !current_mic_state {
-                        info!("临时开麦：开启麦克风");
-                        match c.lock().await.toggle_mic().await {
-                            Ok(s) => { let _ = h.emit("mic-toggled", s); }
-                            Err(e) => { error!("临时开麦开启失败: {}", e); }
+                        if ev.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                            if state.0 {
+                                return;
+                            } // 已按下，防重复触发
+                            state.0 = true;
+                            let current_mic_state = c
+                                .lock()
+                                .await
+                                .get_voice_service()
+                                .lock()
+                                .await
+                                .is_mic_enabled();
+                            state.1 = current_mic_state;
+                            drop(state);
+                            if !current_mic_state {
+                                info!("临时开麦：开启麦克风");
+                                match c.lock().await.toggle_mic().await {
+                                    Ok(s) => {
+                                        let _ = h.emit("mic-toggled", s);
+                                    }
+                                    Err(e) => {
+                                        error!("临时开麦开启失败: {}", e);
+                                    }
+                                }
+                            }
+                        } else if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released
+                        {
+                            if !state.0 {
+                                return;
+                            }
+                            let original_state = state.1;
+                            state.0 = false;
+                            drop(state);
+                            if !original_state {
+                                info!("临时开麦：恢复麦克风状态");
+                                match c.lock().await.toggle_mic().await {
+                                    Ok(s) => {
+                                        let _ = h.emit("mic-toggled", s);
+                                    }
+                                    Err(e) => {
+                                        error!("临时开麦恢复失败: {}", e);
+                                    }
+                                }
+                            }
                         }
-                    }
-                } else if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
-                    if !state.0 { return; }
-                    let original_state = state.1;
-                    state.0 = false;
-                    drop(state);
-                    if !original_state {
-                        info!("临时开麦：恢复麦克风状态");
-                        match c.lock().await.toggle_mic().await {
-                            Ok(s) => { let _ = h.emit("mic-toggled", s); }
-                            Err(e) => { error!("临时开麦恢复失败: {}", e); }
-                        }
-                    }
-                }
-            });
-        }) {
+                    });
+                })
+        {
             error!("临时开麦快捷键 {} 注册失败: {}", push_to_talk_hotkey, e);
         }
     }
@@ -976,7 +1067,7 @@ pub fn run() {
     reset_microphone_permission_cache_on_startup();
     // 在应用启动时检查并应用 GPU 设置
     apply_gpu_settings_on_startup();
-    
+
     use std::fs::OpenOptions;
     let log_path = if let Some(data_dir) = dirs::data_local_dir() {
         let mctier_dir = data_dir.join("MCTier");
@@ -985,7 +1076,11 @@ pub fn run() {
     } else {
         std::path::PathBuf::from("mctier.log")
     };
-    let log_file = OpenOptions::new().create(true).append(true).open(&log_path).expect("无法创建日志文件");
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("无法创建日志文件");
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .format_timestamp_millis()
@@ -999,14 +1094,21 @@ pub fn run() {
         match AppCore::new().await {
             Ok(core) => {
                 info!("应用核心初始化成功");
-                if let Err(e) = core.start().await { error!("应用启动失败: {}", e); }
+                if let Err(e) = core.start().await {
+                    error!("应用启动失败: {}", e);
+                }
                 core
             }
-            Err(e) => { error!("应用核心初始化失败: {}", e); panic!("无法初始化应用核心: {}", e); }
+            Err(e) => {
+                error!("应用核心初始化失败: {}", e);
+                panic!("无法初始化应用核心: {}", e);
+            }
         }
     });
 
-    let app_state = AppState { core: Arc::new(Mutex::new(app_core)) };
+    let app_state = AppState {
+        core: Arc::new(Mutex::new(app_core)),
+    };
 
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -1018,7 +1120,6 @@ pub fn run() {
             restore_main_window(app);
         }))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -1051,9 +1152,8 @@ pub fn run() {
             verify_share_password, get_download_url, diagnose_file_share_connection,
             download_remote_file, cancel_remote_download, export_logs, test_node_latency,
             download_remote_batch, detect_security_software,
+            configure_p2p_chat, update_p2p_chat_peers, stop_p2p_chat,
             send_p2p_chat_message, get_p2p_chat_messages, clear_p2p_chat_messages,
-            set_chat_peer_roster, clear_chat_peer_roster,
-            set_share_allowed_peers, clear_share_allowed_peers,
             open_screen_viewer_window,
             open_danmaku_window, close_danmaku_window,
             set_danmaku_ignore_cursor, danmaku_cursor_pos, save_danmaku_image,
@@ -1131,12 +1231,12 @@ pub fn run() {
                     }
                 });
             }
-            
+
             println!("🔍 [Setup] 尝试获取 AppState...");
             if let Some(state) = app.try_state::<AppState>() {
                 println!("✅ [Setup] 成功获取 AppState");
                 let core_hk = Arc::clone(&state.core);
-                
+
                 // 从用户配置读取自定义快捷键（缺省回落到默认键位），并完成注册。
                 // 用户在设置中修改后，前端会调用 apply_hotkeys 命令重新注册，无需重启。
                 let bindings = tauri::async_runtime::block_on(async {
@@ -1174,7 +1274,7 @@ pub fn run() {
                         }
                     }
                 }
-                
+
                 // 应用窗口配置
                 if let Some(state) = app.try_state::<AppState>() {
                     let core = Arc::clone(&state.core);
@@ -1183,7 +1283,7 @@ pub fn run() {
                         let config_manager = core.lock().await.get_config_manager();
                         let cfg_mgr = config_manager.lock().await;
                         let config = cfg_mgr.get_config();
-                        
+
                         // 应用窗口置顶设置
                         let always_on_top = config.always_on_top.unwrap_or(true);
                         if let Err(e) = win.set_always_on_top(always_on_top) {
@@ -1191,7 +1291,7 @@ pub fn run() {
                         } else {
                             info!("窗口置顶设置成功: {}", always_on_top);
                         }
-                        
+
                         // 应用窗口位置设置
                         let remember_position = config.remember_window_position.unwrap_or(false);
                         if remember_position {
@@ -1283,6 +1383,9 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!());
-    if let Err(e) = result { error!("运行错误: {}", e); panic!("error: {}", e); }
+    if let Err(e) = result {
+        error!("运行错误: {}", e);
+        panic!("error: {}", e);
+    }
     info!("MCTier 应用程序已关闭");
 }

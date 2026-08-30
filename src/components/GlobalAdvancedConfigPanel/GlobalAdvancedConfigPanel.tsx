@@ -20,7 +20,7 @@ export const GlobalAdvancedConfigPanel: React.FC = () => {
     setLoading(true);
     try {
       const config = await invoke<any>('get_global_easytier_advanced_config');
-      console.log('加载的全局高级配置:', config);
+      console.log('已加载全局高级配置');
       form.setFieldsValue(config);
     } catch (error) {
       console.error('加载全局高级配置失败:', error);

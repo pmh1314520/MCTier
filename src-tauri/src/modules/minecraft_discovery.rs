@@ -5,9 +5,9 @@
 // 并解析出 MOTD、版本、在线人数等信息，供前端展示"可加入的世界"。
 
 use serde::Serialize;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use std::time::Duration;
 
 /// 发现的 Minecraft 服务器信息
 #[derive(Debug, Clone, Serialize)]
@@ -133,7 +133,10 @@ async fn query_server(ip: &str, port: u16) -> Option<DiscoveredServer> {
         stream.write_all(&status_req).await?;
         stream.flush().await
     };
-    if tokio::time::timeout(Duration::from_millis(1500), send).await.is_err() {
+    if tokio::time::timeout(Duration::from_millis(1500), send)
+        .await
+        .is_err()
+    {
         return None;
     }
 
@@ -207,14 +210,18 @@ pub async fn scan_minecraft_servers(
     port: Option<u16>,
 ) -> Vec<DiscoveredServer> {
     let port = port.unwrap_or(25565);
-    log::info!("🔍 扫描 Minecraft 局域网世界: {} 个IP, 端口 {}", peer_ips.len(), port);
+    log::info!(
+        "🔍 扫描 Minecraft 局域网世界: {} 个IP, 端口 {}",
+        peer_ips.len(),
+        port
+    );
 
     let mut tasks = Vec::new();
     for ip in peer_ips {
         let ip_clone = ip.clone();
-        tasks.push(tokio::spawn(async move {
-            query_server(&ip_clone, port).await
-        }));
+        tasks.push(tokio::spawn(
+            async move { query_server(&ip_clone, port).await },
+        ));
     }
 
     let mut results = Vec::new();
@@ -275,9 +282,17 @@ pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
                     oks.push(rtt);
                 }
             }
-            let latency = if oks.is_empty() { None } else { Some(oks.iter().sum::<u64>() / oks.len() as u64) };
+            let latency = if oks.is_empty() {
+                None
+            } else {
+                Some(oks.iter().sum::<u64>() / oks.len() as u64)
+            };
             let loss = (((probes as usize - oks.len()) * 100) / probes as usize) as u8;
-            PeerLatency { ip: ip_clone, latency_ms: latency, loss_rate: loss }
+            PeerLatency {
+                ip: ip_clone,
+                latency_ms: latency,
+                loss_rate: loss,
+            }
         }));
     }
     let mut results = Vec::new();

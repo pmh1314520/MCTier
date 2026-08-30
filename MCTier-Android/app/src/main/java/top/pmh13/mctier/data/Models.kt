@@ -8,6 +8,11 @@ const val RemovedQingyunNode = "wss://mctiers.pmhs.top"
 const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
+const val ChatTokenHeader = "x-mctier-chat-token"
+const val ChatTokenHexLength = 64
+const val ChatMaxHistoryMessages = 1000
+const val ChatMaxHistoryBytes = 4 * 1024 * 1024
+const val ChatMaxHttpBodyBytes = 2 * 1024 * 1024
 const val AppClientVersion = "2.8.0"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
@@ -154,6 +159,9 @@ data class UserSettings(
 @Serializable
 data class SignalingEnvelope(
     val type: String,
+    val lobbyId: String? = null,
+    val chatToken: String? = null,
+    val chatTokenEpoch: Long? = null,
     val from: String? = null,
     val to: String? = null,
     val clientId: String? = null,
@@ -244,6 +252,13 @@ data class ChatWireMessage(
     @SerialName("image_data") val imageData: List<Int>? = null, // 图片字节(0~255)
 )
 
+/** 权威聊天身份：playerId/name 来自已认证信令快照，virtualIp 用于 TCP 源地址绑定。 */
+data class ChatPeerIdentity(
+    val playerId: String,
+    val playerName: String,
+    val virtualIp: String,
+)
+
 /** P2P 聊天发送请求体（与桌面端 SendMessageRequest 对齐） */
 @Serializable
 data class ChatSendRequest(
@@ -297,7 +312,6 @@ data class PublicLobbyWire(
     @SerialName("maxPlayers") val maxPlayers: Int? = null,
     @SerialName("hostName") val hostName: String = "",
     val description: String = "",
-    val password: String = "",
     @SerialName("serverNode") val serverNode: String = "",
 )
 

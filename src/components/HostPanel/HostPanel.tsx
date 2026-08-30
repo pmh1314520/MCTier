@@ -50,7 +50,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
   const currentCount = players.length + 1;
 
   const applyMax = () => {
-    const v = Math.max(0, Math.min(100, maxValue || 0));
+    const v = Math.max(0, Math.min(64, maxValue || 0));
     if (v !== 0 && v < currentCount) {
       message.warning(tl('人数上限不能小于当前在线人数（', 'Max players cannot be less than current online count (') + currentCount + '）');
       return;
@@ -60,13 +60,16 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
   };
 
   const applyPublic = (checked: boolean) => {
+    if (checked && lobby?.password) {
+      setPub(false);
+      message.error(tl('公开大厅必须不设密码', 'Public lobbies must not have a password'));
+      return;
+    }
     setPub(checked);
     if (descStorageKey) localStorage.setItem(descStorageKey, desc);
     webrtcClient.setLobbyOptions({
       isPublic: checked,
       description: desc,
-      // 公开时附带明文密码，供广场内一键加入
-      password: checked ? (lobby?.password || '') : undefined,
       // 公开时附带房主当前使用的节点地址，供广场加入者自动同步（保证节点一致可互通）
       serverNode: checked ? (localStorage.getItem('mctier_current_node') || undefined) : undefined,
     });
@@ -91,7 +94,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
             {tl('0 表示不限制。当前在线 ', '0 = unlimited. Online now: ')}{currentCount}{tl(' 人。', '')}
           </Paragraph>
           <Space>
-            <InputNumber min={0} max={100} value={maxValue} onChange={(v) => setMaxValue(v ?? 0)} />
+            <InputNumber min={0} max={64} value={maxValue} onChange={(v) => setMaxValue(v ?? 0)} />
             <Button type="primary" onClick={applyMax}>{tl('应用', 'Apply')}</Button>
           </Space>
         </div>
@@ -102,7 +105,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
             <Switch checked={pub} onChange={applyPublic} />
           </Space>
           <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
-            {tl('公开后，陌生人可在「公开广场」看到该大厅并一键加入（会公开大厅密码用于加入）。适合开服自由联机。', 'Once public, anyone can see and join this lobby from the Public Plaza (the lobby password is exposed for joining).')}
+            {tl('公开大厅不使用密码，陌生人可从公开广场直接加入。', 'Public lobbies have no password and can be joined directly from the plaza.')}
           </Paragraph>
           <TextArea
             value={desc}
@@ -112,7 +115,7 @@ export const HostPanel: React.FC<HostPanelProps> = ({ visible, onClose }) => {
             }}
             onBlur={() => {
               if (descStorageKey) localStorage.setItem(descStorageKey, desc);
-              if (pub) webrtcClient.setLobbyOptions({ isPublic: true, description: desc, password: lobby?.password || '' });
+              if (pub) webrtcClient.setLobbyOptions({ isPublic: true, description: desc });
             }}
             placeholder={tl('可选：填写大厅描述（如玩法、版本），展示在广场上', 'Optional: lobby description (mode, version) shown in the plaza')}
             autoSize={{ minRows: 2, maxRows: 4 }}

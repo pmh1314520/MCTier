@@ -91,16 +91,16 @@ pub fn log_error_with_details(error: &AppError, context: &str, details: &str) {
 }
 
 /// 异步重试机制
-/// 
+///
 /// # 参数
 /// * `operation` - 要执行的异步操作
 /// * `max_retries` - 最大重试次数
 /// * `delay_ms` - 每次重试之间的延迟（毫秒）
-/// 
+///
 /// # 返回
 /// * `Ok(T)` - 操作成功返回结果
 /// * `Err(E)` - 所有重试都失败后返回最后一次的错误
-/// 
+///
 /// # 示例
 /// ```rust
 /// let result = with_retry(
@@ -120,7 +120,7 @@ where
     E: fmt::Display,
 {
     let mut attempts = 0;
-    
+
     loop {
         match operation().await {
             Ok(result) => {
@@ -131,19 +131,14 @@ where
             }
             Err(e) => {
                 attempts += 1;
-                
+
                 if attempts > max_retries {
                     log::error!("操作失败，已达到最大重试次数 {}: {}", max_retries, e);
                     return Err(e);
                 }
-                
-                log::warn!(
-                    "操作失败，正在重试 {}/{}: {}",
-                    attempts,
-                    max_retries,
-                    e
-                );
-                
+
+                log::warn!("操作失败，正在重试 {}/{}: {}", attempts, max_retries, e);
+
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
         }
@@ -151,16 +146,16 @@ where
 }
 
 /// 异步重试机制（带指数退避）
-/// 
+///
 /// # 参数
 /// * `operation` - 要执行的异步操作
 /// * `max_retries` - 最大重试次数
 /// * `initial_delay_ms` - 初始延迟（毫秒）
-/// 
+///
 /// # 返回
 /// * `Ok(T)` - 操作成功返回结果
 /// * `Err(E)` - 所有重试都失败后返回最后一次的错误
-/// 
+///
 /// # 说明
 /// 每次重试的延迟时间会翻倍（指数退避），例如：
 /// - 第1次重试: initial_delay_ms
@@ -178,7 +173,7 @@ where
 {
     let mut attempts = 0;
     let mut delay = initial_delay_ms;
-    
+
     loop {
         match operation().await {
             Ok(result) => {
@@ -189,12 +184,12 @@ where
             }
             Err(e) => {
                 attempts += 1;
-                
+
                 if attempts > max_retries {
                     log::error!("操作失败，已达到最大重试次数 {}: {}", max_retries, e);
                     return Err(e);
                 }
-                
+
                 log::warn!(
                     "操作失败，正在重试 {}/{}（延迟 {}ms）: {}",
                     attempts,
@@ -202,9 +197,9 @@ where
                     delay,
                     e
                 );
-                
+
                 tokio::time::sleep(Duration::from_millis(delay)).await;
-                
+
                 // 指数退避：每次延迟时间翻倍
                 delay *= 2;
             }
@@ -226,7 +221,7 @@ mod tests {
     fn test_io_error_conversion() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "文件未找到");
         let app_err: AppError = io_err.into();
-        
+
         match app_err {
             AppError::IoError(msg) => assert!(msg.contains("文件未找到")),
             _ => panic!("错误类型转换失败"),
@@ -238,9 +233,9 @@ mod tests {
         let json_str = "{invalid json}";
         let json_err = serde_json::from_str::<serde_json::Value>(json_str).unwrap_err();
         let app_err: AppError = json_err.into();
-        
+
         match app_err {
-            AppError::SerializationError(_) => {},
+            AppError::SerializationError(_) => {}
             _ => panic!("错误类型转换失败"),
         }
     }
@@ -248,7 +243,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_success_first_attempt() {
         let mut call_count = 0;
-        
+
         let result = with_retry(
             || {
                 call_count += 1;
@@ -258,7 +253,7 @@ mod tests {
             100,
         )
         .await;
-        
+
         assert_eq!(result, Ok(42));
         assert_eq!(call_count, 1);
     }
@@ -266,7 +261,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_success_after_retries() {
         let mut call_count = 0;
-        
+
         let result = with_retry(
             || {
                 call_count += 1;
@@ -282,7 +277,7 @@ mod tests {
             10,
         )
         .await;
-        
+
         assert_eq!(result, Ok(42));
         assert_eq!(call_count, 3);
     }
@@ -290,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_failure_after_max_retries() {
         let mut call_count = 0;
-        
+
         let result = with_retry(
             || {
                 call_count += 1;
@@ -300,7 +295,7 @@ mod tests {
             10,
         )
         .await;
-        
+
         assert!(result.is_err());
         assert_eq!(call_count, 4); // 初始尝试 + 3次重试
     }
@@ -309,7 +304,7 @@ mod tests {
     async fn test_with_retry_exponential_backoff() {
         let mut call_count = 0;
         let start = std::time::Instant::now();
-        
+
         let result = with_retry_exponential_backoff(
             || {
                 call_count += 1;
@@ -325,9 +320,9 @@ mod tests {
             10,
         )
         .await;
-        
+
         let elapsed = start.elapsed();
-        
+
         assert_eq!(result, Ok(42));
         assert_eq!(call_count, 3);
         // 第1次重试: 10ms, 第2次重试: 20ms, 总共至少 30ms

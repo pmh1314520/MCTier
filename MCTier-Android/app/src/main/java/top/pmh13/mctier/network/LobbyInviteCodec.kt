@@ -2,7 +2,9 @@ package top.pmh13.mctier.network
 
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 data class LobbyInviteData(
     val name: String,
@@ -12,6 +14,54 @@ data class LobbyInviteData(
 )
 
 object LobbyInviteCodec {
+    private val EasyTierSchemes = setOf("tcp", "udp", "ws", "wss", "txt")
+    private val SignalingSchemes = setOf("ws", "wss")
+
+    /** Keep values safe before they reach the EasyTier TOML/config or WebSocket URL boundary. */
+    fun isValidLobbyName(value: String): Boolean {
+        if (value.any(::isUnsafeControl)) return false
+        val text = value.trim()
+        if (text.length !in 4..32) return false
+        val hasAlnum = text.any {
+            it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in '\u4e00'..'\u9fa5'
+        }
+        if (!hasAlnum) return false
+        return text.all {
+            it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' ||
+                it == '_' || it == '-' || it == ' ' || it in '\u4e00'..'\u9fa5'
+        }
+    }
+
+    fun isValidLobbyPassword(value: String): Boolean {
+        if (value.any(::isUnsafeControl)) return false
+        val text = value.trim()
+        if (text.isEmpty()) return true
+        if (text.length !in 8..32) return false
+        if (text.any(::isUnsafeControl)) return false
+        val hasLetter = text.any { it in 'a'..'z' || it in 'A'..'Z' }
+        val hasDigit = text.any { it in '0'..'9' }
+        return hasLetter && hasDigit
+    }
+
+    fun isValidEasyTierNode(value: String): Boolean = isValidEndpoint(value, EasyTierSchemes)
+
+    fun isValidSignalingServer(value: String): Boolean = isValidEndpoint(value, SignalingSchemes)
+
+    private fun isValidEndpoint(value: String, schemes: Set<String>): Boolean {
+        val text = value.trim()
+        if (text.isBlank() || text.length > 2048 || text.any { it.isWhitespace() || isUnsafeControl(it) }) return false
+        val uri = runCatching { URI(text) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase(Locale.US) ?: return false
+        return scheme in schemes &&
+            !uri.host.isNullOrBlank() &&
+            uri.userInfo == null &&
+            uri.fragment == null &&
+            uri.port in -1..65535
+    }
+
+    private fun isUnsafeControl(value: Char): Boolean =
+        value.code < 0x20 || value.code in 0x7f..0x9f || value == '\u2028' || value == '\u2029'
+
     fun formatText(invite: LobbyInviteData, english: Boolean): String {
         val link = buildLink(invite)
         return if (english) {

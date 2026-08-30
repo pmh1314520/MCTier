@@ -25,7 +25,6 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
   value,
   onChange,
   historyKey,
-  maxHistory = 10,
   placeholder,
   size = 'large',
   disabled = false,
@@ -38,17 +37,12 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
   const inputRef = useRef<InputRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 从 localStorage 加载历史记录
+  // Password history is intentionally disabled. Remove legacy entries during
+  // migration so a shared webview/local profile does not retain secrets.
   useEffect(() => {
-    const savedHistory = localStorage.getItem(`mctier_history_${historyKey}`);
-    if (savedHistory) {
-      try {
-        const parsed = JSON.parse(savedHistory);
-        setHistory(Array.isArray(parsed) ? parsed : []);
-      } catch (e) {
-        console.error('加载历史记录失败:', e);
-      }
-    }
+    setHistory([]);
+    setFilteredHistory([]);
+    localStorage.removeItem(`mctier_history_${historyKey}`);
   }, [historyKey]);
 
   // 根据当前输入值过滤历史记录
@@ -98,16 +92,8 @@ export const HistoryPasswordInput: React.FC<HistoryPasswordInputProps> = ({
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const currentValue = e.target.value?.trim();
     
-    // 保存到历史记录
-    if (currentValue && currentValue.length > 0) {
-      const newHistory = [
-        currentValue,
-        ...history.filter(item => item !== currentValue)
-      ].slice(0, maxHistory);
-      
-      setHistory(newHistory);
-      localStorage.setItem(`mctier_history_${historyKey}`, JSON.stringify(newHistory));
-    }
+    // Do not persist password values or maintain a password history.
+    void currentValue;
 
     // 延迟关闭，以便点击历史记录项时能够触发
     setTimeout(() => {

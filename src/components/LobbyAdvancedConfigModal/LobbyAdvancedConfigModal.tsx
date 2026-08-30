@@ -34,7 +34,7 @@ export const LobbyAdvancedConfigModal: React.FC<LobbyAdvancedConfigModalProps> =
     setLoading(true);
     try {
       const config = await invoke<any>('get_lobby_easytier_advanced_config');
-      console.log('加载的大厅高级配置:', config);
+      console.log('已加载大厅高级配置');
       setUseGlobalConfig(config.use_global_config ?? true);
       form.setFieldsValue(config);
     } catch (error) {

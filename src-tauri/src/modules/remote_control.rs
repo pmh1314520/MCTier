@@ -53,10 +53,10 @@ mod platform {
     use super::RemoteInputEvent;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEINPUT, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE,
+        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_ABSOLUTE,
         MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
         MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-        MOUSEEVENTF_WHEEL, VIRTUAL_KEY,
+        MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
@@ -163,17 +163,32 @@ mod platform {
             match ev {
                 RemoteInputEvent::MouseMove { x, y } => {
                     let (ax, ay) = to_abs(*x, *y);
-                    inputs.push(mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE));
+                    inputs.push(mouse_input(
+                        ax,
+                        ay,
+                        0,
+                        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    ));
                 }
                 RemoteInputEvent::MouseDown { button, x, y } => {
                     let (ax, ay) = to_abs(*x, *y);
                     // 先移动到目标点，再按下，避免点偏
-                    inputs.push(mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE));
+                    inputs.push(mouse_input(
+                        ax,
+                        ay,
+                        0,
+                        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    ));
                     inputs.push(mouse_input(0, 0, 0, button_flags(*button, true)));
                 }
                 RemoteInputEvent::MouseUp { button, x, y } => {
                     let (ax, ay) = to_abs(*x, *y);
-                    inputs.push(mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE));
+                    inputs.push(mouse_input(
+                        ax,
+                        ay,
+                        0,
+                        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    ));
                     inputs.push(mouse_input(0, 0, 0, button_flags(*button, false)));
                 }
                 RemoteInputEvent::MouseWheel { dx, dy } => {

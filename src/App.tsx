@@ -29,6 +29,7 @@ import {
   resolveTheme,
   type ThemePreference,
 } from './theme/themePreference';
+import { isSafeResourceId, sanitizeUntrustedText } from './security/trustBoundary';
 import './App.css';
 
 function App() {
@@ -107,8 +108,9 @@ function App() {
   if (isScreenViewerWindow) {
     // 从URL参数中获取shareId和playerName
     const urlParams = new URLSearchParams(window.location.search);
-    const shareId = urlParams.get('shareId') || '';
-    const playerName = urlParams.get('playerName') || tl('未知玩家', 'Unknown Player');
+    const rawShareId = urlParams.get('shareId');
+    const shareId = isSafeResourceId(rawShareId) ? rawShareId : '';
+    const playerName = sanitizeUntrustedText(urlParams.get('playerName'), 64).trim() || tl('未知玩家', 'Unknown Player');
     
     return (
       <ErrorBoundary>
@@ -411,7 +413,7 @@ function App() {
         // 从后端加载用户配置
         try {
           const userConfig = await invoke<UserConfig>('get_config');
-          console.log('已加载用户配置:', userConfig);
+          console.log('已加载用户配置');
 
           // 更新前端store中的配置
           const { updateConfig } = useAppStore.getState();
@@ -492,7 +494,7 @@ function App() {
 
           // 获取玩家名称
           const playerName = useAppStore.getState().config.playerName || tl('未知玩家', 'Unknown Player');
-          console.log('使用玩家名称:', playerName);
+           console.log('已读取玩家身份');
 
           // 在初始化之前先设置版本错误回调
           webrtcClient.onVersionError((currentVersion, minimumVersion) => {
@@ -506,12 +508,7 @@ function App() {
           // 初始化WebRTC客户端
           // 从 lobby 对象中获取信令服务器地址，如果没有则使用默认值
           const signalingServer = lobby.signalingServer || 'wss://mctier.pmhs.top/signaling';
-          console.log('使用信令服务器:', signalingServer);
-
-          console.log('WebRTC初始化参数:');
-          console.log('  - 当前玩家虚拟IP:', lobby.virtualIp);
-          console.log('  - 大厅名称:', lobby.name);
-          console.log('  - 信令服务器:', signalingServer);
+           console.log('已准备 WebRTC 连接参数');
 
           await webrtcClient.initialize(playerId, playerName, lobby.name, lobby.password || '', lobby.virtualDomain, lobby.useDomain, signalingServer);
 
@@ -572,7 +569,7 @@ function App() {
           });
 
           webrtcClient.onChatMessage((playerId, playerName, content, timestamp) => {
-            console.log(`WebRTC: 收到聊天消息 - ${playerName}: ${content}`);
+            console.log('WebRTC: 收到聊天消息');
             addChatMessage({
               id: `${playerId}-${timestamp}`,
               playerId,

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button, Typography, Divider, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { open } from '@tauri-apps/plugin-shell';
 import { tl } from '../../i18n';
 import {
   GitHubIcon,
@@ -44,6 +45,13 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
   const [showSponsorModal, setShowSponsorModal] = useState(false);
   const [enlargedQRCode, setEnlargedQRCode] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  const openTrustedExternal = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    void open(event.currentTarget.href).catch((error) => {
+      console.error('打开外部链接失败:', error);
+    });
+  };
 
   // ESC键返回
   useEscapeKey(() => {
@@ -301,6 +309,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 <a
                   href="https://mctier.pmhs.top"
                   target="_blank"
+                  onClick={openTrustedExternal}
                   rel="noopener noreferrer"
                   className="repo-link"
                 >
@@ -310,6 +319,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 <a
                   href="https://github.com/pmh1314520/MCTier"
                   target="_blank"
+                  onClick={openTrustedExternal}
                   rel="noopener noreferrer"
                   className="repo-link"
                 >
@@ -319,6 +329,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                 <a
                   href="https://gitee.com/peng-minghang/mctier"
                   target="_blank"
+                  onClick={openTrustedExternal}
                   rel="noopener noreferrer"
                   className="repo-link"
                 >
@@ -442,6 +453,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://github.com/EasyTier/EasyTier"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -471,6 +483,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://webrtc.googlesource.com/src"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -497,6 +510,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://www.wintun.net"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -520,6 +534,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://reqrypt.org/windivert.html"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -546,6 +561,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://npcap.com"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -575,6 +591,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://github.com/localai-org/LocalVQE"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >
@@ -601,6 +618,7 @@ export const AboutWindow: React.FC<AboutWindowProps> = ({ onClose }) => {
                   <a
                     href="https://github.com/jboss-javassist/javassist"
                     target="_blank"
+                    onClick={openTrustedExternal}
                     rel="noopener noreferrer"
                     className="third-party-link"
                   >

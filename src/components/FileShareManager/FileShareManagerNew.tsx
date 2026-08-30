@@ -14,6 +14,13 @@ import type { SharedFolder, SharedFolderSummary, FileInfo } from '../../types/fi
 import { FolderIcon, DownloadIcon, ShareIcon, CloseIcon, BackIcon, TrashIcon } from '../icons';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
+import {
+  isSafeIdentifier,
+  isSafeRelativePath,
+  isSafeResourceId,
+  isSafeVirtualIp,
+  sanitizeUntrustedText,
+} from '../../security/trustBoundary';
 import './FileShareManager.css';
 
 // 简化的远程共享类型
@@ -22,6 +29,8 @@ interface SimpleRemoteShare {
   ownerName: string;
   ownerIp: string;
 }
+
+type DownloadRetry = (password: string) => void;
 
 // 下载任务状态
 interface DownloadTask {
@@ -39,6 +48,87 @@ interface DownloadTask {
   lastUpdateTime?: number; // 上次更新时间
   lastDownloaded?: number; // 上次下载的字节数
   isBatchDownload?: boolean; // 是否为批量下载（文件夹）
+}
+
+const WINDOWS_RESERVED_NAMES = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+]);
+
+function safeDownloadFileName(fileName: string): string {
+  const basename = fileName.replace(/\\/g, '/').split('/').pop()?.trim() ?? '';
+  let safe = basename
+    .replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_')
+    .replace(/[. ]+$/g, '');
+  if (!safe || safe === '.' || safe === '..') {
+    throw new Error(tl('文件名无效', 'Invalid file name'));
+  }
+  const stem = safe.split('.')[0]?.toUpperCase() ?? '';
+  if (WINDOWS_RESERVED_NAMES.has(stem)) safe = `_${safe}`;
+  return safe;
+}
+
+function normalizeSharedFolderSummary(value: unknown): SharedFolderSummary | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  const id = isSafeResourceId(item.id) ? item.id : '';
+  const name = sanitizeUntrustedText(item.name, 255).trim();
+  if (!id || !name || typeof item.has_password !== 'boolean') return null;
+  const expireTime = typeof item.expire_time === 'number' && Number.isFinite(item.expire_time)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(item.expire_time)))
+    : undefined;
+  const createdAt = typeof item.created_at === 'number' && Number.isFinite(item.created_at)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(item.created_at)))
+    : 0;
+  return {
+    id,
+    name,
+    has_password: item.has_password,
+    ...(expireTime === undefined ? {} : { expire_time: expireTime }),
+    compress_before_send: item.compress_before_send === true,
+    owner_id: sanitizeUntrustedText(item.owner_id, 128).trim(),
+    created_at: createdAt,
+  };
+}
+
+function normalizeFileInfo(value: unknown): FileInfo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  const name = sanitizeUntrustedText(item.name, 255).trim();
+  const path = isSafeRelativePath(item.path) ? item.path : '';
+  const size = typeof item.size === 'number' && Number.isSafeInteger(item.size)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, item.size))
+    : -1;
+  const modified = typeof item.modified === 'number' && Number.isFinite(item.modified)
+    ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(item.modified)))
+    : 0;
+  if (!name || !path || size < 0 || typeof item.is_dir !== 'boolean') return null;
+  return { name, path, size, is_dir: item.is_dir, modified };
+}
+
+function encodeRelativePath(path: string): string {
+  return path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+}
+
+function buildDownloadUrl(ownerIp: string, shareId: string, filePath: string): string | null {
+  if (!isSafeVirtualIp(ownerIp) || !isSafeResourceId(shareId) || !isSafeRelativePath(filePath) || !filePath) return null;
+  return `http://${ownerIp}:14539/api/shares/${encodeURIComponent(shareId)}/download/${encodeRelativePath(filePath)}`;
+}
+
+function parseDownloadUrl(url: string): { peerIp: string; shareId: string; filePath: string } | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' || parsed.port !== '14539' || !isSafeVirtualIp(parsed.hostname)) return null;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length < 5 || segments[0] !== 'api' || segments[1] !== 'shares' || segments[3] !== 'download') return null;
+    const shareId = decodeURIComponent(segments[2]);
+    const filePath = segments.slice(4).map((segment) => decodeURIComponent(segment)).join('/');
+    if (!isSafeResourceId(shareId) || !isSafeRelativePath(filePath) || !filePath) return null;
+    return { peerIp: parsed.hostname, shareId, filePath };
+  } catch {
+    return null;
+  }
 }
 
 // 模块级缓存：跨组件卸载/重挂(返回大厅再进文件共享视图)保留下载记录，避免记录丢失
@@ -81,6 +171,7 @@ export const FileShareManagerNew: React.FC = () => {
   const [pendingShare, setPendingShare] = useState<SimpleRemoteShare | null>(null);
   const [sharePasswordMap, setSharePasswordMap] = useState<Record<string, string>>({});
   const pendingBrowsePathRef = useRef<string>('');
+  const pendingDownloadRetryRef = useRef<DownloadRetry | null>(null);
 
   // 从Store获取数据
   const { lobby, players, config } = useAppStore();
@@ -107,6 +198,20 @@ export const FileShareManagerNew: React.FC = () => {
     };
   };
 
+  const isUnauthorizedDownloadError = (error: unknown): boolean => {
+    const text = String(error);
+    return text.includes('401') || text.includes('访问被拒绝') || text.includes('密码错误');
+  };
+
+  const requestDownloadPassword = (remoteShare: SimpleRemoteShare, retry: DownloadRetry) => {
+    pendingDownloadRetryRef.current = retry;
+    pendingBrowsePathRef.current = currentPath;
+    setPendingShare(remoteShare);
+    setPasswordInput('');
+    setShowPasswordModal(true);
+    message.error(tl('下载需要密码，请输入后重试', 'Download requires a password; enter it to retry'));
+  };
+
   // 加载远程共享 - 简化版本
   const loadRemoteShares = async () => {
     
@@ -114,11 +219,16 @@ export const FileShareManagerNew: React.FC = () => {
     const now = Math.floor(Date.now() / 1000);
     
     // 1. 加载自己的共享
-    if (lobby?.virtualIp) {
+    if (lobby?.virtualIp && isSafeVirtualIp(lobby.virtualIp)) {
       try {
-        const shares = await invoke<SharedFolderSummary[]>('get_remote_shares', { peerIp: lobby.virtualIp });
-        
-        shares.forEach(share => {
+        const shares = await invoke<unknown>('get_remote_shares', { peerIp: lobby.virtualIp });
+        const safeShares = Array.isArray(shares)
+          ? shares.flatMap((item) => {
+              const share = normalizeSharedFolderSummary(item);
+              return share ? [share] : [];
+            })
+          : [];
+        safeShares.forEach(share => {
           // 过滤掉过期的共享
           if (!share.expire_time || share.expire_time > now) {
             allShares.push({
@@ -135,11 +245,16 @@ export const FileShareManagerNew: React.FC = () => {
     
     // 2. 加载其他玩家的共享
     for (const player of players) {
-      if (player.virtualIp) {
+      if (player.virtualIp && isSafeVirtualIp(player.virtualIp)) {
         try {
-          const shares = await invoke<SharedFolderSummary[]>('get_remote_shares', { peerIp: player.virtualIp });
-          
-          shares.forEach(share => {
+          const shares = await invoke<unknown>('get_remote_shares', { peerIp: player.virtualIp });
+          const safeShares = Array.isArray(shares)
+            ? shares.flatMap((item) => {
+                const share = normalizeSharedFolderSummary(item);
+                return share ? [share] : [];
+              })
+            : [];
+          safeShares.forEach(share => {
             // 过滤掉过期的共享
             if (!share.expire_time || share.expire_time > now) {
               allShares.push({
@@ -184,13 +299,20 @@ export const FileShareManagerNew: React.FC = () => {
     console.log('📡 [FileShareManager] 设置文件共享事件监听器');
     
     // 文件共享添加事件
-    const handleFileShareAdded = (event: any) => {
-      console.log('📁 [FileShareManager] 收到文件共享添加事件:', event.detail);
-      const { shareId, shareName, playerId, playerName, hasPassword } = event.detail;
+    const handleFileShareAdded = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const input = detail as Record<string, unknown>;
+      const shareId = isSafeResourceId(input.shareId) ? input.shareId : '';
+      const shareName = sanitizeUntrustedText(input.shareName, 255).trim();
+      const playerId = isSafeIdentifier(input.playerId) ? input.playerId : '';
+      const playerName = sanitizeUntrustedText(input.playerName, 64).trim();
+      const hasPassword = input.hasPassword === true;
+      if (!shareId || !shareName || !playerId || !playerName || typeof input.hasPassword !== 'boolean') return;
       
       // 查找玩家的虚拟IP
       const player = players.find(p => p.id === playerId);
-      if (!player || !player.virtualIp) {
+      if (!player || !player.virtualIp || !isSafeVirtualIp(player.virtualIp)) {
         console.warn('⚠️ [FileShareManager] 找不到玩家或虚拟IP:', playerId);
         return;
       }
@@ -223,13 +345,17 @@ export const FileShareManagerNew: React.FC = () => {
     };
     
     // 文件共享删除事件
-    const handleFileShareRemoved = (event: any) => {
-      console.log('🗑️ [FileShareManager] 收到文件共享删除事件:', event.detail);
-      const { shareId, playerId } = event.detail;
+    const handleFileShareRemoved = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const input = detail as Record<string, unknown>;
+      const shareId = isSafeResourceId(input.shareId) ? input.shareId : '';
+      const playerId = isSafeIdentifier(input.playerId) ? input.playerId : '';
+      if (!shareId || !playerId) return;
       
       // 查找玩家的虚拟IP
       const player = players.find(p => p.id === playerId);
-      if (!player || !player.virtualIp) {
+      if (!player || !player.virtualIp || !isSafeVirtualIp(player.virtualIp)) {
         console.warn('⚠️ [FileShareManager] 找不到玩家或虚拟IP:', playerId);
         return;
       }
@@ -379,29 +505,79 @@ export const FileShareManagerNew: React.FC = () => {
 
       setSelectedShare(remoteShare);
       setSelectedFiles(new Set());
-      await loadFiles(remoteShare, targetPath, verifiedPassword);
+      const loaded = await loadFiles(remoteShare, targetPath, verifiedPassword);
+      if (!loaded) return;
+      const retryDownload = pendingDownloadRetryRef.current;
+      pendingDownloadRetryRef.current = null;
       setShowPasswordModal(false);
       setPasswordInput('');
       setPendingShare(null);
       pendingBrowsePathRef.current = '';
+      retryDownload?.(verifiedPassword ?? password ?? '');
     } catch (error) {
+      const errorText = String(error);
+      if (errorText.includes('410') || errorText.includes('共享已过期')) {
+        forgetRemoteShare(remoteShare, true);
+        return;
+      }
       message.error(tl('打开共享失败', 'Failed to open share'));
     }
   };
 
   // 加载文件列表
-  const loadFiles = async (remoteShare: SimpleRemoteShare, path: string, passwordOverride?: string) => {
+  const forgetRemoteShare = (remoteShare: SimpleRemoteShare, expired: boolean) => {
+    setRemoteShares(prev => prev.filter(s =>
+      !(s.ownerIp === remoteShare.ownerIp && s.share.id === remoteShare.share.id)
+    ));
+    setSelectedShare(prev => {
+      if (!prev || prev.ownerIp !== remoteShare.ownerIp || prev.share.id !== remoteShare.share.id) {
+        return prev;
+      }
+      return null;
+    });
+    setCurrentPath('');
+    setFiles([]);
+    setSelectedFiles(new Set());
+    pendingDownloadRetryRef.current = null;
+    message.warning(expired
+      ? tl('该共享文件夹已过期', 'This shared folder has expired')
+      : tl('该共享文件夹已被删除', 'This shared folder has been deleted'));
+  };
+
+  const loadFiles = async (remoteShare: SimpleRemoteShare, path: string, passwordOverride?: string): Promise<boolean> => {
+    if (
+      !isSafeVirtualIp(remoteShare.ownerIp) ||
+      !isSafeResourceId(remoteShare.share.id) ||
+      !isSafeRelativePath(path)
+    ) {
+      message.error(tl('共享路径无效', 'Invalid shared path'));
+      return false;
+    }
     setLoadingFiles(true);
     try {
-      const response = await fetch(
-        `http://${remoteShare.ownerIp}:14539/api/shares/${remoteShare.share.id}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`,
-        {
-          headers: getSharePasswordHeader(remoteShare.ownerIp, remoteShare.share.id, passwordOverride),
-        }
-      );
-
-      if (!response.ok) {
-        if (response.status === 401) {
+      const password = passwordOverride
+        ?? sharePasswordMap[getShareKey(remoteShare.ownerIp, remoteShare.share.id)]
+        ?? null;
+      try {
+        const payload = await invoke<unknown>('get_remote_files', {
+          peerIp: remoteShare.ownerIp,
+          shareId: remoteShare.share.id,
+          path: path || null,
+          password,
+        });
+        const fileList = Array.isArray(payload)
+          ? payload.flatMap((item: unknown) => {
+              const file = normalizeFileInfo(item);
+              return file ? [file] : [];
+            })
+          : [];
+        setFiles(fileList);
+        setCurrentPath(path);
+        setSelectedFiles(new Set());
+        return true;
+      } catch (error) {
+        const detail = String(error);
+        if (detail.includes('401') || detail.includes('密码错误') || detail.includes('访问被拒绝')) {
           const retryPath = path;
           message.error(tl('访问被拒绝，请重新输入密码', 'Access denied, please re-enter the password'));
           setSharePasswordMap(prev => {
@@ -414,21 +590,24 @@ export const FileShareManagerNew: React.FC = () => {
           setPendingShare(remoteShare);
           setShowPasswordModal(true);
           setPasswordInput('');
-          return;
+          return false;
         }
-        throw new Error(`HTTP ${response.status}`);
+        if (detail.includes('410') || detail.includes('共享已过期')) {
+          forgetRemoteShare(remoteShare, true);
+          return false;
+        }
+        if (detail.includes('404') || detail.includes('共享不存在')) {
+          forgetRemoteShare(remoteShare, false);
+          return false;
+        }
+        throw error;
       }
-
-      const payload = await response.json();
-      const fileList = (payload?.files ?? []) as FileInfo[];
-      setFiles(fileList);
-      setCurrentPath(path);
-      setSelectedFiles(new Set());
     } catch (error) {
       const errorMessage = String(error);
       if (!errorMessage.includes('HTTP 401')) {
         message.error(tl('加载文件列表失败', 'Failed to load file list'));
       }
+      return false;
     } finally {
       setLoadingFiles(false);
     }
@@ -468,16 +647,26 @@ export const FileShareManagerNew: React.FC = () => {
     if (!selectedShare) return;
     
     try {
-      const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
+      if (
+        file.is_dir ||
+        !isSafeRelativePath(file.path) ||
+        !isSafeVirtualIp(selectedShare.ownerIp) ||
+        !isSafeResourceId(selectedShare.share.id)
+      ) {
+        throw new Error(tl('文件路径无效', 'Invalid file path'));
+      }
+      const safeName = safeDownloadFileName(file.name);
+      const savePath = await invoke<string>('get_file_share_download_path', { fileName: safeName });
       
-      const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      const downloadUrl = buildDownloadUrl(selectedShare.ownerIp, selectedShare.share.id, file.path);
+      if (!downloadUrl) throw new Error(tl('下载地址无效', 'Invalid download URL'));
       const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
       
       // 创建下载任务
       const taskId = `download_${Date.now()}_${Math.random()}`;
       const newTask: DownloadTask = {
         id: taskId,
-        fileName: file.name,
+        fileName: safeName,
         fileSize: file.size,
         downloaded: 0,
         status: 'downloading',
@@ -501,17 +690,9 @@ export const FileShareManagerNew: React.FC = () => {
   // 实际执行下载（流式：由后端边下边写盘，避免大文件占满内存导致卡死/崩溃）
   const startDownload = async (taskId: string, url: string, savePath: string, fileSize: number, headers?: HeadersInit) => {
     try {
-      // 从下载 URL 解析 peerIp / shareId / filePath（URL 由本组件构造，格式固定）
-      // 形如 http://10.x.x.x:14539/api/shares/{shareId}/download/{filePath}
-      const afterScheme = url.replace(/^https?:\/\//, '');
-      const peerIp = afterScheme.split(':')[0];
-      const sharesIdx = url.indexOf('/api/shares/');
-      const rest = url.substring(sharesIdx + '/api/shares/'.length); // {shareId}/download/{filePath}
-      const dlIdx = rest.indexOf('/download/');
-      const shareId = rest.substring(0, dlIdx);
-      const filePathEncoded = rest.substring(dlIdx + '/download/'.length);
-      let filePath = filePathEncoded;
-      try { filePath = decodeURIComponent(filePathEncoded); } catch { /* 保持原值 */ }
+      const parsedDownload = parseDownloadUrl(url);
+      if (!parsedDownload) throw new Error('下载地址无效');
+      const { peerIp, shareId, filePath } = parsedDownload;
 
       // 从 headers 取共享密码
       let password: string | null = null;
@@ -533,6 +714,7 @@ export const FileShareManagerNew: React.FC = () => {
         filePath,
         savePath,
         password,
+        expectedSize: fileSize,
       });
 
       // 完成
@@ -545,6 +727,22 @@ export const FileShareManagerNew: React.FC = () => {
       // 用户主动取消不视为失败
       if (errStr.includes('已取消')) {
         console.log('❌ [FileShareManager] 下载被取消:', taskId);
+        return;
+      }
+      if (errStr.includes('410') || errStr.includes('共享已过期')) {
+        if (selectedShare) forgetRemoteShare(selectedShare, true);
+      }
+      if (isUnauthorizedDownloadError(error) && selectedShare) {
+        setDownloads(prev => prev.map(task =>
+          task.id === taskId ? { ...task, status: 'failed' as const, error: tl('等待重新输入密码', 'Waiting for password'), speed: 0 } : task
+        ));
+        requestDownloadPassword(selectedShare, (password) => {
+          const retryHeaders: HeadersInit = { 'x-share-password': password };
+          setDownloads(prev => prev.map(task =>
+            task.id === taskId ? { ...task, status: 'downloading' as const, error: undefined, downloaded: 0 } : task
+          ));
+          void startDownload(taskId, url, savePath, fileSize, retryHeaders);
+        });
         return;
       }
       setDownloads(prev => prev.map(task =>
@@ -563,7 +761,7 @@ export const FileShareManagerNew: React.FC = () => {
       return;
     }
 
-    const selectedFileList = files.filter(f => !f.is_dir && selectedFiles.has(f.path));
+    const selectedFileList = files.filter(f => !f.is_dir && selectedFiles.has(f.path) && isSafeRelativePath(f.path));
     
     if (selectedFileList.length === 0) {
       message.warning(tl('没有选中任何文件', 'No files selected'));
@@ -595,13 +793,17 @@ export const FileShareManagerNew: React.FC = () => {
         
         // 异步下载，不阻塞UI
         (async () => {
+          let zipCommitted = false;
           try {
             // 【流式】调用后端批量打包下载命令，边收边写盘到临时ZIP，避免大包占满内存
-            const filePaths = selectedFileList.map(f => f.path);
+            const filePaths = selectedFileList.map(f => f.path).filter((path) => isSafeRelativePath(path));
             const batchPassword = sharePasswordMap[getShareKey(selectedShare.ownerIp, selectedShare.share.id)] ?? null;
             console.log('📦 [FileShareManager] 请求批量打包(流式):', selectedShare.ownerIp, selectedShare.share.id);
             console.log('📦 [FileShareManager] 文件列表:', filePaths);
 
+            if (filePaths.length !== selectedFileList.length || !isSafeVirtualIp(selectedShare.ownerIp) || !isSafeResourceId(selectedShare.share.id)) {
+              throw new Error('文件路径无效');
+            }
             await invoke('download_remote_batch', {
               taskId,
               peerIp: selectedShare.ownerIp,
@@ -610,6 +812,7 @@ export const FileShareManagerNew: React.FC = () => {
               savePath: tempZipPath,
               password: batchPassword,
             });
+            zipCommitted = true;
 
             console.log('✅ [FileShareManager] 压缩包已保存:', tempZipPath);
             
@@ -619,7 +822,8 @@ export const FileShareManagerNew: React.FC = () => {
             
             const extractedFiles = await invoke<string[]>('extract_zip', {
               zipPath: tempZipPath,
-              extractDir: saveDir
+              extractDir: saveDir,
+              maxTotalBytes: selectedFileList.reduce((total, item) => total + Math.max(0, item.size), 0),
             });
             
             message.destroy('extracting');
@@ -647,6 +851,13 @@ export const FileShareManagerNew: React.FC = () => {
             setSelectedFiles(new Set());
           } catch (error) {
             console.error('❌ [FileShareManager] 批量下载失败:', error);
+
+            if (zipCommitted) {
+              await invoke('delete_file', { path: tempZipPath }).catch(() => {});
+            }
+            if (String(error).includes('410') || String(error).includes('共享已过期')) {
+              forgetRemoteShare(selectedShare, true);
+            }
             
             // 更新任务状态为失败
             setDownloads(prev => prev.map(task =>
@@ -665,14 +876,19 @@ export const FileShareManagerNew: React.FC = () => {
       
       // 逐个下载
       for (const file of selectedFileList) {
-        const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
-        const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
-      const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
+        const safeName = safeDownloadFileName(file.name);
+        const savePath = await invoke<string>('get_file_share_download_path', { fileName: safeName });
+        const downloadUrl = buildDownloadUrl(selectedShare.ownerIp, selectedShare.share.id, file.path);
+        if (!downloadUrl) {
+          message.error(tl('下载路径无效', 'Invalid download path'));
+          continue;
+        }
+        const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
         
         const taskId = `download_${Date.now()}_${Math.random()}`;
         const newTask: DownloadTask = {
           id: taskId,
-          fileName: file.name,
+          fileName: safeName,
           fileSize: file.size,
           downloaded: 0,
           status: 'downloading',
@@ -692,14 +908,19 @@ export const FileShareManagerNew: React.FC = () => {
     } else {
       // 只选中了一个文件，直接下载
       const file = selectedFileList[0];
-      const savePath = await invoke<string>('get_file_share_download_path', { fileName: file.name });
-      const downloadUrl = `http://${selectedShare.ownerIp}:14539/api/shares/${selectedShare.share.id}/download/${file.path}`;
+      const safeName = safeDownloadFileName(file.name);
+      const savePath = await invoke<string>('get_file_share_download_path', { fileName: safeName });
+      const downloadUrl = buildDownloadUrl(selectedShare.ownerIp, selectedShare.share.id, file.path);
+      if (!downloadUrl) {
+        message.error(tl('下载路径无效', 'Invalid download path'));
+        return;
+      }
       const downloadHeaders = getSharePasswordHeader(selectedShare.ownerIp, selectedShare.share.id);
       
       const taskId = `download_${Date.now()}_${Math.random()}`;
       const newTask: DownloadTask = {
         id: taskId,
-        fileName: file.name,
+        fileName: safeName,
         fileSize: file.size,
         downloaded: 0,
         status: 'downloading',
@@ -805,25 +1026,9 @@ export const FileShareManagerNew: React.FC = () => {
         : t
     ));
     
-    // 删除已下载的残留文件
-    if (task?.savePath) {
-      try {
-        console.log('🗑️ [FileShareManager] 删除残留文件:', task.savePath);
-        await invoke('delete_file', { path: task.savePath });
-        console.log('✅ [FileShareManager] 残留文件已删除');
-      } catch (error) {
-        console.error('❌ [FileShareManager] 删除残留文件失败:', error);
-      }
-      
-      // 删除临时文件
-      try {
-        await invoke('delete_file', { path: `${task.savePath}.part` });
-        console.log('✅ [FileShareManager] 临时文件已删除');
-      } catch (error) {
-        // 临时文件可能不存在，忽略错误
-      }
-    }
-    
+    // The backend owns the random .part file and removes it on cancellation.
+    // Never delete savePath here: it may be an existing user file that the
+    // no-replace backend deliberately preserved.
     setDownloads(prev => prev.filter(t => t.id !== taskId));
     message.success(tl('已取消下载', 'Download canceled'));
   };
@@ -1222,7 +1427,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
       message.error(tl('请选择要共享的文件夹', 'Please select a folder to share'));
       return;
     }
-    if (hasPassword && !password) {
+    if (hasPassword && !password.trim()) {
       message.error(tl('请输入密码', 'Please enter a password'));
       return;
     }
@@ -1260,7 +1465,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
             shareId: share.id,
             shareName: share.name,
             playerName: config.playerName || tl('未知玩家', 'Unknown Player'),
-            hasPassword: !!share.password,
+            hasPassword: Boolean(share.password?.trim()),
           });
         }
       } catch (error) {

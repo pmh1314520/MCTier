@@ -70,16 +70,34 @@ class MainActivity : ComponentActivity() {
     /** 解析邀请链接并预填加入表单（仅填表，不自动连接；非法参数安全忽略） */
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme != "mctier") return
-        runCatching {
-            LobbyInviteCodec.parse(data.toString())?.let { invite ->
-                MctierRepository.get(applicationContext).applyDeepLink(
-                    invite.name,
-                    invite.password,
-                    invite.serverNode,
-                    invite.signalingServer,
-                )
+        try {
+            // Only browser VIEW intents for the exact registered host are accepted.  Keeping
+            // this check at the exported activity boundary prevents arbitrary callers from
+            // smuggling config values through an explicit Intent.
+            if (intent?.action != Intent.ACTION_VIEW ||
+                !data.scheme.equals("mctier", ignoreCase = true) ||
+                !data.host.equals("join", ignoreCase = true) ||
+                data.path.orEmpty() !in setOf("", "/") ||
+                data.fragment != null ||
+                data.toString().length > 4096
+            ) return
+
+            runCatching { LobbyInviteCodec.parse(data.toString()) }.getOrNull()?.let { invite ->
+                val name = invite.name.trim()
+                val password = invite.password.trim()
+                val node = invite.serverNode?.trim()
+                val signaling = invite.signalingServer?.trim()
+                if (!LobbyInviteCodec.isValidLobbyName(name) ||
+                    !LobbyInviteCodec.isValidLobbyPassword(password) ||
+                    (node != null && !LobbyInviteCodec.isValidEasyTierNode(node)) ||
+                    (signaling != null && !LobbyInviteCodec.isValidSignalingServer(signaling))
+                ) return@let
+                MctierRepository.get(applicationContext).applyDeepLink(name, password, node, signaling)
             }
+        } finally {
+            // The URI contains the lobby password.  Do not retain it in the Activity's
+            // launch Intent or process it again after a configuration change.
+            intent?.let { if (it.data == data) it.data = null }
         }
     }
 }

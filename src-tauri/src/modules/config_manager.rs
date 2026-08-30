@@ -36,6 +36,7 @@ pub struct AutoLobbyConfig {
     /// 大厅名称
     pub lobby_name: Option<String>,
     /// 大厅密码
+    #[serde(default, skip_serializing)]
     pub lobby_password: Option<String>,
     /// 玩家名称
     pub player_name: Option<String>,
@@ -71,7 +72,7 @@ pub struct EasyTierAdvancedConfig {
     // ========== 配置来源 ==========
     /// 是否使用全局配置（仅用于大厅配置）
     pub use_global_config: bool,
-    
+
     // ========== 网络模式 ==========
     /// 是否启用无 TUN 模式（不创建虚拟网卡）
     pub no_tun: bool,
@@ -79,7 +80,7 @@ pub struct EasyTierAdvancedConfig {
     pub dhcp: bool,
     /// 手动指定的虚拟 IPv4 地址
     pub ipv4: Option<String>,
-    
+
     // ========== 代理和转发 ==========
     /// 是否启用 SOCKS5 代理
     pub enable_socks5: bool,
@@ -91,13 +92,13 @@ pub struct EasyTierAdvancedConfig {
     pub proxy_forward_by_system: bool,
     /// 子网代理 CIDR 列表（导出本地网络）
     pub proxy_networks: Vec<String>,
-    
+
     // ========== 出口节点 ==========
     /// 是否启用作为出口节点
     pub enable_as_exit_node: bool,
     /// 出口节点列表（使用其他节点作为出口）
     pub exit_nodes: Vec<String>,
-    
+
     // ========== 性能优化 ==========
     /// 是否启用多线程
     pub multi_thread: bool,
@@ -107,7 +108,7 @@ pub struct EasyTierAdvancedConfig {
     pub latency_first: bool,
     /// 是否启用 smoltcp 堆栈
     pub use_smoltcp: bool,
-    
+
     // ========== 协议优化 ==========
     /// 是否启用 KCP 代理
     pub enable_kcp_proxy: bool,
@@ -119,13 +120,13 @@ pub struct EasyTierAdvancedConfig {
     pub disable_quic_input: bool,
     /// QUIC 监听端口
     pub quic_listen_port: Option<u16>,
-    
+
     // ========== 加密和安全 ==========
     /// 是否禁用加密
     pub disable_encryption: bool,
     /// 加密算法（aes-gcm, aes-256-gcm, xor, chacha20）
     pub encryption_algorithm: Option<String>,
-    
+
     // ========== 网络设备 ==========
     /// 是否绑定到物理设备
     pub bind_device: bool,
@@ -133,7 +134,7 @@ pub struct EasyTierAdvancedConfig {
     pub dev_name: Option<String>,
     /// MTU 大小
     pub mtu: Option<u32>,
-    
+
     // ========== P2P 配置 ==========
     /// 是否仅使用 P2P 连接
     pub p2p_only: bool,
@@ -145,7 +146,7 @@ pub struct EasyTierAdvancedConfig {
     pub disable_tcp_hole_punching: bool,
     /// 是否禁用对称 NAT 打洞
     pub disable_sym_hole_punching: bool,
-    
+
     // ========== 中继配置 ==========
     /// 中继网络白名单（支持通配符）
     pub relay_network_whitelist: Vec<String>,
@@ -157,15 +158,15 @@ pub struct EasyTierAdvancedConfig {
     pub enable_relay_foreign_network_kcp: bool,
     /// 外部网络流量转发速率限制（BPS）
     pub foreign_relay_bps_limit: Option<u64>,
-    
+
     // ========== 路由配置 ==========
     /// 手动分配的路由 CIDR
     pub manual_routes: Vec<String>,
-    
+
     // ========== 压缩 ==========
     /// 压缩算法（none, zstd）
     pub compression: Option<String>,
-    
+
     // ========== 监听器配置 ==========
     /// 监听器列表
     pub listeners: Vec<String>,
@@ -175,31 +176,31 @@ pub struct EasyTierAdvancedConfig {
     pub no_listener: bool,
     /// 默认协议
     pub default_protocol: Option<String>,
-    
+
     // ========== DNS 配置 ==========
     /// 是否启用魔法 DNS
     pub accept_dns: bool,
     /// 顶级域名区域
     pub tld_dns_zone: Option<String>,
-    
+
     // ========== 端口白名单 ==========
     /// TCP 端口白名单
     pub tcp_whitelist: Vec<String>,
     /// UDP 端口白名单
     pub udp_whitelist: Vec<String>,
-    
+
     // ========== IPv6 ==========
     /// 是否禁用 IPv6
     pub disable_ipv6: bool,
     /// 虚拟 IPv6 地址
     pub ipv6: Option<String>,
-    
+
     // ========== STUN 服务器 ==========
     /// 自定义 STUN 服务器列表
     pub stun_servers: Vec<String>,
     /// 自定义 IPv6 STUN 服务器列表
     pub stun_servers_v6: Vec<String>,
-    
+
     // ========== 私有模式 ==========
     /// 是否启用私有模式
     pub private_mode: bool,
@@ -210,87 +211,87 @@ impl Default for EasyTierAdvancedConfig {
         Self {
             // 配置来源
             use_global_config: true,
-            
+
             // 网络模式
             no_tun: false,
             dhcp: true,
             ipv4: None,
-            
+
             // 代理和转发
             enable_socks5: false,
             socks5_port: None,
             port_forward_rules: Vec::new(),
             proxy_forward_by_system: false,
             proxy_networks: Vec::new(),
-            
+
             // 出口节点
             enable_as_exit_node: false,
             exit_nodes: Vec::new(),
-            
+
             // 性能优化
             multi_thread: true,
             multi_thread_count: Some(2),
             latency_first: true,
             use_smoltcp: false,
-            
+
             // 协议优化
             enable_kcp_proxy: false,
             disable_kcp_input: false,
             enable_quic_proxy: false,
             disable_quic_input: false,
             quic_listen_port: None,
-            
+
             // 加密和安全
             disable_encryption: false,
             encryption_algorithm: None,
-            
+
             // 网络设备
             bind_device: false,
             dev_name: Some("MCTier_Net".to_string()),
             mtu: None,
-            
+
             // P2P 配置
             p2p_only: false,
             disable_p2p: false,
             disable_udp_hole_punching: false,
             disable_tcp_hole_punching: false,
             disable_sym_hole_punching: false,
-            
+
             // 中继配置
             relay_network_whitelist: Vec::new(),
             relay_all_peer_rpc: false,
             disable_relay_kcp: false,
             enable_relay_foreign_network_kcp: false,
             foreign_relay_bps_limit: None,
-            
+
             // 路由配置
             manual_routes: Vec::new(),
-            
+
             // 压缩
             compression: None,
-            
+
             // 监听器配置
             listeners: Vec::new(),
             mapped_listeners: Vec::new(),
             no_listener: false,
             default_protocol: None,
-            
+
             // DNS 配置
             accept_dns: false,
             tld_dns_zone: None,
-            
+
             // 端口白名单
             tcp_whitelist: Vec::new(),
             udp_whitelist: Vec::new(),
-            
+
             // IPv6
             disable_ipv6: false,
             ipv6: None,
-            
+
             // STUN 服务器
             stun_servers: Vec::new(),
             stun_servers_v6: Vec::new(),
-            
+
             // 私有模式
             private_mode: false,
         }
@@ -310,7 +311,7 @@ pub struct ExitNodeConfig {
     pub exit_nodes: Vec<String>,
     /// 子网代理CIDR列表（用于共享本地子网）
     pub subnet_proxy_cidrs: Vec<String>,
-    
+
     // ========== 新增高级配置 ==========
     /// 是否启用 SOCKS5 代理
     pub enable_socks5: bool,
@@ -442,9 +443,9 @@ pub struct ConfigManager {
 impl Default for ConfigManager {
     fn default() -> Self {
         // 获取默认配置路径
-        let config_path = Self::get_config_path()
-            .unwrap_or_else(|_| PathBuf::from("mctier_config.json"));
-        
+        let config_path =
+            Self::get_config_path().unwrap_or_else(|_| PathBuf::from("mctier_config.json"));
+
         Self {
             config_path,
             config: UserConfig::default(),
@@ -457,7 +458,7 @@ impl ConfigManager {
     const CONFIG_FILE_NAME: &'static str = "mctier_config.json";
 
     /// 加载配置管理器（静态方法）
-    /// 
+    ///
     /// # 返回
     /// * `Ok(ConfigManager)` - 成功加载配置管理器
     /// * `Err(AppError)` - 加载失败
@@ -466,18 +467,18 @@ impl ConfigManager {
     }
 
     /// 创建新的配置管理器实例
-    /// 
+    ///
     /// # 返回
     /// * `Ok(ConfigManager)` - 成功创建配置管理器
     /// * `Err(AppError)` - 创建失败
-    /// 
+    ///
     /// # 说明
     /// 此方法会尝试从配置文件加载配置，如果文件不存在或损坏，则使用默认配置
     pub async fn new() -> Result<Self, AppError> {
         let config_path = Self::get_config_path()?;
-        
+
         log::info!("配置文件路径: {:?}", config_path);
-        
+
         // 尝试加载配置，如果失败则使用默认配置
         let config = match Self::load_from_file(&config_path).await {
             Ok(cfg) => {
@@ -497,7 +498,7 @@ impl ConfigManager {
     }
 
     /// 获取配置文件路径
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 配置文件路径
     /// * `Err(AppError)` - 获取失败
@@ -508,15 +509,15 @@ impl ConfigManager {
 
         // 创建应用配置目录
         let app_config_dir = config_dir.join("mctier");
-        
+
         Ok(app_config_dir.join(Self::CONFIG_FILE_NAME))
     }
 
     /// 从文件加载配置
-    /// 
+    ///
     /// # 参数
     /// * `path` - 配置文件路径
-    /// 
+    ///
     /// # 返回
     /// * `Ok(UserConfig)` - 成功加载的配置
     /// * `Err(AppError)` - 加载失败
@@ -527,57 +528,55 @@ impl ConfigManager {
         }
 
         // 读取文件内容
-        let content = fs::read_to_string(path).await.map_err(|e| {
-            AppError::ConfigError(format!("读取配置文件失败: {}", e))
-        })?;
+        let content = fs::read_to_string(path)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("读取配置文件失败: {}", e)))?;
 
         // 解析 JSON
-        let config: UserConfig = serde_json::from_str(&content).map_err(|e| {
-            AppError::ConfigError(format!("解析配置文件失败: {}", e))
-        })?;
+        let config: UserConfig = serde_json::from_str(&content)
+            .map_err(|e| AppError::ConfigError(format!("解析配置文件失败: {}", e)))?;
 
         Ok(config)
     }
 
     /// 保存配置到文件
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 保存成功
     /// * `Err(AppError)` - 保存失败
     pub async fn save(&self) -> Result<(), AppError> {
         // 确保配置目录存在
         if let Some(parent) = self.config_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
-                AppError::ConfigError(format!("创建配置目录失败: {}", e))
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AppError::ConfigError(format!("创建配置目录失败: {}", e)))?;
         }
 
         // 序列化配置为 JSON（格式化输出，便于阅读）
-        let json_content = serde_json::to_string_pretty(&self.config).map_err(|e| {
-            AppError::ConfigError(format!("序列化配置失败: {}", e))
-        })?;
+        let json_content = serde_json::to_string_pretty(&self.config)
+            .map_err(|e| AppError::ConfigError(format!("序列化配置失败: {}", e)))?;
 
         // 写入文件（使用临时文件 + 原子重命名，防止写入过程中断导致文件损坏）
         let temp_path = self.config_path.with_extension("json.tmp");
-        
-        let mut file = fs::File::create(&temp_path).await.map_err(|e| {
-            AppError::ConfigError(format!("创建临时配置文件失败: {}", e))
-        })?;
 
-        file.write_all(json_content.as_bytes()).await.map_err(|e| {
-            AppError::ConfigError(format!("写入配置文件失败: {}", e))
-        })?;
+        let mut file = fs::File::create(&temp_path)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("创建临时配置文件失败: {}", e)))?;
 
-        file.sync_all().await.map_err(|e| {
-            AppError::ConfigError(format!("同步配置文件失败: {}", e))
-        })?;
+        file.write_all(json_content.as_bytes())
+            .await
+            .map_err(|e| AppError::ConfigError(format!("写入配置文件失败: {}", e)))?;
+
+        file.sync_all()
+            .await
+            .map_err(|e| AppError::ConfigError(format!("同步配置文件失败: {}", e)))?;
 
         drop(file);
 
         // 原子重命名
-        fs::rename(&temp_path, &self.config_path).await.map_err(|e| {
-            AppError::ConfigError(format!("重命名配置文件失败: {}", e))
-        })?;
+        fs::rename(&temp_path, &self.config_path)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("重命名配置文件失败: {}", e)))?;
 
         log::info!("配置已保存到: {:?}", self.config_path);
 
@@ -585,7 +584,7 @@ impl ConfigManager {
     }
 
     /// 获取当前配置的引用
-    /// 
+    ///
     /// # 返回
     /// 当前配置的不可变引用
     pub fn get_config(&self) -> &UserConfig {
@@ -593,7 +592,7 @@ impl ConfigManager {
     }
 
     /// 获取当前配置的克隆
-    /// 
+    ///
     /// # 返回
     /// 当前配置的克隆副本
     pub fn get_config_clone(&self) -> UserConfig {
@@ -601,14 +600,14 @@ impl ConfigManager {
     }
 
     /// 更新配置
-    /// 
+    ///
     /// # 参数
     /// * `updater` - 配置更新函数，接收可变配置引用
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 更新成功
     /// * `Err(AppError)` - 更新失败
-    /// 
+    ///
     /// # 示例
     /// ```rust
     /// manager.update_config(|config| {
@@ -621,237 +620,255 @@ impl ConfigManager {
     {
         // 应用更新
         updater(&mut self.config);
-        
+
         // 立即保存到文件
         self.save().await?;
-        
+
         log::info!("配置已更新并保存");
-        
+
         Ok(())
     }
 
     /// 设置玩家名称
-    /// 
+    ///
     /// # 参数
     /// * `name` - 玩家名称
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_player_name(&mut self, name: String) -> Result<(), AppError> {
         self.update_config(|config| {
             config.player_name = Some(name);
-        }).await
+        })
+        .await
     }
 
     /// 设置首选服务器
-    /// 
+    ///
     /// # 参数
     /// * `server` - 服务器地址
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_preferred_server(&mut self, server: String) -> Result<(), AppError> {
         self.update_config(|config| {
             config.preferred_server = Some(server);
-        }).await
+        })
+        .await
     }
 
     /// 设置麦克风快捷键
-    /// 
+    ///
     /// # 参数
     /// * `hotkey` - 快捷键字符串
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_mic_hotkey(&mut self, hotkey: String) -> Result<(), AppError> {
         self.update_config(|config| {
             config.mic_hotkey = Some(hotkey);
-        }).await
+        })
+        .await
     }
 
     /// 设置窗口位置
-    /// 
+    ///
     /// # 参数
     /// * `position` - 窗口位置信息
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_window_position(&mut self, position: WindowPosition) -> Result<(), AppError> {
         self.update_config(|config| {
             config.window_position = Some(position);
-        }).await
+        })
+        .await
     }
 
     /// 设置音频设备 ID
-    /// 
+    ///
     /// # 参数
     /// * `device_id` - 音频设备 ID
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_audio_device_id(&mut self, device_id: String) -> Result<(), AppError> {
         self.update_config(|config| {
             config.audio_device_id = Some(device_id);
-        }).await
+        })
+        .await
     }
 
     /// 设置窗口透明度
-    /// 
+    ///
     /// # 参数
     /// * `opacity` - 透明度值 (0.0-1.0)
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_opacity(&mut self, opacity: f64) -> Result<(), AppError> {
         // 验证透明度范围
         let clamped_opacity = opacity.clamp(0.0, 1.0);
-        
+
         self.update_config(|config| {
             config.opacity = Some(clamped_opacity);
-        }).await
+        })
+        .await
     }
 
     /// 设置窗口是否置顶
-    /// 
+    ///
     /// # 参数
     /// * `always_on_top` - 是否置顶
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_always_on_top(&mut self, always_on_top: bool) -> Result<(), AppError> {
         self.update_config(|config| {
             config.always_on_top = Some(always_on_top);
-        }).await
+        })
+        .await
     }
 
     /// 设置是否记住窗口位置
-    /// 
+    ///
     /// # 参数
     /// * `remember` - 是否记住
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_remember_window_position(&mut self, remember: bool) -> Result<(), AppError> {
         self.update_config(|config| {
             config.remember_window_position = Some(remember);
-        }).await
+        })
+        .await
     }
 
     /// 设置关闭窗口时是否最小化到系统托盘
-    /// 
+    ///
     /// # 参数
     /// * `close_to_tray` - 是否最小化到托盘
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_close_to_tray(&mut self, close_to_tray: bool) -> Result<(), AppError> {
         self.update_config(|config| {
             config.close_to_tray = Some(close_to_tray);
-        }).await
+        })
+        .await
     }
 
     /// 设置启动后是否自动隐藏到系统托盘
-    /// 
+    ///
     /// # 参数
     /// * `start_minimized` - 是否启动后自动隐藏到托盘
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_start_minimized(&mut self, start_minimized: bool) -> Result<(), AppError> {
         self.update_config(|config| {
             config.start_minimized = Some(start_minimized);
-        }).await
+        })
+        .await
     }
 
     /// 设置语音音量
-    /// 
+    ///
     /// # 参数
     /// * `volume` - 音量值 (0.0-1.0)
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_voice_volume(&mut self, volume: f64) -> Result<(), AppError> {
         // 验证音量范围
         let clamped_volume = volume.clamp(0.0, 1.0);
-        
+
         self.update_config(|config| {
             config.voice_volume = Some(clamped_volume);
-        }).await
+        })
+        .await
     }
 
     /// 设置是否启用 GPU 渲染
-    /// 
+    ///
     /// # 参数
     /// * `enable` - 是否启用
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
     pub async fn set_enable_gpu_rendering(&mut self, enable: bool) -> Result<(), AppError> {
         self.update_config(|config| {
             config.enable_gpu_rendering = Some(enable);
-        }).await
+        })
+        .await
     }
 
     /// 设置自定义 EasyTier 节点列表
-    /// 
+    ///
     /// # 参数
     /// * `nodes` - 节点列表
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 设置成功
     /// * `Err(AppError)` - 设置失败
-    pub async fn set_custom_easytier_nodes(&mut self, nodes: Vec<EasyTierNode>) -> Result<(), AppError> {
+    pub async fn set_custom_easytier_nodes(
+        &mut self,
+        nodes: Vec<EasyTierNode>,
+    ) -> Result<(), AppError> {
         self.update_config(|config| {
             config.custom_easytier_nodes = Some(nodes);
-        }).await
+        })
+        .await
     }
 
     /// 重置为默认配置
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 重置成功
     /// * `Err(AppError)` - 重置失败
     pub async fn reset_to_default(&mut self) -> Result<(), AppError> {
         self.config = UserConfig::default();
         self.save().await?;
-        
+
         log::info!("配置已重置为默认值");
-        
+
         Ok(())
     }
 
     /// 备份当前配置文件
-    /// 
+    ///
     /// # 返回
     /// * `Ok(PathBuf)` - 备份文件路径
     /// * `Err(AppError)` - 备份失败
     pub async fn backup_config(&self) -> Result<PathBuf, AppError> {
         if !self.config_path.exists() {
-            return Err(AppError::ConfigError("配置文件不存在，无法备份".to_string()));
+            return Err(AppError::ConfigError(
+                "配置文件不存在，无法备份".to_string(),
+            ));
         }
 
         // 生成备份文件名（带时间戳）
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let backup_path = self.config_path.with_file_name(
-            format!("mctier_config_backup_{}.json", timestamp)
-        );
+        let backup_path = self
+            .config_path
+            .with_file_name(format!("mctier_config_backup_{}.json", timestamp));
 
         // 复制文件
-        fs::copy(&self.config_path, &backup_path).await.map_err(|e| {
-            AppError::ConfigError(format!("备份配置文件失败: {}", e))
-        })?;
+        fs::copy(&self.config_path, &backup_path)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("备份配置文件失败: {}", e)))?;
 
         log::info!("配置已备份到: {:?}", backup_path);
 
@@ -859,23 +876,22 @@ impl ConfigManager {
     }
 
     /// 导出配置到指定路径
-    /// 
+    ///
     /// # 参数
     /// * `export_path` - 导出文件路径
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 导出成功
     /// * `Err(AppError)` - 导出失败
     pub async fn export_config(&self, export_path: PathBuf) -> Result<(), AppError> {
         // 序列化配置为 JSON（格式化输出）
-        let json_content = serde_json::to_string_pretty(&self.config).map_err(|e| {
-            AppError::ConfigError(format!("序列化配置失败: {}", e))
-        })?;
+        let json_content = serde_json::to_string_pretty(&self.config)
+            .map_err(|e| AppError::ConfigError(format!("序列化配置失败: {}", e)))?;
 
         // 写入文件
-        fs::write(&export_path, json_content).await.map_err(|e| {
-            AppError::ConfigError(format!("导出配置文件失败: {}", e))
-        })?;
+        fs::write(&export_path, json_content)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("导出配置文件失败: {}", e)))?;
 
         log::info!("配置已导出到: {:?}", export_path);
 
@@ -883,27 +899,26 @@ impl ConfigManager {
     }
 
     /// 从指定路径导入配置
-    /// 
+    ///
     /// # 参数
     /// * `import_path` - 导入文件路径
-    /// 
+    ///
     /// # 返回
     /// * `Ok(())` - 导入成功
     /// * `Err(AppError)` - 导入失败
     pub async fn import_config(&mut self, import_path: PathBuf) -> Result<(), AppError> {
         // 读取文件内容
-        let content = fs::read_to_string(&import_path).await.map_err(|e| {
-            AppError::ConfigError(format!("读取导入文件失败: {}", e))
-        })?;
+        let content = fs::read_to_string(&import_path)
+            .await
+            .map_err(|e| AppError::ConfigError(format!("读取导入文件失败: {}", e)))?;
 
         // 解析 JSON
-        let imported_config: UserConfig = serde_json::from_str(&content).map_err(|e| {
-            AppError::ConfigError(format!("解析导入文件失败: {}", e))
-        })?;
+        let imported_config: UserConfig = serde_json::from_str(&content)
+            .map_err(|e| AppError::ConfigError(format!("解析导入文件失败: {}", e)))?;
 
         // 更新配置
         self.config = imported_config;
-        
+
         // 保存到配置文件
         self.save().await?;
 
@@ -930,7 +945,7 @@ mod tests {
     #[tokio::test]
     async fn test_default_config() {
         let config = UserConfig::default();
-        
+
         assert!(config.player_name.is_none());
         assert!(config.preferred_server.is_none());
         assert_eq!(config.mic_hotkey, Some("Ctrl+M".to_string()));
@@ -942,7 +957,7 @@ mod tests {
     #[tokio::test]
     async fn test_default_window_position() {
         let pos = WindowPosition::default();
-        
+
         assert_eq!(pos.x, 100);
         assert_eq!(pos.y, 100);
         assert_eq!(pos.width, 300);
@@ -971,7 +986,10 @@ mod tests {
 
         // 验证配置内容
         assert_eq!(loaded_config.player_name, Some("测试玩家".to_string()));
-        assert_eq!(loaded_config.preferred_server, Some("tcp://test:11010".to_string()));
+        assert_eq!(
+            loaded_config.preferred_server,
+            Some("tcp://test:11010".to_string())
+        );
     }
 
     #[tokio::test]
@@ -980,10 +998,13 @@ mod tests {
         let mut manager = create_test_config_manager(&temp_dir).await;
 
         // 更新配置
-        manager.update_config(|config| {
-            config.player_name = Some("新玩家".to_string());
-            config.mic_hotkey = Some("Ctrl+Shift+M".to_string());
-        }).await.unwrap();
+        manager
+            .update_config(|config| {
+                config.player_name = Some("新玩家".to_string());
+                config.mic_hotkey = Some("Ctrl+Shift+M".to_string());
+            })
+            .await
+            .unwrap();
 
         // 验证配置已更新
         assert_eq!(manager.config.player_name, Some("新玩家".to_string()));
@@ -1001,7 +1022,10 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut manager = create_test_config_manager(&temp_dir).await;
 
-        manager.set_player_name("玩家123".to_string()).await.unwrap();
+        manager
+            .set_player_name("玩家123".to_string())
+            .await
+            .unwrap();
 
         assert_eq!(manager.config.player_name, Some("玩家123".to_string()));
     }
@@ -1011,9 +1035,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut manager = create_test_config_manager(&temp_dir).await;
 
-        manager.set_preferred_server("tcp://server:11010".to_string()).await.unwrap();
+        manager
+            .set_preferred_server("tcp://server:11010".to_string())
+            .await
+            .unwrap();
 
-        assert_eq!(manager.config.preferred_server, Some("tcp://server:11010".to_string()));
+        assert_eq!(
+            manager.config.preferred_server,
+            Some("tcp://server:11010".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1057,7 +1087,9 @@ mod tests {
         let config_path = temp_dir.path().join("corrupted.json");
 
         // 写入损坏的 JSON
-        fs::write(&config_path, "{invalid json content}").await.unwrap();
+        fs::write(&config_path, "{invalid json content}")
+            .await
+            .unwrap();
 
         // 尝试加载应该失败
         let result = ConfigManager::load_from_file(&config_path).await;

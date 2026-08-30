@@ -8,6 +8,19 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage } from '../../types';
 import { isWithinRecallWindow } from './recallPolicy';
+import {
+  isSafeChatToken,
+  isSafeVirtualIp,
+  MAX_ANNOUNCEMENT_LENGTH,
+  MAX_CHAT_TEXT_LENGTH,
+  MAX_IMAGE_BYTES,
+  MAX_TODO_ITEMS,
+  MAX_TODO_TEXT_LENGTH,
+  sanitizeIdentifier,
+  sanitizeImageDataUrl,
+  sanitizeTodoItems,
+  sanitizeUntrustedText,
+} from '../../security/trustBoundary';
 
 interface BackendChatMessage {
   id: string;
@@ -24,60 +37,61 @@ interface BackendChatMessage {
 const CHAT_SERVER_PORT = 14540;
 
 class P2PChatService {
-  private selfEventSource: EventSource | null = null; // 仅订阅“自己”的消息流
+  private selfStreamAbortController: AbortController | null = null;
   private selfReconnectTimer: number | null = null;
   private isListening: boolean = false;
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
   private currentPlayerId: string = '';
   private myVirtualIp: string = ''; // 本机虚拟IP，用于连接本机聊天服务器
+  private chatToken: string = '';
   private seenMessageIds: Set<string> = new Set(); // 基于消息ID去重，避免重复回调
   private seenMessageOrder: string[] = []; // 维护去重集合的插入顺序，便于裁剪
   private pendingRecalls: Map<string, string> = new Map();
   private onAvatarCallback?: (playerId: string, avatarData?: string) => void;
 
-  /**
-   * 初始化服务
-   *
-   * `roster` 为大厅成员的 [playerId, virtualIp] 列表（含自己），下发给后端后，
-   * `/api/chat/send` 会校验消息里自称的 player_id 是否来自其登记的虚拟 IP，
-   * 避免同大厅成员伪造他人身份发言（含公告、撤回、头像等控制消息）。
-   */
-  initialize(
-    peerIps: string[],
-    currentPlayerId: string,
-    myVirtualIp: string,
-    roster?: Array<[string, string]>,
-    readers?: string[]
-  ): void {
-    // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
-    this.peerIps = peerIps;
-    this.currentPlayerId = currentPlayerId;
-    this.myVirtualIp = myVirtualIp;
-
-    console.log('✅ [P2PChatService] 初始化完成');
-    console.log('  - 当前玩家ID:', currentPlayerId);
-    console.log('  - 自己的虚拟IP:', myVirtualIp);
-    console.log('  - 其他玩家IPs:', peerIps);
-
-    if (roster) {
-      void this.updatePeerRoster(roster, readers);
-    }
+  private isSafeImageBytes(value: unknown): value is number[] {
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.length <= MAX_IMAGE_BYTES &&
+      value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+    );
   }
 
   /**
-   * 下发大厅身份名册，供后端校验聊天消息发送者身份
-   *
-   * `readers` 为允许读取本机聊天记录的成员IP（含本机，本机需自订阅 SSE 流）。
-   * 仅在所有成员虚拟IP均已就绪时传入；未就绪时省略，后端会放行以避免误拒
-   * IP 尚未同步的合法成员。
+   * 初始化服务
    */
-  async updatePeerRoster(roster: Array<[string, string]>, readers?: string[]): Promise<void> {
-    try {
-      await invoke('set_chat_peer_roster', { entries: roster, readers: readers ?? null });
-      console.log(`🪪 [P2PChatService] 已下发身份名册（${roster.length} 人）`);
-    } catch (error) {
-      console.warn('⚠️ [P2PChatService] 下发身份名册失败:', error);
+  initialize(peerIps: string[], currentPlayerId: string, myVirtualIp: string): void {
+    // 更新玩家IPs和ID（发送消息时仍需要 peerIps）
+    const localIp = isSafeVirtualIp(myVirtualIp) ? myVirtualIp.trim() : '';
+    this.peerIps = Array.from(new Set(
+      (Array.isArray(peerIps) ? peerIps : [])
+        .filter((ip): ip is string => isSafeVirtualIp(ip))
+        .map((ip) => ip.trim())
+        .filter((ip) => ip !== localIp),
+    ));
+    this.currentPlayerId = sanitizeIdentifier(currentPlayerId);
+    this.myVirtualIp = localIp;
+
+    console.log('✅ [P2PChatService] 初始化完成');
+  }
+
+  /**
+   * Set the per-lobby credential received from signaling. It is intentionally
+   * kept out of URLs and logs; the authenticated SSE stream sends it only as
+   * a request header.
+   */
+  setChatToken(token: unknown): void {
+    const nextToken = isSafeChatToken(token) ? token : '';
+    if (nextToken === this.chatToken) return;
+
+    const wasListening = this.isListening;
+    this.stopListening();
+    this.chatToken = nextToken;
+    if (wasListening && nextToken) {
+      this.isListening = true;
+      void this.connectToSelfStream();
     }
   }
   
@@ -89,14 +103,12 @@ class P2PChatService {
     this.peerIps = [];
     this.currentPlayerId = '';
     this.myVirtualIp = '';
+    this.chatToken = '';
     this.onMessageCallback = undefined;
     this.onAvatarCallback = undefined;
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
     this.pendingRecalls.clear();
-    void invoke('clear_chat_peer_roster').catch((error) => {
-      console.warn('⚠️ [P2PChatService] 清空身份名册失败:', error);
-    });
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -112,77 +124,89 @@ class P2PChatService {
   }
 
   startPolling(): void {
-    if (
-      this.isListening &&
-      this.selfEventSource &&
-      this.selfEventSource.readyState !== EventSource.CLOSED
-    ) {
-      return;
-    }
+    if (this.selfStreamAbortController) return;
     this.isListening = true;
-    this.connectToSelfStream();
+    void this.connectToSelfStream();
   }
 
   /**
    * 连接到本机聊天服务器的 SSE 流
    */
-  private connectToSelfStream(): void {
-    // 清理可能存在的旧连接
-    if (this.selfEventSource) {
-      try {
-        this.selfEventSource.close();
-      } catch {
-        // 忽略关闭异常
-      }
-      this.selfEventSource = null;
+  private async connectToSelfStream(): Promise<void> {
+    if (this.selfStreamAbortController || !this.isListening) return;
+    if (!this.myVirtualIp || !isSafeVirtualIp(this.myVirtualIp)) {
+      console.warn('⚠️ [P2PChatService] 虚拟IP未就绪，等待后续初始化');
+      return;
     }
-
-    if (!this.myVirtualIp) {
-      console.warn('⚠️ [P2PChatService] 虚拟IP未就绪，稍后重试连接本机消息流');
-      this.scheduleSelfReconnect();
+    // EventSource cannot set a custom header. Refuse an unauthenticated
+    // connection instead of falling back to a token-bearing query string.
+    if (!isSafeChatToken(this.chatToken)) {
+      console.warn('⚠️ [P2PChatService] 聊天认证令牌未就绪，等待信令下发');
       return;
     }
 
     const streamUrl = `http://${this.myVirtualIp}:${CHAT_SERVER_PORT}/api/chat/stream`;
-    console.log(`📡 [P2PChatService] 连接到本机消息流: ${streamUrl}`);
+    const controller = new AbortController();
+    this.selfStreamAbortController = controller;
+    console.log('📡 [P2PChatService] 连接到本机认证消息流');
 
     try {
-      const eventSource = new EventSource(streamUrl);
+      const response = await fetch(streamUrl, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'x-mctier-chat-token': this.chatToken,
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`聊天消息流返回 HTTP ${response.status}`);
+      }
+      if (!response.body) throw new Error('聊天消息流缺少响应体');
 
-      eventSource.onopen = () => {
-        console.log('✅ [P2PChatService] 本机消息流已连接');
-      };
-
-      eventSource.onmessage = (event) => {
-        // 跳过keep-alive消息
-        if (event.data === 'keep-alive') {
-          return;
-        }
-
-        try {
-          const message: BackendChatMessage = JSON.parse(event.data);
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('❌ [P2PChatService] 解析消息失败:', error);
-        }
-      };
-
-      eventSource.onerror = (error) => {
-        console.warn('⚠️ [P2PChatService] 本机消息流连接错误，将重连', error);
-        try {
-          eventSource.close();
-        } catch {
-          // 忽略关闭异常
-        }
-        this.selfEventSource = null;
-        this.scheduleSelfReconnect();
-      };
-
-      this.selfEventSource = eventSource;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (this.isListening && this.selfStreamAbortController === controller) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = this.consumeSseFrames(buffer);
+      }
+      buffer += decoder.decode();
+      this.consumeSseFrames(buffer);
     } catch (error) {
-      console.error('❌ [P2PChatService] 创建本机消息流连接失败:', error);
-      this.scheduleSelfReconnect();
+      if (!controller.signal.aborted && this.isListening) {
+        const detail = error instanceof Error ? error.message : '连接失败';
+        console.warn(`⚠️ [P2PChatService] 本机消息流连接错误，将重连: ${detail}`);
+      }
+    } finally {
+      if (this.selfStreamAbortController === controller) {
+        this.selfStreamAbortController = null;
+        if (this.isListening) this.scheduleSelfReconnect();
+      }
     }
+  }
+
+  private consumeSseFrames(buffer: string): string {
+    const frames = buffer.split(/\r?\n\r?\n/);
+    const remainder = frames.pop() ?? '';
+    for (const frame of frames) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, ''))
+        .join('\n');
+      if (!data || data === 'keep-alive') continue;
+      try {
+        this.handleMessage(JSON.parse(data) as BackendChatMessage);
+      } catch (error) {
+        console.warn('⚠️ [P2PChatService] 忽略无效消息流帧:', error instanceof Error ? error.message : '解析失败');
+      }
+    }
+    return remainder;
   }
 
   /**
@@ -205,9 +229,34 @@ class P2PChatService {
    * 处理接收到的消息
    */
   private handleMessage(msg: BackendChatMessage): void {
+    if (!msg || typeof msg !== 'object') return;
+
+    const messageId = sanitizeIdentifier(msg.id);
+    const playerId = sanitizeIdentifier(msg.player_id);
+    const messageType = sanitizeIdentifier(msg.message_type, 32).toLowerCase();
+    const playerName = sanitizeUntrustedText(msg.player_name, 64).trim();
+    const contentLimit = messageType === 'todo' ? MAX_TODO_ITEMS * (MAX_TODO_TEXT_LENGTH + 128) : MAX_CHAT_TEXT_LENGTH;
+    const content = sanitizeUntrustedText(msg.content, contentLimit);
+    const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Number.NaN;
+
+    if (!messageId || !playerId || !Number.isFinite(timestamp) || timestamp < 0) return;
+    if (!['text', 'image', 'announce', 'voicegroup', 'todo', 'recall', 'avatar'].includes(messageType)) return;
+    if (messageType !== 'announce' && messageType !== 'voicegroup' && messageType !== 'todo' && messageType !== 'recall' && messageType !== 'avatar' && !playerName) return;
+    if (messageType === 'image' && !this.isSafeImageBytes(msg.image_data)) return;
+
+    const safeMessage: BackendChatMessage = {
+      ...msg,
+      id: messageId,
+      player_id: playerId,
+      player_name: playerName,
+      content,
+      message_type: messageType,
+      timestamp,
+      image_data: messageType === 'image' ? msg.image_data : undefined,
+    };
 
     // 控制消息（公告 / 语音小队 / 待办）：不计入聊天，分发到状态后返回
-    const mtype = (msg as { message_type: string }).message_type;
+    const mtype = safeMessage.message_type;
     if (
       mtype === 'announce' ||
       mtype === 'voicegroup' ||
@@ -215,33 +264,33 @@ class P2PChatService {
       mtype === 'recall' ||
       mtype === 'avatar'
     ) {
-      if (msg.player_id === this.currentPlayerId) return;
+      if (safeMessage.player_id === this.currentPlayerId) return;
       // 按消息 ID 去重：避免对账/SSE 重复投递导致控制消息反复触发（如剪贴板反复弹窗、白板重复笔画）
-      if (this.seenMessageIds.has(msg.id)) return;
-      this.seenMessageIds.add(msg.id);
-      this.seenMessageOrder.push(msg.id);
+      if (this.seenMessageIds.has(safeMessage.id)) return;
+      this.seenMessageIds.add(safeMessage.id);
+      this.seenMessageOrder.push(safeMessage.id);
       if (this.seenMessageOrder.length > 1000) {
         const oldest = this.seenMessageOrder.shift();
         if (oldest) this.seenMessageIds.delete(oldest);
       }
-      void this.handleControlMessage(mtype, msg);
+      void this.handleControlMessage(mtype, safeMessage);
       return;
     }
 
     // 跳过自己发送的消息
-    if (msg.player_id === this.currentPlayerId) {
-      console.log('🚫 [P2PChatService] 跳过自己发送的消息:', msg.id);
+    if (safeMessage.player_id === this.currentPlayerId) {
+      console.log('🚫 [P2PChatService] 跳过自己发送的消息');
       return;
     }
 
     // 【修复】基于消息ID去重（每条消息ID唯一），避免重复回调；
     // 旧逻辑用“内容相同”去重，会误杀用户连续发送的相同文本（如连续两条“哈哈”）。
-    if (this.seenMessageIds.has(msg.id)) {
-      console.log('🚫 [P2PChatService] 跳过重复消息（ID相同）:', msg.id);
+    if (this.seenMessageIds.has(safeMessage.id)) {
+      console.log('🚫 [P2PChatService] 跳过重复消息（ID相同）');
       return;
     }
-    this.seenMessageIds.add(msg.id);
-    this.seenMessageOrder.push(msg.id);
+    this.seenMessageIds.add(safeMessage.id);
+    this.seenMessageOrder.push(safeMessage.id);
     // 限制去重集合大小，避免长时间运行内存增长
     if (this.seenMessageOrder.length > 1000) {
       const oldest = this.seenMessageOrder.shift();
@@ -250,24 +299,24 @@ class P2PChatService {
       }
     }
 
-    console.log('✅ [P2PChatService] 接收新消息:', `${msg.player_name}: ${msg.message_type === 'text' ? msg.content.substring(0, 20) + '...' : '[图片]'}`);
+    console.log('✅ [P2PChatService] 接收新消息:', safeMessage.message_type);
 
     // 转换为前端消息格式
     const chatMessage: ChatMessage = {
-      id: msg.id,
-      playerId: msg.player_id,
-      playerName: msg.player_name,
-      content: msg.content,
-      timestamp: msg.timestamp * 1000, // 转换为毫秒
-      type: msg.message_type === 'image' ? 'image' : 'text',
-      imageData: msg.image_data ? this.arrayToBase64(msg.image_data) : undefined,
+      id: safeMessage.id,
+      playerId: safeMessage.player_id,
+      playerName: safeMessage.player_name,
+      content: safeMessage.content,
+      timestamp: safeMessage.timestamp * 1000, // 转换为毫秒
+      type: safeMessage.message_type === 'image' ? 'image' : 'text',
+      imageData: safeMessage.image_data ? this.arrayToBase64(safeMessage.image_data) : undefined,
     };
-    if (this.pendingRecalls.get(msg.id) === msg.player_id && isWithinRecallWindow(chatMessage.timestamp)) {
+    if (this.pendingRecalls.get(safeMessage.id) === safeMessage.player_id && isWithinRecallWindow(chatMessage.timestamp)) {
       chatMessage.content = '';
       chatMessage.imageData = undefined;
       chatMessage.type = 'text';
       chatMessage.recalled = true;
-      this.pendingRecalls.delete(msg.id);
+      this.pendingRecalls.delete(safeMessage.id);
     }
 
     // 回调通知新消息
@@ -292,27 +341,32 @@ class P2PChatService {
       const { useAppStore } = await import('../../stores/appStore');
       const store = useAppStore.getState();
       if (type === 'announce') {
-        store.setAnnouncement(msg.content ?? '');
+        if (store.hostId && msg.player_id !== store.hostId) return;
+        store.setAnnouncement(sanitizeUntrustedText(msg.content, MAX_ANNOUNCEMENT_LENGTH).trim());
       } else if (type === 'voicegroup') {
-        const g = parseInt((msg.content ?? '0').trim(), 10);
-        store.setPlayerVoiceGroup(msg.player_id, Number.isFinite(g) ? g : 0);
+        const g = Number.parseInt((msg.content ?? '0').trim(), 10);
+        store.setPlayerVoiceGroup(msg.player_id, Number.isFinite(g) ? Math.max(0, Math.min(4, g)) : 0);
       } else if (type === 'todo') {
         // 多人协同待办：内容为待办列表 JSON，收到后覆盖本地（后写覆盖），实现全队同步
         try {
           const parsed = JSON.parse(msg.content ?? '[]');
-          if (Array.isArray(parsed)) {
-            store.setTodos(parsed);
+          if (Array.isArray(parsed) && parsed.length <= MAX_TODO_ITEMS) {
+            const safeTodos = sanitizeTodoItems(parsed);
+            if (safeTodos.length === parsed.length) store.setTodos(safeTodos);
           }
         } catch (e) {
           console.warn('⚠️ [P2PChatService] 解析待办同步内容失败:', e);
         }
       } else if (type === 'recall') {
-        const targetExists = store.chatMessages.some((message) => message.id === msg.content);
-        if (!store.recallChatMessage(msg.content, msg.player_id) && !targetExists) {
-          this.pendingRecalls.set(msg.content, msg.player_id);
+        const targetId = sanitizeIdentifier(msg.content);
+        if (!targetId) return;
+        const targetExists = store.chatMessages.some((message) => message.id === targetId);
+        if (!store.recallChatMessage(targetId, msg.player_id) && !targetExists) {
+          this.pendingRecalls.set(targetId, msg.player_id);
         }
       } else if (type === 'avatar') {
-        this.onAvatarCallback?.(msg.player_id, msg.content || undefined);
+        const avatarData = sanitizeImageDataUrl(msg.content);
+        if (avatarData) this.onAvatarCallback?.(msg.player_id, avatarData);
       }
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
@@ -383,13 +437,9 @@ class P2PChatService {
       clearTimeout(this.selfReconnectTimer);
       this.selfReconnectTimer = null;
     }
-    if (this.selfEventSource) {
-      try {
-        this.selfEventSource.close();
-      } catch {
-        // 忽略关闭异常
-      }
-      this.selfEventSource = null;
+    if (this.selfStreamAbortController) {
+      this.selfStreamAbortController.abort();
+      this.selfStreamAbortController = null;
       console.log('🛑 [P2PChatService] 已关闭本机消息流连接');
     }
   }
@@ -402,14 +452,19 @@ class P2PChatService {
       throw new Error('未初始化：缺少玩家ID');
     }
 
+    const safeContent = sanitizeUntrustedText(content, MAX_CHAT_TEXT_LENGTH);
+    const safeMessageId = messageId ? sanitizeIdentifier(messageId) : undefined;
+    if (!safeContent.trim()) throw new Error('消息内容不能为空');
+    if (messageId && !safeMessageId) throw new Error('消息ID无效');
+
     try {
       const res = await invoke<{ delivered: number; total: number }>('send_p2p_chat_message', {
         playerId: this.currentPlayerId,
         playerName: '', // 后端会自动填充
-        content,
+        content: safeContent,
         messageType: 'text',
         imageData: null,
-        messageId,
+        messageId: safeMessageId,
         peerIps: this.peerIps,
       });
       console.log('✅ [P2PChatService] 文本消息已发送', res);
@@ -429,13 +484,22 @@ class P2PChatService {
       throw new Error('未初始化：缺少玩家ID');
     }
 
+    const safeImageDataUrl = sanitizeImageDataUrl(imageDataUrl);
+    const safeContent = sanitizeUntrustedText(content, 256).trim() || '[图片]';
+    const safeMessageId = messageId ? sanitizeIdentifier(messageId) : undefined;
+    if (!safeImageDataUrl) throw new Error('图片数据格式无效');
+    if (messageId && !safeMessageId) throw new Error('消息ID无效');
+
     try {
       // 从Data URL中提取Base64数据
-      const base64Data = imageDataUrl.split(',')[1];
+      const base64Data = safeImageDataUrl.split(',')[1];
       
       // 【优化】使用Uint8Array直接转换，避免中间字符串
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
+      if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+        throw new Error('图片大小超出限制');
+      }
       
       // 分块处理，提高性能
       const chunkSize = 8192;
@@ -451,10 +515,10 @@ class P2PChatService {
       await invoke('send_p2p_chat_message', {
         playerId: this.currentPlayerId,
         playerName: '', // 后端会自动填充
-        content,
+        content: safeContent,
         messageType: 'image',
         imageData: Array.from(bytes),
-        messageId,
+        messageId: safeMessageId,
         peerIps: this.peerIps,
       });
       
@@ -469,13 +533,15 @@ class P2PChatService {
   /** 广播撤回控制消息。接收方会校验撤回者是否为原发送者。 */
   async recallMessage(messageId: string): Promise<void> {
     if (!this.currentPlayerId) throw new Error('未初始化：缺少玩家ID');
+    const targetId = sanitizeIdentifier(messageId);
+    if (!targetId) throw new Error('消息ID无效');
     await invoke('send_p2p_chat_message', {
       playerId: this.currentPlayerId,
       playerName: '',
-      content: messageId,
+      content: targetId,
       messageType: 'recall',
       imageData: null,
-      messageId: 'recall-' + this.currentPlayerId + '-' + Date.now(),
+      messageId: `recall-${this.currentPlayerId}-${Date.now()}`,
       peerIps: this.peerIps,
     });
   }

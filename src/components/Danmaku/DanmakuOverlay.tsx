@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { tl } from '../../i18n';
+import {
+  MAX_CHAT_TEXT_LENGTH,
+  sanitizeImageDataUrl,
+  sanitizeUntrustedText,
+} from '../../security/trustBoundary';
 import './DanmakuOverlay.css';
 
 interface Bullet {
@@ -57,8 +62,14 @@ export const DanmakuOverlay: React.FC = () => {
   }, []);
 
   const spawn = useCallback((p: DanmakuPayload) => {
+    if (!p || typeof p !== 'object') return;
+    const text = sanitizeUntrustedText(p.text, MAX_CHAT_TEXT_LENGTH);
+    const image = sanitizeImageDataUrl(p.image);
+    const isImage = p.kind === 'image' && !!image;
+    if (!text && !isImage) return;
+
     const vw = window.innerWidth || 1920;
-    const tracks = Math.max(1, Math.min(12, p.tracks || 4));
+    const tracks = Number.isFinite(p.tracks) ? Math.max(1, Math.min(12, Math.floor(p.tracks))) : 4;
     if (trackFreeAt.current.length !== tracks) {
       trackFreeAt.current = new Array(tracks).fill(0);
     }
@@ -69,32 +80,32 @@ export const DanmakuOverlay: React.FC = () => {
       if (trackFreeAt.current[i] <= now) { track = i; break; }
       if (trackFreeAt.current[i] < earliest) { earliest = trackFreeAt.current[i]; track = i; }
     }
-    const speed = Math.max(40, p.speed || 140);
-    const isImage = p.kind === 'image' && !!p.image;
-    const imgH = p.fontSize * 1.55;
+    const speed = Number.isFinite(p.speed) ? Math.max(40, Math.min(1000, p.speed)) : 140;
+    const fontSize = Number.isFinite(p.fontSize) ? Math.max(12, Math.min(72, p.fontSize)) : 24;
+    const imgH = fontSize * 1.55;
     const estWidth = isImage
-      ? (p.text.length * p.fontSize * 0.62) + p.fontSize * 3.6 + 50
-      : p.text.length * p.fontSize * 0.62 + 40;
+      ? (text.length * fontSize * 0.62) + fontSize * 3.6 + 50
+      : text.length * fontSize * 0.62 + 40;
     const distance = vw + estWidth;
     const duration = distance / speed; // s
     const releaseDelay = (estWidth + 30) / speed * 1000;
     trackFreeAt.current[track] = now + releaseDelay;
 
-    const lineHeight = (isImage ? imgH : p.fontSize) * 1.6;
+    const lineHeight = (isImage ? imgH : fontSize) * 1.6;
     const top = 12 + track * lineHeight;
 
     const bullet: Bullet = {
       id: idRef.current++,
-      text: p.text,
-      color: p.color || '#ffffff',
-      fontSize: p.fontSize,
+      text,
+      color: typeof p.color === 'string' && p.color.length <= 32 ? p.color : '#ffffff',
+      fontSize,
       duration,
       top,
       kind: isImage ? 'image' : 'text',
-      image: p.image,
-      copyText: p.copyText,
+      image,
+      copyText: sanitizeUntrustedText(p.copyText, MAX_CHAT_TEXT_LENGTH),
     };
-    setOpacity(p.opacity ?? 0.9);
+    setOpacity(Number.isFinite(p.opacity) ? Math.max(0, Math.min(1, p.opacity)) : 0.9);
     setBullets((prev) => [...prev, bullet]);
     // 移除交由 onAnimationEnd 处理：暂停时动画不结束故不会被移除，恢复后飘出自动清理。
   }, []);
@@ -177,7 +188,7 @@ export const DanmakuOverlay: React.FC = () => {
 
     let un: (() => void) | undefined;
     listen<DanmakuPayload>('danmaku-msg', (e) => {
-      if (e.payload && (e.payload.text || e.payload.image)) spawn(e.payload);
+      if (e.payload && typeof e.payload === 'object') spawn(e.payload);
     }).then((fn) => { un = fn; });
     // 语言同步：主窗口切换语言时本窗口随之刷新
     let unLang: (() => void) | undefined;
