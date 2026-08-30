@@ -11,6 +11,17 @@
   -webkit-user-select: none;
 }
 
+/* 滚动区域必须显式 no-drag。
+   .lobby-form-container 带 data-tauri-drag-region，而 Chromium 的 app-region 按几何矩形
+   命中：父级为 drag 时，子元素的默认值不会自动“打洞”，未显式声明 no-drag 的区域会吞掉
+   鼠标事件（含滚轮）。这会导致光标停在卡片空白处或“重要提示”框上时滚轮失效（issue #41）。
+   窗口拖拽仍由容器上未被卡片覆盖的边缘区域提供。 */
+.lobby-form-card,
+.lobby-form-card * {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 /* 确保交互元素不受拖拽影响 */
 .lobby-form-container button,
 .lobby-form-container input,
