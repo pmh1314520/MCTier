@@ -353,6 +353,7 @@ export class WebRTCClient {
         this.websocket.onclose = () => {
           if (this.websocket !== socket) return;
           this.websocket = null;
+          this.resetRemoteControlOnSignalingDisconnect();
           if (this.websocketStableTimer !== null) {
             clearTimeout(this.websocketStableTimer);
             this.websocketStableTimer = null;
@@ -416,6 +417,7 @@ export class WebRTCClient {
       
       // 清理旧的WebSocket连接
       if (this.websocket) {
+        this.resetRemoteControlOnSignalingDisconnect();
         this.websocket.onopen = null;
         this.websocket.onmessage = null;
         this.websocket.onerror = null;
@@ -529,6 +531,7 @@ export class WebRTCClient {
     if (!this.knownPlayers.has(playerId)) return;
 
     this.clearPendingPlayerLeave(playerId);
+    this.resetRemoteControlForPeer(playerId);
     try {
       const { audioService } = await import('../audio/AudioService');
       await audioService.play('userLeft');
@@ -573,6 +576,18 @@ export class WebRTCClient {
     const rtcError = (error as { error?: { message?: string } }).error;
     const message = rtcError?.message || '';
     return message.includes('User-Initiated Abort') || message.includes('on-close called');
+  }
+
+  private resetRemoteControlOnSignalingDisconnect(): void {
+    void import('../remoteControl/RemoteControlService')
+      .then(({ remoteControlService }) => remoteControlService.handleSignalingDisconnected())
+      .catch((error) => console.error('清理信令断线后的远程控制会话失败:', error));
+  }
+
+  private resetRemoteControlForPeer(peerId: string): void {
+    void import('../remoteControl/RemoteControlService')
+      .then(({ remoteControlService }) => remoteControlService.handlePeerLeft(peerId))
+      .catch((error) => console.error(`清理离线玩家 ${peerId} 的远程控制会话失败:`, error));
   }
 
   /**
@@ -898,6 +913,8 @@ export class WebRTCClient {
             break;
           }
 
+          this.resetRemoteControlForPeer(message.playerId);
+
           if (this.schedulePlayerLeaveConfirmation(message.playerId)) {
             break;
           }
@@ -1090,6 +1107,14 @@ export class WebRTCClient {
         case 'screen-share-error':
           // 收到屏幕共享错误（例如密码错误）
           console.log(`❌ 收到屏幕共享错误: ${message.error}`);
+          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string') {
+            break;
+          }
+          {
+            const { screenShareService } = await import('../screenShare/ScreenShareService');
+            const share = screenShareService.getActiveShares().find((item) => item.id === message.shareId);
+            if (!share || share.playerId !== message.from) break;
+          }
           // 这里可以通过事件通知前端显示错误
           window.dispatchEvent(new CustomEvent('screen-share-error', { 
             detail: { 
@@ -1104,8 +1129,9 @@ export class WebRTCClient {
           console.log(`🖥️ 收到屏幕共享停止通知, shareId: ${message.shareId}`);
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
-            // 从本地列表移除
-            (screenShareService as any).activeShares.delete(message.shareId);
+            if (typeof message.from !== 'string' || typeof message.shareId !== 'string' || !screenShareService.handleShareStop(message.shareId, message.from)) {
+              break;
+            }
             console.log(`✅ 屏幕共享已从列表移除`);
             
             // 【事件驱动】触发自定义事件通知UI更新
@@ -1122,6 +1148,7 @@ export class WebRTCClient {
         case 'screen-share-offer':
           // 收到屏幕共享Offer
           console.log(`🖥️ 收到屏幕共享Offer from ${message.from}, playerName: ${message.playerName}`);
+          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.offer?.sdp) break;
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
             await screenShareService.handleOffer({
@@ -1140,6 +1167,7 @@ export class WebRTCClient {
           break;
           
         case 'screen-share-answer':
+          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.answer?.sdp) break;
           // 收到屏幕共享Answer
           console.log(`🖥️ 收到屏幕共享Answer from ${message.from}`);
           try {
@@ -1156,6 +1184,7 @@ export class WebRTCClient {
           break;
           
         case 'screen-share-ice-candidate':
+          if (message.to !== this.localPlayerId || typeof message.from !== 'string' || typeof message.shareId !== 'string' || !message.candidate) break;
           // 收到屏幕共享ICE候选
           console.log(`🖥️ 收到屏幕共享ICE候选 from ${message.from}`);
           try {
@@ -1179,6 +1208,7 @@ export class WebRTCClient {
         case 'screen-share-viewer-left':
           // 收到查看者离开通知
           console.log(`👋 收到查看者离开通知, shareId: ${message.shareId}, from: ${message.from}`);
+          if (typeof message.from !== 'string' || typeof message.shareId !== 'string') break;
           try {
             const { screenShareService } = await import('../screenShare/ScreenShareService');
             screenShareService.handleViewerLeft(message.shareId, message.from);
@@ -1271,7 +1301,7 @@ export class WebRTCClient {
               share.viewerName = message.viewerName;
               share.viewerCount = message.viewerCount ?? (message.viewerId ? 1 : 0);
               (screenShareService as any).activeShares.set(message.shareId, share);
-              screenShareService.handleShareUpdate(message.shareId, message.viewerId, message.viewerName, message.viewerCount);
+               screenShareService.handleShareUpdate(message.shareId, message.viewerId, message.viewerName, message.viewerCount, message.from);
               console.log(`✅ 共享状态已更新:`, { viewerId: message.viewerId, viewerName: message.viewerName });
               
               // 【事件驱动】触发自定义事件通知UI更新
@@ -1297,28 +1327,34 @@ export class WebRTCClient {
         case 'remote-control-ice':
         case 'remote-control-stop':
           try {
+            if (typeof message.from !== 'string' || typeof message.to !== 'string' || message.to !== this.localPlayerId) {
+              break;
+            }
             const { remoteControlService } = await import('../remoteControl/RemoteControlService');
             switch (message.type) {
               case 'remote-control-request':
-                remoteControlService.handleRequest(message.sessionId, message.from, message.fromName || '玩家');
+                remoteControlService.handleRequest(message.sessionId, message.from, message.fromName || '玩家', message.to);
                 break;
               case 'remote-control-accept':
-                await remoteControlService.handleAccept(message.sessionId);
+                await remoteControlService.handleAccept(message.sessionId, message.from, message.to);
                 break;
               case 'remote-control-reject':
-                remoteControlService.handleReject(message.reason || 'rejected');
+                remoteControlService.handleReject(message.sessionId, message.from, message.to, message.reason || 'rejected');
                 break;
               case 'remote-control-offer':
-                await remoteControlService.handleOffer(message.sessionId, message.offer.sdp);
+                if (!message.offer || typeof message.offer.sdp !== 'string') break;
+                await remoteControlService.handleOffer(message.sessionId, message.from, message.to, message.offer.sdp);
                 break;
               case 'remote-control-answer':
-                await remoteControlService.handleAnswer(message.sessionId, message.answer.sdp);
+                if (!message.answer || typeof message.answer.sdp !== 'string') break;
+                await remoteControlService.handleAnswer(message.sessionId, message.from, message.to, message.answer.sdp);
                 break;
               case 'remote-control-ice':
-                await remoteControlService.handleIce(message.candidate);
+                if (!message.candidate || typeof message.candidate.candidate !== 'string') break;
+                await remoteControlService.handleIce(message.sessionId, message.from, message.to, message.candidate);
                 break;
               case 'remote-control-stop':
-                remoteControlService.handleStop();
+                remoteControlService.handleStop(message.sessionId, message.from, message.to);
                 break;
             }
           } catch (error) {
@@ -3053,6 +3089,13 @@ export class WebRTCClient {
       
       // 标记为主动断开，防止自动重连
       this.isIntentionalDisconnect = true;
+
+      try {
+        const { remoteControlService } = await import('../remoteControl/RemoteControlService');
+        remoteControlService.handleSignalingDisconnected();
+      } catch (error) {
+        console.error('清理远程控制会话失败:', error);
+      }
       
       // 清理重连定时器
       if (this.reconnectTimeout) {
@@ -3202,6 +3245,3 @@ export class WebRTCClient {
 
 // 导出单例实例
 export const webrtcClient = new WebRTCClient();
-
-
-

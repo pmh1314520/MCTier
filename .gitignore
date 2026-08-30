@@ -49,7 +49,9 @@ src-tauri/WixTools
 config_mctier-*
 
 # Test files and reports
-tests/
+tests/*
+!tests/remote-control-service.test.mjs
+!tests/screen-share-auth.test.mjs
 *_TEST_REPORT.md
 *_DEBUG_GUIDE.md
 *_GUIDE.md
