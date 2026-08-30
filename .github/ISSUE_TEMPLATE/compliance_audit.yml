@@ -1,0 +1,57 @@
+name: 合规 / 审计问题
+description: 报告许可证合规、第三方组件声明、死代码或与安全无关的实现缺陷
+labels: [compliance]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本模板用于**可公开讨论**的合规与审计类问题，例如：
+
+        - 许可证文本、第三方组件声明、源码获取方式不完整或与实际不符
+        - README / 关于页宣称的功能与代码实际行为不一致
+        - 未被引用的死代码、未随包分发却仍被登记的二进制
+        - 依赖版本、构建可复现性、发布产物与源码的对应关系
+
+        **可被利用的安全漏洞请不要走这里**，改用
+        [私有安全通告](https://github.com/pmh1314520/MCTier/security/advisories/new)。
+  - type: dropdown
+    id: category
+    attributes:
+      label: 问题类别
+      options:
+        - 许可证 / 第三方组件声明
+        - 功能描述与实现不一致
+        - 死代码 / 未使用的产物
+        - 依赖与构建可复现性
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 涉及版本或提交
+      description: 版本号、tag 或 commit SHA 均可
+      placeholder: v2.7.5 / 6eca038
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: 问题描述
+      description: 请尽量给出具体文件路径与行号，便于逐项核实
+      placeholder: |
+        例：src-tauri/src/modules/xxx.rs 未在 modules/mod.rs 中声明，
+        因此从未编译进产物，但 README:147 仍将其作为功能列出。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 证明材料（可选）
+      description: 命令输出、SHA-256、反编译结果、构建日志等
+      render: text
+  - type: textarea
+    id: expectation
+    attributes:
+      label: 期望的处理方式（可选）
+      description: 例如补充声明、修正文档、删除死代码、提供对应源码等
