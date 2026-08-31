@@ -20,7 +20,11 @@ pub mod lobby_manager;
 pub mod hosts_manager;
 
 // 语音服务模块
+#[cfg(windows)]
+pub mod privileged_helper;
 pub mod voice_service;
+#[cfg(windows)]
+pub mod windows_paths;
 
 // P2P信令服务模块
 pub mod p2p_signaling;

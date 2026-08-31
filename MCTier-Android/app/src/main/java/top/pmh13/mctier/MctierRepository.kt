@@ -40,6 +40,7 @@ import top.pmh13.mctier.data.SharedFolder
 import top.pmh13.mctier.data.SignalingEnvelope
 import top.pmh13.mctier.data.UserSettings
 import top.pmh13.mctier.network.AndroidRtcController
+import top.pmh13.mctier.network.ChatAuth
 import top.pmh13.mctier.network.ChatP2PClient
 import top.pmh13.mctier.network.ConnectArgs
 import top.pmh13.mctier.network.FileShareHttpServer
@@ -234,6 +235,12 @@ class MctierRepository(private val context: Context) {
     private var screenCaptureGeneration = 0L
     private var remoteControlAcceptJob: Job? = null
     private var remoteControlAcceptGeneration = 0L
+    /** Local lifecycle generation; stale join/capture callbacks cannot mutate a newer lobby. */
+    @Volatile
+    private var lobbyLifecycleGeneration = 0L
+    private var lobbyLifecycleJob: Job? = null
+    @Volatile
+    private var serverSessionGeneration: Long? = null
 
     private fun invalidatePendingRemoteControlAccept() {
         remoteControlAcceptGeneration += 1
@@ -243,6 +250,14 @@ class MctierRepository(private val context: Context) {
         }
         remoteControlAcceptJob = null
         pendingRcRequest = null
+    }
+
+    private fun isCurrentLobbyGeneration(generation: Long): Boolean =
+        generation == lobbyLifecycleGeneration
+
+    private fun nextLobbyLifecycleGeneration(): Long = synchronized(this) {
+        lobbyLifecycleGeneration += 1
+        lobbyLifecycleGeneration
     }
 
     private val _state = MutableStateFlow(
@@ -488,14 +503,23 @@ class MctierRepository(private val context: Context) {
         }
         val current = _state.value
         val settings = current.settings
+        val signer = ChatAuth.ChatSigner.generate()
+        if (signer == null) {
+            _state.update { it.copy(error = L("无法生成信令身份密钥", "Unable to generate signaling identity key")) }
+            return
+        }
+        val identityId = signer.identityId()
+        val generation = nextLobbyLifecycleGeneration()
+        lobbyLifecycleJob?.cancel()
         val effectiveNode = nodeOverride?.takeIf { it.isNotBlank() } ?: settings.preferredServer
         val effectiveSignaling = signalingOverride?.takeIf { it.isNotBlank() } ?: settings.signalingServer.ifBlank { DefaultSignalingServer }
         if (!LobbyInviteCodec.isValidEasyTierNode(effectiveNode) || !LobbyInviteCodec.isValidSignalingServer(effectiveSignaling)) {
             _state.update { it.copy(error = L("节点或信令服务器地址无效", "Invalid node or signaling server address")) }
             return
         }
-        scope.launch {
-            _state.update { it.copy(state = AppConnectionState.Connecting, error = null) }
+        lobbyLifecycleJob = scope.launch {
+            if (!isCurrentLobbyGeneration(generation)) return@launch
+            _state.update { it.copy(state = AppConnectionState.Connecting, error = null, playerId = identityId) }
             runCatching {
                 val session = networkController.startEasyTier(
                     safeLobbyName, safePassword, settings.playerName, effectiveNode,
@@ -515,55 +539,74 @@ class MctierRepository(private val context: Context) {
                     privateMode = settings.privateMode,
                     useDomain = settings.useDomain,
                 )
+                if (!isCurrentLobbyGeneration(generation)) return@runCatching
                 val lobby = Lobby(
-                    id = UUID.randomUUID().toString(),
+                    id = "",
                     name = safeLobbyName,
                     password = safePassword,
                     createdAt = System.currentTimeMillis(),
                     virtualIp = session.virtualIp,
-                    virtualDomain = settings.virtualDomain.ifBlank { "${settings.playerName}.mct.net" },
+                    virtualDomain = ChatAuth.virtualDomainForIdentityId(identityId),
                     useDomain = settings.useDomain,
                     signalingServer = effectiveSignaling,
                     serverNode = effectiveNode,
                 )
-                fileServer = FileShareHttpServer(context, current.playerId, session.virtualIp).also { it.start(5_000, false) }
+                fileServer = FileShareHttpServer(context, identityId, session.virtualIp).also { it.start(5_000, false) }
                 // 启动 P2P 聊天（与桌面端 14540 互通）
-                chatClient = ChatP2PClient(current.playerId, ioScope, session.virtualIp) { wire -> onIncomingChat(wire) }
-                screenController = ScreenShareController(appContext, current.playerId) { signalingClient.send(it) }.also { controller ->
+                chatClient = ChatP2PClient(identityId, ioScope, session.virtualIp, { wire -> onIncomingChat(wire) }, signer)
+                screenController = ScreenShareController(appContext, identityId) { signalingClient.send(it) }.also { controller ->
+                    val callbackGeneration = generation
                     controller.onViewerCountChanged = { shareId, count ->
-                        _state.update { state ->
-                            state.copy(screenShares = state.screenShares.map { share ->
-                                if (share.id == shareId) share.copy(viewerCount = count) else share
-                            })
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { state ->
+                                state.copy(screenShares = state.screenShares.map { share ->
+                                    if (share.id == shareId) share.copy(viewerCount = count) else share
+                                })
+                            }
                         }
                     }
                     controller.onCaptureStopped = { shareId ->
-                        scope.launch { handleLocalCaptureStopped(shareId) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            scope.launch { handleLocalCaptureStopped(shareId) }
+                        }
                     }
                     controller.onCaptureVisibilityChanged = { _, isVisible ->
-                        _state.update { it.copy(capturedContentVisible = isVisible) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { it.copy(capturedContentVisible = isVisible) }
+                        }
                     }
                 }
-                remoteControlController = top.pmh13.mctier.network.RemoteControlController(appContext, current.playerId) { signalingClient.send(it) }.also { rc ->
+                remoteControlController = top.pmh13.mctier.network.RemoteControlController(appContext, identityId) { signalingClient.send(it) }.also { rc ->
+                    val callbackGeneration = generation
                     rc.onRequest = { sid, fromId, fromName ->
-                        invalidatePendingRemoteControlAccept()
-                        _state.update { it.copy(remoteControlRequest = top.pmh13.mctier.data.RemoteControlRequest(sid, fromId, fromName)) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            invalidatePendingRemoteControlAccept()
+                            _state.update { it.copy(remoteControlRequest = top.pmh13.mctier.data.RemoteControlRequest(sid, fromId, fromName)) }
+                        }
                     }
                     rc.onActive = { name ->
-                        _state.update { it.copy(remoteControlActiveBy = name, remoteControlRequest = null) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { it.copy(remoteControlActiveBy = name, remoteControlRequest = null) }
+                        }
                     }
                     rc.onEnded = {
-                        invalidatePendingRemoteControlAccept()
-                        _state.update { it.copy(remoteControlActiveBy = null, remoteControlRequest = null, remoteControllingPeer = null) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            invalidatePendingRemoteControlAccept()
+                            _state.update { it.copy(remoteControlActiveBy = null, remoteControlRequest = null, remoteControllingPeer = null) }
+                        }
                     }
                     rc.onControllerActive = { name ->
-                        _state.update { it.copy(remoteControllingPeer = name) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { it.copy(remoteControllingPeer = name) }
+                        }
                     }
                     rc.onRejected = { reason ->
-                        _state.update { it.copy(remoteControllingPeer = null) }
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { it.copy(remoteControllingPeer = null) }
+                        }
                     }
                 }
-                rtcController.initialize(current.playerId) { signalingClient.send(it) }
+                rtcController.initialize(identityId) { signalingClient.send(it) }
                 // 仅在确实持有 RECORD_AUDIO 时启动麦克风前台服务。用户拒绝权限后仍可先加入大厅，
                 // 稍后通过大厅里的“重新申请麦克风权限”入口恢复语音。
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
@@ -580,26 +623,30 @@ class MctierRepository(private val context: Context) {
                     rejectChatProtocol(L("无法生成聊天签名密钥", "Unable to generate chat signing key"))
                     return@launch
                 }
+                val activeSigner = chatClient?.signingSigner() ?: return@runCatching
+                if (!isCurrentLobbyGeneration(generation)) return@runCatching
+                serverSessionGeneration = null
                 signalingClient.connect(
                     ConnectArgs(
                         url = lobby.signalingServer,
-                        playerId = current.playerId,
+                        identityId = identityId,
                         playerName = settings.playerName,
                         lobbyName = lobby.name,
                         lobbyPassword = lobby.password,
                         virtualIp = lobby.virtualIp,
-                        virtualDomain = lobby.virtualDomain,
+                        signer = activeSigner,
                         useDomain = lobby.useDomain,
-                        chatPublicKey = chatPublicKey,
                     ),
                 )
+                if (!isCurrentLobbyGeneration(generation)) return@runCatching
                 _state.update {
                     it.copy(
+                        playerId = identityId,
                         state = AppConnectionState.InLobby,
                         lobby = lobby,
                         players = listOf(
                             Player(
-                                id = current.playerId,
+                                id = identityId,
                                 name = settings.playerName,
                                 virtualIp = lobby.virtualIp,
                                 virtualDomain = lobby.virtualDomain,
@@ -611,12 +658,17 @@ class MctierRepository(private val context: Context) {
                 recordRecentLobby(lobby.name, lobby.password, effectiveNode, effectiveSignaling)
                 statsStartSession()
             }.onFailure { e ->
-                _state.update { it.copy(state = AppConnectionState.Error, error = e.message ?: L("加入大厅失败", "Failed to join lobby")) }
+                if (e !is CancellationException && isCurrentLobbyGeneration(generation)) {
+                    _state.update { it.copy(state = AppConnectionState.Error, error = e.message ?: L("加入大厅失败", "Failed to join lobby")) }
+                }
             }
         }
     }
 
     fun leaveLobby() {
+        nextLobbyLifecycleGeneration()
+        lobbyLifecycleJob?.cancel()
+        lobbyLifecycleJob = null
         val leaving = _state.value
         invalidatePendingScreenCapture()
         invalidatePendingRemoteControlAccept()
@@ -626,6 +678,7 @@ class MctierRepository(private val context: Context) {
         chatLobbyId = null
         chatToken = null
         chatTokenEpoch = 0L
+        serverSessionGeneration = null
         pendingChatRecalls.clear()
         runCatching { leavingChatClient?.stop() }
         pendingPlayerLeaveJobs.values.forEach { it.cancel() }
@@ -1474,7 +1527,8 @@ class MctierRepository(private val context: Context) {
         val state = _state.value
         return state.players.asSequence()
             .filter { player ->
-                player.id != state.playerId && player.id !in excludedIds && !player.virtualIp.isNullOrBlank()
+                player.id != state.playerId && player.id !in excludedIds &&
+                    player.sessionGeneration != null && !player.virtualIp.isNullOrBlank()
             }
             .map { player ->
                 ChatPeerIdentity(player.id, player.name, player.virtualIp!!.trim(), player.chatPublicKey)
@@ -1532,7 +1586,12 @@ class MctierRepository(private val context: Context) {
                 val lobbyId = message.lobbyId
                 val token = message.chatToken
                 val epoch = message.chatTokenEpoch ?: 0L
-                if (lobbyId.isNullOrBlank() || !isValidChatToken(token) || epoch <= 0L) {
+                val registeredId = message.clientId
+                val sessionGeneration = message.sessionGeneration
+                if (lobbyId.isNullOrBlank() || registeredId != _state.value.playerId ||
+                    sessionGeneration == null || sessionGeneration <= 0L ||
+                    !isValidChatToken(token) || epoch <= 0L
+                ) {
                     rejectChatProtocol(L("聊天认证信息无效", "Invalid chat authentication state"))
                     return
                 }
@@ -1547,11 +1606,32 @@ class MctierRepository(private val context: Context) {
                 chatLobbyId = lobbyId
                 chatToken = token
                 chatTokenEpoch = epoch
+                serverSessionGeneration = sessionGeneration
                 if (fileServer?.configureLobbyToken(token!!, epoch) != true) {
                     rejectChatProtocol(L("无法配置文件认证凭据", "Unable to configure file authentication token"))
                     return
                 }
-                _state.update { it.copy(hostId = message.hostId, maxPlayers = message.maxPlayers, isPublicLobby = message.isPublic ?: false, mutedPlayers = message.mutedPlayers?.toSet() ?: it.mutedPlayers) }
+                _state.update { state ->
+                    state.copy(
+                        lobby = state.lobby?.copy(
+                            id = lobbyId,
+                            virtualDomain = ChatAuth.virtualDomainForIdentityId(state.playerId),
+                            useDomain = true,
+                        ),
+                        hostId = message.hostId,
+                        maxPlayers = message.maxPlayers,
+                        isPublicLobby = message.isPublic ?: false,
+                        mutedPlayers = message.mutedPlayers?.toSet() ?: state.mutedPlayers,
+                        players = state.players.map { player ->
+                            if (player.id == registeredId) {
+                                player.copy(
+                                    sessionGeneration = sessionGeneration,
+                                    chatPublicKey = chatClient?.ensureSigningKey(),
+                                )
+                            } else player
+                        },
+                    )
+                }
                 if (message.hostId == _state.value.playerId && !configureAuthenticatedChat()) {
                     rejectChatProtocol(L("无法启动认证聊天服务", "Unable to start authenticated chat service"))
                     return
@@ -1598,9 +1678,11 @@ class MctierRepository(private val context: Context) {
                         it.virtualDomain,
                         it.useDomain ?: false,
                         chatPublicKey = it.chatPublicKey,
+                        sessionGeneration = it.sessionGeneration?.takeIf { generation -> generation > 0L },
                     )
                 }.filter { player ->
-                    player.id != selfId && (selfIp.isNullOrBlank() || player.virtualIp.isNullOrBlank() || player.virtualIp != selfIp)
+                    player.id != selfId && player.sessionGeneration != null &&
+                        (selfIp.isNullOrBlank() || player.virtualIp.isNullOrBlank() || player.virtualIp != selfIp)
                 }
                 playersSnapshotVersion += 1
                 remotes.forEach { pendingPlayerLeaveJobs.remove(it.id)?.cancel() }
@@ -1644,6 +1726,9 @@ class MctierRepository(private val context: Context) {
                 val id = message.playerId ?: return
                 val selfIp = _state.value.lobby?.virtualIp
                 if (id == _state.value.playerId || (!selfIp.isNullOrBlank() && message.virtualIp == selfIp)) return
+                val incomingGeneration = message.sessionGeneration?.takeIf { it > 0L } ?: return
+                val existing = _state.value.players.firstOrNull { it.id == id }
+                if (existing?.sessionGeneration?.let { incomingGeneration <= it } == true) return
                 val alreadyKnown = _state.value.players.any { it.id == id }
                 pendingPlayerLeaveJobs.remove(id)?.cancel()
                 val name = message.playerName ?: L("未知玩家", "Unknown player")
@@ -1654,6 +1739,7 @@ class MctierRepository(private val context: Context) {
                     message.virtualDomain,
                     message.useDomain ?: false,
                     chatPublicKey = message.chatPublicKey,
+                    sessionGeneration = incomingGeneration,
                 )
                 _state.update { it.copy(players = mergePlayers(it.players, listOf(joined))) }
                 if (alreadyKnown) {
@@ -1915,6 +2001,12 @@ class MctierRepository(private val context: Context) {
             val knownKey = previous?.chatPublicKey
             if (merged.chatPublicKey.isNullOrBlank() && !knownKey.isNullOrBlank()) {
                 merged = merged.copy(chatPublicKey = knownKey)
+            }
+            val previousGeneration = previous?.sessionGeneration
+            if (previousGeneration != null &&
+                (merged.sessionGeneration == null || merged.sessionGeneration < previousGeneration)
+            ) {
+                merged = merged.copy(sessionGeneration = previousGeneration)
             }
             map[player.id] = merged
         }

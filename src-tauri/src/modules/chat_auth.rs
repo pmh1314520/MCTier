@@ -38,6 +38,8 @@ use sha2::{Digest, Sha256};
 /// by an older client, which is exactly what must happen if the canonical form
 /// below ever changes.
 const CANONICAL_DOMAIN: &str = "MCTIER-CHAT-V1";
+const SIGNALING_CANONICAL_DOMAIN: &str = "MCTIER-SIGNALING-V3";
+pub const SIGNALING_PROTOCOL_VERSION: u8 = 3;
 
 pub const CHAT_KEY_ID_HEADER: &str = "x-mctier-chat-key";
 pub const CHAT_SIGNATURE_HEADER: &str = "x-mctier-chat-sig";
@@ -77,6 +79,29 @@ pub fn key_id_for_public_key(public_key_der: &[u8]) -> String {
     let mut id = sha256_hex(public_key_der);
     id.truncate(KEY_ID_HEX_LEN);
     id
+}
+
+/// Full SHA-256 fingerprint used as the authoritative signaling identity.
+/// Unlike the shorter chat lookup key, this value is a security principal and
+/// therefore is never truncated.
+pub fn identity_id_for_public_key(public_key_der: &[u8]) -> String {
+    sha256_hex(public_key_der)
+}
+
+pub fn canonical_signaling_registration(
+    challenge: &str,
+    lobby_name: &str,
+    virtual_ip: &str,
+) -> Vec<u8> {
+    [
+        SIGNALING_CANONICAL_DOMAIN.to_string(),
+        SIGNALING_PROTOCOL_VERSION.to_string(),
+        challenge.to_string(),
+        lobby_name.to_string(),
+        virtual_ip.to_string(),
+    ]
+    .join("\n")
+    .into_bytes()
 }
 
 pub fn is_valid_key_id(value: &str) -> bool {
@@ -199,6 +224,21 @@ impl ChatSigner {
 
     pub fn key_id(&self) -> &str {
         &self.key_id
+    }
+
+    pub fn identity_id(&self) -> String {
+        identity_id_for_public_key(&self.public_key_der)
+    }
+
+    pub fn sign_signaling_registration(
+        &self,
+        challenge: &str,
+        lobby_name: &str,
+        virtual_ip: &str,
+    ) -> String {
+        let canonical = canonical_signaling_registration(challenge, lobby_name, virtual_ip);
+        let signature: Signature = self.signing_key.sign(&canonical);
+        base64_encode(signature.to_der().as_bytes())
     }
 
     /// Sign a request and return the header material the peer needs.
@@ -348,6 +388,28 @@ mod tests {
         let der = parse_public_key_b64(&signer.public_key_b64()).expect("public key must parse");
         assert_eq!(key_id_for_public_key(&der), signer.key_id());
         assert!(is_valid_key_id(signer.key_id()));
+        assert_eq!(signer.identity_id().len(), 64);
+        assert_eq!(
+            signer.identity_id(),
+            identity_id_for_public_key(&der),
+            "signaling identity must be the full public-key fingerprint"
+        );
+    }
+
+    #[test]
+    fn signaling_registration_signature_covers_challenge_and_lobby_context() {
+        let signer = signer();
+        let der = parse_public_key_b64(&signer.public_key_b64()).expect("key");
+        let challenge = "01".repeat(32);
+        let signature = signer.sign_signaling_registration(&challenge, "lobby-a", "10.1.2.3");
+        let canonical = canonical_signaling_registration(&challenge, "lobby-a", "10.1.2.3");
+        assert!(verify_signature(&der, &signature, &canonical));
+
+        let wrong_lobby = canonical_signaling_registration(&challenge, "lobby-b", "10.1.2.3");
+        assert!(!verify_signature(&der, &signature, &wrong_lobby));
+        let wrong_challenge =
+            canonical_signaling_registration(&"02".repeat(32), "lobby-a", "10.1.2.3");
+        assert!(!verify_signature(&der, &signature, &wrong_challenge));
     }
 
     #[test]

@@ -22,7 +22,8 @@ interface ScreenShareAnswer {
   routeVersion?: number;
 }
 
-const isNullish = (value: unknown): value is null | undefined => value === null || value === undefined;
+const isNullish = (value: unknown): value is null | undefined =>
+  value === null || value === undefined;
 
 class ScreenShareService {
   private localStream: MediaStream | null = null;
@@ -42,7 +43,10 @@ class ScreenShareService {
   private assignedRouteVersions: Map<string, Map<string, number>> = new Map();
   private expectedDownstreams: Map<string, Map<string, number>> = new Map();
   private routeVersions: Map<string, number> = new Map();
-  private pendingViewRequests: Map<string, { resolve: (stream: MediaStream) => void; reject: (error: Error) => void; timer: number }> = new Map();
+  private pendingViewRequests: Map<
+    string,
+    { resolve: (stream: MediaStream) => void; reject: (error: Error) => void; timer: number }
+  > = new Map();
   private currentPasswords: Map<string, string | undefined> = new Map();
   private viewingUpstreams: Map<string, string> = new Map();
   private pendingRelayOffers: Map<string, ScreenShareOffer> = new Map();
@@ -50,14 +54,59 @@ class ScreenShareService {
   private relayProtocolConfirmed: Set<string> = new Set();
   private viewingRouteVersions: Map<string, number> = new Map();
   private directViewFallbacks: Set<string> = new Set();
-  private unhealthyRelays: Map<string, Map<string, { until: number; failures: number }>> = new Map();
-  private unhealthyRelayEdges: Map<string, Map<string, { until: number; failures: number }>> = new Map();
+  private unhealthyRelays: Map<string, Map<string, { until: number; failures: number }>> =
+    new Map();
+  private unhealthyRelayEdges: Map<string, Map<string, { until: number; failures: number }>> =
+    new Map();
   private pendingDetachUpstreams: Map<string, Map<string, string>> = new Map();
   private viewingHealthTimers: Map<string, number> = new Map();
   private relayRecoveryTimers: Map<string, number> = new Map();
-  private upstreamHealth: Map<string, { upstreamId: string; routeVersion?: number; sourceSequence: number; sentSequence: number; limited: boolean; receivedAt: number }> = new Map();
+  private upstreamHealth: Map<
+    string,
+    {
+      upstreamId: string;
+      routeVersion?: number;
+      sourceSequence: number;
+      sentSequence: number;
+      limited: boolean;
+      receivedAt: number;
+    }
+  > = new Map();
   private sourceFrameSequences: Map<string, number> = new Map();
   private outboundHealthTimers: Map<string, number> = new Map();
+  private passwordFailures: Map<string, { failures: number; blockedUntil: number }> = new Map();
+
+  private passwordAttemptKey(shareId: string, viewerId: string): string {
+    return `${shareId}\u0000${viewerId}`;
+  }
+
+  private allowPasswordAttempt(shareId: string, viewerId: string): boolean {
+    const key = this.passwordAttemptKey(shareId, viewerId);
+    const state = this.passwordFailures.get(key);
+    if (!state) return true;
+    if (state.blockedUntil <= Date.now()) {
+      this.passwordFailures.delete(key);
+      return true;
+    }
+    return false;
+  }
+
+  private recordPasswordFailure(shareId: string, viewerId: string): number {
+    const key = this.passwordAttemptKey(shareId, viewerId);
+    const previous = this.passwordFailures.get(key);
+    const failures = Math.min((previous?.failures ?? 0) + 1, 8);
+    const delayMs = Math.min(30_000, 250 * 2 ** (failures - 1));
+    this.passwordFailures.set(key, { failures, blockedUntil: Date.now() + delayMs });
+    if (this.passwordFailures.size > 4096) {
+      const oldest = this.passwordFailures.keys().next().value;
+      if (oldest) this.passwordFailures.delete(oldest);
+    }
+    return delayMs;
+  }
+
+  private clearPasswordFailures(shareId: string, viewerId: string): void {
+    this.passwordFailures.delete(this.passwordAttemptKey(shareId, viewerId));
+  }
 
   /**
    * 初始化服务
@@ -66,11 +115,11 @@ class ScreenShareService {
     this.currentPlayerId = playerId;
     this.currentPlayerName = playerName;
     this.ws = ws;
-    
+
     console.log('✅ [ScreenShareService] 初始化完成', {
       playerId: this.currentPlayerId,
       playerName: this.currentPlayerName,
-      wsReady: this.ws?.readyState === WebSocket.OPEN
+      wsReady: this.ws?.readyState === WebSocket.OPEN,
     });
   }
 
@@ -92,7 +141,7 @@ class ScreenShareService {
         throw new Error('屏幕共享密码不能为空');
       }
       console.log('🖥️ [ScreenShareService] 开始捕获屏幕...');
-      
+
       // 捕获屏幕
       this.localStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -166,7 +215,7 @@ class ScreenShareService {
 
     // 停止本地流
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
 
@@ -191,6 +240,9 @@ class ScreenShareService {
     this.unhealthyRelays.delete(shareId);
     this.unhealthyRelayEdges.delete(shareId);
     this.pendingDetachUpstreams.delete(shareId);
+    for (const key of this.passwordFailures.keys()) {
+      if (key.startsWith(`${shareId}\u0000`)) this.passwordFailures.delete(key);
+    }
     const recoveryTimer = this.relayRecoveryTimers.get(shareId);
     if (recoveryTimer) window.clearTimeout(recoveryTimer);
     this.relayRecoveryTimers.delete(shareId);
@@ -240,50 +292,65 @@ class ScreenShareService {
       // 收到 accepted/route 只代表控制面可用，不代表视频帧已经到达。
       // 链式连接 5 秒内仍没有媒体时，直连共享者作为可靠性兜底。
       if (!this.pendingViewRequests.has(shareId) || this.viewingUpstreams.has(shareId)) return;
-      void this.requestViewScreenDirect(shareId, password).then((stream) => {
-        const pending = this.pendingViewRequests.get(shareId);
-        const legacyEntry = Array.from(this.peerConnections.entries()).find(([key]) => key.startsWith(shareId + '-viewer-'));
-        if (!pending) {
-          if (legacyEntry) {
-            legacyEntry[1].close();
-            this.peerConnections.delete(legacyEntry[0]);
+      void this.requestViewScreenDirect(shareId, password)
+        .then((stream) => {
+          const pending = this.pendingViewRequests.get(shareId);
+          const legacyEntry = Array.from(this.peerConnections.entries()).find(([key]) =>
+            key.startsWith(shareId + '-viewer-')
+          );
+          if (!pending) {
+            if (legacyEntry) {
+              legacyEntry[1].close();
+              this.peerConnections.delete(legacyEntry[0]);
+            }
+            return;
           }
-          return;
-        }
-        this.directViewFallbacks.add(shareId);
-        this.remoteStreams.set(shareId, stream);
-        const directTrack = stream.getVideoTracks()[0];
-        const previousHealthTimer = this.viewingHealthTimers.get(shareId);
-        if (previousHealthTimer) window.clearInterval(previousHealthTimer);
-        this.viewingHealthTimers.delete(shareId);
-        if (legacyEntry && directTrack) {
-          this.startViewingHealthMonitor(shareId, legacyEntry[1], directTrack, share.playerId, this.viewingRouteVersions.get(shareId));
-        }
-        for (const [key, relayPc] of this.peerConnections.entries()) {
-          if (!key.startsWith(shareId + '-in-')) continue;
-          relayPc.close();
-          this.peerConnections.delete(key);
-        }
-        const previousUpstream = this.viewingUpstreams.get(shareId);
-        this.viewingUpstreams.set(shareId, share.playerId);
-        const routeVersion = this.viewingRouteVersions.get(shareId);
-        if (!isNullish(routeVersion) && previousUpstream) {
-          this.sendWebSocketMessage({
-            type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId,
-            to: share.playerId, shareId, upstreamId: previousUpstream,
-            routeVersion, reason: 'direct-fallback',
-          });
-        }
-        window.clearTimeout(pending.timer);
-        this.pendingViewRequests.delete(shareId);
-        pending.resolve(stream);
-      }).catch((error) => {
-        const pending = this.pendingViewRequests.get(shareId);
-        if (!pending) return;
-        window.clearTimeout(pending.timer);
-        this.pendingViewRequests.delete(shareId);
-        pending.reject(error instanceof Error ? error : new Error(String(error)));
-      });
+          this.directViewFallbacks.add(shareId);
+          this.remoteStreams.set(shareId, stream);
+          const directTrack = stream.getVideoTracks()[0];
+          const previousHealthTimer = this.viewingHealthTimers.get(shareId);
+          if (previousHealthTimer) window.clearInterval(previousHealthTimer);
+          this.viewingHealthTimers.delete(shareId);
+          if (legacyEntry && directTrack) {
+            this.startViewingHealthMonitor(
+              shareId,
+              legacyEntry[1],
+              directTrack,
+              share.playerId,
+              this.viewingRouteVersions.get(shareId)
+            );
+          }
+          for (const [key, relayPc] of this.peerConnections.entries()) {
+            if (!key.startsWith(shareId + '-in-')) continue;
+            relayPc.close();
+            this.peerConnections.delete(key);
+          }
+          const previousUpstream = this.viewingUpstreams.get(shareId);
+          this.viewingUpstreams.set(shareId, share.playerId);
+          const routeVersion = this.viewingRouteVersions.get(shareId);
+          if (!isNullish(routeVersion) && previousUpstream) {
+            this.sendWebSocketMessage({
+              type: 'screen-share-relay',
+              action: 'failure',
+              from: this.currentPlayerId,
+              to: share.playerId,
+              shareId,
+              upstreamId: previousUpstream,
+              routeVersion,
+              reason: 'direct-fallback',
+            });
+          }
+          window.clearTimeout(pending.timer);
+          this.pendingViewRequests.delete(shareId);
+          pending.resolve(stream);
+        })
+        .catch((error) => {
+          const pending = this.pendingViewRequests.get(shareId);
+          if (!pending) return;
+          window.clearTimeout(pending.timer);
+          this.pendingViewRequests.delete(shareId);
+          pending.reject(error instanceof Error ? error : new Error(String(error)));
+        });
     }, 5000);
     return streamPromise;
   }
@@ -343,7 +410,7 @@ class ScreenShareService {
             reject(new Error(error || '查看屏幕失败'));
           }
         };
-        
+
         window.addEventListener('screen-share-error', handleError);
 
         // 监听远程流
@@ -360,7 +427,11 @@ class ScreenShareService {
           if (!event.track.muted) {
             void resolveWhenMediaArrives().catch(reject);
           } else {
-            event.track.addEventListener('unmute', () => void resolveWhenMediaArrives().catch(reject), { once: true });
+            event.track.addEventListener(
+              'unmute',
+              () => void resolveWhenMediaArrives().catch(reject),
+              { once: true }
+            );
           }
         };
 
@@ -385,7 +456,7 @@ class ScreenShareService {
         // 监听连接状态
         pc.onconnectionstatechange = () => {
           console.log(`🔗 [ScreenShareService] 连接状态: ${pc.connectionState}`);
-          
+
           if (pc.connectionState === 'failed') {
             clearTimeout(timeout);
             window.removeEventListener('screen-share-error', handleError);
@@ -478,7 +549,11 @@ class ScreenShareService {
 
     const keysToDelete: string[] = [];
     this.peerConnections.forEach((pc, key) => {
-      if (key.startsWith(`${shareId}-in-`) || key.startsWith(`${shareId}-out-`) || key.startsWith(`${shareId}-viewer-`)) {
+      if (
+        key.startsWith(`${shareId}-in-`) ||
+        key.startsWith(`${shareId}-out-`) ||
+        key.startsWith(`${shareId}-viewer-`)
+      ) {
         console.log('🔌 [ScreenShareService] 关闭PeerConnection:', key);
         pc.close();
         keysToDelete.push(key);
@@ -526,13 +601,16 @@ class ScreenShareService {
    */
   getActiveShares(): ScreenShare[] {
     const shares = Array.from(this.activeShares.values());
-    console.log('📋 [ScreenShareService] 获取活跃共享列表:', shares.map(s => ({
-      id: s.id,
-      playerId: s.playerId,
-      playerName: s.playerName,
-      requirePassword: s.requirePassword,
-      hasPassword: !!s.password
-    })));
+    console.log(
+      '📋 [ScreenShareService] 获取活跃共享列表:',
+      shares.map((s) => ({
+        id: s.id,
+        playerId: s.playerId,
+        playerName: s.playerName,
+        requirePassword: s.requirePassword,
+        hasPassword: !!s.password,
+      }))
+    );
     return shares;
   }
 
@@ -541,15 +619,18 @@ class ScreenShareService {
    */
   getMyActiveShares(): ScreenShare[] {
     const myShares = Array.from(this.activeShares.values()).filter(
-      share => share.playerId === this.currentPlayerId
+      (share) => share.playerId === this.currentPlayerId
     );
-    console.log('📋 [ScreenShareService] 获取我的活跃共享列表:', myShares.map(s => ({
-      id: s.id,
-      playerId: s.playerId,
-      playerName: s.playerName,
-      requirePassword: s.requirePassword,
-      hasPassword: !!s.password
-    })));
+    console.log(
+      '📋 [ScreenShareService] 获取我的活跃共享列表:',
+      myShares.map((s) => ({
+        id: s.id,
+        playerId: s.playerId,
+        playerName: s.playerName,
+        requirePassword: s.requirePassword,
+        hasPassword: !!s.password,
+      }))
+    );
     return myShares;
   }
 
@@ -561,9 +642,9 @@ class ScreenShareService {
       shareId: share.id,
       playerId: share.playerId,
       playerName: share.playerName,
-      requirePassword: share.requirePassword
+      requirePassword: share.requirePassword,
     });
-    
+
     this.sendWebSocketMessage({
       type: 'screen-share-start',
       from: this.currentPlayerId,
@@ -591,9 +672,9 @@ class ScreenShareService {
     console.log('📢 [ScreenShareService] 广播共享状态更新', {
       shareId: share.id,
       viewerId: share.viewerId,
-      viewerName: share.viewerName
+      viewerName: share.viewerName,
     });
-    
+
     this.sendWebSocketMessage({
       type: 'screen-share-update',
       from: this.currentPlayerId,
@@ -614,17 +695,32 @@ class ScreenShareService {
 
     if (message.action === 'join' && this.currentPlayerId === ownerId) {
       if (message.to !== this.currentPlayerId || senderId === this.currentPlayerId) return;
+      if (!this.allowPasswordAttempt(shareId, senderId)) return;
       if (share.requirePassword && message.password !== share.password) {
-        this.sendWebSocketMessage({ type: 'screen-share-error', from: this.currentPlayerId, to: message.from, shareId, error: '密码错误' });
+        const retryAfterMs = this.recordPasswordFailure(shareId, senderId);
+        this.sendWebSocketMessage({
+          type: 'screen-share-error',
+          from: this.currentPlayerId,
+          to: message.from,
+          shareId,
+          error: `密码错误，请 ${Math.ceil(retryAfterMs / 1000)} 秒后重试`,
+        });
         return;
       }
+      this.clearPasswordFailures(shareId, senderId);
       const order = this.viewerOrder.get(shareId) ?? [];
       if (!order.includes(message.from)) order.push(message.from);
       this.viewerOrder.set(shareId, order);
       const names = this.viewerNames.get(shareId) ?? new Map<string, string>();
       names.set(message.from, message.playerName || '玩家');
       this.viewerNames.set(shareId, names);
-      this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'accepted', from: this.currentPlayerId, to: message.from, shareId });
+      this.sendWebSocketMessage({
+        type: 'screen-share-relay',
+        action: 'accepted',
+        from: this.currentPlayerId,
+        to: message.from,
+        shareId,
+      });
       this.rebuildRelayRoutes(shareId);
       return;
     }
@@ -633,7 +729,8 @@ class ScreenShareService {
       const currentUpstream = this.viewingUpstreams.get(shareId);
       const currentRouteVersion = this.viewingRouteVersions.get(shareId);
       if (currentUpstream !== senderId) return;
-      if (!isNullish(message.routeVersion) && currentRouteVersion !== Number(message.routeVersion)) return;
+      if (!isNullish(message.routeVersion) && currentRouteVersion !== Number(message.routeVersion))
+        return;
       this.upstreamHealth.set(shareId, {
         upstreamId: senderId,
         routeVersion: isNullish(message.routeVersion) ? undefined : Number(message.routeVersion),
@@ -646,9 +743,14 @@ class ScreenShareService {
     }
 
     if (message.action === 'ready' && this.currentPlayerId === ownerId) {
-      if (message.to !== this.currentPlayerId || !(this.viewerOrder.get(shareId) ?? []).includes(senderId)) return;
+      if (
+        message.to !== this.currentPlayerId ||
+        !(this.viewerOrder.get(shareId) ?? []).includes(senderId)
+      )
+        return;
       const assignedVersion = this.assignedRouteVersions.get(shareId)?.get(senderId);
-      if (isNullish(assignedVersion) || assignedVersion !== Number(message.routeVersion || 0)) return;
+      if (isNullish(assignedVersion) || assignedVersion !== Number(message.routeVersion || 0))
+        return;
       const ready = this.readyViewers.get(shareId) ?? new Set<string>();
       ready.add(senderId);
       this.readyViewers.set(shareId, ready);
@@ -661,7 +763,15 @@ class ScreenShareService {
           this.peerConnections.delete(oldKey);
           this.expectedDownstreams.get(shareId)?.delete(senderId);
         } else {
-          this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: pendingDetach, shareId, downstreamId: senderId, routeVersion: Number(message.routeVersion || 0) });
+          this.sendWebSocketMessage({
+            type: 'screen-share-relay',
+            action: 'detach',
+            from: this.currentPlayerId,
+            to: pendingDetach,
+            shareId,
+            downstreamId: senderId,
+            routeVersion: Number(message.routeVersion || 0),
+          });
         }
         this.pendingDetachUpstreams.get(shareId)?.delete(senderId);
       } else if (pendingDetach) {
@@ -687,7 +797,15 @@ class ScreenShareService {
         this.peerConnections.delete(oldKey);
         this.expectedDownstreams.get(shareId)?.delete(senderId);
       } else if (assignedUpstream) {
-        this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: assignedUpstream, shareId, downstreamId: senderId, routeVersion: assignedVersion });
+        this.sendWebSocketMessage({
+          type: 'screen-share-relay',
+          action: 'detach',
+          from: this.currentPlayerId,
+          to: assignedUpstream,
+          shareId,
+          downstreamId: senderId,
+          routeVersion: assignedVersion,
+        });
       }
       // The failed edge is removed from the assignment before rebuilding;
       // healthy replacement routes are confirmed with a real decoded frame.
@@ -700,18 +818,34 @@ class ScreenShareService {
 
     if (senderId !== ownerId || message.to !== this.currentPlayerId) return;
 
-    if (message.action === 'accepted' && message.to === this.currentPlayerId && isNullish(message.routeVersion) && isNullish(message.upstreamId) && isNullish(message.downstreamId)) {
+    if (
+      message.action === 'accepted' &&
+      message.to === this.currentPlayerId &&
+      isNullish(message.routeVersion) &&
+      isNullish(message.upstreamId) &&
+      isNullish(message.downstreamId)
+    ) {
       this.relayProtocolConfirmed.add(shareId);
       return;
     }
 
     if (message.action === 'route' && message.to === this.currentPlayerId && message.upstreamId) {
       const routeVersion = Number(message.routeVersion);
-      if (!Number.isInteger(routeVersion) || routeVersion <= 0 || message.upstreamId === this.currentPlayerId) return;
+      if (
+        !Number.isInteger(routeVersion) ||
+        routeVersion <= 0 ||
+        message.upstreamId === this.currentPlayerId
+      )
+        return;
       const currentRouteVersion = this.viewingRouteVersions.get(shareId);
       const currentUpstream = this.viewingUpstreams.get(shareId);
       if (!isNullish(currentRouteVersion) && routeVersion < currentRouteVersion) return;
-      if (currentRouteVersion === routeVersion && currentUpstream && currentUpstream !== message.upstreamId) return;
+      if (
+        currentRouteVersion === routeVersion &&
+        currentUpstream &&
+        currentUpstream !== message.upstreamId
+      )
+        return;
       this.relayProtocolConfirmed.add(shareId);
       await this.connectRelayUpstream(shareId, message.upstreamId, routeVersion);
       return;
@@ -733,12 +867,19 @@ class ScreenShareService {
       }
       const pc = this.peerConnections.get(shareId + '-out-' + message.downstreamId);
       if (pc?.remoteDescription) {
-        await this.flushPendingIce(this.iceKey(shareId, 'out', message.downstreamId, routeVersion), pc);
+        await this.flushPendingIce(
+          this.iceKey(shareId, 'out', message.downstreamId, routeVersion),
+          pc
+        );
       }
       return;
     }
 
-    if (message.action === 'detach' && message.to === this.currentPlayerId && message.downstreamId) {
+    if (
+      message.action === 'detach' &&
+      message.to === this.currentPlayerId &&
+      message.downstreamId
+    ) {
       this.expectedDownstreams.get(shareId)?.delete(message.downstreamId);
       const key = shareId + '-out-' + message.downstreamId;
       this.stopOutboundHealthHeartbeat(key);
@@ -748,27 +889,49 @@ class ScreenShareService {
     }
   }
 
-  private markRelayFailure(shareId: string, viewerId: string, upstreamId?: string, reason = 'connection'): void {
+  private markRelayFailure(
+    shareId: string,
+    viewerId: string,
+    upstreamId?: string,
+    reason = 'connection'
+  ): void {
     const now = Date.now();
-    const relayMap = this.unhealthyRelays.get(shareId) ?? new Map<string, { until: number; failures: number }>();
+    const relayMap =
+      this.unhealthyRelays.get(shareId) ?? new Map<string, { until: number; failures: number }>();
     const previous = relayMap.get(viewerId);
     const failures = (previous?.failures ?? 0) + 1;
-    relayMap.set(viewerId, { failures, until: now + Math.min(60_000, 4_000 * (2 ** Math.min(failures - 1, 4))) });
+    relayMap.set(viewerId, {
+      failures,
+      until: now + Math.min(60_000, 4_000 * 2 ** Math.min(failures - 1, 4)),
+    });
     this.unhealthyRelays.set(shareId, relayMap);
 
     if (upstreamId) {
       if (upstreamId !== this.currentPlayerId) {
         const upstreamHealth = relayMap.get(upstreamId);
         const upstreamFailures = (upstreamHealth?.failures ?? 0) + 1;
-        relayMap.set(upstreamId, { failures: upstreamFailures, until: now + Math.min(60_000, 4_000 * (2 ** Math.min(upstreamFailures - 1, 4))) });
+        relayMap.set(upstreamId, {
+          failures: upstreamFailures,
+          until: now + Math.min(60_000, 4_000 * 2 ** Math.min(upstreamFailures - 1, 4)),
+        });
       }
-      const edgeMap = this.unhealthyRelayEdges.get(shareId) ?? new Map<string, { until: number; failures: number }>();
+      const edgeMap =
+        this.unhealthyRelayEdges.get(shareId) ??
+        new Map<string, { until: number; failures: number }>();
       const edgeId = upstreamId + '>' + viewerId;
       const previousEdge = edgeMap.get(edgeId);
       const edgeFailures = (previousEdge?.failures ?? 0) + 1;
-      edgeMap.set(edgeId, { failures: edgeFailures, until: now + Math.min(60_000, 4_000 * (2 ** Math.min(edgeFailures - 1, 4))) });
+      edgeMap.set(edgeId, {
+        failures: edgeFailures,
+        until: now + Math.min(60_000, 4_000 * 2 ** Math.min(edgeFailures - 1, 4)),
+      });
       this.unhealthyRelayEdges.set(shareId, edgeMap);
-      console.warn('[ScreenShareService] 中继边暂时隔离:', { shareId, edgeId, reason, failures: edgeFailures });
+      console.warn('[ScreenShareService] 中继边暂时隔离:', {
+        shareId,
+        edgeId,
+        reason,
+        failures: edgeFailures,
+      });
     }
     this.scheduleRelayRecovery(shareId);
   }
@@ -778,14 +941,19 @@ class ScreenShareService {
     if (previous) window.clearTimeout(previous);
     const expiries = [
       ...Array.from(this.unhealthyRelays.get(shareId)?.values() ?? []).map((entry) => entry.until),
-      ...Array.from(this.unhealthyRelayEdges.get(shareId)?.values() ?? []).map((entry) => entry.until),
+      ...Array.from(this.unhealthyRelayEdges.get(shareId)?.values() ?? []).map(
+        (entry) => entry.until
+      ),
     ].filter((until) => until > Date.now());
     if (expiries.length === 0) return;
-    const timer = window.setTimeout(() => {
-      this.relayRecoveryTimers.delete(shareId);
-      this.rebuildRelayRoutes(shareId);
-      this.scheduleRelayRecovery(shareId);
-    }, Math.max(250, Math.min(...expiries) - Date.now() + 100));
+    const timer = window.setTimeout(
+      () => {
+        this.relayRecoveryTimers.delete(shareId);
+        this.rebuildRelayRoutes(shareId);
+        this.scheduleRelayRecovery(shareId);
+      },
+      Math.max(250, Math.min(...expiries) - Date.now() + 100)
+    );
     this.relayRecoveryTimers.set(shareId, timer);
   }
 
@@ -823,7 +991,7 @@ class ScreenShareService {
     // Keep topology selection pure and covered by regression tests. The owner
     // normally serves two viewers; ready viewers serve at most one child each.
     const unavailableRelayIds = new Set(
-      order.filter((viewerId) => !this.isRelayAvailable(shareId, viewerId)),
+      order.filter((viewerId) => !this.isRelayAvailable(shareId, viewerId))
     );
     const unavailableEdges = new Set<string>();
     for (const upstreamId of [this.currentPlayerId, ...order]) {
@@ -844,7 +1012,8 @@ class ScreenShareService {
     for (const viewerId of order) {
       const upstream = parentByViewer.get(viewerId)!;
       const oldUpstream = assigned.get(viewerId);
-      const routeChanged = oldUpstream !== upstream || !this.isRelayEdgeAvailable(shareId, upstream, viewerId);
+      const routeChanged =
+        oldUpstream !== upstream || !this.isRelayEdgeAvailable(shareId, upstream, viewerId);
       if (!routeChanged) continue;
       if (oldUpstream && oldUpstream !== upstream) {
         const pending = this.pendingDetachUpstreams.get(shareId) ?? new Map<string, string>();
@@ -856,9 +1025,25 @@ class ScreenShareService {
         expected.set(viewerId, version);
         this.expectedDownstreams.set(shareId, expected);
       } else {
-        this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'child', from: this.currentPlayerId, to: upstream, shareId, downstreamId: viewerId, routeVersion: version });
+        this.sendWebSocketMessage({
+          type: 'screen-share-relay',
+          action: 'child',
+          from: this.currentPlayerId,
+          to: upstream,
+          shareId,
+          downstreamId: viewerId,
+          routeVersion: version,
+        });
       }
-      this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'route', from: this.currentPlayerId, to: viewerId, shareId, upstreamId: upstream, routeVersion: version });
+      this.sendWebSocketMessage({
+        type: 'screen-share-relay',
+        action: 'route',
+        from: this.currentPlayerId,
+        to: viewerId,
+        shareId,
+        upstreamId: upstream,
+        routeVersion: version,
+      });
       assigned.set(viewerId, upstream);
       assignedVersions.set(viewerId, version);
       ready.delete(viewerId);
@@ -871,7 +1056,15 @@ class ScreenShareService {
         this.peerConnections.get(key)?.close();
         this.peerConnections.delete(key);
       } else {
-        this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'detach', from: this.currentPlayerId, to: oldUpstream, shareId, downstreamId: viewerId, routeVersion: version });
+        this.sendWebSocketMessage({
+          type: 'screen-share-relay',
+          action: 'detach',
+          from: this.currentPlayerId,
+          to: oldUpstream,
+          shareId,
+          downstreamId: viewerId,
+          routeVersion: version,
+        });
       }
       assigned.delete(viewerId);
       assignedVersions.delete(viewerId);
@@ -885,14 +1078,32 @@ class ScreenShareService {
     this.broadcastShareUpdate(share);
   }
 
-  private async connectRelayUpstream(shareId: string, upstreamId: string, routeVersion: number): Promise<void> {
+  private async connectRelayUpstream(
+    shareId: string,
+    upstreamId: string,
+    routeVersion: number
+  ): Promise<void> {
     // A new owner-issued route supersedes a temporary direct fallback.
     this.directViewFallbacks.delete(shareId);
     const currentUpstream = this.viewingUpstreams.get(shareId);
-    const currentPc = currentUpstream ? this.peerConnections.get(shareId + '-in-' + currentUpstream) : undefined;
-    if (currentUpstream === upstreamId && currentPc?.connectionState === 'connected' && this.viewingRouteVersions.get(shareId) === routeVersion) {
+    const currentPc = currentUpstream
+      ? this.peerConnections.get(shareId + '-in-' + currentUpstream)
+      : undefined;
+    if (
+      currentUpstream === upstreamId &&
+      currentPc?.connectionState === 'connected' &&
+      this.viewingRouteVersions.get(shareId) === routeVersion
+    ) {
       const ownerId = this.activeShares.get(shareId)?.playerId;
-      if (ownerId) this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'ready', from: this.currentPlayerId, to: ownerId, shareId, routeVersion });
+      if (ownerId)
+        this.sendWebSocketMessage({
+          type: 'screen-share-relay',
+          action: 'ready',
+          from: this.currentPlayerId,
+          to: ownerId,
+          shareId,
+          routeVersion,
+        });
       return;
     }
     const previousHealthTimer = this.viewingHealthTimers.get(shareId);
@@ -901,7 +1112,10 @@ class ScreenShareService {
     this.viewingRouteVersions.set(shareId, routeVersion);
 
     const pc = new RTCPeerConnection({
-      iceServers: [], iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require',
+      iceServers: [],
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     });
     const key = shareId + '-in-' + upstreamId;
     const stalePc = this.peerConnections.get(key);
@@ -913,7 +1127,10 @@ class ScreenShareService {
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       this.sendWebSocketMessage({
-        type: 'screen-share-ice-candidate', from: this.currentPlayerId, to: upstreamId, shareId,
+        type: 'screen-share-ice-candidate',
+        from: this.currentPlayerId,
+        to: upstreamId,
+        shareId,
         connectionRole: 'out',
         routeVersion,
         candidate: event.candidate.toJSON(),
@@ -923,13 +1140,32 @@ class ScreenShareService {
       if (pc.connectionState === 'connected' && failureTimer) {
         window.clearTimeout(failureTimer);
         failureTimer = undefined;
-      } else if ((pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !failureTimer) {
-        failureTimer = window.setTimeout(() => {
-          if (pc.connectionState !== 'connected' && this.viewingRouteVersions.get(shareId) === routeVersion) {
-            const ownerId = this.activeShares.get(shareId)?.playerId;
-            if (ownerId) this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId, to: ownerId, shareId, upstreamId, routeVersion, reason: 'connection' });
-          }
-        }, pc.connectionState === 'failed' ? 0 : 3500);
+      } else if (
+        (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') &&
+        !failureTimer
+      ) {
+        failureTimer = window.setTimeout(
+          () => {
+            if (
+              pc.connectionState !== 'connected' &&
+              this.viewingRouteVersions.get(shareId) === routeVersion
+            ) {
+              const ownerId = this.activeShares.get(shareId)?.playerId;
+              if (ownerId)
+                this.sendWebSocketMessage({
+                  type: 'screen-share-relay',
+                  action: 'failure',
+                  from: this.currentPlayerId,
+                  to: ownerId,
+                  shareId,
+                  upstreamId,
+                  routeVersion,
+                  reason: 'connection',
+                });
+            }
+          },
+          pc.connectionState === 'failed' ? 0 : 3500
+        );
       }
     };
     pc.ontrack = (event) => {
@@ -948,7 +1184,8 @@ class ScreenShareService {
       let mediaActivated = false;
       const activateMedia = () => {
         if (mediaActivated || this.directViewFallbacks.has(shareId)) return;
-        if (this.viewingRouteVersions.get(shareId) !== routeVersion || track.readyState !== 'live') return;
+        if (this.viewingRouteVersions.get(shareId) !== routeVersion || track.readyState !== 'live')
+          return;
         mediaActivated = true;
         stableStream.getVideoTracks().forEach((oldTrack) => stableStream!.removeTrack(oldTrack));
         stableStream.addTrack(track);
@@ -957,9 +1194,12 @@ class ScreenShareService {
         // prevents a failed reroute from replacing a working picture with black.
         this.peerConnections.forEach((downstreamPc, connectionKey) => {
           if (!connectionKey.startsWith(shareId + '-out-')) return;
-          downstreamPc.getSenders().filter((sender) => sender.track?.kind === 'video').forEach((sender) => {
-            void sender.replaceTrack(track);
-          });
+          downstreamPc
+            .getSenders()
+            .filter((sender) => sender.track?.kind === 'video')
+            .forEach((sender) => {
+              void sender.replaceTrack(track);
+            });
         });
 
         this.viewingUpstreams.set(shareId, upstreamId);
@@ -980,7 +1220,15 @@ class ScreenShareService {
           pending.resolve(stableStream);
         }
         const ownerId = this.activeShares.get(shareId)?.playerId;
-        if (ownerId) this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'ready', from: this.currentPlayerId, to: ownerId, shareId, routeVersion });
+        if (ownerId)
+          this.sendWebSocketMessage({
+            type: 'screen-share-relay',
+            action: 'ready',
+            from: this.currentPlayerId,
+            to: ownerId,
+            shareId,
+            routeVersion,
+          });
         this.startViewingHealthMonitor(shareId, pc, track, upstreamId, routeVersion);
 
         const expected = this.expectedDownstreams.get(shareId) ?? new Map<string, number>();
@@ -993,23 +1241,40 @@ class ScreenShareService {
           }
         }
       };
-      void this.waitForDecodedVideoFrame(pc, track, 4500).then(activateMedia).catch(() => {
-        if (this.viewingRouteVersions.get(shareId) !== routeVersion || this.directViewFallbacks.has(shareId)) return;
-        const ownerId = this.activeShares.get(shareId)?.playerId;
-        if (ownerId) {
-          this.sendWebSocketMessage({
-            type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId,
-            to: ownerId, shareId, upstreamId, routeVersion, reason: 'no-frame',
-          });
-        }
-      });
+      void this.waitForDecodedVideoFrame(pc, track, 4500)
+        .then(activateMedia)
+        .catch(() => {
+          if (
+            this.viewingRouteVersions.get(shareId) !== routeVersion ||
+            this.directViewFallbacks.has(shareId)
+          )
+            return;
+          const ownerId = this.activeShares.get(shareId)?.playerId;
+          if (ownerId) {
+            this.sendWebSocketMessage({
+              type: 'screen-share-relay',
+              action: 'failure',
+              from: this.currentPlayerId,
+              to: ownerId,
+              shareId,
+              upstreamId,
+              routeVersion,
+              reason: 'no-frame',
+            });
+          }
+        });
     };
 
     const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false });
     await pc.setLocalDescription(offer);
     this.sendWebSocketMessage({
-      type: 'screen-share-offer', from: this.currentPlayerId, to: upstreamId, shareId,
-      playerName: this.currentPlayerName, routeVersion, offer: { type: offer.type, sdp: offer.sdp! },
+      type: 'screen-share-offer',
+      from: this.currentPlayerId,
+      to: upstreamId,
+      shareId,
+      playerName: this.currentPlayerName,
+      routeVersion,
+      offer: { type: offer.type, sdp: offer.sdp! },
     });
   }
 
@@ -1022,38 +1287,68 @@ class ScreenShareService {
     }
   }
 
-  private startOutboundHealthHeartbeat(shareId: string, downstreamId: string, pc: RTCPeerConnection, connectionKey: string, routeVersion?: number): void {
+  private startOutboundHealthHeartbeat(
+    shareId: string,
+    downstreamId: string,
+    pc: RTCPeerConnection,
+    connectionKey: string,
+    routeVersion?: number
+  ): void {
     this.stopOutboundHealthHeartbeat(connectionKey);
     let previousSourceSequence = -1;
     let previousSentSequence = -1;
     const sendHealth = () => {
       if (pc.connectionState === 'closed' || pc.connectionState === 'failed') return;
-      void pc.getStats().then((stats) => {
-        let sentSequence = 0;
-        let limited = false;
-        stats.forEach((report) => {
-          if (report.type === 'outbound-rtp' && report.kind === 'video' && !report.isRemote) {
-            sentSequence = Math.max(sentSequence, Number(report.framesSent ?? report.packetsSent ?? report.framesEncoded ?? 0));
+      void pc
+        .getStats()
+        .then((stats) => {
+          let sentSequence = 0;
+          let limited = false;
+          stats.forEach((report) => {
+            if (report.type === 'outbound-rtp' && report.kind === 'video' && !report.isRemote) {
+              sentSequence = Math.max(
+                sentSequence,
+                Number(report.framesSent ?? report.packetsSent ?? report.framesEncoded ?? 0)
+              );
+            }
+            if (
+              report.type === 'candidate-pair' &&
+              report.state === 'succeeded' &&
+              report.nominated
+            ) {
+              const available = Number(report.availableOutgoingBitrate ?? 0);
+              if (available > 0 && available < 300_000) limited = true;
+            }
+          });
+          // Relays advertise how many source frames they have actually received,
+          // independently of what their own encoder managed to send downstream.
+          // This distinguishes a static desktop from a saturated relay uplink.
+          const sourceSequence = this.sourceFrameSequences.get(shareId) ?? sentSequence;
+          if (
+            previousSourceSequence >= 0 &&
+            sourceSequence > previousSourceSequence &&
+            sentSequence <= previousSentSequence
+          ) {
+            limited = true;
           }
-          if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
-            const available = Number(report.availableOutgoingBitrate ?? 0);
-            if (available > 0 && available < 300_000) limited = true;
-          }
+          previousSourceSequence = Math.max(previousSourceSequence, sourceSequence);
+          previousSentSequence = Math.max(previousSentSequence, sentSequence);
+          this.sendWebSocketMessage({
+            type: 'screen-share-relay',
+            action: 'health',
+            from: this.currentPlayerId,
+            to: downstreamId,
+            shareId,
+            routeVersion,
+            sequence: sourceSequence,
+            sourceSequence,
+            sentSequence,
+            limited,
+          });
+        })
+        .catch(() => {
+          /* connection state cleanup handles closure */
         });
-        // Relays advertise how many source frames they have actually received,
-        // independently of what their own encoder managed to send downstream.
-        // This distinguishes a static desktop from a saturated relay uplink.
-        const sourceSequence = this.sourceFrameSequences.get(shareId) ?? sentSequence;
-        if (previousSourceSequence >= 0 && sourceSequence > previousSourceSequence && sentSequence <= previousSentSequence) {
-          limited = true;
-        }
-        previousSourceSequence = Math.max(previousSourceSequence, sourceSequence);
-        previousSentSequence = Math.max(previousSentSequence, sentSequence);
-        this.sendWebSocketMessage({
-          type: 'screen-share-relay', action: 'health', from: this.currentPlayerId, to: downstreamId,
-          shareId, routeVersion, sequence: sourceSequence, sourceSequence, sentSequence, limited,
-        });
-      }).catch(() => { /* connection state cleanup handles closure */ });
     };
     sendHealth();
     this.outboundHealthTimers.set(connectionKey, window.setInterval(sendHealth, 2000));
@@ -1066,7 +1361,11 @@ class ScreenShareService {
   }
 
   /** Wait until Chromium reports a decoded inbound video frame, not merely an attached track. */
-  private async waitForDecodedVideoFrame(pc: RTCPeerConnection, track: MediaStreamTrack, timeoutMs: number): Promise<void> {
+  private async waitForDecodedVideoFrame(
+    pc: RTCPeerConnection,
+    track: MediaStreamTrack,
+    timeoutMs: number
+  ): Promise<void> {
     const deadline = performance.now() + timeoutMs;
     while (performance.now() < deadline) {
       if (track.readyState !== 'live') throw new Error('视频轨道已结束');
@@ -1076,7 +1375,8 @@ class ScreenShareService {
         if (report.type !== 'inbound-rtp' || report.kind !== 'video' || report.isRemote) return;
         const framesDecoded = Number(report.framesDecoded ?? 0);
         const framesReceived = Number(report.framesReceived ?? 0);
-        if (framesDecoded > 0 || (!('framesDecoded' in report) && framesReceived > 0)) decoded = true;
+        if (framesDecoded > 0 || (!('framesDecoded' in report) && framesReceived > 0))
+          decoded = true;
       });
       if (decoded) return;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
@@ -1084,7 +1384,13 @@ class ScreenShareService {
     throw new Error('等待首个视频帧超时');
   }
 
-  private startViewingHealthMonitor(shareId: string, pc: RTCPeerConnection, track: MediaStreamTrack, upstreamId: string, routeVersion?: number): void {
+  private startViewingHealthMonitor(
+    shareId: string,
+    pc: RTCPeerConnection,
+    track: MediaStreamTrack,
+    upstreamId: string,
+    routeVersion?: number
+  ): void {
     const previous = this.viewingHealthTimers.get(shareId);
     if (previous) window.clearInterval(previous);
     let lastDecoded = -1;
@@ -1093,51 +1399,83 @@ class ScreenShareService {
     let badChecks = 0;
     const monitorStartedAt = Date.now();
     const timer = window.setInterval(() => {
-      void pc.getStats(track).then((stats) => {
-        if (this.viewingUpstreams.get(shareId) !== upstreamId || this.viewingRouteVersions.get(shareId) !== routeVersion || track.readyState !== 'live') return;
-        let decoded = -1;
-        stats.forEach((report) => {
-          if (report.type !== 'inbound-rtp' || report.kind !== 'video' || report.isRemote) return;
-          decoded = Math.max(decoded, Number(report.framesDecoded ?? report.framesReceived ?? 0));
-        });
-        if (decoded >= 0) {
-          if (lastSourceDecoded >= 0 && decoded > lastSourceDecoded) {
-            const currentSourceSequence = this.sourceFrameSequences.get(shareId) ?? 0;
-            this.sourceFrameSequences.set(shareId, currentSourceSequence + decoded - lastSourceDecoded);
+      void pc
+        .getStats(track)
+        .then((stats) => {
+          if (
+            this.viewingUpstreams.get(shareId) !== upstreamId ||
+            this.viewingRouteVersions.get(shareId) !== routeVersion ||
+            track.readyState !== 'live'
+          )
+            return;
+          let decoded = -1;
+          stats.forEach((report) => {
+            if (report.type !== 'inbound-rtp' || report.kind !== 'video' || report.isRemote) return;
+            decoded = Math.max(decoded, Number(report.framesDecoded ?? report.framesReceived ?? 0));
+          });
+          if (decoded >= 0) {
+            if (lastSourceDecoded >= 0 && decoded > lastSourceDecoded) {
+              const currentSourceSequence = this.sourceFrameSequences.get(shareId) ?? 0;
+              this.sourceFrameSequences.set(
+                shareId,
+                currentSourceSequence + decoded - lastSourceDecoded
+              );
+            }
+            lastSourceDecoded = decoded;
           }
-          lastSourceDecoded = decoded;
-        }
-        const health = this.upstreamHealth.get(shareId);
-        const matchingHealth = health && health.upstreamId === upstreamId && (isNullish(routeVersion) || isNullish(health.routeVersion) || health.routeVersion === routeVersion);
-        if (decoded < 0 || decoded > lastDecoded) {
-          lastDecoded = decoded;
-          badChecks = 0;
-        } else if (matchingHealth) {
-          const heartbeatFresh = Date.now() - health.receivedAt < 5500;
-          const sourceAdvanced = health.sourceSequence > lastAdvertisedSource;
-          if (heartbeatFresh && !sourceAdvanced) {
-            // The upstream source is static, so an unchanged decoded frame is healthy.
+          const health = this.upstreamHealth.get(shareId);
+          const matchingHealth =
+            health &&
+            health.upstreamId === upstreamId &&
+            (isNullish(routeVersion) ||
+              isNullish(health.routeVersion) ||
+              health.routeVersion === routeVersion);
+          if (decoded < 0 || decoded > lastDecoded) {
+            lastDecoded = decoded;
             badChecks = 0;
-          } else if (heartbeatFresh && sourceAdvanced) {
+          } else if (matchingHealth) {
+            const heartbeatFresh = Date.now() - health.receivedAt < 5500;
+            const sourceAdvanced = health.sourceSequence > lastAdvertisedSource;
+            if (heartbeatFresh && !sourceAdvanced) {
+              // The upstream source is static, so an unchanged decoded frame is healthy.
+              badChecks = 0;
+            } else if (heartbeatFresh && sourceAdvanced) {
+              badChecks += 1;
+            } else if (Date.now() - health.receivedAt > 9000) {
+              badChecks += 1;
+            }
+            lastAdvertisedSource = Math.max(lastAdvertisedSource, health.sourceSequence);
+          } else if (
+            !matchingHealth &&
+            !isNullish(routeVersion) &&
+            Date.now() - monitorStartedAt > 12_000
+          ) {
             badChecks += 1;
-          } else if (Date.now() - health.receivedAt > 9000) {
+          } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
             badChecks += 1;
           }
-          lastAdvertisedSource = Math.max(lastAdvertisedSource, health.sourceSequence);
-        } else if (!matchingHealth && !isNullish(routeVersion) && Date.now() - monitorStartedAt > 12_000) {
-          badChecks += 1;
-        } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          badChecks += 1;
-        }
-        if (badChecks >= 3) {
-          window.clearInterval(timer);
-          if (this.viewingHealthTimers.get(shareId) === timer) this.viewingHealthTimers.delete(shareId);
-          const ownerId = this.activeShares.get(shareId)?.playerId;
-          if (ownerId) {
-            this.sendWebSocketMessage({ type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId, to: ownerId, shareId, upstreamId, routeVersion, reason: matchingHealth && health?.limited ? 'bandwidth' : 'stalled' });
+          if (badChecks >= 3) {
+            window.clearInterval(timer);
+            if (this.viewingHealthTimers.get(shareId) === timer)
+              this.viewingHealthTimers.delete(shareId);
+            const ownerId = this.activeShares.get(shareId)?.playerId;
+            if (ownerId) {
+              this.sendWebSocketMessage({
+                type: 'screen-share-relay',
+                action: 'failure',
+                from: this.currentPlayerId,
+                to: ownerId,
+                shareId,
+                upstreamId,
+                routeVersion,
+                reason: matchingHealth && health?.limited ? 'bandwidth' : 'stalled',
+              });
+            }
           }
-        }
-      }).catch(() => { /* 连接关闭时由 connectionstate 处理 */ });
+        })
+        .catch(() => {
+          /* 连接关闭时由 connectionstate 处理 */
+        });
     }, 2000);
     this.viewingHealthTimers.set(shareId, timer);
   }
@@ -1175,7 +1513,11 @@ class ScreenShareService {
       // offer, otherwise a member can bypass the owner's password by dialing
       // an already-watching relay directly.
       if (!isOwner && isNullish(offer.routeVersion)) return;
-      if (!isLegacyDirectOffer && (!Number.isInteger(offer.routeVersion) || Number(offer.routeVersion) <= 0)) return;
+      if (
+        !isLegacyDirectOffer &&
+        (!Number.isInteger(offer.routeVersion) || Number(offer.routeVersion) <= 0)
+      )
+        return;
       if (!isLegacyDirectOffer && (isNullish(expectedVersion) || expectedVersion !== Number(offer.routeVersion || 0))) {
         if (!isOwner && Number.isInteger(offer.routeVersion) && Number(offer.routeVersion) > 0) {
           this.pendingRelayOffers.set(this.relayOfferKey(offer.shareId, offer.playerId, Number(offer.routeVersion)), offer);
@@ -1183,9 +1525,17 @@ class ScreenShareService {
         return;
       }
       if (isLegacyDirectOffer && share.requirePassword && offer.password !== share.password) {
-        this.sendWebSocketMessage({ type: 'screen-share-error', from: this.currentPlayerId, to: offer.playerId, shareId: offer.shareId, error: '密码错误' });
+        const retryAfterMs = this.recordPasswordFailure(offer.shareId, offer.playerId);
+        this.sendWebSocketMessage({
+          type: 'screen-share-error',
+          from: this.currentPlayerId,
+          to: offer.playerId,
+          shareId: offer.shareId,
+          error: `密码错误，请 ${Math.ceil(retryAfterMs / 1000)} 秒后重试`,
+        });
         return;
       }
+      if (isLegacyDirectOffer) this.clearPasswordFailures(offer.shareId, offer.playerId);
 
       const sourceStream = isOwner ? this.localStream : this.remoteStreams.get(offer.shareId);
       if (!sourceStream || sourceStream.getVideoTracks().length === 0) {
@@ -1226,12 +1576,16 @@ class ScreenShareService {
       // 只有在真正关闭时才清除标记
       pc.onconnectionstatechange = () => {
         console.log(`🔗 [ScreenShareService] 连接状态变化: ${pc.connectionState}`);
-        
+
         if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
           this.stopOutboundHealthHeartbeat(connectionKey);
           const failedPc = this.peerConnections.get(connectionKey);
           if (failedPc === pc) {
-            try { failedPc.close(); } catch { /* 忽略 */ }
+            try {
+              failedPc.close();
+            } catch {
+              /* 忽略 */
+            }
             this.peerConnections.delete(connectionKey);
           }
         } else if (pc.connectionState === 'disconnected') {
@@ -1239,19 +1593,21 @@ class ScreenShareService {
         }
       };
 
-      sourceStream.getTracks().forEach(track => {
+      sourceStream.getTracks().forEach((track) => {
         const sender = pc.addTrack(track, sourceStream);
 
         if (track.kind === 'video') {
           const params = sender.getParameters();
           // 【优化】设置高码率和稳定帧率，确保画质清晰流畅
           params.degradationPreference = 'balanced';
-          params.encodings = [{ 
-            maxBitrate: 4_000_000,
-            maxFramerate: 30,
-            scaleResolutionDownBy: 1.0, // 不降低分辨率
-            priority: 'high', // 高优先级
-          }];
+          params.encodings = [
+            {
+              maxBitrate: 4_000_000,
+              maxFramerate: 30,
+              scaleResolutionDownBy: 1.0, // 不降低分辨率
+              priority: 'high', // 高优先级
+            },
+          ];
           sender.setParameters(params).catch((error) => {
             console.warn('⚠️ [ScreenShareService] 设置发送参数失败，继续默认参数', error);
           });
@@ -1268,7 +1624,13 @@ class ScreenShareService {
       // 创建Answer
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      this.startOutboundHealthHeartbeat(offer.shareId, offer.playerId, pc, connectionKey, offer.routeVersion);
+      this.startOutboundHealthHeartbeat(
+        offer.shareId,
+        offer.playerId,
+        pc,
+        connectionKey,
+        offer.routeVersion
+      );
 
       // 发送Answer
       this.sendWebSocketMessage({
@@ -1297,7 +1659,9 @@ class ScreenShareService {
       console.log('📨 [ScreenShareService] 收到Answer');
 
       const inboundKey = `${answer.shareId}-in-${upstreamPlayerId}`;
-      const legacyKey = Array.from(this.peerConnections.keys()).find((key) => key.startsWith(`${answer.shareId}-viewer-`));
+      const legacyKey = Array.from(this.peerConnections.keys()).find((key) =>
+        key.startsWith(`${answer.shareId}-viewer-`)
+      );
       const connectionKey = isNullish(answer.routeVersion) && legacyKey ? legacyKey : inboundKey;
       const foundPc = this.peerConnections.get(connectionKey) ?? null;
 
@@ -1305,7 +1669,11 @@ class ScreenShareService {
         console.error('❌ [ScreenShareService] 找不到对应的PeerConnection');
         return;
       }
-      if (!isNullish(answer.routeVersion) && this.viewingRouteVersions.get(answer.shareId) !== answer.routeVersion) return;
+      if (
+        !isNullish(answer.routeVersion) &&
+        this.viewingRouteVersions.get(answer.shareId) !== answer.routeVersion
+      )
+        return;
 
       // 检查信令状态，只有在'have-local-offer'状态时才能设置Answer
       const signalingState = foundPc.signalingState;
@@ -1321,7 +1689,10 @@ class ScreenShareService {
         type: 'answer',
         sdp: answer.sdp,
       });
-      await this.flushPendingIce(this.iceKey(answer.shareId, 'in', upstreamPlayerId, answer.routeVersion), foundPc);
+      await this.flushPendingIce(
+        this.iceKey(answer.shareId, 'in', upstreamPlayerId, answer.routeVersion),
+        foundPc
+      );
 
       console.log('✅ [ScreenShareService] Answer已设置');
     } catch (error) {
@@ -1333,15 +1704,27 @@ class ScreenShareService {
   /**
    * 处理ICE候选
    */
-  async handleIceCandidate(shareId: string, candidate: RTCIceCandidateInit, remotePlayerId: string, connectionRole?: 'in' | 'out', routeVersion?: number): Promise<void> {
+  async handleIceCandidate(
+    shareId: string,
+    candidate: RTCIceCandidateInit,
+    remotePlayerId: string,
+    connectionRole?: 'in' | 'out',
+    routeVersion?: number
+  ): Promise<void> {
     try {
       const share = this.activeShares.get(shareId);
       if (!share || !remotePlayerId) return;
       const normalizedRouteVersion = isNullish(routeVersion) ? undefined : Number(routeVersion);
-      if (!isNullish(normalizedRouteVersion) && (!Number.isInteger(normalizedRouteVersion) || normalizedRouteVersion <= 0)) return;
+      if (
+        !isNullish(normalizedRouteVersion) &&
+        (!Number.isInteger(normalizedRouteVersion) || normalizedRouteVersion <= 0)
+      )
+        return;
       const outboundKey = `${shareId}-out-${remotePlayerId}`;
       const inboundKey = `${shareId}-in-${remotePlayerId}`;
-      const legacyViewerKey = Array.from(this.peerConnections.keys()).find((key) => key.startsWith(`${shareId}-viewer-`));
+      const legacyViewerKey = Array.from(this.peerConnections.keys()).find((key) =>
+        key.startsWith(`${shareId}-viewer-`)
+      );
       const isOwner = share.playerId === this.currentPlayerId;
       let direction: 'in' | 'out';
       if (connectionRole === 'in') {
@@ -1357,19 +1740,32 @@ class ScreenShareService {
         const expectedRoute = this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
         if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
         direction = 'out';
-      } else if (this.peerConnections.has(outboundKey) || this.expectedDownstreams.get(shareId)?.has(remotePlayerId)) {
+      } else if (
+        this.peerConnections.has(outboundKey) ||
+        this.expectedDownstreams.get(shareId)?.has(remotePlayerId)
+      ) {
         direction = 'out';
-      } else if (this.peerConnections.has(inboundKey) || remotePlayerId === this.viewingUpstreams.get(shareId) || remotePlayerId === share.playerId) {
+      } else if (
+        this.peerConnections.has(inboundKey) ||
+        remotePlayerId === this.viewingUpstreams.get(shareId) ||
+        remotePlayerId === share.playerId
+      ) {
         direction = 'in';
       } else if (legacyViewerKey) {
         direction = 'in';
       } else {
         return;
       }
-      const connectionKey = direction === 'in' && isNullish(normalizedRouteVersion) && legacyViewerKey ? legacyViewerKey : direction === 'in' ? inboundKey : outboundKey;
-      const expectedRoute = direction === 'in'
-        ? this.viewingRouteVersions.get(shareId)
-        : this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
+      const connectionKey =
+        direction === 'in' && isNullish(normalizedRouteVersion) && legacyViewerKey
+          ? legacyViewerKey
+          : direction === 'in'
+            ? inboundKey
+            : outboundKey;
+      const expectedRoute =
+        direction === 'in'
+          ? this.viewingRouteVersions.get(shareId)
+          : this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
       if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
       const pc = this.peerConnections.get(connectionKey);
       if (!pc || !pc.remoteDescription) {
@@ -1391,13 +1787,17 @@ class ScreenShareService {
    */
   handleViewerLeft(shareId: string, viewerId: string): void {
     console.log('👋 [ScreenShareService] 查看者离开:', { shareId, viewerId });
-    
+
     const share = this.activeShares.get(shareId);
     if (!share) return;
     const isOwner = share.playerId === this.currentPlayerId;
     const isKnownViewer = (this.viewerOrder.get(shareId) ?? []).includes(viewerId);
     const isKnownDownstream = this.expectedDownstreams.get(shareId)?.has(viewerId) ?? false;
-    if ((isOwner && !isKnownViewer && viewerId !== this.currentPlayerId) || (!isOwner && !isKnownDownstream)) return;
+    if (
+      (isOwner && !isKnownViewer && viewerId !== this.currentPlayerId) ||
+      (!isOwner && !isKnownDownstream)
+    )
+      return;
     const outKey = `${shareId}-out-${viewerId}`;
     this.stopOutboundHealthHeartbeat(outKey);
     this.peerConnections.get(outKey)?.close();
@@ -1425,17 +1825,27 @@ class ScreenShareService {
       if (share.playerId === playerId) {
         if (this.viewingUpstreams.has(share.id)) this.stopViewingScreen(share.id);
         this.activeShares.delete(share.id);
-        window.dispatchEvent(new CustomEvent('screen-share-stop', { detail: { shareId: share.id } }));
+        window.dispatchEvent(
+          new CustomEvent('screen-share-stop', { detail: { shareId: share.id } })
+        );
         continue;
       }
 
       if (this.viewingUpstreams.get(share.id) === playerId) {
         this.sendWebSocketMessage({
-          type: 'screen-share-relay', action: 'failure', from: this.currentPlayerId, to: share.playerId,
-          shareId: share.id, upstreamId: playerId, routeVersion: this.viewingRouteVersions.get(share.id),
+          type: 'screen-share-relay',
+          action: 'failure',
+          from: this.currentPlayerId,
+          to: share.playerId,
+          shareId: share.id,
+          upstreamId: playerId,
+          routeVersion: this.viewingRouteVersions.get(share.id),
         });
       }
-      if (share.playerId === this.currentPlayerId || this.expectedDownstreams.get(share.id)?.has(playerId)) {
+      if (
+        share.playerId === this.currentPlayerId ||
+        this.expectedDownstreams.get(share.id)?.has(playerId)
+      ) {
         this.handleViewerLeft(share.id, playerId);
       }
     }
@@ -1444,7 +1854,13 @@ class ScreenShareService {
   /**
    * 处理共享状态更新
    */
-  handleShareUpdate(shareId: string, viewerId?: string, viewerName?: string, viewerCount?: number, senderId?: string): void {
+  handleShareUpdate(
+    shareId: string,
+    viewerId?: string,
+    viewerName?: string,
+    viewerCount?: number,
+    senderId?: string
+  ): void {
     const share = this.activeShares.get(shareId);
     if (!share || (senderId !== undefined && share.playerId !== senderId)) return;
     share.viewerId = viewerId;
@@ -1486,7 +1902,7 @@ class ScreenShareService {
     this.getMyActiveShares().forEach((share) => this.stopSharing(share.id));
 
     // 关闭所有PeerConnection
-    this.peerConnections.forEach(pc => pc.close());
+    this.peerConnections.forEach((pc) => pc.close());
     this.peerConnections.clear();
     this.outboundHealthTimers.forEach((timer) => window.clearInterval(timer));
     this.outboundHealthTimers.clear();
@@ -1516,6 +1932,7 @@ class ScreenShareService {
     this.viewingRouteVersions.clear();
     this.pendingRelayOffers.clear();
     this.pendingIceCandidates.clear();
+    this.passwordFailures.clear();
     this.relayProtocolConfirmed.clear();
     this.ws = null;
 

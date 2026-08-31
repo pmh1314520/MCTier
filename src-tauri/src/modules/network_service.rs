@@ -10,12 +10,7 @@ use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
 #[cfg(windows)]
-#[allow(unused_imports)]
-use std::os::windows::process::CommandExt;
-
-// Windows常量：CREATE_NO_WINDOW = 0x08000000
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use crate::modules::privileged_helper::{self, HelperEvent, HelperSession};
 
 /// 检查是否以管理员权限运行（仅 Windows）
 #[cfg(windows)]
@@ -100,6 +95,9 @@ impl Default for NetworkConfig {
 pub struct NetworkService {
     /// EasyTier 子进程
     easytier_process: Arc<Mutex<Option<Child>>>,
+    /// Windows 上由窄权限 helper 管理的 EasyTier 会话
+    #[cfg(windows)]
+    helper_session: Arc<Mutex<Option<HelperSession>>>,
     /// 网络配置
     config: NetworkConfig,
     /// 当前连接状态
@@ -129,6 +127,8 @@ impl NetworkService {
     pub fn new(config: NetworkConfig) -> Self {
         Self {
             easytier_process: Arc::new(Mutex::new(None)),
+            #[cfg(windows)]
+            helper_session: Arc::new(Mutex::new(None)),
             config,
             status: Arc::new(Mutex::new(ConnectionStatus::Disconnected)),
             virtual_ip: Arc::new(Mutex::new(None)),
@@ -537,18 +537,6 @@ impl NetworkService {
         global_config_param: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
         lobby_config_param: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
     ) -> Result<String, AppError> {
-        // 检查管理员权限（Windows 平台需要）
-        #[cfg(windows)]
-        {
-            if !is_elevated() {
-                log::error!("权限不足，无法创建虚拟网卡");
-                return Err(AppError::NetworkError(
-                    "权限不足：软件需要管理员权限来创建虚拟网卡。".to_string(),
-                ));
-            }
-            log::info!("✅ 已确认管理员权限");
-        }
-
         // 检查是否已经在运行
         let is_running = *self.is_running.lock().await;
         if is_running {
@@ -564,8 +552,9 @@ impl NetworkService {
         // 更新状态为连接中
         *self.status.lock().await = ConnectionStatus::Connecting;
 
-        // 【关键修复】启动前清理可能残留的孤儿 easytier-core.exe 进程，
-        // 避免它占用固定虚拟网卡名 MCTier_Net / RPC 端口，导致新进程"意外终止"
+        // Windows cleanup and resource materialization are performed by the
+        // narrow elevated helper. Unix keeps the existing local cleanup path.
+        #[cfg(not(windows))]
         Self::cleanup_orphan_processes().await;
 
         // 清空上一次的 stderr 缓存
@@ -595,54 +584,6 @@ impl NetworkService {
 
         log::info!("设置工作目录: {:?}", working_dir);
 
-        // 【优化】使用ResourceManager提取必需的DLL文件到easytier-core.exe所在目录
-        // 这些DLL文件是easytier-core.exe运行所必需的。
-        // 仅 Windows：Linux 的虚拟网卡由内核 TUN 提供，不存在对应的用户态驱动文件。
-        #[cfg(windows)]
-        {
-            log::info!("开始提取必需的DLL文件...");
-
-            // 这里刻意不再释放 Npcap 的 Packet.dll。它曾是 easytier-core.exe 的
-            // 启动期硬依赖，但那只是 pnet_datalink 无条件静态链接的连带结果，
-            // 并非任何功能需要；MCTier 重建的 EasyTier 已移除该导入。
-            // 若系统自行安装了 Npcap，pcap 相关回退路径仍会按标准搜索顺序找到它。
-
-            // 提取wintun.dll
-            let wintun_dll_source = ResourceManager::get_wintun_dll_path(app_handle)?;
-            let wintun_dll_target = working_dir.join("wintun.dll");
-            if !wintun_dll_target.exists()
-                || std::fs::metadata(&wintun_dll_target)
-                    .map(|m| m.len())
-                    .unwrap_or(0)
-                    != std::fs::metadata(&wintun_dll_source)
-                        .map(|m| m.len())
-                        .unwrap_or(1)
-            {
-                std::fs::copy(&wintun_dll_source, &wintun_dll_target)
-                    .map_err(|e| AppError::ProcessError(format!("复制wintun.dll失败: {}", e)))?;
-                log::info!("✅ 已复制 wintun.dll");
-            }
-
-            // 提取WinDivert64.sys
-            let windivert_sys_source = ResourceManager::get_windivert_sys_path(app_handle)?;
-            let windivert_sys_target = working_dir.join("WinDivert64.sys");
-            if !windivert_sys_target.exists()
-                || std::fs::metadata(&windivert_sys_target)
-                    .map(|m| m.len())
-                    .unwrap_or(0)
-                    != std::fs::metadata(&windivert_sys_source)
-                        .map(|m| m.len())
-                        .unwrap_or(1)
-            {
-                std::fs::copy(&windivert_sys_source, &windivert_sys_target).map_err(|e| {
-                    AppError::ProcessError(format!("复制WinDivert64.sys失败: {}", e))
-                })?;
-                log::info!("✅ 已复制 WinDivert64.sys");
-            }
-
-            log::info!("✅ 所有必需的DLL文件已准备就绪");
-        }
-
         #[cfg(not(windows))]
         {
             // working_dir 在非 Windows 分支没有其他用途，显式消费避免 unused 告警。
@@ -662,23 +603,26 @@ impl NetworkService {
         log::info!("生成实例名称: {}", instance_name);
 
         // 清理旧的配置目录（启动时清理）
-        log::info!("正在清理旧的配置目录...");
-        if let Ok(entries) = std::fs::read_dir(&working_dir) {
-            for entry in entries.flatten() {
-                if let Ok(file_name) = entry.file_name().into_string() {
-                    // 只清理以 config_mctier- 开头的目录
-                    if file_name.starts_with("config_mctier-") {
-                        let old_config_path = entry.path();
-                        match std::fs::remove_dir_all(&old_config_path) {
-                            Ok(_) => {
-                                log::info!("已清理旧配置目录: {:?}", old_config_path);
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "清理旧配置目录失败: {:?}, 错误: {}",
-                                    old_config_path,
-                                    e
-                                );
+        #[cfg(not(windows))]
+        {
+            log::info!("正在清理旧的配置目录...");
+            if let Ok(entries) = std::fs::read_dir(&working_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_name) = entry.file_name().into_string() {
+                        // 只清理以 config_mctier- 开头的目录
+                        if file_name.starts_with("config_mctier-") {
+                            let old_config_path = entry.path();
+                            match std::fs::remove_dir_all(&old_config_path) {
+                                Ok(_) => {
+                                    log::info!("已清理旧配置目录: {:?}", old_config_path);
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "清理旧配置目录失败: {:?}, 错误: {}",
+                                        old_config_path,
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
@@ -688,6 +632,7 @@ impl NetworkService {
 
         // 创建独立的配置目录
         let config_dir = working_dir.join(format!("config_{}", instance_name));
+        #[cfg(not(windows))]
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir)
                 .map_err(|e| AppError::ProcessError(format!("创建配置目录失败: {}", e)))?;
@@ -874,7 +819,12 @@ impl NetworkService {
         for (i, arg) in cmd_args.iter().enumerate() {
             if i % 2 == 0 && i + 1 < cmd_args.len() {
                 // 参数名和值成对显示
-                log::info!("  {} {}", arg, cmd_args[i + 1]);
+                let value = if arg == "--network-secret" {
+                    "<redacted>"
+                } else {
+                    cmd_args[i + 1].as_str()
+                };
+                log::info!("  {} {}", arg, value);
             } else if i % 2 != 0 {
                 // 跳过已经显示的值
                 continue;
@@ -884,14 +834,6 @@ impl NetworkService {
             }
         }
         log::info!("========================================");
-
-        cmd.current_dir(working_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
-        // 设置环境变量，确保能找到 wintun.dll
-        cmd.env("PATH", working_dir);
 
         log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
         log::info!("虚拟IP由DHCP服务器自动分配");
@@ -908,79 +850,99 @@ impl NetworkService {
             rpc_port
         );
 
-        // 在 Windows 上隐藏控制台窗口
-        #[cfg(target_os = "windows")]
+        let launch_args = cmd_args.clone();
+
+        #[cfg(windows)]
         {
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            let (session, reader) = privileged_helper::start_easytier(
+                easytier_path.clone(),
+                working_dir.to_path_buf(),
+                config_dir.clone(),
+                launch_args,
+            )
+            .await
+            .map_err(AppError::ProcessError)?;
+            *self.helper_session.lock().await = Some(session);
+            *self.is_running.lock().await = true;
+            *self.instance_config_dir.lock().await = Some(config_dir);
+
+            let virtual_ip = Arc::clone(&self.virtual_ip);
+            let status = Arc::clone(&self.status);
+            let is_running = Arc::clone(&self.is_running);
+            let last_stderr = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_helper(reader, virtual_ip, status, is_running, last_stderr).await;
+            });
         }
 
-        // 启动子进程
-        let mut child = cmd.spawn().map_err(|e| {
-            log::error!("启动 EasyTier 进程失败: {}", e);
-            AppError::ProcessError(format!("启动 EasyTier 进程失败: {}", e))
-        })?;
+        #[cfg(not(windows))]
+        {
+            cmd.current_dir(working_dir)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .env("PATH", working_dir);
 
-        // 获取标准输出和标准错误
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准输出".to_string()))?;
+            let mut child = cmd.spawn().map_err(|e| {
+                log::error!("启动 EasyTier 进程失败: {}", e);
+                AppError::ProcessError(format!("启动 EasyTier 进程失败: {}", e))
+            })?;
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准输出".to_string()))?;
+            let stderr = child
+                .stderr
+                .take()
+                .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准错误".to_string()))?;
 
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准错误".to_string()))?;
+            *self.easytier_process.lock().await = Some(child);
+            *self.is_running.lock().await = true;
+            *self.instance_config_dir.lock().await = Some(config_dir);
 
-        // 保存进程句柄和配置目录路径
-        *self.easytier_process.lock().await = Some(child);
-        *self.is_running.lock().await = true;
-        *self.instance_config_dir.lock().await = Some(config_dir);
+            log::info!("EasyTier 进程已启动，等待获取虚拟 IP...");
+
+            let virtual_ip_clone = Arc::clone(&self.virtual_ip);
+            let status_clone = Arc::clone(&self.status);
+            let is_running_stdout = Arc::clone(&self.is_running);
+            let stderr_buf_stdout = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_stdout(
+                    stdout,
+                    virtual_ip_clone,
+                    status_clone,
+                    is_running_stdout,
+                    stderr_buf_stdout,
+                )
+                .await;
+            });
+
+            let is_running_clone = Arc::clone(&self.is_running);
+            let status_clone2 = Arc::clone(&self.status);
+            let stderr_buf_clone = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_stderr(stderr, is_running_clone, status_clone2, stderr_buf_clone)
+                    .await;
+            });
+
+            let process_clone = Arc::clone(&self.easytier_process);
+            let status_clone = Arc::clone(&self.status);
+            let is_running_clone = Arc::clone(&self.is_running);
+            let virtual_ip_clone = Arc::clone(&self.virtual_ip);
+            let stderr_buf_clone2 = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_process(
+                    process_clone,
+                    status_clone,
+                    is_running_clone,
+                    virtual_ip_clone,
+                    stderr_buf_clone2,
+                )
+                .await;
+            });
+        }
 
         log::info!("EasyTier 进程已启动，等待获取虚拟 IP...");
-
-        // 启动输出监控任务
-        // 注意：easytier-core 2.5.0 把运行日志（含 tun device error 等致命错误）写到 stdout，
-        // 因此 stdout 监控也必须参与错误检测和日志缓存，否则真正的失败原因会被丢失
-        let virtual_ip_clone = Arc::clone(&self.virtual_ip);
-        let status_clone = Arc::clone(&self.status);
-        let is_running_stdout = Arc::clone(&self.is_running);
-        let stderr_buf_stdout = Arc::clone(&self.last_stderr);
-
-        tokio::spawn(async move {
-            Self::monitor_stdout(
-                stdout,
-                virtual_ip_clone,
-                status_clone,
-                is_running_stdout,
-                stderr_buf_stdout,
-            )
-            .await;
-        });
-
-        let is_running_clone = Arc::clone(&self.is_running);
-        let status_clone2 = Arc::clone(&self.status);
-        let stderr_buf_clone = Arc::clone(&self.last_stderr);
-        tokio::spawn(async move {
-            Self::monitor_stderr(stderr, is_running_clone, status_clone2, stderr_buf_clone).await;
-        });
-
-        // 启动进程监控任务
-        let process_clone = Arc::clone(&self.easytier_process);
-        let status_clone = Arc::clone(&self.status);
-        let is_running_clone = Arc::clone(&self.is_running);
-        let virtual_ip_clone = Arc::clone(&self.virtual_ip);
-        let stderr_buf_clone2 = Arc::clone(&self.last_stderr);
-
-        tokio::spawn(async move {
-            Self::monitor_process(
-                process_clone,
-                status_clone,
-                is_running_clone,
-                virtual_ip_clone,
-                stderr_buf_clone2,
-            )
-            .await;
-        });
 
         // 等待获取虚拟 IP（最多等待 60 秒）
         let timeout_duration = Duration::from_secs(60);
@@ -1143,40 +1105,6 @@ impl NetworkService {
         Self::find_available_rpc_port(15889, 20).await
     }
 
-    /// 启动前清理孤儿 EasyTier 进程（仅 Windows）
-    ///
-    /// 上一次 App 异常退出时可能残留 easytier-core.exe 进程，
-    /// 它会占用固定虚拟网卡名 MCTier_Net 和 RPC 端口，
-    /// 导致新进程创建网卡失败而"意外终止"。这里在启动前先强制清理。
-    #[cfg(target_os = "windows")]
-    async fn cleanup_orphan_processes() {
-        log::info!("🧹 [PreStart] 检查并清理可能残留的孤儿 easytier-core.exe 进程...");
-        let output = tokio::process::Command::new("taskkill")
-            .args(&["/F", "/IM", "easytier-core.exe"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .await;
-
-        match output {
-            Ok(o) => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                // taskkill 在没有匹配进程时返回非 0，属正常情况，无需当作错误
-                if stdout.contains("SUCCESS") || stdout.contains("成功") {
-                    log::warn!(
-                        "⚠️ [PreStart] 发现并清理了残留的 easytier-core.exe 进程，等待网卡释放..."
-                    );
-                    // 给系统一点时间释放虚拟网卡和端口
-                    sleep(Duration::from_millis(800)).await;
-                } else {
-                    log::info!("✅ [PreStart] 未发现残留进程，环境干净");
-                }
-            }
-            Err(e) => {
-                log::warn!("⚠️ [PreStart] 清理孤儿进程命令执行失败（忽略）: {}", e);
-            }
-        }
-    }
-
     /// 类 Unix 版：用 pkill 按可执行名清理残留进程。
     ///
     /// 只匹配 `easytier-core` 这个精确名字（-x 全名匹配，不用 -f 匹配整条命令行），
@@ -1305,6 +1233,144 @@ impl NetworkService {
         "EasyTier 进程意外终止：可能被安全软件拦截、虚拟网卡创建失败或缺少运行库，请尝试以管理员身份运行并将本软件加入杀毒软件白名单".to_string()
     }
 
+    fn redact_sensitive_line(line: &str) -> String {
+        let lower = line.to_ascii_lowercase();
+        for marker in ["--network-secret", "network-secret", "network_secret"] {
+            if let Some(index) = lower.find(marker) {
+                let suffix = &line[index..];
+                if let Some(separator) = suffix.find(['=', ':']) {
+                    return format!("{}<redacted>", &line[..index + separator + 1]);
+                }
+                return format!("{}<redacted>", &line[..index + marker.len()]);
+            }
+        }
+        line.to_string()
+    }
+
+    #[cfg(windows)]
+    async fn monitor_helper(
+        reader: tokio::net::tcp::OwnedReadHalf,
+        virtual_ip: Arc<Mutex<Option<String>>>,
+        status: Arc<Mutex<ConnectionStatus>>,
+        is_running: Arc<Mutex<bool>>,
+        last_stderr: Arc<Mutex<std::collections::VecDeque<String>>>,
+    ) {
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(raw_line)) = lines.next_line().await {
+            let Ok(event) = serde_json::from_str::<HelperEvent>(&raw_line) else {
+                log::warn!("特权 helper 返回了无法解析的事件");
+                continue;
+            };
+            match event {
+                HelperEvent::Started => {
+                    *is_running.lock().await = true;
+                }
+                HelperEvent::Stdout { line } => {
+                    Self::handle_helper_output(
+                        &line,
+                        false,
+                        &virtual_ip,
+                        &status,
+                        &is_running,
+                        &last_stderr,
+                    )
+                    .await;
+                }
+                HelperEvent::Stderr { line } => {
+                    Self::handle_helper_output(
+                        &line,
+                        true,
+                        &virtual_ip,
+                        &status,
+                        &is_running,
+                        &last_stderr,
+                    )
+                    .await;
+                }
+                HelperEvent::Response { ok, error, .. } => {
+                    if !ok {
+                        let message = error.unwrap_or_else(|| "特权 helper 操作失败".to_string());
+                        log::error!("{}", message);
+                        *status.lock().await = ConnectionStatus::Error(message);
+                    }
+                }
+                HelperEvent::Exited { code } => {
+                    let current = status.lock().await.clone();
+                    if matches!(current, ConnectionStatus::Connected(_)) {
+                        *status.lock().await = ConnectionStatus::Disconnected;
+                    } else if !matches!(current, ConnectionStatus::Error(_)) {
+                        let recent: Vec<String> =
+                            last_stderr.lock().await.iter().cloned().collect();
+                        *status.lock().await =
+                            ConnectionStatus::Error(Self::describe_exit_failure(code, &recent));
+                    }
+                    *is_running.lock().await = false;
+                    *virtual_ip.lock().await = None;
+                    break;
+                }
+            }
+        }
+        if *is_running.lock().await {
+            *is_running.lock().await = false;
+            *virtual_ip.lock().await = None;
+        }
+    }
+
+    #[cfg(windows)]
+    async fn handle_helper_output(
+        line: &str,
+        is_stderr: bool,
+        virtual_ip: &Arc<Mutex<Option<String>>>,
+        status: &Arc<Mutex<ConnectionStatus>>,
+        is_running: &Arc<Mutex<bool>>,
+        last_stderr: &Arc<Mutex<std::collections::VecDeque<String>>>,
+    ) {
+        let safe_line = Self::redact_sensitive_line(line);
+        if is_stderr {
+            log::warn!("EasyTier stderr: {}", safe_line);
+        } else {
+            log::info!("EasyTier stdout: {}", safe_line);
+        }
+        let lower = safe_line.to_ascii_lowercase();
+        if lower.contains("error")
+            || lower.contains("failed")
+            || lower.contains("panic")
+            || lower.contains("bind")
+            || lower.contains("listener")
+            || lower.contains("portal")
+            || lower.contains("10013")
+        {
+            let mut buffer = last_stderr.lock().await;
+            buffer.push_back(safe_line.clone());
+            while buffer.len() > 40 {
+                buffer.pop_front();
+            }
+        }
+        if safe_line.contains("tun device error") || safe_line.contains("Failed to create adapter")
+        {
+            *is_running.lock().await = false;
+            *status.lock().await = ConnectionStatus::Error(
+                "虚拟网卡创建失败：请确认已允许 UAC 请求，并确认 WinTun 驱动可用".to_string(),
+            );
+            return;
+        }
+        if safe_line.contains("DidNotSwitchProtocols(") {
+            *is_running.lock().await = false;
+            *status.lock().await =
+                ConnectionStatus::Error("EasyTier WebSocket 节点握手失败".to_string());
+            return;
+        }
+        if let Some(ip) = Self::extract_ip_from_line(&safe_line) {
+            if let Ok(address) = ip.parse::<std::net::Ipv4Addr>() {
+                let octets = address.octets();
+                if octets[..3] == [10, 126, 126] && octets[3] >= 1 && octets[3] <= 254 {
+                    *virtual_ip.lock().await = Some(address.to_string());
+                    *status.lock().await = ConnectionStatus::Connected(address.to_string());
+                }
+            }
+        }
+    }
+
     /// 监控标准输出，解析虚拟 IP
     ///
     /// 注意：easytier-core 2.5.0 将运行日志（包括 `tun device error`、
@@ -1322,7 +1388,8 @@ impl NetworkService {
 
         while let Ok(Some(line)) = lines.next_line().await {
             // 打印所有输出用于调试
-            log::info!("EasyTier stdout: {}", line);
+            let safe_line = Self::redact_sensitive_line(&line);
+            log::info!("EasyTier stdout: {}", safe_line);
 
             // 将含关键信息的行缓存进 last_stderr（统一作为"最近日志"缓冲区），
             // 供进程意外退出时 describe_exit_failure 定位真正原因。
@@ -1347,7 +1414,7 @@ impl NetworkService {
                     || is_error_chain_line
                 {
                     let mut buf = last_stderr.lock().await;
-                    buf.push_back(line.clone());
+                    buf.push_back(safe_line.clone());
                     while buf.len() > 40 {
                         buf.pop_front();
                     }
@@ -1445,12 +1512,13 @@ impl NetworkService {
         let mut lines = reader.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
-            log::warn!("EasyTier stderr: {}", line);
+            let safe_line = Self::redact_sensitive_line(&line);
+            log::warn!("EasyTier stderr: {}", safe_line);
 
             // 缓存最近的 stderr 输出（最多保留 30 行），用于进程意外退出时定位原因
             {
                 let mut buf = last_stderr.lock().await;
-                buf.push_back(line.clone());
+                buf.push_back(safe_line.clone());
                 while buf.len() > 30 {
                     buf.pop_front();
                 }
@@ -1551,7 +1619,7 @@ impl NetworkService {
                     // 只接受私有网络 IP 地址，并且排除本地回环地址
                     if Self::is_private_ip(ip) && !Self::is_loopback(ip) {
                         log::info!("从 EasyTier 输出中提取到候选虚拟IP: {}", ip);
-                        log::info!("输出行内容: {}", line);
+                        log::info!("输出行内容: {}", Self::redact_sensitive_line(line));
                         return Some(ip.to_string());
                     }
                 }
@@ -1633,47 +1701,59 @@ impl NetworkService {
         log::info!("🛑 [StopEasyTier] 开始停止 EasyTier 服务...");
         log::info!("========================================");
 
-        let mut process_guard = self.easytier_process.lock().await;
-        let mut graceful_shutdown_success = false;
-
-        if let Some(mut child) = process_guard.take() {
-            log::info!("🔄 [StopEasyTier] 正在优雅关闭 EasyTier 进程...");
-
-            // 尝试优雅地终止进程
-            match child.kill().await {
-                Ok(_) => {
-                    log::info!("✅ [StopEasyTier] 已发送 SIGTERM 信号到 EasyTier 进程（优雅关闭）");
+        #[cfg(windows)]
+        let graceful_shutdown_success = {
+            if !*self.is_running.lock().await && self.helper_session.lock().await.is_none() {
+                log::info!("ℹ️ [StopEasyTier] EasyTier 服务未运行，无需关闭");
+                true
+            } else {
+                let helper = self.helper_session.lock().await.take();
+                if let Some(session) = helper {
+                    session.stop().await.map_err(AppError::ProcessError)?;
+                } else {
+                    // Recover from a helper crash by asking a fresh, authenticated
+                    // helper to stop only the fixed EasyTier image and MCTier devices.
+                    privileged_helper::run_one_shot(privileged_helper::HelperRequest::StopEasyTier)
+                        .map_err(AppError::ProcessError)?;
                 }
-                Err(e) => {
-                    log::warn!("⚠️ [StopEasyTier] 发送终止信号失败: {}", e);
-                }
+                true
             }
+        };
 
-            // 等待进程完全退出（最多等待3秒）
-            log::info!("⏳ [StopEasyTier] 等待进程自然退出（最多3秒）...");
-            match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
-                Ok(Ok(status)) => {
-                    log::info!(
-                        "✅ [StopEasyTier] EasyTier 进程已优雅退出，状态码: {:?}",
-                        status
-                    );
-                    log::info!("💡 [StopEasyTier] 进程通过优雅关闭方式退出，未使用强制终止");
-                    graceful_shutdown_success = true;
+        #[cfg(not(windows))]
+        let graceful_shutdown_success = {
+            let mut process_guard = self.easytier_process.lock().await;
+            let mut success = false;
+
+            if let Some(mut child) = process_guard.take() {
+                log::info!("🔄 [StopEasyTier] 正在优雅关闭 EasyTier 进程...");
+                match child.kill().await {
+                    Ok(_) => {
+                        log::info!("✅ [StopEasyTier] 已发送终止信号到 EasyTier 进程");
+                    }
+                    Err(e) => {
+                        log::warn!("⚠️ [StopEasyTier] 发送终止信号失败: {}", e);
+                    }
                 }
-                Ok(Err(e)) => {
-                    log::warn!("⚠️ [StopEasyTier] 等待进程退出时出错: {}", e);
+
+                log::info!("⏳ [StopEasyTier] 等待进程自然退出（最多3秒）...");
+                match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                    Ok(Ok(status)) => {
+                        log::info!(
+                            "✅ [StopEasyTier] EasyTier 进程已退出，状态码: {:?}",
+                            status
+                        );
+                        success = true;
+                    }
+                    Ok(Err(e)) => log::warn!("⚠️ [StopEasyTier] 等待进程退出时出错: {}", e),
+                    Err(_) => log::warn!("⚠️ [StopEasyTier] 等待进程退出超时（3秒）"),
                 }
-                Err(_) => {
-                    log::warn!("⚠️ [StopEasyTier] 等待进程退出超时（3秒）");
-                }
+            } else {
+                log::info!("ℹ️ [StopEasyTier] EasyTier 服务未运行，无需关闭");
+                success = true;
             }
-        } else {
-            log::info!("ℹ️ [StopEasyTier] EasyTier 服务未运行，无需关闭");
-            graceful_shutdown_success = true; // 没有进程运行，视为成功
-        }
-
-        // 释放进程锁
-        drop(process_guard);
+            success
+        };
 
         // 如果优雅关闭成功，跳过强制终止
         if graceful_shutdown_success {
@@ -1683,15 +1763,12 @@ impl NetworkService {
             log::warn!("⚠️ [StopEasyTier] 优雅关闭失败，现在尝试强制终止（taskkill /F）...");
             log::warn!("💡 [StopEasyTier] 这是最后的手段，仅在优雅关闭失败时使用");
 
-            #[cfg(target_os = "windows")]
+            #[cfg(not(windows))]
             {
-                let _ = tokio::process::Command::new("taskkill")
-                    .args(&["/F", "/IM", "easytier-core.exe"])
-                    .creation_flags(CREATE_NO_WINDOW)
+                let _ = tokio::process::Command::new("pkill")
+                    .args(["-9", "-x", "easytier-core"])
                     .output()
                     .await;
-
-                log::info!("✅ [StopEasyTier] 已执行强制终止命令（taskkill /F）");
             }
         }
 
@@ -1704,243 +1781,10 @@ impl NetworkService {
         // easytier-cli已移除，通过taskkill直接终止进程
         log::info!("ℹ️ [StopEasyTier] 跳过CLI工具清理（已废弃）");
 
-        // 在Windows上清理虚拟网卡
-        #[cfg(target_os = "windows")]
-        {
-            log::info!("========================================");
-            log::info!("🧹 [StopEasyTier] 开始清理虚拟网卡...");
-            log::info!("========================================");
-
-            // 等待一小段时间，确保进程已完全退出
-            log::info!("⏳ [StopEasyTier] 等待进程完全退出（500ms）...");
-            sleep(Duration::from_millis(500)).await;
-            log::info!("✅ [StopEasyTier] 等待完成，开始清理网卡");
-
-            // 方法1: 使用 devcon 或 pnputil 强制删除 MCTier_Net 网卡
-            log::info!("🔧 [StopEasyTier] 方法1: 使用pnputil强制删除MCTier_Net网卡...");
-
-            // 首先列出所有网络设备
-            match tokio::process::Command::new("pnputil")
-                .args(&["/enum-devices", "/class", "Net"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await
-            {
-                Ok(output) => {
-                    let output_str = String::from_utf8_lossy(&output.stdout);
-                    log::info!("📋 [StopEasyTier] 网络设备列表:\n{}", output_str);
-
-                    // 查找 MCTier_Net 或 WinTun 相关的设备实例ID
-                    let mut device_ids_to_remove = Vec::new();
-                    let mut current_instance_id = String::new();
-                    let mut is_target_device = false;
-
-                    for line in output_str.lines() {
-                        // 检查实例ID行
-                        if line.contains("Instance ID:") || line.contains("实例 ID:") {
-                            current_instance_id = line
-                                .split(':')
-                                .nth(1)
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_default();
-                            is_target_device = false;
-                        }
-
-                        // 检查设备描述或友好名称（仅匹配 MCTier_ 开头的本应用网卡，
-                        // 避免误伤 Tailscale / WireGuard 等其它基于 WinTun 的网卡）
-                        if line.contains("MCTier_") && !current_instance_id.is_empty() {
-                            is_target_device = true;
-                        }
-
-                        // 如果找到目标设备，添加到删除列表
-                        if is_target_device && !current_instance_id.is_empty() {
-                            if !device_ids_to_remove.contains(&current_instance_id) {
-                                log::info!(
-                                    "🎯 [StopEasyTier] 发现需要删除的设备: {}",
-                                    current_instance_id
-                                );
-                                device_ids_to_remove.push(current_instance_id.clone());
-                            }
-                            current_instance_id.clear();
-                            is_target_device = false;
-                        }
-                    }
-
-                    // 删除找到的所有目标设备
-                    for device_id in &device_ids_to_remove {
-                        log::info!("🗑️ [StopEasyTier] 正在删除设备: {}", device_id);
-
-                        // 尝试删除设备
-                        match tokio::process::Command::new("pnputil")
-                            .args(&["/remove-device", device_id])
-                            .creation_flags(CREATE_NO_WINDOW)
-                            .output()
-                            .await
-                        {
-                            Ok(remove_output) => {
-                                let remove_result = String::from_utf8_lossy(&remove_output.stdout);
-                                log::info!("📄 [StopEasyTier] 删除设备结果: {}", remove_result);
-
-                                if remove_output.status.success() {
-                                    log::info!("✅ [StopEasyTier] 成功删除设备: {}", device_id);
-                                } else {
-                                    log::warn!("⚠️ [StopEasyTier] 删除设备失败: {}", device_id);
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!("⚠️ [StopEasyTier] 执行删除命令失败: {}", e);
-                            }
-                        }
-
-                        sleep(Duration::from_millis(200)).await;
-                    }
-
-                    if device_ids_to_remove.is_empty() {
-                        log::info!("ℹ️ [StopEasyTier] 未发现需要删除的虚拟网卡设备");
-                    } else {
-                        log::info!(
-                            "✅ [StopEasyTier] pnputil清理完成，共删除 {} 个设备",
-                            device_ids_to_remove.len()
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::warn!("⚠️ [StopEasyTier] 使用pnputil查询设备失败: {}", e);
-                }
-            }
-
-            // 方法2: 使用netsh禁用和删除网卡
-            log::info!("🔧 [StopEasyTier] 方法2: 使用netsh禁用和删除MCTier_Net网卡...");
-            match tokio::process::Command::new("netsh")
-                .args(&["interface", "show", "interface"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await
-            {
-                Ok(output) => {
-                    let output_str = String::from_utf8_lossy(&output.stdout);
-                    log::info!("📋 [StopEasyTier] 网卡列表:\n{}", output_str);
-
-                    let mut disabled_count = 0;
-
-                    // 仅查找 MCTier_ 开头的本应用网卡（避免误伤其它 WinTun VPN）
-                    for line in output_str.lines() {
-                        if line.contains("MCTier_") {
-                            log::info!("🎯 [StopEasyTier] 发现虚拟网卡: {}", line);
-
-                            // 尝试提取网卡名称（通常是最后一列）
-                            let parts: Vec<&str> = line.split_whitespace().collect();
-                            if parts.len() >= 3 {
-                                let interface_name = parts[parts.len() - 1];
-
-                                if !interface_name.is_empty()
-                                    && interface_name != "Type"
-                                    && interface_name != "Interface"
-                                    && interface_name != "State"
-                                {
-                                    log::info!(
-                                        "🔧 [StopEasyTier] 尝试禁用网卡: {}",
-                                        interface_name
-                                    );
-
-                                    // 先禁用网卡
-                                    match tokio::process::Command::new("netsh")
-                                        .args(&[
-                                            "interface",
-                                            "set",
-                                            "interface",
-                                            interface_name,
-                                            "admin=disable",
-                                        ])
-                                        .creation_flags(CREATE_NO_WINDOW)
-                                        .output()
-                                        .await
-                                    {
-                                        Ok(disable_output) => {
-                                            if disable_output.status.success() {
-                                                log::info!(
-                                                    "✅ [StopEasyTier] 成功禁用网卡: {}",
-                                                    interface_name
-                                                );
-                                                disabled_count += 1;
-                                            } else {
-                                                log::warn!(
-                                                    "⚠️ [StopEasyTier] 禁用网卡失败: {}",
-                                                    interface_name
-                                                );
-                                            }
-                                        }
-                                        Err(e) => {
-                                            log::warn!("⚠️ [StopEasyTier] 执行禁用命令失败: {}", e);
-                                        }
-                                    }
-
-                                    sleep(Duration::from_millis(200)).await;
-                                }
-                            }
-                        }
-                    }
-
-                    if disabled_count > 0 {
-                        log::info!(
-                            "✅ [StopEasyTier] netsh清理完成，共禁用 {} 个网卡",
-                            disabled_count
-                        );
-                    } else {
-                        log::info!("ℹ️ [StopEasyTier] 未发现需要禁用的网卡");
-                    }
-                }
-                Err(e) => {
-                    log::warn!("⚠️ [StopEasyTier] 查询网卡列表失败: {}", e);
-                }
-            }
-
-            // 方法3: 使用 PowerShell 强制删除网卡
-            log::info!("🔧 [StopEasyTier] 方法3: 使用PowerShell强制删除MCTier相关网卡...");
-            let ps_script = r#"
-                Get-NetAdapter | Where-Object { 
-                    $_.Name -like '*MCTier_*'
-                } | ForEach-Object {
-                    Write-Host "正在删除网卡: $($_.Name)"
-                    try {
-                        Disable-NetAdapter -Name $_.Name -Confirm:$false -ErrorAction Stop
-                        Write-Host "已禁用网卡: $($_.Name)"
-                    } catch {
-                        Write-Host "禁用网卡失败: $_"
-                    }
-                }
-            "#;
-
-            match tokio::process::Command::new("powershell")
-                .args(&["-NoProfile", "-NonInteractive", "-Command", ps_script])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await
-            {
-                Ok(ps_output) => {
-                    let ps_result = String::from_utf8_lossy(&ps_output.stdout);
-                    log::info!("📄 [StopEasyTier] PowerShell执行结果:\n{}", ps_result);
-
-                    if !ps_result.is_empty() {
-                        log::info!("✅ [StopEasyTier] PowerShell清理完成");
-                    } else {
-                        log::info!("ℹ️ [StopEasyTier] PowerShell未发现需要清理的网卡");
-                    }
-                }
-                Err(e) => {
-                    log::warn!("⚠️ [StopEasyTier] 执行PowerShell脚本失败: {}", e);
-                }
-            }
-
-            // 最终等待，确保所有清理操作完成
-            log::info!("⏳ [StopEasyTier] 等待所有清理操作完成（500ms）...");
-            sleep(Duration::from_millis(500)).await;
-
-            log::info!("========================================");
-            log::info!("✅ [StopEasyTier] 虚拟网卡清理流程完成");
-            log::info!("========================================");
-        }
-
+        // Windows device cleanup is intentionally owned by the elevated
+        // helper. The normal UI process never invokes pnputil/netsh.
+        #[cfg(windows)]
+        log::debug!("Windows EasyTier device cleanup delegated to helper");
         // 清理状态
         log::info!("🧹 [StopEasyTier] 清理服务状态...");
         *self.is_running.lock().await = false;
@@ -1948,41 +1792,47 @@ impl NetworkService {
         *self.virtual_ip.lock().await = None;
         log::info!("✅ [StopEasyTier] 服务状态已清理");
 
-        // 清理配置目录
-        let config_dir = self.instance_config_dir.lock().await.take();
-        if let Some(dir) = config_dir {
-            log::info!("========================================");
-            log::info!("🗑️ [StopEasyTier] 开始清理配置目录: {:?}", dir);
-            log::info!("========================================");
+        // Windows helper owns the installation runtime and removes its config
+        // directory after stopping EasyTier. The UI process only cleans up its
+        // private temporary directory on non-Windows platforms.
+        #[cfg(not(windows))]
+        {
+            // 清理配置目录
+            let config_dir = self.instance_config_dir.lock().await.take();
+            if let Some(dir) = config_dir {
+                log::info!("========================================");
+                log::info!("🗑️ [StopEasyTier] 开始清理配置目录: {:?}", dir);
+                log::info!("========================================");
 
-            // 增加重试次数和等待时间，提高清理成功率
-            for attempt in 1..=5 {
-                match std::fs::remove_dir_all(&dir) {
-                    Ok(_) => {
-                        log::info!("✅ [StopEasyTier] 配置目录已清理（尝试 {}/5）", attempt);
-                        break;
-                    }
-                    Err(e) => {
-                        if attempt < 5 {
-                            log::warn!("⚠️ [StopEasyTier] 清理配置目录失败（尝试 {}/5）: {}，等待后重试...", attempt, e);
-                            sleep(Duration::from_millis(500)).await;
-                        } else {
-                            log::warn!(
-                                "⚠️ [StopEasyTier] 清理配置目录失败: {}，将在下次启动时自动清理",
-                                e
-                            );
-                            // 最后一次尝试：标记目录以便下次启动时清理
-                            // 配置目录名称格式为 config_mctier-xxx，下次启动时会自动清理
+                // 增加重试次数和等待时间，提高清理成功率
+                for attempt in 1..=5 {
+                    match std::fs::remove_dir_all(&dir) {
+                        Ok(_) => {
+                            log::info!("✅ [StopEasyTier] 配置目录已清理（尝试 {}/5）", attempt);
+                            break;
+                        }
+                        Err(e) => {
+                            if attempt < 5 {
+                                log::warn!("⚠️ [StopEasyTier] 清理配置目录失败（尝试 {}/5）: {}，等待后重试...", attempt, e);
+                                sleep(Duration::from_millis(500)).await;
+                            } else {
+                                log::warn!(
+                                    "⚠️ [StopEasyTier] 清理配置目录失败: {}，将在下次启动时自动清理",
+                                    e
+                                );
+                                // 最后一次尝试：标记目录以便下次启动时清理
+                                // 配置目录名称格式为 config_mctier-xxx，下次启动时会自动清理
+                            }
                         }
                     }
                 }
-            }
 
-            log::info!("========================================");
-            log::info!("✅ [StopEasyTier] 配置目录清理流程完成");
-            log::info!("========================================");
-        } else {
-            log::info!("ℹ️ [StopEasyTier] 无需清理配置目录（不存在）");
+                log::info!("========================================");
+                log::info!("✅ [StopEasyTier] 配置目录清理流程完成");
+                log::info!("========================================");
+            } else {
+                log::info!("ℹ️ [StopEasyTier] 无需清理配置目录（不存在）");
+            }
         }
 
         log::info!("========================================");

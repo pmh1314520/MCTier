@@ -228,6 +228,28 @@ impl ChatService {
             .map(|signer| signer.public_key_b64())
     }
 
+    pub fn signaling_identity(&self) -> Result<(String, String), String> {
+        self.ensure_signing_key()?;
+        let signer = self
+            .signer()
+            .ok_or_else(|| "信令签名身份未就绪".to_string())?;
+        Ok((signer.identity_id(), signer.public_key_b64()))
+    }
+
+    pub fn sign_signaling_registration(
+        &self,
+        challenge: &str,
+        lobby_name: &str,
+        virtual_ip: &str,
+    ) -> Result<(String, String, String), String> {
+        let (client_id, identity_public_key) = self.signaling_identity()?;
+        let signer = self
+            .signer()
+            .ok_or_else(|| "信令签名身份未就绪".to_string())?;
+        let signature = signer.sign_signaling_registration(challenge, lobby_name, virtual_ip);
+        Ok((client_id, identity_public_key, signature))
+    }
+
     fn signer(&self) -> Option<Arc<ChatSigner>> {
         self.signer.read().clone()
     }

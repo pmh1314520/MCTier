@@ -1,6 +1,5 @@
 package top.pmh13.mctier.network
 
-import android.util.Base64
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
@@ -11,6 +10,7 @@ import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.ArrayDeque
+import java.util.Base64
 import java.util.HashMap
 import java.util.Locale
 
@@ -40,10 +40,12 @@ import java.util.Locale
  * exactly what the desktop `p256` crate emits and consumes, so no conversion
  * layer is needed on either end.
  */
-internal object ChatAuth {
+object ChatAuth {
 
     /** Domain separator. Must stay identical to the desktop constant. */
     private const val CANONICAL_DOMAIN = "MCTIER-CHAT-V1"
+    private const val SIGNALING_CANONICAL_DOMAIN = "MCTIER-SIGNALING-V3"
+    const val SIGNALING_PROTOCOL_VERSION = 3
 
     const val KeyIdHeader = "x-mctier-chat-key"
     const val SignatureHeader = "x-mctier-chat-sig"
@@ -97,14 +99,24 @@ internal object ChatAuth {
 
     private fun sha256Hex(bytes: ByteArray): String = toHex(sha256(bytes))
 
-    private fun encodeBase64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    private fun encodeBase64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
     private fun decodeBase64(value: String): ByteArray? =
-        runCatching { Base64.decode(value, Base64.DEFAULT) }.getOrNull()
+        runCatching { Base64.getDecoder().decode(value) }.getOrNull()
 
     /** Hex-encoded, truncated fingerprint of a public key DER. */
     fun keyIdForPublicKey(publicKeyDer: ByteArray): String =
         sha256Hex(publicKeyDer).substring(0, KeyIdHexLength)
+
+    /** Full SHA-256 fingerprint used by signaling as the authoritative id. */
+    fun identityIdForPublicKey(publicKeyDer: ByteArray): String = sha256Hex(publicKeyDer)
+
+    /** Matches the signaling server's derived virtual-domain convention. */
+    fun virtualDomainForIdentityId(identityId: String): String? {
+        val normalized = identityId.trim()
+        if (normalized.length != 64 || !normalized.all { it.isHexDigit() }) return null
+        return "${normalized.substring(0, 32)}.mct.net"
+    }
 
     fun isValidKeyId(value: String): Boolean =
         value.length == KeyIdHexLength && value.all { it.isHexDigit() }
@@ -134,6 +146,19 @@ internal object ChatAuth {
     private fun decodePublicKey(der: ByteArray): PublicKey? = runCatching {
         KeyFactory.getInstance(KeyAlgorithm).generatePublic(X509EncodedKeySpec(der))
     }.getOrNull()
+
+    /** Byte-identical registration transcript shared with desktop and server. */
+    fun canonicalSignalingRegistration(
+        challenge: String,
+        lobbyName: String,
+        virtualIp: String,
+    ): ByteArray = listOf(
+        SIGNALING_CANONICAL_DOMAIN,
+        SIGNALING_PROTOCOL_VERSION.toString(),
+        challenge,
+        lobbyName,
+        virtualIp,
+    ).joinToString("\n").toByteArray(Charsets.UTF_8)
 
     /**
      * Canonical byte string covered by a signature.
@@ -228,6 +253,25 @@ internal object ChatAuth {
         val keyId: String,
     ) {
         fun publicKeyBase64(): String = encodeBase64(publicKeyDer)
+
+        fun identityId(): String = identityIdForPublicKey(publicKeyDer)
+
+        /** Sign a one-time server challenge and its lobby/IP context. */
+        fun signSignalingRegistration(
+            challenge: String,
+            lobbyName: String,
+            virtualIp: String,
+        ): String? {
+            val canonical = canonicalSignalingRegistration(challenge, lobbyName, virtualIp)
+            val signature = runCatching {
+                Signature.getInstance(SignatureAlgorithm).run {
+                    initSign(privateKey)
+                    update(canonical)
+                    sign()
+                }
+            }.getOrNull() ?: return null
+            return encodeBase64(signature)
+        }
 
         /**
          * Sign a request and return the header material the peer needs.

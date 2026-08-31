@@ -71,7 +71,14 @@ class RemoteControlController(
     var onControllerVideoTrack: ((VideoTrack?) -> Unit)? = null
     var onControllerActive: ((peerName: String) -> Unit)? = null
     var onRejected: ((reason: String) -> Unit)? = null
-    private val pendingIce = linkedMapOf<String, MutableList<IceCandidate>>()
+    private val pendingIce = BoundedIceCache<String, IceCandidate>(
+        maxEntries = MAX_PENDING_ICE_ENTRIES,
+        maxBytes = MAX_PENDING_ICE_BYTES,
+        maxEntriesPerPeer = MAX_PENDING_ICE_PER_PEER,
+        ttlMillis = PENDING_ICE_TTL_MILLIS,
+        peerOf = ::icePeer,
+        bytesOf = ::iceCandidateBytes,
+    )
 
     // 真实屏幕尺寸（把归一化坐标 0..1 映射为像素）
     private var screenW = 1080f
@@ -228,7 +235,8 @@ class RemoteControlController(
                 if (conn != null && isCurrentConnection(message.sessionId ?: return, expectedPeerId, conn) && conn.remoteDescription != null) {
                     conn.addIceCandidate(ice)
                 } else {
-                    pendingIce.getOrPut(pendingIceKey(message.sessionId ?: return, expectedPeerId)) { mutableListOf() }.add(ice)
+                    val key = pendingIceKey(message.sessionId ?: return, expectedPeerId)
+                    if (!pendingIce.add(key, ice)) Log.w(TAG, "丢弃超出限制的待处理远控 ICE")
                 }
             }
             "remote-control-stop" -> {
@@ -250,7 +258,7 @@ class RemoteControlController(
     private fun flushPendingIce(expectedSessionId: String, expectedPeerId: String, expectedPc: PeerConnection) {
         if (!isCurrentConnection(expectedSessionId, expectedPeerId, expectedPc)) return
         val key = pendingIceKey(expectedSessionId, expectedPeerId)
-        val list = pendingIce.remove(key) ?: return
+        val list = pendingIce.remove(key)
         list.forEach {
             if (isCurrentConnection(expectedSessionId, expectedPeerId, expectedPc)) {
                 runCatching { expectedPc.addIceCandidate(it) }
@@ -764,5 +772,15 @@ class RemoteControlController(
 
     private companion object {
         private const val TAG = "RemoteControlController"
+        private const val MAX_PENDING_ICE_ENTRIES = 128
+        private const val MAX_PENDING_ICE_BYTES = 128 * 1024
+        private const val MAX_PENDING_ICE_PER_PEER = 32
+        private const val PENDING_ICE_TTL_MILLIS = 15_000L
+
+        private fun iceCandidateBytes(candidate: IceCandidate): Int =
+            candidate.sdp.toByteArray(Charsets.UTF_8).size +
+                (candidate.sdpMid?.toByteArray(Charsets.UTF_8)?.size ?: 0) + 16
+
+        private fun icePeer(key: String): String = key.substringAfter('|')
     }
 }
