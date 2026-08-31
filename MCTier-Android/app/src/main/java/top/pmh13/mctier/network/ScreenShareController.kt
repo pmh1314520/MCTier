@@ -70,7 +70,20 @@ class ScreenShareController(
     private val inboundConnections = linkedMapOf<String, PeerConnection>()
     private val outboundConnections = linkedMapOf<String, PeerConnection>()
     private val outboundSenders = linkedMapOf<String, RtpSender>()
-    private val pendingIce = linkedMapOf<String, MutableList<IceCandidate>>()
+    private val pendingIce = BoundedIceCache<String, IceCandidate>(
+        maxEntries = MAX_PENDING_ICE_ENTRIES,
+        maxBytes = MAX_PENDING_ICE_BYTES,
+        maxEntriesPerPeer = MAX_PENDING_ICE_PER_PEER,
+        ttlMillis = PENDING_ICE_TTL_MILLIS,
+        peerOf = ::icePeer,
+        bytesOf = ::iceCandidateBytes,
+    )
+    private val passwordAttemptLimiter = ExponentialBackoffLimiter(
+        maxEntries = MAX_PASSWORD_BACKOFF_ENTRIES,
+        baseDelayMillis = PASSWORD_BACKOFF_BASE_MILLIS,
+        maxDelayMillis = PASSWORD_BACKOFF_MAX_MILLIS,
+        ttlMillis = PASSWORD_BACKOFF_TTL_MILLIS,
+    )
     private val expectedDownstreams = linkedMapOf<String, Int>()
     private val pendingOffers = linkedMapOf<String, SignalingEnvelope>()
     private var directFallback: Runnable? = null
@@ -403,7 +416,7 @@ class ScreenShareController(
             closeConnectionsForShare(inboundConnections, shareId)
             closeConnectionsForShare(outboundConnections, shareId)
             outboundSenders.keys.filter { it.startsWith("$shareId|") }.forEach(outboundSenders::remove)
-            pendingIce.keys.filter { it.contains("$shareId|") }.forEach(pendingIce::remove)
+            pendingIce.removeWhere { it.contains("$shareId|") }
             pendingOffers.keys.filter { it.startsWith("$shareId|") }.forEach(pendingOffers::remove)
             expectedDownstreams.keys.filter { it.startsWith("$shareId|") }.forEach(expectedDownstreams::remove)
         }
@@ -516,15 +529,7 @@ class ScreenShareController(
             pendingOffers[relayOfferKey(shareId, from, message.routeVersion)] = message
             return
         }
-        if (legacyDirect && sharePassword != null && message.password != sharePassword) {
-            sendSignal(
-                SignalingEnvelope(
-                    type = "screen-share-error", from = localPlayerId, to = from, shareId = shareId,
-                    error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password"),
-                ),
-            )
-            return
-        }
+        if (legacyDirect && !acceptViewerPassword(shareId, from, message.password)) return
         val sourceTrack = if (isOwner) localVideoTrack else remoteVideoTrack
         if (sourceTrack == null) {
             pendingOffers[relayOfferKey(shareId, from, message.routeVersion)] = message
@@ -701,7 +706,7 @@ class ScreenShareController(
             outboundSenders.keys.filter { it.startsWith("$currentShareId|") }.forEach(outboundSenders::remove)
             expectedDownstreams.keys.filter { it.startsWith("$currentShareId|") }.forEach(expectedDownstreams::remove)
             pendingOffers.keys.filter { it.startsWith("$currentShareId|") }.forEach(pendingOffers::remove)
-            pendingIce.keys.filter { it.contains("$currentShareId|") }.forEach(pendingIce::remove)
+            pendingIce.removeWhere { it.contains("$currentShareId|") }
         }
         runCatching { screenCapturer?.stopCapture() }
         screenCapturer?.dispose()
@@ -716,6 +721,7 @@ class ScreenShareController(
         surfaceHelper?.dispose()
         surfaceHelper = null
         sharePassword = null
+        passwordAttemptLimiter.clear()
     }
 
     fun handleSignal(message: SignalingEnvelope) {
@@ -764,15 +770,7 @@ class ScreenShareController(
             "join" -> if (localPlayerId == ownerId && sharingShareId == shareId) {
                 val viewerId = message.from ?: return
                 if (viewerId == localPlayerId || message.routeVersion != null || message.upstreamId != null || message.downstreamId != null) return
-                if (sharePassword != null && message.password != sharePassword) {
-                    sendSignal(
-                        SignalingEnvelope(
-                            type = "screen-share-error", from = localPlayerId, to = viewerId, shareId = shareId,
-                            error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password"),
-                        ),
-                    )
-                    return
-                }
+                if (!acceptViewerPassword(shareId, viewerId, message.password)) return
                 if (viewerId !in viewerOrder) viewerOrder += viewerId
                 viewerNames[viewerId] = message.playerName ?: top.pmh13.mctier.ui.L("玩家", "Player")
                 sendSignal(
@@ -919,7 +917,12 @@ class ScreenShareController(
         val pc = if (targetsInbound) inboundConnections[peerKey(shareId, from)] else outboundConnections[peerKey(shareId, from)]
         val expectedVersion = if (targetsInbound) currentRouteVersion else expectedDownstreams[connectionKey]
         if (expectedVersion != null && routeVersion != expectedVersion) return
-        if (pc?.remoteDescription != null) pc.addIceCandidate(ice) else pendingIce.getOrPut(key) { mutableListOf() }.add(ice)
+        if (pc?.remoteDescription != null) {
+            runCatching { pc.addIceCandidate(ice) }
+                .onFailure { if (!pendingIce.add(key, ice)) Log.w(TAG, "丢弃超出限制的待处理屏幕共享 ICE") }
+        } else if (!pendingIce.add(key, ice)) {
+            Log.w(TAG, "丢弃超出限制的待处理屏幕共享 ICE")
+        }
     }
 
     private fun flushPendingIce(key: String, pc: PeerConnection) {
@@ -1004,9 +1007,37 @@ class ScreenShareController(
     private fun iceKey(shareId: String, direction: String, playerId: String, routeVersion: Int?) =
         "$direction:$shareId|$playerId|${routeVersion ?: "legacy"}"
 
+    private fun icePeer(key: String): String =
+        key.substringAfter(':').substringAfter('|').substringBefore('|')
+
+    private fun acceptViewerPassword(shareId: String, viewerId: String, supplied: String?): Boolean {
+        val expected = sharePassword ?: return true
+        val key = "$shareId|$viewerId"
+        if (!passwordAttemptLimiter.beforeAttempt(key).allowed) {
+            sendPasswordError(shareId, viewerId)
+            return false
+        }
+        if (supplied == expected) {
+            passwordAttemptLimiter.recordSuccess(key)
+            return true
+        }
+        passwordAttemptLimiter.recordFailure(key)
+        sendPasswordError(shareId, viewerId)
+        return false
+    }
+
+    private fun sendPasswordError(shareId: String, viewerId: String) {
+        sendSignal(
+            SignalingEnvelope(
+                type = "screen-share-error", from = localPlayerId, to = viewerId, shareId = shareId,
+                error = top.pmh13.mctier.ui.L("屏幕共享密码错误", "Wrong screen share password"),
+            ),
+        )
+    }
+
     private fun clearPendingIceForPeer(shareId: String, direction: String, playerId: String) {
         val prefix = "$direction:$shareId|$playerId|"
-        pendingIce.keys.filter { it.startsWith(prefix) }.forEach(pendingIce::remove)
+        pendingIce.removeWhere { it.startsWith(prefix) }
     }
 
     private fun closeConnectionsForShare(connections: MutableMap<String, PeerConnection>, shareId: String) {
@@ -1018,12 +1049,25 @@ class ScreenShareController(
     private companion object {
         private const val TAG = "ScreenShareController"
 
+        private const val MAX_PENDING_ICE_ENTRIES = 512
+        private const val MAX_PENDING_ICE_BYTES = 512 * 1024
+        private const val MAX_PENDING_ICE_PER_PEER = 64
+        private const val PENDING_ICE_TTL_MILLIS = 15_000L
+        private const val MAX_PASSWORD_BACKOFF_ENTRIES = 1024
+        private const val PASSWORD_BACKOFF_BASE_MILLIS = 1_000L
+        private const val PASSWORD_BACKOFF_MAX_MILLIS = 60_000L
+        private const val PASSWORD_BACKOFF_TTL_MILLIS = 15 * 60_000L
+
         /** 采集帧率。startCapture 与 changeCaptureFormat 必须用同一个值，否则重设格式会顺带改帧率。 */
         private const val CAPTURE_FPS = 15
 
         /** 编码分辨率上限。按长短边约束而不是按宽高分别约束，见 captureDimensions 的说明。 */
         private const val CAPTURE_MAX_SHORT_EDGE = 1280
         private const val CAPTURE_MAX_LONG_EDGE = 2280
+
+        private fun iceCandidateBytes(candidate: IceCandidate): Int =
+            candidate.sdp.toByteArray(Charsets.UTF_8).size +
+                (candidate.sdpMid?.toByteArray(Charsets.UTF_8)?.size ?: 0) + 16
 
         /**
          * 把内容尺寸压到编码上限内，并保持宽高比。

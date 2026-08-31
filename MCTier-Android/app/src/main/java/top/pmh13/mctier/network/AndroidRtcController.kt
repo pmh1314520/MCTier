@@ -46,7 +46,14 @@ class AndroidRtcController(private val context: Context) {
     private var sendSignal: ((SignalingEnvelope) -> Unit)? = null
     private val peerConnections = linkedMapOf<String, PeerConnection>()
     private val remoteAudioTracks = linkedMapOf<String, AudioTrack>()
-    private val pendingIceCandidates = linkedMapOf<String, MutableList<IceCandidate>>()
+    private val pendingIceCandidates = BoundedIceCache<String, IceCandidate>(
+        maxEntries = MAX_PENDING_ICE_ENTRIES,
+        maxBytes = MAX_PENDING_ICE_BYTES,
+        maxEntriesPerPeer = MAX_PENDING_ICE_PER_PEER,
+        ttlMillis = PENDING_ICE_TTL_MILLIS,
+        peerOf = { it },
+        bytesOf = ::iceCandidateBytes,
+    )
     private val playerVolumes = linkedMapOf<String, Double>() // 0.0 ~ 1.0
     private var globalMuted = false
     // 通话中途连接抖动后的 ICE 自动重启任务（按 peer 防抖，避免重复重启）
@@ -376,6 +383,7 @@ class AndroidRtcController(private val context: Context) {
     }
 
     fun handleSignal(message: SignalingEnvelope) {
+        if (message.to != null && message.to != localPlayerId) return
         when (message.type) {
             "offer" -> handleOffer(message)
             "answer" -> handleAnswer(message)
@@ -485,10 +493,16 @@ class AndroidRtcController(private val context: Context) {
         val ice = IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate)
         val pc = peerConnections[from]
         if (pc == null) {
-            pendingIceCandidates.getOrPut(from) { mutableListOf() }.add(ice)
+            if (!pendingIceCandidates.add(from, ice)) {
+                Log.w(TAG, "丢弃超出限制的待处理 ICE[$from]")
+            }
         } else {
             runCatching { pc.addIceCandidate(ice) }
-                .onFailure { pendingIceCandidates.getOrPut(from) { mutableListOf() }.add(ice) }
+                .onFailure {
+                    if (!pendingIceCandidates.add(from, ice)) {
+                        Log.w(TAG, "丢弃超出限制的待处理 ICE[$from]")
+                    }
+                }
         }
     }
 
@@ -578,6 +592,14 @@ class AndroidRtcController(private val context: Context) {
 
     private companion object {
         private const val TAG = "AndroidRtcController"
+        private const val MAX_PENDING_ICE_ENTRIES = 256
+        private const val MAX_PENDING_ICE_BYTES = 256 * 1024
+        private const val MAX_PENDING_ICE_PER_PEER = 64
+        private const val PENDING_ICE_TTL_MILLIS = 15_000L
+
+        private fun iceCandidateBytes(candidate: IceCandidate): Int =
+            candidate.sdp.toByteArray(Charsets.UTF_8).size +
+                (candidate.sdpMid?.toByteArray(Charsets.UTF_8)?.size ?: 0) + 16
     }
 }
 

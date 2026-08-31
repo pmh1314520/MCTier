@@ -1,7 +1,8 @@
 use crate::modules::error::AppError;
-use std::fs;
+use sha2::{Digest, Sha256};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 // 将二进制文件嵌入到可执行文件中。
@@ -55,6 +56,196 @@ const EASYTIER_CLI_FILE: &str = "easytier-cli";
 pub struct ResourceManager;
 
 impl ResourceManager {
+    fn embedded_bytes(filename: &str) -> Option<&'static [u8]> {
+        match filename {
+            #[cfg(windows)]
+            "easytier-core.exe" => Some(EASYTIER_CORE_BYTES),
+            #[cfg(windows)]
+            "easytier-cli.exe" => Some(EASYTIER_CLI_BYTES),
+            #[cfg(windows)]
+            "wintun.dll" => Some(WINTUN_DLL_BYTES),
+            #[cfg(windows)]
+            "WinDivert64.sys" => Some(WINDIVERT_SYS_BYTES),
+            #[cfg(not(windows))]
+            "easytier-core" => Some(EASYTIER_CORE_BYTES),
+            #[cfg(not(windows))]
+            "easytier-cli" => Some(EASYTIER_CLI_BYTES),
+            _ => None,
+        }
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect()
+    }
+
+    fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+        }
+
+        #[cfg(not(windows))]
+        {
+            metadata.file_type().is_symlink()
+        }
+    }
+
+    fn ensure_no_link_components(path: &Path) -> Result<(), AppError> {
+        let mut current = path.to_path_buf();
+        loop {
+            let metadata = fs::symlink_metadata(&current).map_err(|e| {
+                AppError::ConfigError(format!("无法检查资源路径 {}: {}", current.display(), e))
+            })?;
+            if Self::is_link_or_reparse_point(&metadata) {
+                return Err(AppError::ConfigError(format!(
+                    "资源路径包含符号链接或重解析点: {}",
+                    current.display()
+                )));
+            }
+            let Some(parent) = current.parent() else {
+                break;
+            };
+            if parent == current {
+                break;
+            }
+            current = parent.to_path_buf();
+        }
+        Ok(())
+    }
+
+    fn ensure_regular_file(path: &Path) -> Result<(), AppError> {
+        Self::ensure_no_link_components(path)?;
+        let metadata = fs::symlink_metadata(path).map_err(|e| {
+            AppError::ConfigError(format!("无法检查资源文件 {}: {}", path.display(), e))
+        })?;
+        if Self::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+            return Err(AppError::ConfigError(format!(
+                "资源路径不是普通文件: {}",
+                path.display()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Return the installation-owned runtime directory without creating it.
+    /// Windows release bundles use the per-machine resource directory so the
+    /// normal renderer process cannot replace privileged EasyTier files.
+    pub fn get_runtime_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+        #[cfg(windows)]
+        {
+            return app_handle
+                .path()
+                .resource_dir()
+                .map(|path| path.join("runtime"))
+                .map_err(|e| AppError::ConfigError(format!("无法获取资源目录: {}", e)));
+        }
+
+        #[cfg(not(windows))]
+        {
+            app_handle
+                .path()
+                .app_local_data_dir()
+                .map(|path| path.join("runtime"))
+                .map_err(|e| AppError::ConfigError(format!("无法获取本地数据目录: {}", e)))
+        }
+    }
+
+    /// Verify a materialized resource against the bytes embedded in this
+    /// executable. Length-only checks are intentionally not sufficient.
+    pub fn verify_embedded_file(path: &Path, filename: &str) -> Result<(), AppError> {
+        let expected = Self::embedded_bytes(filename)
+            .ok_or_else(|| AppError::ConfigError(format!("未知的嵌入资源: {}", filename)))?;
+        Self::ensure_regular_file(path)?;
+        let actual = fs::read(path).map_err(|e| {
+            AppError::ConfigError(format!("读取资源文件失败 {}: {}", path.display(), e))
+        })?;
+        if Self::sha256_hex(&actual) != Self::sha256_hex(expected) {
+            return Err(AppError::ConfigError(format!(
+                "资源完整性校验失败: {}",
+                path.display()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Atomically materialize one embedded resource and verify it afterwards.
+    /// Existing symlinks, reparse points, and non-regular files are rejected.
+    pub fn ensure_embedded_file_at(path: &Path, filename: &str) -> Result<PathBuf, AppError> {
+        let expected = Self::embedded_bytes(filename)
+            .ok_or_else(|| AppError::ConfigError(format!("未知的嵌入资源: {}", filename)))?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| AppError::ConfigError("资源路径缺少父目录".to_string()))?;
+        Self::ensure_no_link_components(parent)?;
+        let parent_metadata = fs::symlink_metadata(parent)
+            .map_err(|e| AppError::ConfigError(format!("检查资源目录失败: {}", e)))?;
+        if !parent_metadata.is_dir() {
+            return Err(AppError::ConfigError("资源父路径不是目录".to_string()));
+        }
+
+        match fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if Self::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+                    return Err(AppError::ConfigError(format!(
+                        "拒绝覆盖 symlink/reparse/non-regular 资源: {}",
+                        path.display()
+                    )));
+                }
+                if Self::sha256_hex(
+                    &fs::read(path)
+                        .map_err(|e| AppError::ConfigError(format!("读取资源文件失败: {}", e)))?,
+                ) == Self::sha256_hex(expected)
+                {
+                    return Ok(path.to_path_buf());
+                }
+                fs::remove_file(path).map_err(|e| {
+                    AppError::ConfigError(format!("移除旧资源文件失败 {}: {}", path.display(), e))
+                })?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(AppError::ConfigError(format!(
+                    "检查资源文件失败 {}: {}",
+                    path.display(),
+                    error
+                )))
+            }
+        }
+
+        let temp_path = parent.join(format!(".{}.{}.tmp", filename, std::process::id()));
+        let mut temp = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|e| AppError::ConfigError(format!("创建临时资源文件失败: {}", e)))?;
+        temp.write_all(expected)
+            .and_then(|_| temp.sync_all())
+            .map_err(|e| AppError::ConfigError(format!("写入资源文件失败: {}", e)))?;
+        drop(temp);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o755))
+                .map_err(|e| AppError::ConfigError(format!("设置资源权限失败: {}", e)))?;
+        }
+
+        if let Err(error) = fs::rename(&temp_path, path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(AppError::ConfigError(format!(
+                "替换资源文件失败 {}: {}",
+                path.display(),
+                error
+            )));
+        }
+        Self::verify_embedded_file(path, filename)?;
+        Ok(path.to_path_buf())
+    }
+
     #[cfg(debug_assertions)]
     fn find_debug_binary(app_handle: &tauri::AppHandle, filename: &str) -> Option<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
@@ -87,7 +278,12 @@ impl ResourceManager {
         }
 
         for candidate in candidates {
-            if candidate.exists() {
+            if fs::symlink_metadata(&candidate)
+                .ok()
+                .is_some_and(|metadata| {
+                    !Self::is_link_or_reparse_point(&metadata) && metadata.is_file()
+                })
+            {
                 return Some(candidate);
             }
         }
@@ -105,16 +301,19 @@ impl ResourceManager {
     /// * `Err(AppError)` - 获取路径失败
     #[allow(dead_code)]
     fn get_runtime_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        let runtime_dir = app_handle
-            .path()
-            .app_local_data_dir()
-            .map_err(|e| AppError::ConfigError(format!("无法获取本地数据目录: {}", e)))?
-            .join("runtime");
+        let runtime_dir = Self::get_runtime_path(app_handle)?;
 
-        // 确保运行时目录存在
+        // 确保运行时目录存在，并拒绝把运行时目录放在链接/reparse point 后面。
         if !runtime_dir.exists() {
             fs::create_dir_all(&runtime_dir)
                 .map_err(|e| AppError::ConfigError(format!("无法创建运行时目录: {}", e)))?;
+        }
+
+        Self::ensure_no_link_components(&runtime_dir)?;
+        let metadata = fs::symlink_metadata(&runtime_dir)
+            .map_err(|e| AppError::ConfigError(format!("无法检查运行时目录: {}", e)))?;
+        if Self::is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(AppError::ConfigError("运行时路径不是普通目录".to_string()));
         }
 
         Ok(runtime_dir)
@@ -138,35 +337,14 @@ impl ResourceManager {
     ) -> Result<PathBuf, AppError> {
         let runtime_dir = Self::get_runtime_dir(app_handle)?;
         let target_path = runtime_dir.join(filename);
-
-        // 如果文件已存在且大小一致，跳过提取
-        if target_path.exists() {
-            if let Ok(metadata) = fs::metadata(&target_path) {
-                if metadata.len() == bytes.len() as u64 {
-                    log::debug!("文件已存在且大小一致，跳过提取: {:?}", target_path);
-                    return Ok(target_path);
-                }
-            }
+        if bytes != Self::embedded_bytes(filename).unwrap_or(bytes) {
+            return Err(AppError::ConfigError(format!(
+                "资源内容与嵌入副本不一致: {}",
+                filename
+            )));
         }
-
-        // 提取文件
-        log::info!("提取嵌入的二进制文件: {} ({} 字节)", filename, bytes.len());
-        let mut file = fs::File::create(&target_path)
-            .map_err(|e| AppError::ConfigError(format!("无法创建文件 {}: {}", filename, e)))?;
-
-        file.write_all(bytes)
-            .map_err(|e| AppError::ConfigError(format!("无法写入文件 {}: {}", filename, e)))?;
-
-        // 类 Unix：提取出来的文件默认没有可执行位，必须显式补上，否则 spawn 会 EACCES。
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            drop(file);
-            fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755)).map_err(|e| {
-                AppError::ConfigError(format!("无法设置可执行权限 {}: {}", filename, e))
-            })?;
-        }
-
+        log::info!("提取嵌入的二进制文件: {} (SHA-256 校验)", filename);
+        Self::ensure_embedded_file_at(&target_path, filename)?;
         log::info!("成功提取文件到: {:?}", target_path);
         Ok(target_path)
     }
@@ -180,6 +358,11 @@ impl ResourceManager {
     /// * `Ok(PathBuf)` - EasyTier 可执行文件的完整路径
     /// * `Err(AppError)` - 获取路径失败
     pub fn get_easytier_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+        #[cfg(windows)]
+        {
+            return Ok(Self::get_runtime_path(app_handle)?.join(EASYTIER_CORE_FILE));
+        }
+
         // 在开发模式下，优先使用 target 目录中的 binaries；不存在时退回到嵌入提取
         #[cfg(debug_assertions)]
         {
@@ -201,6 +384,11 @@ impl ResourceManager {
 
     /// 获取 easytier-cli 可执行文件的路径（用于查询对等连接类型 P2P/中继）
     pub fn get_easytier_cli_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+        #[cfg(windows)]
+        {
+            return Ok(Self::get_runtime_path(app_handle)?.join(EASYTIER_CLI_FILE));
+        }
+
         #[cfg(debug_assertions)]
         {
             if let Some(path) = Self::find_debug_binary(app_handle, EASYTIER_CLI_FILE) {
@@ -217,35 +405,13 @@ impl ResourceManager {
     /// 获取 wintun.dll 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
     #[cfg(windows)]
     pub fn get_wintun_dll_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(path) = Self::find_debug_binary(app_handle, "wintun.dll") {
-                return Ok(path);
-            }
-            return Self::extract_binary(app_handle, "wintun.dll", WINTUN_DLL_BYTES);
-        }
-
-        #[cfg(not(debug_assertions))]
-        {
-            Self::extract_binary(app_handle, "wintun.dll", WINTUN_DLL_BYTES)
-        }
+        Ok(Self::get_runtime_path(app_handle)?.join("wintun.dll"))
     }
 
     /// 获取 WinDivert64.sys 的路径（仅 Windows；Linux 走内核 TUN，无此依赖）
     #[cfg(windows)]
     pub fn get_windivert_sys_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(path) = Self::find_debug_binary(app_handle, "WinDivert64.sys") {
-                return Ok(path);
-            }
-            return Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES);
-        }
-
-        #[cfg(not(debug_assertions))]
-        {
-            Self::extract_binary(app_handle, "WinDivert64.sys", WINDIVERT_SYS_BYTES)
-        }
+        Ok(Self::get_runtime_path(app_handle)?.join("WinDivert64.sys"))
     }
 
     /// 获取配置目录路径

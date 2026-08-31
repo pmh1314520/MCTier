@@ -100,17 +100,18 @@ use modules::tauri_commands::{
     is_admin, is_player_muted, join_lobby, leave_lobby, list_directory_files, mute_all,
     mute_player, open_danmaku_window, open_file_location, open_folder, open_game_hud_window,
     open_log_file, open_log_folder, open_microphone_privacy_settings, open_screen_viewer_window,
-    ping_virtual_ip, prepare_p2p_chat_identity, read_file, read_file_bytes, read_log_file,
-    remove_player_domain, remove_shared_folder, reset_config_to_default,
-    reset_microphone_permission, restart_app_with_gpu_settings, restart_as_admin, save_chat_image,
-    save_danmaku_image, save_exit_node_advanced_config, save_file, save_opacity, save_settings,
-    save_voice_volume, save_window_position, select_file, select_file_share_download_folder,
-    select_folder, select_save_location, send_heartbeat, send_p2p_chat_message,
-    send_signaling_message, set_always_on_top, set_auto_start, set_avatar_data,
-    set_danmaku_ignore_cursor, set_file_share_download_dir, set_gamehud_ignore_cursor,
-    set_mic_enabled, set_window_opacity, start_file_server, stop_file_server, stop_p2p_chat,
-    test_node_latency, toggle_mic, toggle_mini_mode, update_config, update_p2p_chat_peers,
-    verify_share_password, write_file_bytes,
+    ping_virtual_ip, prepare_p2p_chat_identity, prepare_signaling_identity, read_file,
+    read_file_bytes, read_log_file, remove_player_domain, remove_shared_folder,
+    reset_config_to_default, reset_microphone_permission, restart_app_with_gpu_settings,
+    restart_as_admin, save_chat_image, save_danmaku_image, save_exit_node_advanced_config,
+    save_file, save_opacity, save_settings, save_voice_volume, save_window_position, select_file,
+    select_file_share_download_folder, select_folder, select_save_location, send_heartbeat,
+    send_p2p_chat_message, send_signaling_message, set_always_on_top, set_auto_start,
+    set_avatar_data, set_danmaku_ignore_cursor, set_file_share_download_dir,
+    set_gamehud_ignore_cursor, set_mic_enabled, set_window_opacity, sign_signaling_registration,
+    start_file_server, stop_file_server, stop_p2p_chat, test_node_latency, toggle_mic,
+    toggle_mini_mode, update_config, update_p2p_chat_peers, verify_share_password,
+    write_file_bytes,
 };
 
 use modules::easytier_advanced_commands::{
@@ -1076,6 +1077,11 @@ async fn apply_hotkeys(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(windows)]
+    if modules::privileged_helper::run_if_requested() {
+        return;
+    }
+
     reset_microphone_permission_cache_on_startup();
     // 在应用启动时检查并应用 GPU 设置
     apply_gpu_settings_on_startup();
@@ -1164,7 +1170,8 @@ pub fn run() {
             verify_share_password, get_download_url, diagnose_file_share_connection,
             download_remote_file, cancel_remote_download, export_logs, test_node_latency,
             download_remote_batch, detect_security_software,
-            prepare_p2p_chat_identity, configure_p2p_chat, update_p2p_chat_peers, stop_p2p_chat,
+            prepare_p2p_chat_identity, prepare_signaling_identity, sign_signaling_registration,
+            configure_p2p_chat, update_p2p_chat_peers, stop_p2p_chat,
             send_p2p_chat_message, get_p2p_chat_messages, clear_p2p_chat_messages,
             open_screen_viewer_window,
             open_danmaku_window, close_danmaku_window,

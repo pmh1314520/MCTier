@@ -2,6 +2,7 @@ package top.pmh13.mctier.ui
 
 import android.content.Intent
 import android.net.Uri
+import java.security.SecureRandom
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
@@ -5201,17 +5202,27 @@ private fun isValidLobbyPassword(p: String): Boolean {
 }
 
 // 随机密码：与桌面端一致（12位，含大小写字母和数字，至少各一个）
+private val lobbyPasswordRandom = SecureRandom()
+
 private fun randomPassword(): String {
     val lowercase = "abcdefghijklmnopqrstuvwxyz"
     val uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     val digits = "0123456789"
     val all = lowercase + uppercase + digits
     val sb = StringBuilder()
-    sb.append(lowercase.random())
-    sb.append(uppercase.random())
-    sb.append(digits.random())
-    repeat(9) { sb.append(all.random()) }
-    return sb.toString().toList().shuffled().joinToString("")
+    fun next(chars: String): Char = chars[lobbyPasswordRandom.nextInt(chars.length)]
+    sb.append(next(lowercase))
+    sb.append(next(uppercase))
+    sb.append(next(digits))
+    repeat(9) { sb.append(next(all)) }
+    val result = sb.toString().toCharArray()
+    for (i in result.lastIndex downTo 1) {
+        val j = lobbyPasswordRandom.nextInt(i + 1)
+        val tmp = result[i]
+        result[i] = result[j]
+        result[j] = tmp
+    }
+    return result.concatToString()
 }
 
 @Composable

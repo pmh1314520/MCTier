@@ -32,6 +32,7 @@ class ChatP2PClient(
     private val scope: CoroutineScope,
     private val bindIp: String,
     private val onMessage: (ChatWireMessage) -> Unit,
+    injectedSigner: ChatAuth.ChatSigner? = null,
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
@@ -45,7 +46,7 @@ class ChatP2PClient(
     @Volatile private var peerIdentities: List<ChatPeerIdentity> = emptyList()
     @Volatile private var localPlayerName: String = ""
     @Volatile private var started = false
-    @Volatile private var signer: ChatAuth.ChatSigner? = null
+    @Volatile private var signer: ChatAuth.ChatSigner? = injectedSigner
     private val signerLock = Any()
 
     /**
@@ -66,6 +67,11 @@ class ChatP2PClient(
         signer = generated
         return generated.publicKeyBase64()
     }
+
+    /** The same signer used for chat requests and signaling registration. */
+    fun signingSigner(): ChatAuth.ChatSigner? = synchronized(signerLock) { signer }
+
+    fun identityId(): String? = signingSigner()?.identityId()
 
     /** Install the first session or a newer registration snapshot. */
     fun configureSession(token: String, tokenEpoch: Long, playerName: String, hostId: String?): Boolean {
