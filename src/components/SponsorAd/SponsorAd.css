@@ -1,0 +1,137 @@
+/*
+ * 赞助商推广位（浪浪云）。
+ *
+ * 设计取向：跟随设置页既有的卡片语言（同样的圆角、描边、hover 反馈），
+ * 只用一条淡淡的品牌色描边区分身份，不做跳眼的大色块——它是赞助位，
+ * 不该抢走用户在设置页的注意力。
+ */
+.sponsor-ad {
+  position: relative;
+  margin: 10px 14px 14px;
+}
+
+.sponsor-ad-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  text-align: left;
+  /* 只过渡颜色相关属性：亮色主题下过渡 transform 会让实心浅色按钮在 hover 时重绘闪烁 */
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.sponsor-ad-body:hover {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(64, 158, 255, 0.4);
+}
+
+.sponsor-ad-body:focus-visible {
+  outline: 2px solid rgba(64, 158, 255, 0.55);
+  outline-offset: 2px;
+}
+
+/*
+ * Logo 用背景图而不是 <img>：切换主题时只换 background-image，
+ * 不会像 <img src> 那样出现一帧空白。两张图已裁切成同一内容尺寸
+ * （720x204），因此固定高度后视觉大小完全一致，不会跳动。
+ */
+.sponsor-ad-logo {
+  flex-shrink: 0;
+  width: 106px;
+  height: 30px;
+  background-image: url('/langlangyun-logo-white.png');
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: contain;
+}
+
+html[data-theme='light'] .sponsor-ad-logo {
+  background-image: url('/langlangyun-logo-black.png');
+}
+
+.sponsor-ad-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sponsor-ad-headline {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.3;
+}
+
+.sponsor-ad-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.4;
+}
+
+.sponsor-ad-arrow {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.35);
+  transition: color 0.16s ease;
+}
+
+.sponsor-ad-body:hover .sponsor-ad-arrow {
+  color: rgba(64, 158, 255, 0.85);
+}
+
+/* 「赞助商」标识：明确这是推广位，不伪装成功能入口。 */
+.sponsor-ad-badge {
+  position: absolute;
+  top: -7px;
+  right: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(64, 158, 255, 0.16);
+  border: 1px solid rgba(64, 158, 255, 0.3);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.4px;
+  color: rgba(140, 197, 255, 0.95);
+  pointer-events: none;
+}
+
+/* ---------------- 亮色主题 ---------------- */
+html[data-theme='light'] .sponsor-ad-body {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+}
+
+html[data-theme='light'] .sponsor-ad-body:hover {
+  background: #f7faff;
+  border-color: rgba(22, 119, 255, 0.45);
+}
+
+html[data-theme='light'] .sponsor-ad-headline {
+  color: #18202b;
+}
+
+html[data-theme='light'] .sponsor-ad-sub {
+  color: #5a6472;
+}
+
+html[data-theme='light'] .sponsor-ad-arrow {
+  color: #97a1b0;
+}
+
+html[data-theme='light'] .sponsor-ad-body:hover .sponsor-ad-arrow {
+  color: #1677ff;
+}
+
+html[data-theme='light'] .sponsor-ad-badge {
+  background: rgba(22, 119, 255, 0.1);
+  border-color: rgba(22, 119, 255, 0.28);
+  color: #1667d6;
+}

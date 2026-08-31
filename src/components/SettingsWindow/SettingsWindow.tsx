@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Form, Input, Switch, message, Tooltip, App, Slider, Button, Modal } from 'antd';
 import { PasswordInput } from '../PasswordInput/PasswordInput';
+import { SponsorAd } from '../SponsorAd/SponsorAd';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
@@ -801,6 +802,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                   </motion.div>
                 )}
               </AnimatePresence>
+              <SponsorAd />
             </motion.div>
 
             <motion.div className="settings-card" variants={itemVariants}>

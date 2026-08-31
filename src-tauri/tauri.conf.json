@@ -82,7 +82,7 @@
   },
   "plugins": {
     "shell": {
-      "open": "https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com)(?:[/?#][^\\s]*)?\\z"
+      "open": "https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com|langlangy\\.cn)(?:[/?#][^\\s]*)?\\z"
     },
     "deep-link": {
       "desktop": {

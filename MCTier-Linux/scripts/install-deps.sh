@@ -43,6 +43,9 @@ RUNTIME_PACKAGES=(
   pulseaudio-utils
   # 托盘图标
   libayatana-appindicator3-1
+  # xdg-open：Tauri 的 shell 插件在 Linux 上靠它打开外部链接（官网、赞助商页等）。
+  # 缺失时点击链接不会报错，只是静默无反应，属于最难自查的一类问题。
+  xdg-utils
 )
 
 # WebKitGTK 的包名随发行版版本变化：新版是 4.1（libsoup3），旧版是 4.0（libsoup2）。

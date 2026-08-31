@@ -18,9 +18,41 @@ test('desktop capabilities keep opener disabled and shell URLs narrowly scoped',
   assert.ok(capability.permissions.includes('shell:allow-open'));
   assert.equal(
     config.plugins.shell.open,
-    'https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com)(?:[/?#][^\\s]*)?\\z',
+    'https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com|langlangy\\.cn)(?:[/?#][^\\s]*)?\\z',
   );
   assert.doesNotMatch(config.plugins.shell.open, /file:|javascript:|mailto:|tel:/i);
+});
+
+// 上面那条是「配置没被悄悄改动」的固定断言，但它只做字符串比较，说明不了这条
+// 正则到底拦不拦得住仿冒域名。这里按行为验证：逐个 URL 实际跑一遍白名单。
+test('shell open scope allows only exact sponsor and project hosts', () => {
+  // \z 是 Rust/.NET 的字符串结尾锚点，JS 无对应写法；不带 /m 时 $ 语义等价。
+  const scope = new RegExp(config.plugins.shell.open.replace(/\\z$/, '$'));
+
+  for (const allowed of [
+    'https://langlangy.cn/?imctier',
+    'https://langlangy.cn',
+    'https://mctier.pmhs.top',
+    'https://github.com/pmh1314520/MCTier',
+  ]) {
+    assert.equal(scope.test(allowed), true, `should allow ${allowed}`);
+  }
+
+  for (const blocked of [
+    // 仿冒：把白名单域名塞进子域或路径
+    'https://langlangy.cn.evil.com/',
+    'https://evil.com/langlangy.cn',
+    'https://notlanglangy.cn/',
+    // 明文 http 不放行
+    'http://langlangy.cn/?imctier',
+    // 换行拼接第二个 URL（[^\\s] 与结尾锚点共同拦下）
+    'https://langlangy.cn/\nhttps://evil.com',
+    // 其它协议
+    'javascript:alert(1)',
+    'file:///etc/passwd',
+  ]) {
+    assert.equal(scope.test(blocked), false, `should block ${blocked}`);
+  }
 });
 
 test('generic filesystem commands require scoped grants and reject link/path tricks', () => {
