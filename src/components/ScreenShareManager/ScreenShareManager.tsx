@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Modal, Input, Switch, message, Tooltip } from 'antd';
+import { Modal, Switch, message, Tooltip } from 'antd';
+import { PasswordInput } from '../PasswordInput/PasswordInput';
 import { getCurrentWindow, PhysicalSize } from '@tauri-apps/api/window';
 import { useAppStore } from '../../stores';
 import { screenShareService } from '../../services/screenShare/ScreenShareService';
@@ -580,7 +581,7 @@ export const ScreenShareManager: React.FC = () => {
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
             >
-              <Input.Password
+              <PasswordInput
                 placeholder={tl('设置查看密码', 'Set a viewing password')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -612,7 +613,7 @@ export const ScreenShareManager: React.FC = () => {
       >
         <div className="password-modal-content">
           <p>{tl('该屏幕共享需要密码才能查看', 'This screen share requires a password to view')}</p>
-          <Input.Password
+          <PasswordInput
             placeholder={tl('请输入密码', 'Enter password')}
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}

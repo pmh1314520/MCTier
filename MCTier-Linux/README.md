@@ -113,9 +113,16 @@ $MCTIER_WEBKIT_LIB_DIR
 ### 输入法在密码框吞键
 
 fcitx5 / ibus 的 GTK IM 模块在 WebKitGTK 的 `<input type="password">` 上会吞掉按键，
-表现为"密码框打不出字"。`run-linux.sh` 默认清空 `GTK_IM_MODULE`，让 GTK 走
-Wayland 的 text-input-v3，普通输入框的中文输入不受影响。若你的环境不受此影响，
-可设 `MCTIER_KEEP_IM_MODULE=1` 跳过。
+表现为"密码框一个字都打不出来"。这里做了两层处理：
+
+1. `run-linux.sh` 默认清空 `GTK_IM_MODULE`，让 GTK 走 Wayland 的 text-input-v3，
+   普通输入框的中文输入不受影响。若你的环境不受此影响，可设 `MCTIER_KEEP_IM_MODULE=1` 跳过。
+2. 仅靠上面这条**不够**——fork 作者在 Debian 13 + KDE Plasma 6 Wayland 上实测同款写法仍会复现。
+   因此前端在 Linux 下不再使用原生密码框，改用普通文本框 + CSS `-webkit-text-security`
+   遮罩并配显示/隐藏切换（`src/components/PasswordInput/`），从引擎层绕开这条冲突路径。
+   Windows 继续走原生密码框，保留浏览器自带的密码语义。
+
+第 2 条是兜底，所以即使第 1 条被 `MCTIER_KEEP_IM_MODULE=1` 关掉，密码也仍然能输入。
 
 ### 透明窗口在部分核显驱动上显示异常
 

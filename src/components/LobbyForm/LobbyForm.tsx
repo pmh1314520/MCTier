@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Form, Input, Button, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
+import { PasswordInput } from '../PasswordInput/PasswordInput';
 import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useAppStore } from '../../stores';
@@ -1301,7 +1302,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 },
               ]}
             >
-              <Input.Password
+              <PasswordInput
                 placeholder={tl('留空创建无密码大厅，或输入 8-32 位密码', 'Leave blank for no password, or enter 8-32 characters')}
                 size="large"
                 disabled={loading}

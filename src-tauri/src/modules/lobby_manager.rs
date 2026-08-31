@@ -285,11 +285,17 @@ impl LobbyManager {
     /// * `Err(LobbyError)` - 验证失败
     ///
     /// # 规则
-    /// - 长度：8-32 个字符
-    /// - 必须包含字母和数字
-    /// - 不能仅包含空白字符
+    /// - 留空（或仅空白字符）表示无密码大厅，直接放行
+    /// - 非空时长度：8-32 个字符
+    /// - 非空时必须包含字母和数字
     pub fn validate_password(password: &str) -> Result<(), LobbyError> {
         let trimmed = password.trim();
+
+        // 留空表示无密码大厅。桌面端与 Android 端的密码框文案都是「留空创建无密码大厅」，
+        // 若此处仍强制 8 位，就会出现前端允许提交、后端直接拒绝的矛盾（issue #42）。
+        if trimmed.is_empty() {
+            return Ok(());
+        }
 
         // 检查长度
         if trimmed.len() < 8 {
@@ -1391,6 +1397,23 @@ mod tests {
     fn test_validate_password_whitespace() {
         let result = LobbyManager::validate_input("   ", "密码");
         assert!(result.is_err());
+    }
+
+    /// 留空必须被接受：两端 UI 都以「留空创建无密码大厅」为文案（issue #42）。
+    #[test]
+    fn test_validate_password_allows_blank_for_passwordless_lobby() {
+        assert!(LobbyManager::validate_password("").is_ok());
+        assert!(LobbyManager::validate_password("   ").is_ok());
+    }
+
+    /// 非空密码仍然要满足原有强度要求，放行留空不等于放松弱密码。
+    #[test]
+    fn test_validate_password_still_rejects_weak_non_empty() {
+        assert!(LobbyManager::validate_password("short1").is_err());
+        assert!(LobbyManager::validate_password("onlyletters").is_err());
+        assert!(LobbyManager::validate_password("12345678").is_err());
+        assert!(LobbyManager::validate_password(&"a1".repeat(20)).is_err());
+        assert!(LobbyManager::validate_password("Passw0rdok").is_ok());
     }
 
     #[test]

@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal, Button, Input, Switch, message, Checkbox, Progress } from 'antd';
+import { PasswordInput } from '../PasswordInput/PasswordInput';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../../stores/appStore';
@@ -1380,7 +1381,7 @@ export const FileShareManagerNew: React.FC = () => {
       </div>
       {showAddShare && <AddShareDialog visible={showAddShare} onClose={() => setShowAddShare(false)} onSuccess={() => { setShowAddShare(false); loadLocalShares(); }} />}
       <Modal className="file-share-modal" rootClassName="file-share-modal-root" title={tl('输入密码', 'Enter Password')} open={showPasswordModal} onOk={() => pendingShare && openShare(pendingShare, passwordInput)} onCancel={() => { setShowPasswordModal(false); setPasswordInput(''); setPendingShare(null); pendingBrowsePathRef.current = ''; }} okText={tl('确定', 'OK')} cancelText={tl('取消', 'Cancel')} centered width={400}>
-        <div style={{ marginTop: 16 }}><Input.Password autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder={tl('请输入共享密码', 'Enter the share password')} /></div>
+        <div style={{ marginTop: 16 }}><PasswordInput autoFocus value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} onPressEnter={() => pendingShare && openShare(pendingShare, passwordInput)} placeholder={tl('请输入共享密码', 'Enter the share password')} /></div>
       </Modal>
     </div>
   );
@@ -1494,7 +1495,7 @@ const AddShareDialog: React.FC<AddShareDialogProps> = ({ visible, onClose, onSuc
         </div>
         <div className="form-item">
           <label><Switch checked={hasPassword} onChange={setHasPassword} /><span style={{ marginLeft: 8 }}>{tl('密码保护', 'Password Protection')}</span></label>
-          {hasPassword && <Input.Password value={password} onChange={(e) => setPassword(e.target.value)} placeholder={tl('输入密码', 'Enter password')} style={{ marginTop: 8 }} />}
+          {hasPassword && <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder={tl('输入密码', 'Enter password')} style={{ marginTop: 8 }} />}
         </div>
         <div className="form-item">
           <label><Switch checked={hasExpiry} onChange={setHasExpiry} /><span style={{ marginLeft: 8 }}>{tl('设置有效期', 'Set Expiry')}</span></label>

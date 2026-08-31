@@ -116,16 +116,18 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 - **Node settings in invites**: QR codes, invite links, recent lobbies and favorite lobbies carry and restore the matching EasyTier node and signaling-server settings, preventing cross-node join failures.
 - **Self-healing connections**: Both desktop and Android support signaling reconnects, secondary member-state confirmation and automatic voice-connection recovery to tolerate short network interruptions.
 - **Connection / network diagnostics**: Aggregate members' direct/relay status, latency and packet loss into a score with tuning tips; network diagnostics can also check the virtual adapter, firewall, UDP ports and security-software blocking, with one-click firewall allow.
+- **Community node submissions**: Submit your own EasyTier node to the public list for others to use, and browse submissions under "Settings → Community Nodes" sorted by online status and latency, saving any of them as a custom node in one click. The server probes reachability before accepting a submission, and nodes that stay unreachable for more than a day are removed automatically. This works outside a lobby too.
 - **Self-hosting**: Run your own signaling server to control the connection entry.
 
 ### Communication & Collaboration
 
-- **Real-time voice channels**: Voice by channel within a lobby, ideal for collaboration.
+- **Real-time voice channels**: Voice by channel within a lobby, ideal for collaboration. Desktop voice is **fully unprocessed**: no noise suppression, echo cancellation or automatic gain control sits in the path, so the preview matches exactly what other members hear.
 - **Voice squads**: Split members into squads so you only hear teammates in your squad — easy grouped voice chat.
 - **Built-in voice changer**: Real-time voice changing with presets like loli and uncle voices, making mic chat more fun; preview before applying.
 - **Lobby chat room**: Supports text, image and emoji messages.
 - **Message danmaku**: Chat messages float across the top of the screen as bullets, so you never miss them while in the background or gaming; adjustable size, speed, opacity, tracks and color (including random rainbow), enabled by default.
-- **Folder sharing**: Share folders with lobby members, with download and transfer lists.
+- **Folder sharing**: Share folders with lobby members, with download and transfer lists, and a **customizable download directory** (pick a folder in desktop settings; Android grants a directory through the system file picker).
+- **Personal avatars**: Both platforms can set a personal avatar, shown in the player list and chat room, and in the desktop mini overlay as well.
 - **Screen sharing**: View another member's screen via WebRTC.
 - **Remote control**: Remotely view and operate another device in real time via WebRTC, supporting PC↔phone control in both directions; mouse move, left/right click, long-press, drag, wheel, keyboard input, and back/home/recents gestures are all included, with automatic landscape/portrait and best window size based on the remote resolution.
 - **Room tools**: Built-in dice roller, countdown timer and a shared multi-user to-do list — great for tabletop games, draws and team task planning; the countdown keeps running even when you switch views or run in the background.
@@ -145,7 +147,6 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 
 - **Minecraft world auto-discovery**: Scan Minecraft worlds opened by lobby members (MOTD/version/players/latency) and auto-inject them into your local LAN list to join without typing an IP.
 - **Game quick connect**: Built-in port presets for common multiplayer games, auto-generating a "virtual IP:port" direct address to copy in one click.
-- **Minecraft helper**: Detect the Minecraft install path and version, provide an illustrated LAN multiplayer guide, and automatically disable LAN online-mode verification for mainstream launchers.
 
 ### Advanced & More
 
@@ -162,6 +163,7 @@ Screenshots are grouped by desktop and mobile and laid out compactly to avoid an
 | Platform | Requirements |
 | --- | --- |
 | Windows | Windows 10/11 64-bit, 2GB+ RAM recommended |
+| Linux | Debian-family distributions (Debian / Ubuntu / Deepin / UOS / Mint), x86_64 |
 | Android | Android phone or tablet, Android 8.0+ recommended |
 | Network | Able to reach the configured EasyTier node and WebRTC signaling server |
 
@@ -172,6 +174,7 @@ Download the latest build from [GitHub Releases](https://github.com/pmh1314520/M
 - Windows Installer: download `MCTier_x.y.z_x64-setup.exe` and double-click to install.
 - Windows Portable: download `MCTier.exe` and run it directly.
 - Android: download `MCTier-Android.apk` and install it on your phone.
+- Linux (Debian family): see [MCTier-Linux/README.md](MCTier-Linux/README.md) for build and packaging steps. The app itself runs as a normal user and only needs `cap_net_admin` granted once to `easytier-core`; voice, screen sharing and remote control are not yet usable on stock Debian — see the per-feature status matrix in that directory.
 
 ### Create or Join a Lobby
 

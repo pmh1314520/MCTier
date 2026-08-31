@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Form, Input, Switch, message, Tooltip, App, Slider, Button, Modal } from 'antd';
+import { PasswordInput } from '../PasswordInput/PasswordInput';
 import { invoke } from '@tauri-apps/api/core';
 import { useEscapeKey } from '../../hooks';
 import { RestartConfirmModal } from '../RestartConfirmModal/RestartConfirmModal';
@@ -676,7 +677,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           { min: 8, max: 32, message: tl('长度 8-32 个字符', 'Length must be 8-32 characters') },
                           { validator: (_, v) => { if (!v) return Promise.resolve(); if (!/[a-zA-Z]/.test(v)) return Promise.reject(new Error(tl('必须含字母', 'Must contain letters'))); if (!/[0-9]/.test(v)) return Promise.reject(new Error(tl('必须含数字', 'Must contain digits'))); return Promise.resolve(); } },
                         ]}>
-                        <Input.Password placeholder={tl('8-32 个字符，含字母和数字', '8-32 characters with letters and digits')} maxLength={32} onBlur={handleFieldBlur} />
+                        <PasswordInput placeholder={tl('8-32 个字符，含字母和数字', '8-32 characters with letters and digits')} maxLength={32} onBlur={handleFieldBlur} />
                       </Form.Item>
                       <Form.Item name="playerName" label={tl('玩家名称', 'Player Name')}
                         rules={[

@@ -5095,6 +5095,8 @@ private fun isValidLobbyName(n: String): Boolean {
 
 private fun isValidLobbyPassword(p: String): Boolean {
     val t = p.trim()
+    // 留空表示无密码大厅，与输入框文案及 LobbyInviteCodec.isValidLobbyPassword 保持一致（issue #42）。
+    if (t.isEmpty()) return true
     if (t.length < 8 || t.length > 32) return false
     val hasLetter = t.any { it in 'a'..'z' || it in 'A'..'Z' }
     val hasDigit = t.any { it in '0'..'9' }
