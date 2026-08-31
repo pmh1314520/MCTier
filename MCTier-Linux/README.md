@@ -80,8 +80,8 @@ Wayland 上同方案）。logind 对活动会话用户的 `/dev/uinput` 有 ACL 
 | 开机自启 | 🔄 已实现 | XDG autostart `.desktop`；未实机验证 |
 | 远程控制（主控端） | 🔄 已实现 | 依赖 WebRTC，见下方已知限制 |
 | 远程控制（被控端注入） | 🔄 已实现 | uinput 三设备（触摸绝对定位 / 鼠标按键滚轮 / 键盘）；未实机验证 |
-| 语音通话 | ❌ 两处阻塞 | ①发行版 WebKit 没开 WebRTC ②自建引擎后仍遇 GStreamer 死锁，见下方 |
-| 屏幕共享 | ❌ 发行版阻塞 | 同 ①；②尚未单独验证（被 ① / ② 阻塞在前） |
+| 语音通话 | ❌ 上游阻塞 | ①发行版 WebKit 没开 WebRTC ②自建引擎后仍遇 GStreamer 死锁（已定案为上游缺陷，见下方） |
+| 屏幕共享 | ❌ 上游阻塞 | 同 ①；②尚未单独验证（被 ① / ② 阻塞在前） |
 | 杀软检测 | ➖ 不适用 | Windows 语义，Linux 返回空列表 |
 | 文本注入（穿越输入法） | ❌ 不支持 | uinput 只能发按键码，明确降级 |
 
@@ -124,14 +124,23 @@ fork 作者按上述方式自建了 `ENABLE_WEB_RTC=ON` 的 WebKitGTK 并确认�
 
 这一条**不在应用层能修的范围内**，需要 GStreamer / WebKit 上游处理。
 
-不过有一个变量值得先排除：MCTier 此前即使选「原声」，麦克风流也会穿过一张 WebAudio 图
-（`MediaStreamSource → Gain → MediaStreamDestination`），也就是要多跨一次
+**应用侧的嫌疑已经排除。** 我们一度怀疑是自己多接了一层 WebAudio：此前即使选「原声」，
+麦克风流也会穿过 `MediaStreamSource → Gain → MediaStreamDestination`，也就是多跨一次
 WebAudio↔GStreamer 桥接，而死锁栈正好卡在这段管线上。该多余的处理层已经去掉
-（「原声」现在直接发送原始麦克风轨道），因此复测时请按以下顺序拆分：
+（「原声」现在直接发送原始麦克风轨道，commit `17848ec`）。fork 作者据此按
+「原声 → 变声」两步复测，结论是**「原声」直发原始轨道后开麦仍 100% 卡死**——
+死锁与 WebAudio 桥接无关，定案在 `addTrack` 的事件推送本身。
 
-1. 音色保持默认「原声」开麦 —— 若不再卡死，说明死锁与 WebAudio 桥接相关；
-2. 换一个变声音色（会重新接入 WebAudio 图）再开麦 —— 若此时卡死，即可定位到桥接段；
-3. 若第 1 步仍然 100% 卡死，则死锁与我们是否接 WebAudio 无关，应直接报上游。
+作者还做了一个对照实验：给 `gstpad.c` 最外层的 `gst_pad_push_event` 加线程感知全局互斥
+（转发链重入放行）后重新自建引擎，死锁只是换成「全局锁 vs pad 对象锁」的新形态。
+也就是说这个锁序反转是**结构性**的，需要 GStreamer 在设计层面修，打补丁绕不过去。
+
+上游 issue（双线程栈与复现路径都在里面）：
+
+- GStreamer：<https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/5282>
+- WebKit：<https://bugs.webkit.org/show_bug.cgi?id=322955>
+
+验证证据（死锁双栈、对照实验栈）归档在 fork 的 `MCTier-Linux/verification/`。
 
 ### 输入法在密码框吞键
 

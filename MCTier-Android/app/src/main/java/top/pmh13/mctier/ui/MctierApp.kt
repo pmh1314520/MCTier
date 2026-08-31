@@ -1061,7 +1061,10 @@ private fun FavoritesDialog(state: MctierUiState, repository: MctierRepository, 
         title = { Text(L("收藏大厅", "Saved Lobbies"), color = TextPrimary) },
         text = {
             Column {
-                if (currentName.isNotBlank() && currentPassword.isNotBlank()) {
+                // 无密码大厅也要能收藏：这里此前额外要求密码非空，导致「留空创建无密码大厅」
+                // 之后收藏入口直接不显示（issue #42）。收藏项以「名称 + 密码」为键，
+                // 空密码不影响去重。
+                if (currentName.isNotBlank()) {
                     TextButton(onClick = { repository.addFavorite(currentName, currentPassword, serverNode = currentServerNode, signalingServer = currentSignalingServer) }) {
                         Icon(Icons.Rounded.StarBorder, null, tint = GrassGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))

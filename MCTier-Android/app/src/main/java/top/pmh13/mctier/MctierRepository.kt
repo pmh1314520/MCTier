@@ -2091,8 +2091,14 @@ class MctierRepository(private val context: Context) {
         if (autoJoinTried) return
         autoJoinTried = true
         val s = _state.value.settings
-        // 与大厅名/密码校验规则保持一致（密码至少 8 位），避免自动建/进弱密码大厅
-        if (s.autoLobbyEnabled && s.autoLobbyName.trim().length >= 4 && s.autoLobbyPassword.length >= 8) {
+        // 复用与手动创建/加入完全相同的校验，避免两套规则各自漂移。
+        // 此前这里额外写死「密码至少 8 位」，于是配了无密码自动大厅的用户开关打开却毫无反应，
+        // 且没有任何提示——属于最难自查的静默失败（issue #42）。
+        // 留空表示无密码大厅，与输入框文案一致；非空时仍由 codec 施加强度要求。
+        if (s.autoLobbyEnabled &&
+            LobbyInviteCodec.isValidLobbyName(s.autoLobbyName) &&
+            LobbyInviteCodec.isValidLobbyPassword(s.autoLobbyPassword)
+        ) {
             createOrJoinLobby(s.autoLobbyName, s.autoLobbyPassword)
         }
     }
