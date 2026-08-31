@@ -1450,6 +1450,40 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
+/*
+ * 次要按钮：返回主界面。
+ *
+ * 版本被服务器拒绝时会主动断开组网，若只留「前往官网」一个按钮，
+ * 用户会被困在一个已经没有网络的大厅界面里，只能重启应用。
+ */
+.version-error-btn.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.version-error-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-2px);
+}
+
+.version-error-btn.secondary:active {
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='light'] .version-error-btn.secondary {
+  background: rgba(24, 32, 43, 0.06);
+  color: #18202b;
+  border-color: rgba(24, 32, 43, 0.18);
+}
+
+html[data-theme='light'] .version-error-btn.secondary:hover {
+  background: rgba(24, 32, 43, 0.1);
+  border-color: rgba(24, 32, 43, 0.28);
+}
+
 .version-error-btn svg,
 .version-error-btn span {
   position: relative;

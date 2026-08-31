@@ -662,6 +662,16 @@ private fun VersionErrorDialog(alert: top.pmh13.mctier.data.VersionAlert, reposi
                 },
             ) { Text(L("前往官网下载", "Open download website"), color = GrassGreen, fontWeight = FontWeight.Bold) }
         },
+        dismissButton = {
+            // 组网已在收到 version-too-old 时断开（handleSignal 里调了 leaveLobby），
+            // 所以关掉弹窗不等于放行——服务器才是权威，旧版本再次尝试仍会被拒。
+            // 但必须留一条退出路径：否则用户在更新之前连设置页都进不去
+            // （例如想改用自建信令服务器），只能强杀应用。
+            TextButton(
+                enabled = progress !in 0..100,
+                onClick = { repository.clearVersionError() },
+            ) { Text(L("稍后处理", "Later"), color = TextPrimary.copy(alpha = 0.6f)) }
+        },
     )
 }
 

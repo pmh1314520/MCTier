@@ -5,7 +5,7 @@
 This file documents the third-party components distributed with MCTier, together with
 their licenses, upstream sources, versions and modification status.
 
-最后更新 / Last updated: 2026-08-30（对应 MCTier 2.8.0）
+最后更新 / Last updated: 2026-08-31（对应 MCTier 3.0.0）
 
 ---
 

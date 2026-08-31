@@ -499,10 +499,34 @@ function App() {
           // 在初始化之前先设置版本错误回调
           webrtcClient.onVersionError((currentVersion, minimumVersion) => {
             console.log(`WebRTC: 版本错误 - 当前版本: ${currentVersion}, 最低要求: ${minimumVersion}`);
-            
-            // 设置版本错误信息到store，MiniWindow会检测并显示弹窗
+
+            // 设置版本错误信息到store，MiniWindow 会据此显示全屏强制更新提示
             const { setVersionError } = useAppStore.getState();
             setVersionError({ currentVersion, minimumVersion, downloadUrl: DOWNLOAD_WEBSITE });
+
+            // 仅弹提示是不够的：EasyTier 是先于信令启动的，信令拒绝时虚拟网卡已经建好，
+            // 而 EasyTier 组网本身不依赖信令，低版本客户端此时仍然连在同一个虚拟局域网里
+            // （能 ping 通、能连 Minecraft），只是没有玩家列表和语音。
+            // 因此必须主动拆掉组网，才能真正做到「低于最低版本无法组网」。
+            // Android 端在同一条分支里调用 leaveLobby()，这里与其保持一致。
+            void (async () => {
+              try {
+                await invoke('leave_lobby');
+                console.log('✅ 版本过低：已停止 EasyTier 并退出大厅');
+              } catch (error) {
+                console.error('❌ 版本过低时退出大厅失败，改为强制停止虚拟网卡:', error);
+                // 退出流程失败也不能把网留着，兜底强杀 EasyTier 进程并清理网卡。
+                try {
+                  await invoke('force_stop_easytier');
+                  console.log('✅ 版本过低：已强制停止虚拟网卡');
+                } catch (fallbackError) {
+                  console.error('❌ 强制停止虚拟网卡也失败:', fallbackError);
+                }
+              }
+              try {
+                await invoke('stop_file_server');
+              } catch { /* 未启动时忽略 */ }
+            })();
           });
 
           // 初始化WebRTC客户端

@@ -1133,6 +1133,23 @@ export const MiniWindow: React.FC = () => {
     }
   };
 
+  // 版本过低提示里的「返回主界面」：组网已在收到 version-too-old 时断开，
+  // 这里只清理前端状态。仍兜底调一次 leave_lobby，避免极端情况下后端仍持有会话。
+  const handleBackToHomeFromVersionError = async () => {
+    try {
+      await webrtcClient.cleanup();
+    } catch (error) {
+      console.warn('清理 WebRTC 客户端时出现警告:', error);
+    }
+    try {
+      await invoke('leave_lobby');
+    } catch { /* 组网已停止时忽略 */ }
+    const { setAppState, clearLobby, setVersionError } = useAppStore.getState();
+    clearLobby();
+    setVersionError(null);
+    setAppState('idle');
+  };
+
   // 复制官网链接
   const handleCopyWebsiteUrl = async () => {
     if (!versionError) return;
@@ -1272,6 +1289,18 @@ export const MiniWindow: React.FC = () => {
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
                 <span>{tl('前往官网下载最新版', 'Download the latest version from the website')}</span>
+              </motion.button>
+              {/*
+                版本被拒时已主动断开组网，这里必须给一条回到主界面的路，
+                否则用户被困在一个没有网络的大厅界面里，只能重启应用。
+              */}
+              <motion.button
+                className="version-error-btn secondary"
+                onClick={handleBackToHomeFromVersionError}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <span>{tl('返回主界面', 'Back to home')}</span>
               </motion.button>
             </div>
           </motion.div>
