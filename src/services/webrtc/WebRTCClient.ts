@@ -3060,6 +3060,39 @@ export class WebRTCClient {
     return run;
   }
 
+  /**
+   * 把当前发送的音频轨道换成 `stream` 里的新轨道。
+   *
+   * 仅用于音色切换导致输出轨道变化的场景：轨道数量没变，所以只需 replaceTrack，
+   * 不触发重新协商。旧轨道由本方法停止，避免麦克风被重复占用。
+   */
+  private async swapOutgoingAudio(stream: MediaStream): Promise<void> {
+    const nextTrack = stream.getAudioTracks()[0];
+    if (!nextTrack) return;
+
+    for (const [peerId, pc] of this.peerConnections) {
+      const audioTransceiver = pc.connection
+        .getTransceivers()
+        .find((t) => t.receiver.track.kind === 'audio');
+      if (audioTransceiver?.sender) {
+        try {
+          await audioTransceiver.sender.replaceTrack(nextTrack);
+        } catch (e) {
+          console.warn('切换音色时替换 peer ' + peerId + ' 音频轨道失败', e);
+        }
+      }
+    }
+
+    // 停掉上一条输出轨道。注意不能停 rawMicStream：变声图仍以它为输入源。
+    const previous = this.localStream;
+    if (previous && previous !== stream && previous !== this.rawMicStream) {
+      previous.getAudioTracks().forEach((t) => t.stop());
+    }
+
+    this.localStream = stream;
+    try { this.onLocalStreamCallback?.(stream); } catch { /* ignore */ }
+  }
+
   /** 反复应用麦克风状态，直到实际状态与最新期望一致 */
   private async convergeMicState(): Promise<void> {
     // 最多收敛若干轮，避免极端情况下的无限循环
@@ -3096,9 +3129,16 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
         }
         this.rawMicStream = rawStream;
-        // 原始麦克风流直接进变声器（变声是用户主动选择的效果，不是降噪处理层）。
+        // 「原声」直接发送原始轨道，不接任何中间处理层；仅在用户主动选择变声音色时
+        // 才接入变声图（变声是用户要的效果，不是降噪处理层）。
         const newStream = voiceChangerService.process(rawStream);
         const newAudioTrack = newStream.getAudioTracks()[0];
+
+        // 跨「原声 ↔ 变声」边界切换音色时输出轨道会换一条，必须同步替换发送轨道，
+        // 否则界面显示已切换、对方实际仍在听旧轨道。
+        voiceChangerService.setOutputChangedHandler((stream) => {
+          void this.swapOutgoingAudio(stream);
+        });
 
         for (const [peerId, pc] of this.peerConnections) {
           const transceivers = pc.connection.getTransceivers();
@@ -3151,6 +3191,7 @@ export class WebRTCClient {
           this.rawMicStream.getTracks().forEach((t) => t.stop());
           this.rawMicStream = null;
         }
+        voiceChangerService.setOutputChangedHandler(null);
         voiceChangerService.dispose();
         try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
         console.log('✅ 麦克风已关闭，资源已释放');
@@ -3760,6 +3801,7 @@ export class WebRTCClient {
         this.rawMicStream.getTracks().forEach((t) => t.stop());
         this.rawMicStream = null;
       }
+      try { voiceChangerService.setOutputChangedHandler(null); } catch { /* ignore */ }
       try { voiceChangerService.dispose(); } catch { /* ignore */ }
       try { this.onLocalStreamCallback?.(null); } catch { /* ignore */ }
 
