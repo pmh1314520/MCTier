@@ -501,8 +501,12 @@ function App() {
             console.log(`WebRTC: 版本错误 - 当前版本: ${currentVersion}, 最低要求: ${minimumVersion}`);
 
             // 设置版本错误信息到store，MiniWindow 会据此显示全屏强制更新提示
-            const { setVersionError } = useAppStore.getState();
+            const { setVersionError, clearLobby, setAppState } = useAppStore.getState();
             setVersionError({ currentVersion, minimumVersion, downloadUrl: DOWNLOAD_WEBSITE });
+
+            // 清理前端大厅状态，否则 MiniWindow 仍在位、轮询定时器继续对已停止的后端发 RPC
+            clearLobby();
+            setAppState('idle');
 
             // 仅弹提示是不够的：EasyTier 是先于信令启动的，信令拒绝时虚拟网卡已经建好，
             // 而 EasyTier 组网本身不依赖信令，低版本客户端此时仍然连在同一个虚拟局域网里
