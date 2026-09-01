@@ -1,4 +1,4 @@
-use crate::modules::error::AppError;
+﻿use crate::modules::error::AppError;
 use crate::modules::resource_manager::ResourceManager;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -852,7 +852,8 @@ impl NetworkService {
 
         let launch_args = cmd_args.clone();
 
-        #[cfg(windows)]
+        // Windows 生产模式：使用 privileged helper
+        #[cfg(all(windows, not(debug_assertions)))]
         {
             let (session, reader) = privileged_helper::start_easytier(
                 easytier_path.clone(),
@@ -872,6 +873,59 @@ impl NetworkService {
             let last_stderr = Arc::clone(&self.last_stderr);
             tokio::spawn(async move {
                 Self::monitor_helper(reader, virtual_ip, status, is_running, last_stderr).await;
+            });
+        }
+
+        // Windows 开发模式：直接启动进程（类似 Linux）
+        #[cfg(all(windows, debug_assertions))]
+        {
+            log::info!("🔧 开发模式 - 直接启动 EasyTier 进程（不使用 privileged helper）");
+            
+            cmd.current_dir(working_dir)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+
+            let mut child = cmd.spawn().map_err(|e| {
+                log::error!("启动 EasyTier 进程失败: {}", e);
+                AppError::ProcessError(format!("启动 EasyTier 进程失败: {}", e))
+            })?;
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准输出".to_string()))?;
+            let stderr = child
+                .stderr
+                .take()
+                .ok_or_else(|| AppError::ProcessError("无法获取 EasyTier 标准错误".to_string()))?;
+
+            *self.easytier_process.lock().await = Some(child);
+            *self.is_running.lock().await = true;
+            *self.instance_config_dir.lock().await = Some(config_dir.clone());
+
+            log::info!("EasyTier 进程已启动（开发模式），等待获取虚拟 IP...");
+
+            let virtual_ip_clone = Arc::clone(&self.virtual_ip);
+            let status_clone = Arc::clone(&self.status);
+            let is_running_stdout = Arc::clone(&self.is_running);
+            let stderr_buf_stdout = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_stdout(
+                    stdout,
+                    virtual_ip_clone,
+                    status_clone,
+                    is_running_stdout,
+                    stderr_buf_stdout,
+                )
+                .await;
+            });
+
+            let is_running_clone = Arc::clone(&self.is_running);
+            let status_clone2 = Arc::clone(&self.status);
+            let stderr_buf_clone = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_stderr(stderr, is_running_clone, status_clone2, stderr_buf_clone)
+                    .await;
             });
         }
 
