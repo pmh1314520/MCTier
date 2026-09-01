@@ -281,8 +281,8 @@ class NetworkController(private val context: Context) {
         return when (trimmed) {
             "tcp://mctier.pmhs.top:11010",
             "udp://mctier.pmhs.top:11010",
-            "ws://mctier.pmhs.top/signaling",
-            "wss://mctier.pmhs.top/signaling",
+            "ws://test.pmhs.top",
+            "wss://test.pmhs.top",
             -> DefaultEasyTierNode
             "tcp://mctiers.pmhs.top" -> "tcp://mctiers.pmhs.top:11010"
             "udp://mctiers.pmhs.top" -> "udp://mctiers.pmhs.top:11010"

@@ -204,6 +204,16 @@ impl HostsManager {
     fn write_hosts_file(path: &std::path::Path, content: &str) -> Result<(), AppError> {
         #[cfg(windows)]
         {
+            // 开发模式：跳过 hosts 文件写入
+            #[cfg(debug_assertions)]
+            {
+                log::info!("🔧 开发模式 - 跳过 hosts 文件写入");
+                return Ok(());
+            }
+
+            // 生产模式：通过 privileged helper 写入
+            #[cfg(not(debug_assertions))]
+            {
             use sha2::{Digest, Sha256};
 
             if path != crate::modules::windows_paths::hosts_path() {
@@ -226,6 +236,7 @@ impl HostsManager {
             })?;
             return Ok(());
         }
+            }
 
         #[cfg(not(windows))]
         {

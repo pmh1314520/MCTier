@@ -554,7 +554,7 @@ function App() {
 
           // 初始化WebRTC客户端
           // 从 lobby 对象中获取信令服务器地址，如果没有则使用默认值
-          const signalingServer = lobby.signalingServer || 'wss://mctier.pmhs.top/signaling';
+          const signalingServer = lobby.signalingServer || 'wss://test.pmhs.top';
           console.log('已准备 WebRTC 连接参数');
 
           await webrtcClient.initialize(

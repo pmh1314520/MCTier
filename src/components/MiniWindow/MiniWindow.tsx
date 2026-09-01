@@ -972,7 +972,7 @@ export const MiniWindow: React.FC = () => {
           : savedServerNode);
       const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
         ? settings.privateSignalingServer 
-        : 'wss://mctier.pmhs.top/signaling';
+        : 'wss://test.pmhs.top';
 
       const useDomain = settings.useDomain || false;
 

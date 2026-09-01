@@ -360,7 +360,7 @@ MCTier transmits communication content (chat, voice, files, screen, remote contr
 
 | Default service | Address | Metadata visible to the server | Purpose |
 |---|---|---|---|
-| Signaling server | `wss://mctier.pmhs.top/signaling` | Public IP, connection time, lobby name and password hash used for matching, player name, virtual IP/domain, member count, client version | Exchange WebRTC signaling, discover members of the same lobby |
+| Signaling server | `wss://test.pmhs.top` | Public IP, connection time, lobby name and password hash used for matching, player name, virtual IP/domain, member count, client version | Exchange WebRTC signaling, discover members of the same lobby |
 | EasyTier public node | `udp://us01.225284.xyz:11010` | Public IP, connection time, EasyTier network identifier | P2P hole punching and relaying when required |
 | Version check | `https://gitee.com/api/v5/repos/peng-minghang/mctier/tags` | Public IP, request time (recorded by Gitee) | Retrieve the latest version number |
 

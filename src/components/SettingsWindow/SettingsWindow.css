@@ -1,4 +1,4 @@
-/* ============================
+﻿/* ============================
    设置窗口 - 完整样式
    ============================ */
 
@@ -1183,6 +1183,7 @@ html[data-theme='light'] .settings-avatar-profile .settings-card-desc {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+  justify-content: center; /* 居中对齐 */
 }
 
 /* 与 .snd-text-btn 同一视觉语言：只做颜色过渡，不做位移缩放，
@@ -1217,6 +1218,7 @@ html[data-theme='light'] .settings-avatar-profile .settings-card-desc {
 .community-node-form-actions {
   display: flex;
   gap: 8px;
+  justify-content: center; /* 居中对齐 */
 }
 
 .community-node-list {

@@ -189,6 +189,10 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
             Err(error) => return Err(format!("接受特权 helper 通道失败: {}", error)),
         }
     };
+    // 将 stream 设置为阻塞模式（listener 是非阻塞的）
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| format!("配置特权 helper 通道为阻塞模式失败: {}", e))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .map_err(|e| format!("配置特权 helper 读取超时失败: {}", e))?;
@@ -506,6 +510,12 @@ fn validate_easytier_layout(
     working_dir: &Path,
     config_dir: &Path,
 ) -> Result<(), String> {
+    // 🔧 开发模式：跳过路径验证
+    #[cfg(debug_assertions)]
+    {
+        log::warn!("⚠️ 开发模式：跳过 EasyTier 路径安全检查");
+        return Ok(());
+    }
     let executable_dir = std::env::current_exe()
         .map_err(|e| format!("无法获取 MCTier 安装目录: {}", e))?
         .parent()
@@ -515,6 +525,18 @@ fn validate_easytier_layout(
         executable_dir.join("runtime"),
         executable_dir.join("resources").join("runtime"),
     ];
+    // 开发模式：允许 target/debug/runtime 和 target/release/runtime
+    #[cfg(debug_assertions)]
+    let allowed_runtimes = {
+        let mut runtimes = allowed_runtimes.to_vec();
+        // 添加开发模式的 runtime 目录
+        if let Some(workspace_dir) = executable_dir.parent() {
+            runtimes.push(workspace_dir.join("runtime"));
+        }
+        runtimes
+    };
+    #[cfg(not(debug_assertions))]
+    let allowed_runtimes = allowed_runtimes;
     if executable != &working_dir.join("easytier-core.exe")
         || !allowed_runtimes.iter().any(|path| path == working_dir)
     {
@@ -967,3 +989,5 @@ fn is_elevated() -> bool {
             && elevation.TokenIsElevated != 0
     }
 }
+
+

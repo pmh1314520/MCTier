@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 const val DefaultEasyTierNode = "udp://us01.225284.xyz:11010"
 const val RemovedQingyunNode = "wss://mctiers.pmhs.top"
-const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
+const val DefaultSignalingServer = "wss://test.pmhs.top"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
 const val ChatTokenHeader = "x-mctier-chat-token"

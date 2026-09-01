@@ -21,7 +21,7 @@ export interface PublicLobby {
   serverNode?: string;
 }
 
-const DEFAULT_SIGNALING = 'wss://mctier.pmhs.top/signaling';
+const DEFAULT_SIGNALING = 'wss://test.pmhs.top';
 
 /**
  * 查询公开大厅列表

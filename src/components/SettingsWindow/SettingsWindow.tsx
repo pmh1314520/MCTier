@@ -152,7 +152,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         usePrivateServer: ups,
         // 只在后端返回 null/undefined 时使用默认值
         privateEasytierServer: settings.privateEasytierServer ?? 'udp://us01.225284.xyz:11010',
-        privateSignalingServer: settings.privateSignalingServer ?? 'wss://mctier.pmhs.top/signaling',
+        privateSignalingServer: settings.privateSignalingServer ?? 'wss://test.pmhs.top',
         alwaysOnTop: aot,
         rememberWindowPosition: rwp,
         closeToTray: ctt,
@@ -188,7 +188,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
         useDomain: false,
         usePrivateServer: false,
         privateEasytierServer: 'udp://us01.225284.xyz:11010',
-        privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
+        privateSignalingServer: 'wss://test.pmhs.top',
         alwaysOnTop: true,
         rememberWindowPosition: false,
         closeToTray: false,
@@ -761,7 +761,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           { required: true, message: tl('请输入信令服务器地址', 'Please enter the signaling server address') },
                           { pattern: /^wss?:\/\/.+$/, message: tl('格式：ws://域名/path 或 wss://域名/path', 'Format: ws://host/path or wss://host/path') },
                         ]}>
-                        <Input placeholder="wss://mctier.pmhs.top/signaling" onBlur={handleFieldBlur} />
+                        <Input placeholder="wss://test.pmhs.top" onBlur={handleFieldBlur} />
                       </Form.Item>
                       <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '-4px', marginBottom: '10px', lineHeight: 1.6 }}>
                         {tl('提示：MCTier 官网仅提供信令服务器源码', 'Note: The MCTier website only provides the signaling server source code')}
@@ -788,7 +788,7 @@ export const SettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) =
                           onClick={async () => {
                             const defaults = {
                               privateEasytierServer: 'udp://us01.225284.xyz:11010',
-                              privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
+                              privateSignalingServer: 'wss://test.pmhs.top',
                             };
                             form.setFieldsValue(defaults);
                             await saveAll(defaults);

@@ -205,8 +205,8 @@ impl LobbyManager {
 
         if trimmed == "tcp://mctier.pmhs.top:11010"
             || trimmed == "udp://mctier.pmhs.top:11010"
-            || trimmed == "ws://mctier.pmhs.top/signaling"
-            || trimmed == "wss://mctier.pmhs.top/signaling"
+            || trimmed == "ws://test.pmhs.top"
+            || trimmed == "wss://test.pmhs.top"
         {
             return "udp://us01.225284.xyz:11010".to_string();
         }
@@ -1070,7 +1070,7 @@ mod tests {
             "10.144.144.1".to_string(),
             Some("testplayer.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
 
         assert_eq!(lobby.name, "测试大厅");
@@ -1293,7 +1293,7 @@ mod tests {
             "10.144.144.1".to_string(),
             Some("testplayer.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
 
         // 序列化
@@ -1500,7 +1500,7 @@ mod tests {
             "10.144.144.1".to_string(),
             Some("testplayer.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
 
         // 验证所有字段都已正确设置
@@ -1587,7 +1587,7 @@ mod tests {
             "10.144.144.1".to_string(),
             Some("player1.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
         let lobby2 = Lobby::new(
             "大厅2".to_string(),
@@ -1596,7 +1596,7 @@ mod tests {
             "10.144.144.2".to_string(),
             Some("player2.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
 
         // 验证每个大厅都有唯一的 ID
@@ -1612,7 +1612,7 @@ mod tests {
             "10.144.144.1".to_string(),
             Some("testplayer.mct.net".to_string()),
             Some(true),
-            Some("wss://mctier.pmhs.top/signaling".to_string()),
+            Some("wss://test.pmhs.top".to_string()),
         );
         let lobby2 = lobby1.clone();
 

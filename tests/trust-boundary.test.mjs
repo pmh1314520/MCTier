@@ -24,8 +24,8 @@ const lobbyFormSource = fs.readFileSync(new URL('../src/components/LobbyForm/Lob
 const webRtcSource = fs.readFileSync(new URL('../src/services/webrtc/WebRTCClient.ts', import.meta.url), 'utf8');
 
 test('endpoint validation rejects executable schemes, credentials, and control characters', () => {
-  assert.equal(isSafeSignalingServer('wss://mctier.pmhs.top/signaling'), true);
-  assert.equal(isSafeSignalingServer('https://mctier.pmhs.top/signaling'), false);
+  assert.equal(isSafeSignalingServer('wss://test.pmhs.top'), true);
+  assert.equal(isSafeSignalingServer('https://test.pmhs.top/signaling'), false);
   assert.equal(isSafeSignalingServer('wss://user:password@example.com/signaling'), false);
   assert.equal(isSafeSignalingServer('wss://example.com/\nattack'), false);
 

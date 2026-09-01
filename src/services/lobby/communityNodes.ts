@@ -32,7 +32,7 @@ export interface SubmitCommunityNodeResult {
   node?: CommunityNode;
 }
 
-const DEFAULT_SIGNALING = 'wss://mctier.pmhs.top/signaling';
+const DEFAULT_SIGNALING = 'wss://test.pmhs.top';
 
 /** 服务器侧的自动淘汰阈值（1 天），仅用于前端文案与「即将过期」提示 */
 export const COMMUNITY_NODE_MAX_OFFLINE_SECS = 24 * 60 * 60;

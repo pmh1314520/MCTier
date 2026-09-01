@@ -25,18 +25,45 @@
         "visible": true,
         "fullscreen": false,
         "maximizable": true,
-        "zoomHotkeysEnabled": false
+        "zoomHotkeysEnabled": false,
+        "devtools": true
       }
     ],
     "security": {
       "csp": {
-        "default-src": ["'self'"],
-        "script-src": ["'self'", "'wasm-unsafe-eval'"],
-        "style-src": ["'self'", "'unsafe-inline'"],
-        "img-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost"],
-        "media-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost"],
-        "font-src": ["'self'", "data:"],
-        "worker-src": ["'self'", "blob:"],
+        "default-src": [
+          "'self'"
+        ],
+        "script-src": [
+          "'self'",
+          "'wasm-unsafe-eval'"
+        ],
+        "style-src": [
+          "'self'",
+          "'unsafe-inline'"
+        ],
+        "img-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost"
+        ],
+        "media-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost"
+        ],
+        "font-src": [
+          "'self'",
+          "data:"
+        ],
+        "worker-src": [
+          "'self'",
+          "blob:"
+        ],
         "connect-src": [
           "'self'",
           "ipc:",
@@ -48,19 +75,62 @@
           "http://*:14540",
           "https://gitee.com"
         ],
-        "frame-src": ["'none'"],
-        "object-src": ["'none'"],
-        "base-uri": ["'self'"],
-        "form-action": ["'none'"]
+        "frame-src": [
+          "'none'"
+        ],
+        "object-src": [
+          "'none'"
+        ],
+        "base-uri": [
+          "'self'"
+        ],
+        "form-action": [
+          "'none'"
+        ]
       },
       "devCsp": {
-        "default-src": ["'self'", "http://localhost:1420"],
-        "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "http://localhost:1420"],
-        "style-src": ["'self'", "'unsafe-inline'", "http://localhost:1420"],
-        "img-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost", "http://localhost:1420"],
-        "media-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost", "http://localhost:1420"],
-        "font-src": ["'self'", "data:", "http://localhost:1420"],
-        "worker-src": ["'self'", "blob:", "http://localhost:1420"],
+        "default-src": [
+          "'self'",
+          "http://localhost:1420"
+        ],
+        "script-src": [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          "'wasm-unsafe-eval'",
+          "http://localhost:1420"
+        ],
+        "style-src": [
+          "'self'",
+          "'unsafe-inline'",
+          "http://localhost:1420"
+        ],
+        "img-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "http://localhost:1420"
+        ],
+        "media-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "http://localhost:1420"
+        ],
+        "font-src": [
+          "'self'",
+          "data:",
+          "http://localhost:1420"
+        ],
+        "worker-src": [
+          "'self'",
+          "blob:",
+          "http://localhost:1420"
+        ],
         "connect-src": [
           "'self'",
           "ipc:",
@@ -73,10 +143,16 @@
           "https://gitee.com",
           "http://localhost:1420"
         ],
-        "object-src": ["'none'"],
-        "base-uri": ["'self'"]
+        "object-src": [
+          "'none'"
+        ],
+        "base-uri": [
+          "'self'"
+        ]
       },
-      "dangerousDisableAssetCspModification": ["style-src"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     },
     "withGlobalTauri": false
   },
@@ -86,13 +162,17 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["mctier"]
+        "schemes": [
+          "mctier"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

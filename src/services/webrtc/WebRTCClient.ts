@@ -272,7 +272,7 @@ export class WebRTCClient {
       const safePlayerName = sanitizeUntrustedText(playerName, MAX_PLAYER_NAME_LENGTH).trim();
       const safeLobbyName = sanitizeUntrustedText(lobbyName, 128).trim();
       const safeLobbyPassword = sanitizeUntrustedText(lobbyPassword, 256);
-      const safeSignalingServer = signalingServer?.trim() || 'wss://mctier.pmhs.top/signaling';
+      const safeSignalingServer = signalingServer?.trim() || 'wss://test.pmhs.top';
       if (
         !safePlayerId ||
         !safePlayerName ||

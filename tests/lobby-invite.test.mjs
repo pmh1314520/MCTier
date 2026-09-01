@@ -11,7 +11,7 @@ const invite = {
   name: '测试 Lobby + 1',
   password: 'Abc+123456',
   serverNode: 'udp://us01.225284.xyz:11010',
-  signalingServer: 'wss://mctier.pmhs.top/signaling',
+  signalingServer: 'wss://test.pmhs.top',
 };
 
 test('v2 lobby links round-trip node and signaling data', () => {

@@ -389,7 +389,7 @@ Wintun / WireGuard 相关声明见 §7。
 
 | 服务 | 默认地址 | 服务端可见的元数据 |
 | --- | --- | --- |
-| 信令服务器 | `wss://mctier.pmhs.top/signaling` | 客户端公网 IP、连接时间、大厅标识、成员数与昵称、客户端版本 |
+| 信令服务器 | `wss://test.pmhs.top` | 客户端公网 IP、连接时间、大厅标识、成员数与昵称、客户端版本 |
 | EasyTier 节点 | `udp://us01.225284.xyz:11010` | 客户端公网 IP、连接时间、流量特征（作为中继时转发加密流量） |
 | 版本检查 | `https://gitee.com/api/v5/repos/peng-minghang/mctier/tags` | 请求发起 IP 与时间（由 Gitee 记录） |
 

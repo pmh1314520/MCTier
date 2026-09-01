@@ -543,8 +543,8 @@ pub async fn create_lobby(
 
             log::info!("使用前端提供的玩家ID: {}", player_id);
 
-            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://mctier.pmhs.top/signaling)
-            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://mctier.pmhs.top/signaling");
+            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://test.pmhs.top)
+            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://test.pmhs.top");
 
             // 不再在创建大厅时自动启动HTTP文件服务器
             // HTTP服务器将在第一次添加共享时按需启动
@@ -679,8 +679,8 @@ pub async fn join_lobby(
 
             log::info!("使用前端提供的玩家ID: {}", player_id);
 
-            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://mctier.pmhs.top/signaling)
-            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://mctier.pmhs.top/signaling");
+            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://test.pmhs.top)
+            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://test.pmhs.top");
 
             // 启动P2P信令服务
             log::info!("正在启动P2P信令服务（加入大厅）...");
@@ -1816,6 +1816,16 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
 
     #[cfg(windows)]
     {
+        // 开发模式：跳过防火墙检查，直接返回 true
+        #[cfg(debug_assertions)]
+        {
+            log::info!("🔧 开发模式 - 跳过防火墙规则检查");
+            return Ok(true);
+        }
+
+        // 生产模式：通过 privileged helper 检查
+        #[cfg(not(debug_assertions))]
+        {
         let has_rules = crate::modules::privileged_helper::run_one_shot(
             crate::modules::privileged_helper::HelperRequest::CheckFirewall,
         )?
@@ -1825,6 +1835,7 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
         log::info!("防火墙规则检查结果: {}", has_rules);
         Ok(has_rules)
     }
+        }
 
     #[cfg(target_os = "linux")]
     {
@@ -1879,6 +1890,16 @@ pub async fn is_admin() -> bool {
 pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     {
+        // 开发模式：跳过防火墙规则添加
+        #[cfg(debug_assertions)]
+        {
+            log::info!("🔧 开发模式 - 跳过防火墙规则添加");
+            return Ok("开发模式：已跳过防火墙配置".to_string());
+        }
+
+        // 生产模式：通过 privileged helper 添加规则
+        #[cfg(not(debug_assertions))]
+        {
         let easytier_path =
             crate::modules::resource_manager::ResourceManager::get_easytier_path(&app_handle)
                 .map_err(|e| e.to_string())?;
@@ -1889,6 +1910,7 @@ pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, 
         )?;
         Ok(value.unwrap_or_else(|| "防火墙规则已更新".to_string()))
     }
+        }
     #[cfg(target_os = "linux")]
     {
         let _ = app_handle;

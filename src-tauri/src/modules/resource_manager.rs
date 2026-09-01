@@ -1,4 +1,4 @@
-use crate::modules::error::AppError;
+﻿use crate::modules::error::AppError;
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -358,7 +358,18 @@ impl ResourceManager {
     /// * `Ok(PathBuf)` - EasyTier 可执行文件的完整路径
     /// * `Err(AppError)` - 获取路径失败
     pub fn get_easytier_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(windows)]
+        // 🔧 Windows 开发模式：优先使用 debug binaries
+        #[cfg(all(windows, debug_assertions))]
+        {
+            if let Some(path) = Self::find_debug_binary(app_handle, EASYTIER_CORE_FILE) {
+                log::info!("Windows 开发模式 - 使用 EasyTier 路径: {:?}", path);
+                return Ok(path);
+            }
+            log::warn!("Windows 开发模式 - 未找到外部 EasyTier，回退到 runtime 提取");
+        }
+
+        // Windows 生产模式
+        #[cfg(all(windows, not(debug_assertions)))]
         {
             return Ok(Self::get_runtime_path(app_handle)?.join(EASYTIER_CORE_FILE));
         }
@@ -384,7 +395,18 @@ impl ResourceManager {
 
     /// 获取 easytier-cli 可执行文件的路径（用于查询对等连接类型 P2P/中继）
     pub fn get_easytier_cli_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-        #[cfg(windows)]
+        // 🔧 Windows 开发模式：优先使用 debug binaries
+        #[cfg(all(windows, debug_assertions))]
+        {
+            if let Some(path) = Self::find_debug_binary(app_handle, EASYTIER_CLI_FILE) {
+                log::info!("Windows 开发模式 - 使用 EasyTier CLI 路径: {:?}", path);
+                return Ok(path);
+            }
+            log::warn!("Windows 开发模式 - 未找到外部 EasyTier CLI，回退到 runtime 提取");
+        }
+
+        // Windows 生产模式
+        #[cfg(all(windows, not(debug_assertions)))]
         {
             return Ok(Self::get_runtime_path(app_handle)?.join(EASYTIER_CLI_FILE));
         }
