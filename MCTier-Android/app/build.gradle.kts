@@ -17,7 +17,7 @@ android {
         applicationId = "top.pmh13.mctier"
         minSdk = 26
         targetSdk = 36
-        versionCode = 47
+        versionCode = 48
         versionName = "3.0.0-android"
         ndk {
             // The bundled LocalVQE engine is currently built for the primary
