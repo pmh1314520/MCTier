@@ -3,18 +3,6 @@
 
   # MCTier
 
-  <p>
-    <sub>Advertisement · Sponsored by Langlangyun</sub><br>
-    <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
-        <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
-        <img src="public/langlangyun-logo-black.png" alt="Langlangyun" height="34">
-      </picture><br>
-      <strong>Langlangyun BGP servers · lower latency and faster game networking</strong>
-    </a>
-  </p>
-
   **A universal virtual-LAN networking tool**
 
   <p>
@@ -31,6 +19,25 @@
 
   English | [简体中文](./README.md)
 </div>
+
+<table>
+  <tr>
+    <td align="center" width="160">
+      <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
+          <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
+          <img src="public/langlangyun-logo-black.png" alt="Langlangyun" width="120">
+        </picture>
+      </a>
+    </td>
+    <td>
+      <sub>Advertisement</sub><br>
+      <a href="https://langlangy.cn/?imctier"><strong>Langlangyun BGP servers · lower latency and faster game networking</strong></a><br>
+      Hosting a signaling or game server? Explore Langlangyun's cloud server plans.
+    </td>
+  </tr>
+</table>
 
 ---
 

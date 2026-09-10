@@ -3,18 +3,6 @@
 
   # MCTier
 
-  <p>
-    <sub>广告赞助 · 浪浪云</sub><br>
-    <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
-        <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
-        <img src="public/langlangyun-logo-black.png" alt="浪浪云" height="34">
-      </picture><br>
-      <strong>浪浪云 BGP 服务器 · 让游戏组网延迟更低更快</strong>
-    </a>
-  </p>
-
   **虚拟局域网通用组网工具**
 
   <p>
@@ -30,6 +18,25 @@
 
   [English](./README_EN.md) | 简体中文
 </div>
+
+<table>
+  <tr>
+    <td align="center" width="160">
+      <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
+          <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
+          <img src="public/langlangyun-logo-black.png" alt="浪浪云" width="120">
+        </picture>
+      </a>
+    </td>
+    <td>
+      <sub>广告赞助</sub><br>
+      <a href="https://langlangy.cn/?imctier"><strong>浪浪云 BGP 服务器 · 让游戏组网延迟更低更快</strong></a><br>
+      自建信令服务器或游戏服务器？了解浪浪云的云服务器方案。
+    </td>
+  </tr>
+</table>
 
 ---
 
