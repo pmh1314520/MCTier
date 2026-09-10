@@ -132,6 +132,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -551,7 +553,6 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
                 // 工具栏：键盘 / 右键 / 返回 / 主页 / 最近
                 RcToolBtn(Icons.Rounded.Edit, L("键盘", "Keyboard"), active = showKeyboard) { showKeyboard = !showKeyboard }
                 RcToolBtn(Icons.Rounded.Mouse, L("右键", "Right-click"), active = rightClick) { rightClick = !rightClick }
-                RcToolBtn(Icons.AutoMirrored.Rounded.ArrowBack, L("返回/ESC", "Back/ESC")) { sendRaw("[{\"kind\":\"keyup\",\"code\":27}]") }
                 RcToolBtn(Icons.Rounded.Home, L("主页", "Home")) { sendRaw("[{\"kind\":\"key\",\"key\":\"home\"}]") }
                 RcToolBtn(Icons.Rounded.Apps, L("最近", "Recents")) { sendRaw("[{\"kind\":\"key\",\"key\":\"recents\"}]") }
                 Spacer(Modifier.width(6.dp))
@@ -585,7 +586,10 @@ private fun RemoteControlControllerView(repository: MctierRepository, peerName: 
                         colors = fieldColors(),
                     )
                     Spacer(Modifier.width(6.dp))
-                    RcToolBtn(Icons.AutoMirrored.Rounded.Send, L("回车", "Enter")) { sendRaw("[{\"kind\":\"keyup\",\"code\":13}]") }
+                    // 退格按钮：向被控端发送 Backspace，而不是提交/回车。
+                    RcToolBtn(Icons.AutoMirrored.Rounded.ArrowBack, L("退格", "Backspace")) {
+                        sendRaw("[{\"kind\":\"key\",\"key\":\"backspace\"}]")
+                    }
                 }
             }
             Box(
@@ -1344,12 +1348,7 @@ private fun LobbyScreen(state: MctierUiState, repository: MctierRepository) {
     // 返回键：在子视图时返回大厅（对齐桌面端 ESC 返回上一页）
     BackHandler(enabled = currentView != "lobby") { currentView = "lobby" }
     // 未读消息标记：不在聊天界面时收到新消息则标红
-    var lastSeenChat by remember { mutableIntStateOf(state.chatMessages.size) }
-    var hasUnread by remember { mutableStateOf(false) }
-    LaunchedEffect(state.chatMessages.size, currentView) {
-        if (currentView == "chat") { hasUnread = false; lastSeenChat = state.chatMessages.size }
-        else if (state.chatMessages.size > lastSeenChat) hasUnread = true
-    }
+    val hasUnread = state.unreadChatMessages.isNotEmpty()
 
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
         AnimatedContent(
@@ -1469,7 +1468,7 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
     LaunchedEffect(lobby?.name, lobby?.password) {
         showQr = false
     }
-    val ipText = (if (lobby?.useDomain == true) lobby.virtualDomain else lobby?.virtualIp).orEmpty().ifBlank { L("获取中...", "Loading...") }
+    val ipText = lobby?.virtualIp.orEmpty().ifBlank { L("获取中...", "Loading...") }
 
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1489,7 +1488,7 @@ private fun LobbyCard(state: MctierUiState, repository: MctierRepository) {
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (lobby?.useDomain == true) L("您的虚拟域名:", "Your domain:") else L("您的虚拟IP:", "Your IP:"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
+            Text(L("您的虚拟IP:", "Your IP:"), fontSize = 12.sp, color = TextPrimary.copy(alpha = 0.55f))
             Spacer(Modifier.width(8.dp))
             Box(
                 Modifier.clip(RoundedCornerShape(8.dp)).background(GrassGreen.copy(alpha = 0.16f))
@@ -2276,7 +2275,7 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         ProfileAvatar(
                             name = player.name,
-                            avatarData = player.avatarData,
+                            avatarData = if (player.id == state.playerId) state.settings.avatarData else player.avatarData,
                             size = 44.dp,
                             editable = isMe,
                             speaking = player.speaking,
@@ -2309,9 +2308,8 @@ private fun PlayersTab(state: MctierUiState, repository: MctierRepository) {
                                 }
                             }
                         }
-                        val useDomain = player.useDomain && !player.virtualDomain.isNullOrBlank()
-                        val ipShow = if (useDomain) L("域名: ${player.virtualDomain}", "Domain: ${player.virtualDomain}") else "IP: ${player.virtualIp ?: L("等待中…", "Waiting...")}"
-                        val ipCopy = (if (useDomain) player.virtualDomain else player.virtualIp).orEmpty()
+                        val ipShow = "IP: ${player.virtualIp ?: L("等待中…", "Waiting...")}"
+                        val ipCopy = player.virtualIp.orEmpty()
                         Column {
                             Text(
                                 ipShow, fontSize = 12.sp, color = GrassGreen.copy(alpha = 0.85f),
@@ -2452,16 +2450,42 @@ private fun visibleChatContent(content: String): String {
 }
 
 @Composable
+private fun ChatUnreadBadge(count: Int) {
+    if (count <= 0) return
+    Box(
+        Modifier.height(18.dp).widthIn(min = 18.dp).clip(CircleShape)
+            .background(Color(0xFFE05252)).padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            top.pmh13.mctier.data.unreadLabel(count), color = Color.White,
+            fontSize = 11.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            style = androidx.compose.ui.text.TextStyle(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+    }
+}
+
+@Composable
 private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     val context = LocalContext.current
     var input by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     var showEmoji by remember { mutableStateOf(false) }
     var emojiCat by remember { mutableStateOf(0) }
     var replyTo by remember { mutableStateOf<ChatMessage?>(null) }
+    var privateMode by remember { mutableStateOf(false) }
+    var privatePeerId by remember { mutableStateOf<String?>(null) }
+    val conversation = if (!privateMode) "lobby" else privatePeerId?.let { "private:$it" }
+    DisposableEffect(conversation) {
+        repository.setChatConversation(conversation)
+        onDispose { repository.setChatConversation(null) }
+    }
+    BackHandler(enabled = privateMode && privatePeerId != null) { privatePeerId = null }
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) repository.sendImageChat(uri)
+        if (uri != null) repository.sendImageChat(uri, if (privateMode) privatePeerId else null)
     }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) repository.updateAvatar(uri)
@@ -2499,7 +2523,7 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
             val quoted = if (r.type == "image") L("[图片]", "[Image]") else (parseChatReply(r.content)?.body ?: r.content).lineSequence().firstOrNull()?.take(40).orEmpty()
             "> [reply:${Uri.encode(r.id)}] @${r.playerName} $quoted\n$text"
         } else text
-        repository.sendChat(content)
+        if (!privateMode || privatePeerId != null) repository.sendChat(content, if (privateMode) privatePeerId else null)
         input = androidx.compose.ui.text.input.TextFieldValue("")
         replyTo = null
     }
@@ -2509,6 +2533,13 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
             info.totalItemsCount == 0 || last >= info.totalItemsCount - 1
         }
+    }
+    val visibleMessages = state.chatMessages.filter { message ->
+        if (!privateMode) message.recipientId == null
+        else privatePeerId != null && (
+            (message.mine && message.recipientId == privatePeerId) ||
+                (!message.mine && message.playerId == privatePeerId && message.recipientId == state.playerId)
+            )
     }
     var hasNew by remember { mutableStateOf(false) }
     var prevCount by remember { mutableStateOf(0) }
@@ -2546,16 +2577,17 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
             if (highlightedMessageId == targetId) highlightedMessageId = null
         }
     }
-    // 标记进入/离开聊天室界面：在聊天室内收到消息不播放提示音
-    DisposableEffect(Unit) {
-        repository.setInChatRoom(true)
-        onDispose { repository.setInChatRoom(false) }
+    LaunchedEffect(privateMode, privatePeerId) {
+        replyTo = null
+        hasNew = false
+        prevCount = visibleMessages.size
+        if (visibleMessages.isNotEmpty()) listState.scrollToItem(visibleMessages.lastIndex)
     }
-    LaunchedEffect(state.chatMessages.size) {
-        val count = state.chatMessages.size
+    LaunchedEffect(visibleMessages) {
+        val count = visibleMessages.size
         if (count > 0) {
             // 自己发的消息：无条件滚到底，且绝不提示"新消息"
-            val isSelfLatest = state.chatMessages.lastOrNull()?.mine == true
+            val isSelfLatest = visibleMessages.lastOrNull()?.mine == true
             // 否则：判断"新消息到来之前"用户是否在底部
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val wasAtBottom = prevCount == 0 || lastVisible >= prevCount - 1
@@ -2570,9 +2602,53 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
     }
     LaunchedEffect(isAtBottom) { if (isAtBottom) hasNew = false }
     Column(Modifier.fillMaxSize().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            val lobbyUnread = state.unreadChatMessages.values.count { it == "lobby" }
+            FilterChip(selected = !privateMode, onClick = { privateMode = false }, label = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(L("大厅", "Lobby"))
+                    ChatUnreadBadge(lobbyUnread)
+                }
+            })
+            val privateUnread = state.unreadChatMessages.values.count { it.startsWith("private:") }
+            FilterChip(selected = privateMode, onClick = { privateMode = true }, label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(L("私聊", "Private"))
+                    if (privateUnread > 0) {
+                        Spacer(Modifier.width(5.dp))
+                        ChatUnreadBadge(privateUnread)
+                    }
+                }
+            })
+            if (privateMode && privatePeerId != null) {
+                TextButton(onClick = { privatePeerId = null }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = L("返回玩家列表", "Back to players"), modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(state.players.firstOrNull { it.id == privatePeerId }?.name ?: L("私聊", "Private"), modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+                    }
+                }
+            }
+        }
+        if (privateMode && privatePeerId == null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(L("选择要私聊的玩家", "Choose a player to message"), color = TextPrimary.copy(alpha = 0.65f), fontSize = 13.sp)
+                state.players.filter { it.id != state.playerId }.forEach { player ->
+                    val unread = state.unreadChatMessages.values.count { it == "private:${player.id}" }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(PanelHigh).clickable {
+                        privatePeerId = player.id
+                    }.padding(horizontal = 9.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ProfileAvatar(player.name, player.avatarData, 38.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(player.name, color = TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        ChatUnreadBadge(unread)
+                    }
+                }
+            }
+        }
         Box(Modifier.weight(1f)) {
         LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.chatMessages, key = { it.id }) {
+            items(visibleMessages, key = { it.id }) {
                 ChatBubble(
                     it,
                     repository,
@@ -2582,6 +2658,7 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
                     highlighted = highlightedMessageId == it.id,
                     onQuote = { message -> replyTo = message },
                     onJumpToQuote = { message -> jumpToReply(message) },
+                    privatePeerId = if (privateMode) privatePeerId else null,
                 )
             }
         }
@@ -2601,9 +2678,10 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
             }
         }
         }
+        if (!privateMode || privatePeerId != null) {
         Spacer(Modifier.height(8.dp))
         // @提及候选
-        AnimatedVisibility(visible = mentionCandidates.isNotEmpty()) {
+        AnimatedVisibility(visible = !privateMode && mentionCandidates.isNotEmpty()) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2685,6 +2763,7 @@ private fun ChatTab(state: MctierUiState, repository: MctierRepository) {
             ) { Icon(Icons.AutoMirrored.Rounded.Send, L("发送", "Send"), tint = if (input.text.isBlank()) TextPrimary.copy(alpha = 0.4f) else TextPrimary) }
         }
         Spacer(Modifier.height(6.dp))
+        }
     }
 }
 
@@ -2780,6 +2859,7 @@ private fun ChatBubble(
     highlighted: Boolean = false,
     onQuote: (ChatMessage) -> Unit = {},
     onJumpToQuote: (ChatMessage) -> Unit = {},
+    privatePeerId: String? = null,
 ) {
     // 名字与时间戳与气泡左/右边缘对齐：需避开头像占用的宽度（头像 34dp + 间距 8dp = 42dp，再留 4dp 视觉内缩）
     val labelStart = if (message.mine) 4.dp else 46.dp
@@ -2794,7 +2874,7 @@ private fun ChatBubble(
         showActions = true
     }
     fun recallMessage() {
-        when (repository.recallChat(message.id)) {
+        when (repository.recallChat(message.id, privatePeerId)) {
             RecallChatResult.Success -> Unit
             RecallChatResult.Expired -> android.widget.Toast.makeText(context, L("撤回时间已超过，无法撤回", "The recall window has expired"), android.widget.Toast.LENGTH_SHORT).show()
             RecallChatResult.Unavailable -> android.widget.Toast.makeText(context, L("消息无法撤回", "The message cannot be recalled"), android.widget.Toast.LENGTH_SHORT).show()
@@ -3498,6 +3578,18 @@ private fun ScreenRenderSurface(
             rendererRef[0]?.let { r -> track?.let { runCatching { it.removeSink(r) } } }
         }
     }
+    // SurfaceViewRenderer owns an EGL/GL thread. Removing the video sink is
+    // not enough when the dialog/page leaves composition; release the renderer
+    // itself so its periodic EglRenderer stats loop cannot outlive the view.
+    DisposableEffect(Unit) {
+        onDispose {
+            rendererRef[0]?.let { renderer ->
+                track?.let { videoTrack -> runCatching { videoTrack.removeSink(renderer) } }
+                runCatching { renderer.release() }
+                rendererRef[0] = null
+            }
+        }
+    }
 }
 
 // ============================ 用户共享节点（社区投稿） ============================
@@ -3771,11 +3863,7 @@ private fun SettingsPanel(state: MctierUiState, repository: MctierRepository) {
         Spacer(Modifier.height(10.dp))
         SponsorAdCard()
         Spacer(Modifier.height(12.dp))
-        SwitchRow(L("使用虚拟域名", "Use virtual domain"), settings.useDomain) { onChange(settings.copy(useDomain = it)) }
-        if (settings.useDomain) {
-            Spacer(Modifier.height(8.dp))
-            MctierField(settings.virtualDomain, { onChange(settings.copy(virtualDomain = it)) }, L("虚拟域名", "Virtual domain"))
-        }
+        // Android deliberately has no virtual-domain mode; always use the VPN IP.
         Spacer(Modifier.height(4.dp))
         SwitchRow(L("使用出口节点", "Use exit node"), settings.enableExitNode) { onChange(settings.copy(enableExitNode = it)) }
         SwitchRow(L("作为出口节点", "As exit node"), settings.enableAsExitNode) { onChange(settings.copy(enableAsExitNode = it)) }

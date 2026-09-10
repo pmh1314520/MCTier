@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Form, Input, Button, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
+import { Alert, Form, Input, Button, Space, Typography, Modal, Switch, App as AntdApp } from 'antd';
 import { PasswordInput } from '../PasswordInput/PasswordInput';
 import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
@@ -222,7 +222,7 @@ const isLegacyOfficialServer = (server?: string) => {
   return (
     server === 'tcp://mctier.pmhs.top:11010' ||
     server === 'udp://mctier.pmhs.top:11010' ||
-    server === 'wss://test.pmhs.top' ||
+    server === 'wss://mctier.pmhs.top/signaling' ||
     server === 'ws://test.pmhs.top' ||
     server === 'wss://public.456469.xyz'
   );
@@ -458,6 +458,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   const { setAppState, setLobby, config } = useAppStore();
   const [form] = Form.useForm<LobbyFormValues>();
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const preferredServerSaveGeneration = useRef(0);
   const [showCustomServer, setShowCustomServer] = useState(config.preferredServer === 'custom');
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
@@ -470,7 +471,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
   }>({
     usePrivateServer: false,
     privateEasytierServer: 'udp://us01.225284.xyz:11010',
-    privateSignalingServer: 'wss://test.pmhs.top',
+    privateSignalingServer: 'wss://mctier.pmhs.top/signaling',
   });
   // @ts-ignore - customNodes is used in useEffect to load custom nodes
   const [customNodes, setCustomNodes] = useState<CustomEasyTierNode[]>([]);
@@ -649,7 +650,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       name: lobby.lobbyName,
       password: '',
       serverNode: hostNode || undefined,
-      signalingServer: hostNode ? 'wss://test.pmhs.top' : undefined,
+      signalingServer: hostNode ? 'wss://mctier.pmhs.top/signaling' : undefined,
     });
     message.info(
       hostNode
@@ -724,7 +725,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
             : 'udp://us01.225284.xyz:11010',
           privateSignalingServer: isSafeSignalingServer(settings.privateSignalingServer)
             ? settings.privateSignalingServer
-            : 'wss://test.pmhs.top',
+            : 'wss://mctier.pmhs.top/signaling',
         });
 
         // 加载自定义节点
@@ -906,6 +907,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     const failedNodeValue = overrideNode ?? values.serverNode;
     let sessionTicket: LobbySessionTicket | null = null;
     try {
+      setSubmitError(null);
       setLoading(true);
       setAppState('connecting');
 
@@ -921,7 +923,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
 
       // 确定实际使用的服务器地址
       let serverNode = values.serverNode;
-      let signalingServer = 'wss://test.pmhs.top'; // 默认官方信令服务器
+      let signalingServer = 'wss://mctier.pmhs.top/signaling'; // 默认官方信令服务器
       const usingImportedEndpoint = Boolean(
         temporaryServerNode && values.serverNode === temporaryServerNode && !overrideNode
       );
@@ -929,13 +931,13 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       if (overrideNode) {
         // 一键换节点重试：强制使用指定的内置节点（官方信令服务器）
         serverNode = overrideNode;
-        signalingServer = 'wss://test.pmhs.top';
+        signalingServer = 'wss://mctier.pmhs.top/signaling';
         console.log('========================================');
         console.log('🔁 一键换节点重试，使用节点:', serverNode);
         console.log('========================================');
       } else if (usingImportedEndpoint && temporaryServerNode) {
         serverNode = temporaryServerNode;
-        signalingServer = temporarySignalingServer || 'wss://test.pmhs.top';
+        signalingServer = temporarySignalingServer || 'wss://mctier.pmhs.top/signaling';
         console.log('使用大厅邀请指定的临时连接节点:', serverNode);
       } else if (privateServerConfig.usePrivateServer) {
         // 如果启用了私有服务器，使用私有服务器配置（不添加默认备用节点）
@@ -1008,7 +1010,9 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
       // 调用后端命令
       const lobby = await invoke<Lobby>(commandName, {
         name: values.lobbyName.trim(),
-        password: values.password.trim(),
+        // Ant Design omits an untouched optional password field at runtime.
+        // Normalize it here so passwordless joins do not call trim() on undefined.
+        password: values.password?.trim() ?? '',
         playerName: values.playerName.trim(),
         playerId: currentPlayerId,
         serverNode: serverNode,
@@ -1127,6 +1131,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
           errorMessage = JSON.stringify(error);
         }
       }
+
+      setSubmitError(errorMessage);
 
       // 检查是否是权限相关的错误
       const isPermissionError =
@@ -1736,8 +1742,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
                 >
                   <Input
                     placeholder={tl(
-                      '例如：wss://test.pmhs.top',
-                      'e.g. wss://test.pmhs.top'
+                      '例如：wss://mctier.pmhs.top/signaling',
+                      'e.g. wss://mctier.pmhs.top/signaling'
                     )}
                     size="large"
                     disabled={loading}
@@ -1795,6 +1801,16 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
               <Switch disabled={loading} />
             </Form.Item>
 
+            {submitError && (
+              <Alert
+                type="error"
+                showIcon
+                role="alert"
+                message={mode === 'create' ? tl('创建大厅失败', 'Failed to create lobby') : tl('加入大厅失败', 'Failed to join lobby')}
+                description={submitError}
+                style={{ marginBottom: 16, overflowWrap: 'anywhere' }}
+              />
+            )}
             <Form.Item className="lobby-form-actions">
               <Space size="middle" style={{ width: '100%' }}>
                 <motion.div

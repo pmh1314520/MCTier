@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 const val DefaultEasyTierNode = "udp://us01.225284.xyz:11010"
 const val RemovedQingyunNode = "wss://mctiers.pmhs.top"
-const val DefaultSignalingServer = "wss://test.pmhs.top"
+const val DefaultSignalingServer = "wss://mctier.pmhs.top/signaling"
 const val FileSharePort = 14539
 const val ChatServerPort = 14540
 const val ChatTokenHeader = "x-mctier-chat-token"
@@ -72,6 +72,7 @@ data class ChatMessage(
     val type: String = "text", // "text" | "image"
     val imageBase64: String? = null, // data:image/jpeg;base64,... 用于显示
     val recalled: Boolean = false,
+    val recipientId: String? = null,
 )
 
 @Serializable
@@ -262,6 +263,7 @@ data class ChatWireMessage(
     @SerialName("message_type") val messageType: String = "text", // "text" | "image"
     val timestamp: Long, // 秒
     @SerialName("image_data") val imageData: List<Int>? = null, // 图片字节(0~255)
+    @SerialName("recipient_id") val recipientId: String? = null,
 )
 
 /**
@@ -288,6 +290,7 @@ data class ChatSendRequest(
     val content: String,
     @SerialName("message_type") val messageType: String = "text",
     @SerialName("image_data") val imageData: List<Int>? = null,
+    @SerialName("recipient_id") val recipientId: String? = null,
 )
 
 /** 文件共享列表项（信令 file-share-list-response 内，与桌面端字段一致） */

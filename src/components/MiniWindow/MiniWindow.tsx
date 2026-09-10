@@ -380,7 +380,7 @@ export const MiniWindow: React.FC = () => {
   const othersMessageCount = othersMessages.length;
   
   // 计算未读消息数量（只计算其他人的消息）
-  const unreadCount = Math.max(0, othersMessageCount - lastViewedOthersMessageCount);
+  const unreadCount = useAppStore((state) => Object.keys(state.unreadChatMessages).length);
   
   // 调试日志 - 详细打印未读消息统计
   useEffect(() => {
@@ -512,6 +512,7 @@ export const MiniWindow: React.FC = () => {
         timestamp: message.timestamp,
         type: message.type,
         imageData: message.imageData,
+        recipientId: message.recipientId,
       };
       
       addChatMessage(chatMessage);
@@ -519,7 +520,8 @@ export const MiniWindow: React.FC = () => {
       // 弹幕：把他人发来的消息以弹幕形式飘过屏幕（自己发的不飘）。
       // 仅当(在聊天室界面 且 主窗口处于前台)时才不弹幕——此时能直接看到消息；
       // 若挂后台(如玩游戏，窗口失焦)则即使开着聊天室也照常弹幕
-      const inChatAndFocused = !!(window as any).__isInChatRoom__ && document.hasFocus();
+      const isUnread = useAppStore.getState().unreadChatMessages[message.id] !== undefined;
+      const inChatAndFocused = !isUnread && document.hasFocus();
       if (message.playerId !== currentPlayerId && !inChatAndFocused) {
         if (message.type === 'image') {
           void danmakuService.push(`${senderName}:`, {
@@ -551,9 +553,9 @@ export const MiniWindow: React.FC = () => {
         const mentionsEveryone = mentioned.some((n) => n === '所有人' || n === '全体' || n.toLowerCase() === 'all');
         const mentionsMe = !!myName && mentioned.some((n) => n === myName);
         // 是否应当触发提示音
-        const shouldNotify = !hasMention || mentionsEveryone || mentionsMe;
+        const shouldNotify = !!message.recipientId || !hasMention || mentionsEveryone || mentionsMe;
 
-        if (shouldNotify && !(window as any).__isInChatRoom__) {
+        if (shouldNotify && isUnread) {
           console.log('🔔 [MiniWindow] 触发新消息提示音', { hasMention, mentionsMe, mentionsEveryone });
           audioService.play('newMessage').catch((err) => {
             console.error('播放新消息提示音失败:', err);
@@ -567,11 +569,9 @@ export const MiniWindow: React.FC = () => {
       useAppStore.getState().updatePlayerStatus(playerId, { avatarData });
     });
 
-    return () => {
-      // 停止轮询
-      p2pChatService.stopPolling();
-      console.log('✅ [MiniWindow] 已停止P2P聊天服务轮询');
-    };
+    // 连接生命周期由玩家名册 effect 管理。这里仅更新回调，避免大厅对象
+    // 或配置对象重新创建时误停掉正在工作的 SSE 接收流。
+    return undefined;
   }, [lobby, currentPlayerId, config.playerName, addChatMessage]);
 
   // 玩家名册指纹：虚拟 IP 是异步补齐的，不能只以人数作为依赖。
@@ -622,6 +622,10 @@ export const MiniWindow: React.FC = () => {
       console.warn('恢复记忆音量失败（忽略）:', e);
     }
     console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
+    return () => {
+      p2pChatService.stopPolling();
+      console.log('✅ [MiniWindow] 已停止P2P聊天服务轮询');
+    };
   }, [playerRosterKey, lobby?.virtualIp, currentPlayerId]);
 
   // 【新增】周期性测量到各玩家的延迟，用于连接质量显示（每5秒一次）
@@ -972,7 +976,7 @@ export const MiniWindow: React.FC = () => {
           : savedServerNode);
       const signalingServer = (settings.usePrivateServer && settings.privateSignalingServer)
         ? settings.privateSignalingServer 
-        : 'wss://test.pmhs.top';
+        : 'wss://mctier.pmhs.top/signaling';
 
       const useDomain = settings.useDomain || false;
 

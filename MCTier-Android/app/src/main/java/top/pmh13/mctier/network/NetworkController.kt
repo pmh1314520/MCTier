@@ -282,7 +282,7 @@ class NetworkController(private val context: Context) {
             "tcp://mctier.pmhs.top:11010",
             "udp://mctier.pmhs.top:11010",
             "ws://test.pmhs.top",
-            "wss://test.pmhs.top",
+            "wss://mctier.pmhs.top/signaling",
             -> DefaultEasyTierNode
             "tcp://mctiers.pmhs.top" -> "tcp://mctiers.pmhs.top:11010"
             "udp://mctiers.pmhs.top" -> "udp://mctiers.pmhs.top:11010"

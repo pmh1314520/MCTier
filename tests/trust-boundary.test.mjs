@@ -24,7 +24,7 @@ const lobbyFormSource = fs.readFileSync(new URL('../src/components/LobbyForm/Lob
 const webRtcSource = fs.readFileSync(new URL('../src/services/webrtc/WebRTCClient.ts', import.meta.url), 'utf8');
 
 test('endpoint validation rejects executable schemes, credentials, and control characters', () => {
-  assert.equal(isSafeSignalingServer('wss://test.pmhs.top'), true);
+  assert.equal(isSafeSignalingServer('wss://mctier.pmhs.top/signaling'), true);
   assert.equal(isSafeSignalingServer('https://test.pmhs.top/signaling'), false);
   assert.equal(isSafeSignalingServer('wss://user:password@example.com/signaling'), false);
   assert.equal(isSafeSignalingServer('wss://example.com/\nattack'), false);
@@ -79,6 +79,15 @@ test('desktop chat and file authorization fail closed when session synchronizati
   assert.match(webRtcSource, /failClosedChatSession[\s\S]{0,900}invoke\('stop_p2p_chat'\)/);
   assert.match(webRtcSource, /chat-token-rotated[\s\S]{0,1200}failClosedChatSession/);
   assert.match(webRtcSource, /撤销离开玩家的聊天权限失败[\s\S]{0,120}break/);
+});
+
+test('desktop accepts one authenticated registration baseline per WebSocket', () => {
+  assert.match(webRtcSource, /acceptedRegistrationSockets\.has\(sourceSocket\)/);
+  assert.match(webRtcSource, /acceptedRegistrationSockets\.add\(sourceSocket\)/);
+  assert.match(webRtcSource, /configureChatSession\(true\)/);
+  assert.match(webRtcSource, /resetAuthBaseline = this\.chatAuthBaselineResetPending/);
+  assert.match(webRtcSource, /resetAuthBaseline/);
+  assert.match(webRtcSource, /chat-token-rotated[\s\S]{0,700}acceptChatToken/);
 });
 
 test('resource identifiers and relative file paths cannot change addressing', () => {
