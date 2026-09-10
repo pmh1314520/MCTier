@@ -3,6 +3,18 @@
 
   # MCTier
 
+  <p>
+    <sub>广告赞助 · 浪浪云</sub><br>
+    <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
+        <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
+        <img src="public/langlangyun-logo-black.png" alt="浪浪云" height="34">
+      </picture><br>
+      <strong>浪浪云 BGP 服务器 · 让游戏组网延迟更低更快</strong>
+    </a>
+  </p>
+
   **虚拟局域网通用组网工具**
 
   <p>
@@ -198,18 +210,6 @@ MCTier 是通用组网工具，Minecraft 只是其中一个典型使用场景。
 ## 私有化部署快速流程
 
 如果你想自建 MCTier 信令服务器，请从 MCTier 官网获取 `MCTier信令服务器.zip` 及配套部署文档。本源码仓库只包含桌面端与 Android 客户端源码，不包含官网和信令服务器部署包。
-
-> 自建信令服务器需要一台公网主机。若还没有合适的机器，可以看看下面的赞助商：
->
-> <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
->   <picture>
->     <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
->     <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
->     <img src="public/langlangyun-logo-black.png" alt="浪浪云" height="34">
->   </picture>
-> </a>
->
-> **[浪浪云 BGP 服务器 · 让游戏组网延迟更低更快](https://langlangy.cn/?imctier)**
 
 基本流程：
 

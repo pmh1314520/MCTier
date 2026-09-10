@@ -3,6 +3,18 @@
 
   # MCTier
 
+  <p>
+    <sub>Advertisement · Sponsored by Langlangyun</sub><br>
+    <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
+        <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
+        <img src="public/langlangyun-logo-black.png" alt="Langlangyun" height="34">
+      </picture><br>
+      <strong>Langlangyun BGP servers · lower latency and faster game networking</strong>
+    </a>
+  </p>
+
   **A universal virtual-LAN networking tool**
 
   <p>
@@ -199,18 +211,6 @@ If virtual domains are enabled, you can also connect with an address like `membe
 ## Self-hosting Quick Flow
 
 If you want to host your own MCTier signaling server, download `MCTier信令服务器.zip` and the deployment documentation from the official MCTier website. This source repository contains the desktop and Android client source code, not the website or signaling-server deployment package.
-
-> Self-hosting the signaling server needs a host with a public IP. If you do not have one yet, take a look at our sponsor:
->
-> <a href="https://langlangy.cn/?imctier" target="_blank" rel="noopener">
->   <picture>
->     <source media="(prefers-color-scheme: dark)" srcset="public/langlangyun-logo-white.png">
->     <source media="(prefers-color-scheme: light)" srcset="public/langlangyun-logo-black.png">
->     <img src="public/langlangyun-logo-black.png" alt="Langlangyun" height="34">
->   </picture>
-> </a>
->
-> **[Langlangyun BGP servers — lower latency and faster game networking](https://langlangy.cn/?imctier)**
 
 Basic flow:
 
