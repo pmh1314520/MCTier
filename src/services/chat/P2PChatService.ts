@@ -30,6 +30,7 @@ interface BackendChatMessage {
   message_type: string;
   timestamp: number;
   image_data?: number[]; // Uint8Array转换为number[]
+  recipient_id?: string | null;
 }
 
 // 本机聊天服务器端口（服务器现在仅绑定在虚拟网卡 IP 上，不再监听 0.0.0.0，
@@ -39,6 +40,9 @@ const CHAT_SERVER_PORT = 14540;
 class P2PChatService {
   private selfStreamAbortController: AbortController | null = null;
   private selfReconnectTimer: number | null = null;
+  private historyReconcileTimer: number | null = null;
+  private historyReconcileInFlight = false;
+  private historySince = 0;
   private isListening: boolean = false;
   private onMessageCallback?: (message: ChatMessage) => void;
   private peerIps: string[] = [];
@@ -109,6 +113,7 @@ class P2PChatService {
     this.seenMessageIds.clear();
     this.seenMessageOrder = [];
     this.pendingRecalls.clear();
+    this.historySince = 0;
     console.log('🔄 [P2PChatService] 服务已重置');
   }
 
@@ -127,6 +132,43 @@ class P2PChatService {
     if (this.selfStreamAbortController) return;
     this.isListening = true;
     void this.connectToSelfStream();
+    this.scheduleHistoryReconcile();
+  }
+
+  /**
+   * SSE is low latency but inherently lossy across reconnects. Reconcile from
+   * the authenticated native history endpoint so a message or avatar sent
+   * while the stream was being replaced is delivered to the renderer too.
+   */
+  private scheduleHistoryReconcile(): void {
+    if (this.historyReconcileTimer) window.clearTimeout(this.historyReconcileTimer);
+    this.historyReconcileTimer = window.setTimeout(() => {
+      this.historyReconcileTimer = null;
+      if (!this.isListening) return;
+      void this.reconcileHistory().finally(() => this.scheduleHistoryReconcile());
+    }, 2500);
+  }
+
+  private async reconcileHistory(): Promise<void> {
+    if (this.historyReconcileInFlight || !this.isListening || !this.currentPlayerId) return;
+    this.historyReconcileInFlight = true;
+    try {
+      const messages = await invoke<BackendChatMessage[]>('get_p2p_chat_messages', {
+        peerIps: this.peerIps,
+        since: Math.max(0, this.historySince - 2),
+      });
+      if (!Array.isArray(messages)) return;
+      for (const message of messages) {
+        if (typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)) {
+          this.historySince = Math.max(this.historySince, message.timestamp);
+        }
+        this.handleMessage(message);
+      }
+    } catch (error) {
+      console.warn('⚠️ [P2PChatService] 聊天历史对账失败:', error instanceof Error ? error.message : '请求失败');
+    } finally {
+      this.historyReconcileInFlight = false;
+    }
   }
 
   /**
@@ -236,10 +278,13 @@ class P2PChatService {
     const messageType = sanitizeIdentifier(msg.message_type, 32).toLowerCase();
     const playerName = sanitizeUntrustedText(msg.player_name, 64).trim();
     const contentLimit = messageType === 'todo' ? MAX_TODO_ITEMS * (MAX_TODO_TEXT_LENGTH + 128) : MAX_CHAT_TEXT_LENGTH;
-    const content = sanitizeUntrustedText(msg.content, contentLimit);
+    const content = messageType === 'avatar'
+      ? (msg.content === '' ? '' : sanitizeImageDataUrl(msg.content) ?? '')
+      : sanitizeUntrustedText(msg.content, contentLimit);
     const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Number.NaN;
 
     if (!messageId || !playerId || !Number.isFinite(timestamp) || timestamp < 0) return;
+    if (msg.recipient_id && msg.recipient_id !== this.currentPlayerId) return;
     if (!['text', 'image', 'announce', 'voicegroup', 'todo', 'recall', 'avatar'].includes(messageType)) return;
     if (messageType !== 'announce' && messageType !== 'voicegroup' && messageType !== 'todo' && messageType !== 'recall' && messageType !== 'avatar' && !playerName) return;
     if (messageType === 'image' && !this.isSafeImageBytes(msg.image_data)) return;
@@ -308,6 +353,7 @@ class P2PChatService {
       playerName: safeMessage.player_name,
       content: safeMessage.content,
       timestamp: safeMessage.timestamp * 1000, // 转换为毫秒
+      ...(safeMessage.recipient_id ? { recipientId: safeMessage.recipient_id } : {}),
       type: safeMessage.message_type === 'image' ? 'image' : 'text',
       imageData: safeMessage.image_data ? this.arrayToBase64(safeMessage.image_data) : undefined,
     };
@@ -324,12 +370,10 @@ class P2PChatService {
       this.onMessageCallback(chatMessage);
     }
 
-    // 只有在不在聊天室界面时才播放音效
-    const isInChatRoom = (window as any).__isInChatRoom__;
-    if (!isInChatRoom) {
+    // The registered UI callback applies conversation/mention notification
+    // rules. Do not play the same notification again here.
+    if (!this.onMessageCallback && !(window as any).__isInChatRoom__) {
       this.playNewMessageSound();
-    } else {
-      console.log('🔕 [P2PChatService] 在聊天室中，跳过播放音效');
     }
   }
 
@@ -366,7 +410,7 @@ class P2PChatService {
         }
       } else if (type === 'avatar') {
         const avatarData = sanitizeImageDataUrl(msg.content);
-        if (avatarData) this.onAvatarCallback?.(msg.player_id, avatarData);
+        if (avatarData || msg.content === '') this.onAvatarCallback?.(msg.player_id, avatarData);
       }
     } catch (error) {
       console.warn('⚠️ [P2PChatService] 处理控制消息失败:', error);
@@ -442,12 +486,17 @@ class P2PChatService {
       this.selfStreamAbortController = null;
       console.log('🛑 [P2PChatService] 已关闭本机消息流连接');
     }
+    if (this.historyReconcileTimer) {
+      window.clearTimeout(this.historyReconcileTimer);
+      this.historyReconcileTimer = null;
+    }
+    this.historyReconcileInFlight = false;
   }
 
   /**
    * 发送文本消息，返回送达统计 {delivered, total}
    */
-  async sendTextMessage(content: string, messageId?: string): Promise<{ delivered: number; total: number }> {
+  async sendTextMessage(content: string, messageId?: string, recipientId?: string): Promise<{ delivered: number; total: number }> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
@@ -466,6 +515,7 @@ class P2PChatService {
         imageData: null,
         messageId: safeMessageId,
         peerIps: this.peerIps,
+        recipientId: recipientId || null,
       });
       console.log('✅ [P2PChatService] 文本消息已发送', res);
       return res ?? { delivered: 0, total: 0 };
@@ -479,7 +529,7 @@ class P2PChatService {
    * 发送图片消息（Base64格式）
    * 【优化】使用更高效的数据转换方式
    */
-  async sendImageMessage(imageDataUrl: string, content = '[图片]', messageId?: string): Promise<void> {
+  async sendImageMessage(imageDataUrl: string, content = '[图片]', messageId?: string, recipientId?: string): Promise<void> {
     if (!this.currentPlayerId) {
       throw new Error('未初始化：缺少玩家ID');
     }
@@ -520,6 +570,7 @@ class P2PChatService {
         imageData: Array.from(bytes),
         messageId: safeMessageId,
         peerIps: this.peerIps,
+        recipientId: recipientId || null,
       });
       
       const elapsed = performance.now() - startTime;
@@ -531,7 +582,7 @@ class P2PChatService {
   }
 
   /** 广播撤回控制消息。接收方会校验撤回者是否为原发送者。 */
-  async recallMessage(messageId: string): Promise<void> {
+  async recallMessage(messageId: string, recipientId?: string): Promise<void> {
     if (!this.currentPlayerId) throw new Error('未初始化：缺少玩家ID');
     const targetId = sanitizeIdentifier(messageId);
     if (!targetId) throw new Error('消息ID无效');
@@ -543,6 +594,7 @@ class P2PChatService {
       imageData: null,
       messageId: `recall-${this.currentPlayerId}-${Date.now()}`,
       peerIps: this.peerIps,
+      recipientId: recipientId || null,
     });
   }
 

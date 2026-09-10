@@ -69,6 +69,7 @@ class AndroidRtcController(private val context: Context) {
     val speakingPlayers: StateFlow<Set<String>> = _speakingPlayers
     private var statsJob: Job? = null
     private var audioModeJob: Job? = null
+    private val lastAudioStatsLogAt = ConcurrentHashMap<String, Long>()
 
     private fun startAudioModeGuard() {
         if (audioModeJob != null) return
@@ -90,17 +91,35 @@ class AndroidRtcController(private val context: Context) {
                     runCatching {
                         pc.getStats { report ->
                             var level = 0.0
+                            var inboundBytes = 0L
+                            var inboundPackets = 0L
+                            var outboundBytes = 0L
+                            var outboundPackets = 0L
+                            var inboundLost = 0L
                             report.statsMap.values.forEach { s ->
                                 if (s.type == "inbound-rtp") {
                                     (s.members["audioLevel"] as? Number)?.let { level = maxOf(level, it.toDouble()) }
+                                    (s.members["bytesReceived"] as? Number)?.let { inboundBytes = maxOf(inboundBytes, it.toLong()) }
+                                    (s.members["packetsReceived"] as? Number)?.let { inboundPackets = maxOf(inboundPackets, it.toLong()) }
+                                    (s.members["packetsLost"] as? Number)?.let { inboundLost = maxOf(inboundLost, it.toLong()) }
+                                } else if (s.type == "outbound-rtp") {
+                                    (s.members["bytesSent"] as? Number)?.let { outboundBytes = maxOf(outboundBytes, it.toLong()) }
+                                    (s.members["packetsSent"] as? Number)?.let { outboundPackets = maxOf(outboundPackets, it.toLong()) }
                                 }
                             }
                             audioLevels[id] = level
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            val last = lastAudioStatsLogAt[id] ?: 0L
+                            if (now - last >= 5_000L) {
+                                lastAudioStatsLogAt[id] = now
+                                Log.i(TAG, "RTP audio stats[$id]: inboundBytes=$inboundBytes inboundPackets=$inboundPackets inboundLost=$inboundLost outboundBytes=$outboundBytes outboundPackets=$outboundPackets audioLevel=$level")
+                            }
                         }
                     }
                 }
                 // 清理已离开的 peer
                 audioLevels.keys.retainAll(current.keys)
+                lastAudioStatsLogAt.keys.retainAll(current.keys)
                 _speakingPlayers.value = audioLevels.filterValues { it > 0.02 }.keys.toSet()
             }
         }
@@ -365,7 +384,12 @@ class AndroidRtcController(private val context: Context) {
                 override fun onDataChannel(channel: org.webrtc.DataChannel) = Unit
                 override fun onRenegotiationNeeded() = Unit
                 override fun onAddTrack(receiver: RtpReceiver, streams: Array<out org.webrtc.MediaStream>) {
-                    val track = receiver.track()
+                    receiveAudioTrack(receiver.track())
+                }
+                override fun onTrack(transceiver: org.webrtc.RtpTransceiver) {
+                    receiveAudioTrack(transceiver.receiver.track())
+                }
+                private fun receiveAudioTrack(track: MediaStreamTrack?) {
                     if (track is AudioTrack && track.kind() == MediaStreamTrack.AUDIO_TRACK_KIND) {
                         remoteAudioTracks[remotePlayerId] = track
                         applyRemoteVolume(remotePlayerId, track)
@@ -421,6 +445,7 @@ class AndroidRtcController(private val context: Context) {
         remoteAudioTracks.clear()
         pendingIceCandidates.clear()
         audioLevels.clear()
+        lastAudioStatsLogAt.clear()
         _speakingPlayers.value = emptySet()
     }
 

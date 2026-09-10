@@ -144,9 +144,6 @@ export class HotkeyManager {
         if (!registration || !registration.enabled) return;
 
         if (this.matchesHotkey(event, parsedHotkey)) {
-          event.preventDefault();
-          event.stopPropagation();
-
           try {
             if (options.onKeyDown) {
               console.log(`快捷键按下: ${key}`);
@@ -166,9 +163,6 @@ export class HotkeyManager {
         if (!registration || !registration.enabled) return;
 
         if (this.matchesHotkey(event, parsedHotkey)) {
-          event.preventDefault();
-          event.stopPropagation();
-
           try {
             if (options.onKeyUp) {
               console.log(`快捷键松开: ${key}`);
@@ -188,9 +182,6 @@ export class HotkeyManager {
         if (!registration || !registration.enabled) return;
 
         if (this.matchesHotkey(event, parsedHotkey)) {
-          event.preventDefault();
-          event.stopPropagation();
-
           try {
             if (options.onPress) {
               console.log(`快捷键触发: ${key}`);

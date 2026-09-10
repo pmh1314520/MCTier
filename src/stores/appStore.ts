@@ -15,6 +15,8 @@ import type {
   ChatMessage,
 } from '../types';
 import { applyMessageRecall } from '../services/chat/recallPolicy';
+import { compareChatMessages } from '../services/chat/messageOrder';
+import { recordUnread, readConversation, type ChatUnread } from '../services/chat/unread';
 
 /** 共享待办项（双端字段名一致） */
 export interface TodoItem {
@@ -158,6 +160,9 @@ interface AppStore {
   // ==================== 聊天室管理 ====================
   /** 聊天消息列表 */
   chatMessages: ChatMessage[];
+  unreadChatMessages: ChatUnread;
+  activeChatConversation: string | null;
+  setActiveChatConversation: (conversation: string | null) => void;
   /** 添加聊天消息 */
   addChatMessage: (message: ChatMessage) => void;
   deleteChatMessage: (messageId: string) => void;
@@ -278,6 +283,8 @@ const initialState = {
 
   // 聊天室
   chatMessages: [],
+  unreadChatMessages: {} as ChatUnread,
+  activeChatConversation: null as string | null,
 
   // 大厅公告 / 语音小队
   announcement: '',
@@ -642,10 +649,17 @@ export const useAppStore = create<AppStore>()(
       },
 
       // ==================== 聊天室操作 ====================
+      setActiveChatConversation: (conversation) => {
+        set((state) => ({
+          activeChatConversation: conversation,
+          unreadChatMessages: readConversation(state.unreadChatMessages, conversation),
+        }), false, 'setActiveChatConversation');
+      },
       addChatMessage: (message: ChatMessage) => {
         set(
-          (state) => ({
-            chatMessages: [...state.chatMessages, message],
+          (state) => state.chatMessages.some(item => item.id === message.id) ? state : ({
+            chatMessages: [...state.chatMessages, message].sort(compareChatMessages),
+            unreadChatMessages: recordUnread(state.unreadChatMessages, message, state.currentPlayerId, state.activeChatConversation),
           }),
           false,
           'addChatMessage'
@@ -654,7 +668,10 @@ export const useAppStore = create<AppStore>()(
 
       deleteChatMessage: (messageId: string) => {
         set(
-          (state) => ({ chatMessages: state.chatMessages.filter((message) => message.id !== messageId) }),
+          (state) => ({
+            chatMessages: state.chatMessages.filter((message) => message.id !== messageId),
+            unreadChatMessages: Object.fromEntries(Object.entries(state.unreadChatMessages).filter(([id]) => id !== messageId)),
+          }),
           false,
           'deleteChatMessage'
         );
@@ -664,7 +681,7 @@ export const useAppStore = create<AppStore>()(
         const result = applyMessageRecall(get().chatMessages, messageId, requesterId);
         if (!result.changed) return false;
         set(
-          { chatMessages: [...result.messages] },
+          { chatMessages: [...result.messages], unreadChatMessages: Object.fromEntries(Object.entries(get().unreadChatMessages).filter(([id]) => id !== messageId)) },
           false,
           'recallChatMessage'
         );
@@ -672,7 +689,7 @@ export const useAppStore = create<AppStore>()(
       },
 
       clearChatMessages: () => {
-        set({ chatMessages: [] }, false, 'clearChatMessages');
+        set({ chatMessages: [], unreadChatMessages: {}, activeChatConversation: null }, false, 'clearChatMessages');
       },
 
       getRecentMessages: (count: number) => {

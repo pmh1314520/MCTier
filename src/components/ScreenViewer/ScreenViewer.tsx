@@ -28,6 +28,13 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
     }
 
     let checkInterval: ReturnType<typeof setInterval> | undefined;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      screenShareService.stopViewingScreen(safeShareId);
+      void getCurrentWebviewWindow().close();
+    };
+    window.addEventListener('keydown', handleEscape, true);
     let attempts = 0;
     const maxAttempts = 100; // 10秒超时
 
@@ -40,12 +47,15 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
         // 从screenShareService获取流
         const stream = screenShareService.getRemoteStream(safeShareId);
         
-        if (stream && stream.active) {
+        // A MediaStream can report `active=false` briefly while its first
+        // remote track is negotiating. Bind it as soon as it has tracks;
+        // waiting for `active` caused viewers to stay on “等待画面”.
+        if (stream && stream.getTracks().length > 0) {
           console.log('✅ [ScreenViewer] 从服务获取到屏幕流');
           
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
-            await videoRef.current.play();
+            await videoRef.current.play().catch(() => undefined);
             setIsLoading(false);
             console.log('✅ [ScreenViewer] 视频播放成功');
             
@@ -88,6 +98,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({ shareId, playerName 
       if (checkInterval) {
         clearInterval(checkInterval);
       }
+      window.removeEventListener('keydown', handleEscape, true);
+      screenShareService.stopViewingScreen(safeShareId, false);
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }

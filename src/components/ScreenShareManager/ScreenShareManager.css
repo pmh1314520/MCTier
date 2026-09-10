@@ -543,3 +543,14 @@ html[data-theme='light'] .screen-share-list::-webkit-scrollbar-track {
 html[data-theme='light'] .screen-share-list::-webkit-scrollbar-thumb {
   background: #c3cbd4;
 }
+.viewer-status {
+  position: absolute;
+  inset: 64px 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  color: #fff;
+  text-align: center;
+}

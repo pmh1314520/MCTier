@@ -1,4 +1,4 @@
-﻿use crate::modules::error::AppError;
+use crate::modules::error::AppError;
 use crate::modules::resource_manager::ResourceManager;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -632,7 +632,11 @@ impl NetworkService {
 
         // 创建独立的配置目录
         let config_dir = working_dir.join(format!("config_{}", instance_name));
-        #[cfg(not(windows))]
+        // The direct Windows development path does not use the privileged
+        // helper, so it must materialize the per-instance config directory
+        // before spawning EasyTier. Release Windows builds create it in the
+        // helper-owned runtime instead.
+        #[cfg(any(not(windows), debug_assertions))]
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir)
                 .map_err(|e| AppError::ProcessError(format!("创建配置目录失败: {}", e)))?;
@@ -835,8 +839,13 @@ impl NetworkService {
         }
         log::info!("========================================");
 
-        log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
-        log::info!("虚拟IP由DHCP服务器自动分配");
+        if final_config.dhcp {
+            log::info!("使用 DHCP + TUN 模式，创建虚拟网卡以支持完整的网络功能");
+            log::info!("虚拟IP由DHCP服务器自动分配");
+        } else {
+            log::info!("使用静态 IPv4 + TUN 模式，创建虚拟网卡以支持完整的网络功能");
+            log::info!("虚拟IP由启动参数 --ipv4 指定");
+        }
         log::info!("虚拟网卡名称: MCTier_Net（固定名称，方便识别和管理）");
         log::info!("使用单节点模式连接到: {}", server_node);
         log::info!("启用低延迟优先模式以降低延迟");
@@ -865,7 +874,9 @@ impl NetworkService {
             .map_err(AppError::ProcessError)?;
             *self.helper_session.lock().await = Some(session);
             *self.is_running.lock().await = true;
-            *self.instance_config_dir.lock().await = Some(config_dir);
+            // Keep the local path available for the development/direct-spawn
+            // branch below as well as the privileged production branch.
+            *self.instance_config_dir.lock().await = Some(config_dir.clone());
 
             let virtual_ip = Arc::clone(&self.virtual_ip);
             let status = Arc::clone(&self.status);
@@ -880,7 +891,7 @@ impl NetworkService {
         #[cfg(all(windows, debug_assertions))]
         {
             log::info!("🔧 开发模式 - 直接启动 EasyTier 进程（不使用 privileged helper）");
-            
+
             cmd.current_dir(working_dir)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -926,6 +937,25 @@ impl NetworkService {
             tokio::spawn(async move {
                 Self::monitor_stderr(stderr, is_running_clone, status_clone2, stderr_buf_clone)
                     .await;
+            });
+
+            // Keep the direct development path in sync with the Unix path:
+            // if EasyTier exits before assigning an IP, surface its exit
+            // reason immediately instead of waiting for the startup timeout.
+            let process_clone = Arc::clone(&self.easytier_process);
+            let status_clone = Arc::clone(&self.status);
+            let is_running_clone = Arc::clone(&self.is_running);
+            let virtual_ip_clone = Arc::clone(&self.virtual_ip);
+            let stderr_buf_clone = Arc::clone(&self.last_stderr);
+            tokio::spawn(async move {
+                Self::monitor_process(
+                    process_clone,
+                    status_clone,
+                    is_running_clone,
+                    virtual_ip_clone,
+                    stderr_buf_clone,
+                )
+                .await;
             });
         }
 
@@ -1189,6 +1219,38 @@ impl NetworkService {
         }
     }
 
+    /// 将 EasyTier/Wintun 的启动日志归类为用户可操作的错误说明。
+    ///
+    /// EasyTier 在 Windows 上可能把相同错误写到 stdout、stderr，或通过
+    /// 特权 helper 转发；所有入口都调用这个分类器，避免某一路径静默等待超时。
+    fn classify_easytier_failure(line: &str) -> Option<&'static str> {
+        let lower = line.to_ascii_lowercase();
+        if lower.contains("not signed") || lower.contains("error 577") {
+            return Some(
+                "虚拟网卡驱动文件未签名（Windows 错误 577）：请安装有效签名的 WinTun 驱动，并确认安全软件没有替换或拦截驱动",
+            );
+        }
+
+        if lower.contains("拒绝访问")
+            || lower.contains("access is denied")
+            || lower.contains("os error 5")
+            || lower.contains("win32 error 5")
+            || lower.contains("error code: 5")
+        {
+            return Some(
+                "EasyTier 创建虚拟网卡时访问被拒绝（Windows 错误 5）：请以管理员身份运行 MCTier，并确认 WinTun 驱动和安全软件权限",
+            );
+        }
+
+        if lower.contains("tun device error") || lower.contains("failed to create adapter") {
+            return Some(
+                "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请确认 WinTun 驱动可用",
+            );
+        }
+
+        None
+    }
+
     /// 根据进程退出码推断常见失败原因，返回更可读的错误说明
     ///
     /// 主要覆盖 Windows 下的几个高频致命退出码。
@@ -1202,12 +1264,12 @@ impl NetworkService {
                 || l.trim() == "error: some instances stopped with errors"
         };
 
-        // 先在最近日志里找"虚拟网卡创建失败"这类最关键的具体原因
-        if recent_stderr
+        // 先在最近日志里找驱动签名、权限、TUN 等最关键的具体原因。
+        if let Some(message) = recent_stderr
             .iter()
-            .any(|l| l.contains("tun device error") || l.contains("Failed to create adapter"))
+            .find_map(|line| Self::classify_easytier_failure(line))
         {
-            return "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请重启电脑后重试".to_string();
+            return message.to_string();
         }
 
         // 端口绑定被拒绝（os error 10013 / WSAEACCES）——常见于二次使用时上一个
@@ -1393,6 +1455,12 @@ impl NetworkService {
             || lower.contains("listener")
             || lower.contains("portal")
             || lower.contains("10013")
+            || lower.contains("not signed")
+            || lower.contains("拒绝访问")
+            || lower.contains("access is denied")
+            || lower.contains("os error 5")
+            || lower.contains("win32 error 5")
+            || lower.contains("error code: 5")
         {
             let mut buffer = last_stderr.lock().await;
             buffer.push_back(safe_line.clone());
@@ -1400,12 +1468,9 @@ impl NetworkService {
                 buffer.pop_front();
             }
         }
-        if safe_line.contains("tun device error") || safe_line.contains("Failed to create adapter")
-        {
+        if let Some(message) = Self::classify_easytier_failure(&safe_line) {
             *is_running.lock().await = false;
-            *status.lock().await = ConnectionStatus::Error(
-                "虚拟网卡创建失败：请确认已允许 UAC 请求，并确认 WinTun 驱动可用".to_string(),
-            );
+            *status.lock().await = ConnectionStatus::Error(message.to_string());
             return;
         }
         if safe_line.contains("DidNotSwitchProtocols(") {
@@ -1465,6 +1530,12 @@ impl NetworkService {
                     || lower.contains("listener")
                     || lower.contains("portal")
                     || lower.contains("10013")
+                    || lower.contains("not signed")
+                    || lower.contains("拒绝访问")
+                    || lower.contains("access is denied")
+                    || lower.contains("os error 5")
+                    || lower.contains("win32 error 5")
+                    || lower.contains("error code: 5")
                     || is_error_chain_line
                 {
                     let mut buf = last_stderr.lock().await;
@@ -1477,12 +1548,10 @@ impl NetworkService {
 
             // 虚拟网卡（TUN）创建失败——这是 Windows 上最高频的致命错误，
             // 在 2.5.0 中通过 stdout 输出，必须在此处捕获并给出可操作的提示
-            if line.contains("tun device error") || line.contains("Failed to create adapter") {
-                log::error!("检测到虚拟网卡创建失败: {}", line);
+            if let Some(message) = Self::classify_easytier_failure(&safe_line) {
+                log::error!("检测到 EasyTier 启动失败: {}", line);
                 *is_running.lock().await = false;
-                *status.lock().await = ConnectionStatus::Error(
-                    "虚拟网卡创建失败：请右键以管理员身份运行 MCTier，并将本软件加入杀毒软件/防火墙白名单；若仍失败，请重启电脑后重试".to_string(),
-                );
+                *status.lock().await = ConnectionStatus::Error(message.to_string());
                 continue;
             }
 
@@ -1521,10 +1590,11 @@ impl NetworkService {
                 || line_lower.contains("my ipv4")
                 || (line_lower.contains("ipv4") && line_lower.contains("="));
 
-            // 排除包含 local_addr 和配置行的行
+            // 排除包含 local_addr 的传输端点行。静态模式的 `ipv4 =
+            // "10.126.126.1/24"` 是 EasyTier 唯一会输出的本机地址来源，
+            // 不能再把它当成普通配置噪声丢弃，否则启动会错误等待 60 秒超时。
             let is_excluded = line.contains("local_addr") 
                 || line.contains("local:")
-                || line.contains("ipv4 = \"")  // 配置行
                 || line.contains("listeners")
                 || line.contains("rpc_portal =");
 
@@ -1579,16 +1649,17 @@ impl NetworkService {
             }
 
             // 检查是否有致命错误
-            if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
+            if line.contains("error")
+                || line.contains("Error")
+                || line.contains("ERROR")
+                || Self::classify_easytier_failure(&safe_line).is_some()
+            {
                 log::error!("EasyTier 发生错误: {}", line);
 
-                // 检查是否是 TUN 设备创建失败
-                if line.contains("tun device error") || line.contains("Failed to create adapter") {
-                    log::error!("TUN 设备创建失败，可能是缺少 WinTun 驱动或权限不足");
+                if let Some(message) = Self::classify_easytier_failure(&safe_line) {
+                    log::error!("检测到 EasyTier 启动失败: {}", line);
                     *is_running.lock().await = false;
-                    *status.lock().await = ConnectionStatus::Error(
-                        "虚拟网卡创建失败：请以管理员身份运行，并确认 WinTun 驱动正常、未被安全软件拦截".to_string()
-                    );
+                    *status.lock().await = ConnectionStatus::Error(message.to_string());
                 }
             }
         }
@@ -1992,6 +2063,9 @@ mod tests {
     fn test_extract_ip_from_line() {
         let test_cases = vec![
             ("Virtual IP: 10.144.144.1", Some("10.144.144.1")),
+            // EasyTier static-address mode reports the local address in the
+            // rendered TOML rather than a "Virtual IP" status line.
+            ("ipv4 = \"10.126.126.1/24\"", Some("10.126.126.1")),
             ("Got IP: 192.168.1.100", Some("192.168.1.100")),
             ("Assigned IP: 172.16.0.1", Some("172.16.0.1")),
             ("No IP here", None),
@@ -2047,6 +2121,38 @@ mod tests {
         let config = NetworkConfig::default();
         assert_eq!(config.easytier_path, PathBuf::from("easytier-core.exe"));
         assert_eq!(config.config_dir, PathBuf::from("./config"));
+    }
+
+    #[test]
+    fn test_classify_easytier_driver_failures() {
+        let unsigned = NetworkService::classify_easytier_failure("The file is not signed.")
+            .expect("unsigned driver should fail fast");
+        assert!(unsigned.contains("未签名"));
+
+        let denied = NetworkService::classify_easytier_failure(
+            "create adapter failed: 拒绝访问。 (os error 5)",
+        )
+        .expect("access denied should fail fast");
+        assert!(denied.contains("访问被拒绝"));
+
+        let tun = NetworkService::classify_easytier_failure("tun device error")
+            .expect("tun failure should be classified");
+        assert!(tun.contains("虚拟网卡创建失败"));
+    }
+
+    #[test]
+    fn test_describe_exit_failure_prioritizes_driver_and_access_errors() {
+        let unsigned = NetworkService::describe_exit_failure(
+            Some(1),
+            &["Error: The file is not signed.".to_string()],
+        );
+        assert!(unsigned.contains("未签名"));
+
+        let denied = NetworkService::describe_exit_failure(
+            Some(1),
+            &["拒绝访问。 (os error 5)".to_string()],
+        );
+        assert!(denied.contains("访问被拒绝"));
     }
 
     #[test]

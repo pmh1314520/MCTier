@@ -1,0 +1,50 @@
+{
+  "dimensions": [
+    640,
+    360
+  ],
+  "nonBlack": 3072,
+  "packets": 5,
+  "errors": [],
+  "iceErrors": [],
+  "legacyOffers": 0,
+  "delayedIceMs": 7000,
+  "reopened": true,
+  "gaps": [
+    {
+      "width": 320,
+      "gap": [
+        21,
+        21
+      ]
+    },
+    {
+      "width": 430,
+      "gap": [
+        21,
+        21
+      ]
+    },
+    {
+      "width": 1280,
+      "gap": [
+        21,
+        21
+      ]
+    }
+  ],
+  "viewerChecks": [
+    {
+      "width": 430,
+      "connecting": true,
+      "retry": true,
+      "cancelledRequestIgnored": true
+    },
+    {
+      "width": 1280,
+      "connecting": true,
+      "retry": true,
+      "cancelledRequestIgnored": true
+    }
+  ]
+}

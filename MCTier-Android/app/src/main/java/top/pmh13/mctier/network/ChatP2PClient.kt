@@ -48,6 +48,13 @@ class ChatP2PClient(
     @Volatile private var started = false
     @Volatile private var signer: ChatAuth.ChatSigner? = injectedSigner
     private val signerLock = Any()
+    private var lastMessageTime = 0L
+
+    @Synchronized
+    private fun nextMessageId(): String {
+        lastMessageTime = maxOf(System.currentTimeMillis(), lastMessageTime + 1)
+        return "msg-$playerId-$lastMessageTime-${UUID.randomUUID()}"
+    }
 
     /**
      * Public key that must be handed to signaling before registering.
@@ -102,7 +109,10 @@ class ChatP2PClient(
         }
         if (started) return true
         return runCatching {
-            server.start(5000, false)
+            // NanoHTTPD.start(firstArg, daemon): firstArg is the socket read
+            // timeout in milliseconds; the listener port is fixed by the
+            // ChatHttpServer constructor (14540).
+            server.start(5_000, false)
             started = true
             true
         }.onFailure { Log.w(TAG, "Chat server start failed: ${it.message}") }.getOrDefault(false)
@@ -118,6 +128,8 @@ class ChatP2PClient(
         // 离开大厅即永久作废该会话的签名凭据。
         synchronized(signerLock) { signer = null }
     }
+
+    fun resetAuthBaseline() = server.resetAuthBaseline()
 
     /** Update the authoritative peer IP-to-player map from signaling. */
     fun setPeers(peers: List<ChatPeerIdentity>): Boolean {
@@ -150,11 +162,11 @@ class ChatP2PClient(
         return true
     }
 
-    fun sendText(playerName: String, content: String): ChatWireMessage? =
-        sendInternal(playerName, content, "text", null)
+    fun sendText(playerName: String, content: String, recipientId: String? = null): ChatWireMessage? =
+        sendInternal(playerName, content, "text", null, recipientId)
 
-    fun sendImage(playerName: String, imageBytes: List<Int>): ChatWireMessage? =
-        sendInternal(playerName, "[Image]", "image", imageBytes)
+    fun sendImage(playerName: String, imageBytes: List<Int>, recipientId: String? = null): ChatWireMessage? =
+        sendInternal(playerName, "[Image]", "image", imageBytes, recipientId)
 
     fun sendAnnounce(playerName: String, text: String): ChatWireMessage? =
         sendInternal(playerName, text, "announce", null)
@@ -166,30 +178,30 @@ class ChatP2PClient(
     fun sendTodo(playerName: String, todosJson: String): ChatWireMessage? =
         sendInternal(playerName, todosJson, "todo", null)
 
-    fun sendRecall(playerName: String, messageId: String): ChatWireMessage? =
-        sendInternal(playerName, messageId, "recall", null)
+    fun sendRecall(playerName: String, messageId: String, recipientId: String? = null): ChatWireMessage? =
+        sendInternal(playerName, messageId, "recall", null, recipientId)
 
     fun sendAvatar(avatarData: String?): ChatWireMessage? =
         sendInternal(localPlayerName, avatarData.orEmpty(), "avatar", null)
 
-    private fun sendInternal(playerName: String, content: String, type: String, imageData: List<Int>?): ChatWireMessage? {
+    private fun sendInternal(playerName: String, content: String, type: String, imageData: List<Int>?, recipientId: String? = null): ChatWireMessage? {
         if (!server.hasSession()) {
             Log.w(TAG, "Chat send suppressed before authenticated session")
             return null
         }
         val effectiveName = localPlayerName.ifBlank { playerName }
-        val id = "msg-$playerId-${System.currentTimeMillis()}-${UUID.randomUUID()}"
-        val msg = ChatWireMessage(id, playerId, effectiveName, content, type, System.currentTimeMillis() / 1000L, imageData)
+        val id = nextMessageId()
+        val msg = ChatWireMessage(id, playerId, effectiveName, content, type, System.currentTimeMillis() / 1000L, imageData, recipientId)
         if (!server.addLocal(msg)) {
             Log.w(TAG, "Rejected invalid or duplicate local chat message")
             return null
         }
         remember(id)
-        val req = ChatSendRequest(id, playerId, effectiveName, content, type, imageData)
+        val req = ChatSendRequest(id, playerId, effectiveName, content, type, imageData, recipientId)
         // 编码一次并复用同一份字节：签名覆盖的正是这些字节。
         val body = MctierWireJson.encodeToString(ChatSendRequest.serializer(), req)
             .toByteArray(Charsets.UTF_8)
-        peerIdentities.map { it.virtualIp }.distinct().forEach { ip ->
+        peerIdentities.filter { recipientId == null || it.playerId == recipientId }.map { it.virtualIp }.distinct().forEach { ip ->
             scope.launch { postWithRetry(ip, body) }
         }
         return msg
@@ -198,6 +210,7 @@ class ChatP2PClient(
     private fun accept(msg: ChatWireMessage) {
         if (!server.isKnownPeer(msg)) return
         if (msg.playerId == playerId) return
+        if (msg.recipientId != null && msg.recipientId != playerId) return
         if (!remember(msg.id)) return
         onMessage(msg)
     }
@@ -229,7 +242,7 @@ class ChatP2PClient(
                 Log.w(TAG, "聊天请求签名失败，已放弃发送")
                 return
             }
-            val ok = runCatching {
+            val result = runCatching {
                 val req = Request.Builder()
                     .url("http://${formatHost(ip)}:14540$CHAT_SEND_PATH")
                     .header(ChatTokenHeader, token)
@@ -239,9 +252,14 @@ class ChatP2PClient(
                     .header(ChatAuth.NonceHeader, signed.nonce)
                     .post(body.toRequestBody("application/json".toMediaType()))
                     .build()
-                client.newCall(req).execute().use { it.isSuccessful }
-            }.getOrDefault(false)
+                client.newCall(req).execute().use { response ->
+                    response.code to response.body?.string()?.take(240)
+                }
+            }
+            val ok = result.getOrNull()?.first?.let { it in 200..299 } == true
             if (ok) return
+            val failureBody = result.getOrNull()?.second?.replace(Regex("\\s+"), " ")?.take(160)
+            Log.w(TAG, "聊天发送到 $ip 失败: HTTP ${result.getOrNull()?.first ?: "network"} body=${failureBody ?: ""} (attempt=${attempt + 1})")
             if (attempt == 0) Thread.sleep(400)
         }
     }

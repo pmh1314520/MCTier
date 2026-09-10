@@ -1356,7 +1356,9 @@ pub fn run() {
                     if let Some(al) = &cfg.auto_lobby {
                         if al.enabled {
                             let ln = match &al.lobby_name { Some(n) if !n.is_empty() => n.clone(), _ => { return; } };
-                            let lp = match &al.lobby_password { Some(p) if !p.is_empty() => p.clone(), _ => { return; } };
+                            // Empty passwords are valid for passwordless auto-lobbies. Keep the
+                            // field present so the frontend can submit the same create/join flow.
+                            let lp = al.lobby_password.clone().unwrap_or_default();
                             let pn = match &al.player_name { Some(n) if !n.is_empty() => n.clone(), _ => { return; } };
                             info!("自动大厅：发送配置到前端");
                             let _ = ah3.emit("auto-lobby-config", serde_json::json!({"lobbyName":ln,"lobbyPassword":lp,"playerName":pn,"useDomain":al.use_domain}));

@@ -505,6 +505,61 @@ fn start_easytier_child(
     Ok(child)
 }
 
+fn validate_runtime_location(executable_dir: &Path, working_dir: &Path) -> Result<(), String> {
+    // Canonicalize existing parents, not the runtime itself: on first launch
+    // the elevated helper has not materialized the embedded files yet.
+    ensure_no_reparse_components(executable_dir)?;
+    let parent = working_dir.parent().ok_or("runtime 目录缺少父目录")?;
+    ensure_no_reparse_components(parent)?;
+    let install = fs::canonicalize(executable_dir).map_err(|e| e.to_string())?;
+    let runtime = fs::canonicalize(parent)
+        .map_err(|e| e.to_string())?
+        .join(working_dir.file_name().ok_or("runtime 目录名称无效")?);
+    if runtime != install.join("runtime")
+        && runtime != install.join("resources").join("runtime")
+    {
+        return Err("EasyTier 运行路径不在受控 runtime 目录中".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod runtime_path_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_normal_and_verbatim_paths_before_runtime_exists() {
+        let install = tempfile::tempdir().unwrap();
+        let canonical = fs::canonicalize(install.path()).unwrap();
+        assert!(validate_runtime_location(install.path(), &canonical.join("runtime")).is_ok());
+        assert!(validate_runtime_location(&canonical, &install.path().join("runtime")).is_ok());
+        fs::create_dir(install.path().join("resources")).unwrap();
+        assert!(validate_runtime_location(install.path(), &canonical.join("resources/runtime")).is_ok());
+    }
+
+    #[test]
+    fn rejects_siblings_and_external_runtime() {
+        let install = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        assert!(validate_runtime_location(install.path(), &outside.path().join("runtime")).is_err());
+        assert!(validate_runtime_location(install.path(), &install.path().join("runtime-other")).is_err());
+        assert!(validate_runtime_location(install.path(), &install.path().join("../runtime")).is_err());
+    }
+
+    #[test]
+    fn allows_passwordless_network_but_rejects_other_empty_arguments() {
+        let config = Path::new(r"C:\MCTier\runtime\config_mctier-test");
+        let mut args = vec!["--network-secret".into(), String::new(),
+            "--config-dir".into(), config.to_string_lossy().into_owned()];
+        assert!(validate_start_args(&args, config).is_ok());
+        args[0] = "--network-name".into();
+        assert!(validate_start_args(&args, config).is_err());
+        args[0] = "--network-secret".into();
+        args[1] = "invalid\0secret".into();
+        assert!(validate_start_args(&args, config).is_err());
+    }
+}
+
 fn validate_easytier_layout(
     executable: &Path,
     working_dir: &Path,
@@ -521,25 +576,8 @@ fn validate_easytier_layout(
         .parent()
         .ok_or_else(|| "MCTier 可执行文件缺少安装目录".to_string())?
         .to_path_buf();
-    let allowed_runtimes = [
-        executable_dir.join("runtime"),
-        executable_dir.join("resources").join("runtime"),
-    ];
-    // 开发模式：允许 target/debug/runtime 和 target/release/runtime
-    #[cfg(debug_assertions)]
-    let allowed_runtimes = {
-        let mut runtimes = allowed_runtimes.to_vec();
-        // 添加开发模式的 runtime 目录
-        if let Some(workspace_dir) = executable_dir.parent() {
-            runtimes.push(workspace_dir.join("runtime"));
-        }
-        runtimes
-    };
-    #[cfg(not(debug_assertions))]
-    let allowed_runtimes = allowed_runtimes;
-    if executable != &working_dir.join("easytier-core.exe")
-        || !allowed_runtimes.iter().any(|path| path == working_dir)
-    {
+    validate_runtime_location(&executable_dir, working_dir)?;
+    if executable != &working_dir.join("easytier-core.exe") {
         return Err("EasyTier 运行路径不在受控 runtime 目录中".to_string());
     }
     if !config_dir.starts_with(working_dir)
@@ -585,7 +623,11 @@ fn validate_start_args(args: &[String], config_dir: &Path) -> Result<(), String>
     }
     if args
         .iter()
-        .any(|arg| arg.is_empty() || arg.len() > 64 * 1024 || arg.contains('\0'))
+        .enumerate()
+        .any(|(index, arg)| {
+            let empty_secret = index > 0 && args[index - 1] == "--network-secret";
+            (arg.is_empty() && !empty_secret) || arg.len() > 64 * 1024 || arg.contains('\0')
+        })
     {
         return Err("EasyTier 参数包含非法内容".to_string());
     }
@@ -884,7 +926,44 @@ fn add_firewall_rules(easytier_path: &str) -> Result<String, String> {
             }
         }
     }
-    if added == 4 {
+    // Program rules alone are not sufficient on Windows when the virtual
+    // adapter is recreated: Windows may retain a stale interface/profile
+    // binding from an earlier adapter GUID.  Keep explicit overlay rules that
+    // are independent of the adapter GUID and apply to every firewall profile.
+    for (name, direction, protocol, localport, icmp_type) in [
+        ("MCTier-Overlay-TCP-In", "in", "TCP", Some("14539,14540"), None),
+        ("MCTier-Overlay-ICMP-In", "in", "icmpv4", None, Some("8")),
+    ] {
+        let _ = Command::new(&netsh)
+            .args(["advfirewall", "firewall", "delete", "rule"])
+            .arg(format!("name={}", name))
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let mut command = Command::new(&netsh);
+        command
+            .args(["advfirewall", "firewall", "add", "rule"])
+            .arg(format!("name={}", name))
+            .arg(format!("dir={}", direction))
+            .arg("action=allow")
+            .arg(format!("protocol={}", protocol))
+            .args(["enable=yes", "profile=any"]);
+        if let Some(port) = localport {
+            command.arg(format!("localport={}", port));
+        }
+        if let Some(ty) = icmp_type {
+            command.arg(format!("icmpv4:type={}", ty));
+        }
+        let output = command
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("执行防火墙配置失败: {}", e))?;
+        if output.status.success() {
+            added += 1;
+        } else {
+            last_error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        }
+    }
+    if added >= 6 {
         Ok(format!("已添加 {} 条防火墙放行规则", added))
     } else {
         Err(if last_error.is_empty() {
@@ -902,6 +981,8 @@ fn check_firewall_rules() -> Result<bool, String> {
         "MCTier-out",
         "MCTier-EasyTier-in",
         "MCTier-EasyTier-out",
+        "MCTier-Overlay-TCP-In",
+        "MCTier-Overlay-ICMP-In",
     ] {
         let output = Command::new(&netsh)
             .args(["advfirewall", "firewall", "show", "rule"])

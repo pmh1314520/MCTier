@@ -1,4 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.JavaExec
 
 plugins {
     id("com.android.application")
@@ -15,7 +17,7 @@ android {
         applicationId = "top.pmh13.mctier"
         minSdk = 26
         targetSdk = 36
-        versionCode = 33
+        versionCode = 47
         versionName = "3.0.0-android"
         ndk {
             // The bundled LocalVQE engine is currently built for the primary
@@ -76,6 +78,38 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.con
     dependsOn(syncLicenseAssets)
 }
 tasks.named("preBuild") { dependsOn(syncLicenseAssets) }
+
+// Kotlin 2.4 writes JVM test classes to its own tmp directory, while AGP's
+// AndroidUnitTest task discovers classes from the javac output directory.
+// Synchronize the compiled output into AGP's exact Java task directory before
+// the test task; no custom Test wiring is needed.
+val syncDebugUnitTestKotlinClasses by tasks.registering(Sync::class) {
+    dependsOn("compileDebugUnitTestKotlin")
+    from(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"))
+    into(layout.buildDirectory.dir("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"))
+}
+// AGP 8.13's AndroidUnitTest worker does not load Kotlin 2.4 test classes on
+// this project, even though they are present in its reported classpath. Keep a
+// normal Gradle/JUnit runner as the authoritative JVM test task.
+val jvmSecurityHardeningTest by tasks.registering(JavaExec::class) {
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(
+        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
+        (configurations.findByName("testDebugRuntimeClasspath")
+            ?: configurations.findByName("testRuntimeClasspath")
+            ?: configurations.getByName("debugRuntimeClasspath"))
+            .files.filter { it.extension.equals("jar", ignoreCase = true) },
+        fileTree("${gradle.gradleUserHomeDir}/caches/modules-2/files-2.1/junit/junit/4.13.2") { include("**/*.jar") },
+        fileTree("${gradle.gradleUserHomeDir}/caches/modules-2/files-2.1/org.hamcrest/hamcrest-core") { include("**/*.jar") },
+    )
+    mainClass.set("org.junit.runner.JUnitCore")
+    args("top.pmh13.mctier.network.SecurityHardeningTest", "top.pmh13.mctier.network.ChatOrderTest", "top.pmh13.mctier.network.ChatUnreadTest")
+}
+tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach {
+    dependsOn(syncDebugUnitTestKotlinClasses, jvmSecurityHardeningTest)
+    enabled = false
+}
 
 // Kotlin 2.2+ 起 android.kotlinOptions 已废弃（2.4 起为错误），改用 compilerOptions DSL。
 kotlin {

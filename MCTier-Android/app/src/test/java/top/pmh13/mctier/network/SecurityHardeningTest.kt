@@ -4,8 +4,26 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import top.pmh13.mctier.data.ChatPeerIdentity
 
 class SecurityHardeningTest {
+    @Test
+    fun chatAuthBaselineCanResetAfterSignalingServerRestart() {
+        val localSigner = ChatAuth.ChatSigner.generate() ?: error("P-256 unavailable")
+        val server = ChatHttpServer(localSigner.identityId(), "10.126.126.7")
+        val local = ChatPeerIdentity(
+            localSigner.identityId(),
+            "local",
+            "10.126.126.7",
+            localSigner.publicKeyBase64(),
+        )
+
+        assertTrue(server.configureSession("a".repeat(64), 7, local, emptyList(), local.playerId))
+        assertFalse(server.configureSession("b".repeat(64), 1, local, emptyList(), local.playerId))
+        server.resetAuthBaseline()
+        assertTrue(server.configureSession("b".repeat(64), 1, local, emptyList(), local.playerId))
+    }
+
     @Test
     fun signalingChallengeSignatureBindsContextAndDerivesIdentity() {
         val signer = ChatAuth.ChatSigner.generate() ?: error("P-256 unavailable")

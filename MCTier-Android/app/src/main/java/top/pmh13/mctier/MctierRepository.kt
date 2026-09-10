@@ -36,6 +36,9 @@ import top.pmh13.mctier.data.MctierWireJson
 import top.pmh13.mctier.data.Lobby
 import top.pmh13.mctier.data.Player
 import top.pmh13.mctier.data.ScreenShareInfo
+import top.pmh13.mctier.data.orderedChatMessages
+import top.pmh13.mctier.data.recordUnread
+import top.pmh13.mctier.data.readConversation
 import top.pmh13.mctier.data.SharedFolder
 import top.pmh13.mctier.data.SignalingEnvelope
 import top.pmh13.mctier.data.UserSettings
@@ -80,6 +83,7 @@ data class MctierUiState(
     val lobby: Lobby? = null,
     val players: List<Player> = emptyList(),
     val chatMessages: List<ChatMessage> = emptyList(),
+    val unreadChatMessages: Map<String, String> = emptyMap(),
     val sharedFolders: List<SharedFolder> = emptyList(),
     val remoteShares: List<top.pmh13.mctier.data.RemoteShareEntry> = emptyList(),
     val screenShares: List<ScreenShareInfo> = emptyList(),
@@ -181,10 +185,12 @@ class MctierRepository(private val context: Context) {
     private val announcedScreenShares = mutableSetOf<String>()
     private var playersSnapshotVersion = 0L
 
-    /** 是否正处于聊天室界面：在聊天室内收到消息不再播放提示音(对齐桌面端 __isInChatRoom__) */
     @Volatile
-    private var inChatRoom = false
-    fun setInChatRoom(value: Boolean) { inChatRoom = value }
+    private var activeChatConversation: String? = null
+    fun setChatConversation(conversation: String?) {
+        activeChatConversation = conversation
+        if (appForeground) _state.update { it.copy(unreadChatMessages = readConversation(it.unreadChatMessages, conversation)) }
+    }
 
     /** 返回当前进程最近的 Logcat 内容，供用户反馈问题时查看或分享。 */
     suspend fun readApplicationLogs(): String = withContext(Dispatchers.IO) {
@@ -208,6 +214,7 @@ class MctierRepository(private val context: Context) {
     private var appForeground = true
     fun setAppForeground(value: Boolean) {
         appForeground = value
+        if (value) setChatConversation(activeChatConversation)
         updateMicKeepAlive()
     }
 
@@ -537,7 +544,8 @@ class MctierRepository(private val context: Context) {
                     relayAllPeerRpc = settings.relayAllPeerRpc,
                     compressionZstd = settings.compressionZstd,
                     privateMode = settings.privateMode,
-                    useDomain = settings.useDomain,
+                    // Android uses virtual IPs only; Magic DNS is desktop-only.
+                    useDomain = false,
                 )
                 if (!isCurrentLobbyGeneration(generation)) return@runCatching
                 val lobby = Lobby(
@@ -547,7 +555,7 @@ class MctierRepository(private val context: Context) {
                     createdAt = System.currentTimeMillis(),
                     virtualIp = session.virtualIp,
                     virtualDomain = ChatAuth.virtualDomainForIdentityId(identityId),
-                    useDomain = settings.useDomain,
+                    useDomain = false,
                     signalingServer = effectiveSignaling,
                     serverNode = effectiveNode,
                 )
@@ -556,6 +564,13 @@ class MctierRepository(private val context: Context) {
                 chatClient = ChatP2PClient(identityId, ioScope, session.virtualIp, { wire -> onIncomingChat(wire) }, signer)
                 screenController = ScreenShareController(appContext, identityId) { signalingClient.send(it) }.also { controller ->
                     val callbackGeneration = generation
+                    controller.onViewingError = { shareId, error ->
+                        if (isCurrentLobbyGeneration(callbackGeneration)) {
+                            _state.update { state ->
+                                if (state.viewingShareId == shareId) state.copy(viewingShareId = null, error = error) else state
+                            }
+                        }
+                    }
                     controller.onViewerCountChanged = { shareId, count ->
                         if (isCurrentLobbyGeneration(callbackGeneration)) {
                             _state.update { state ->
@@ -648,6 +663,7 @@ class MctierRepository(private val context: Context) {
                             Player(
                                 id = identityId,
                                 name = settings.playerName,
+                                avatarData = it.settings.avatarData,
                                 virtualIp = lobby.virtualIp,
                                 virtualDomain = lobby.virtualDomain,
                                 useDomain = lobby.useDomain,
@@ -692,6 +708,7 @@ class MctierRepository(private val context: Context) {
                 lobby = null,
                 players = emptyList(),
                 chatMessages = emptyList(),
+                unreadChatMessages = emptyMap(),
                 sharedFolders = emptyList(),
                 remoteShares = emptyList(),
                 screenShares = emptyList(),
@@ -828,22 +845,22 @@ class MctierRepository(private val context: Context) {
         }
     }
 
-    fun sendChat(content: String) {
+    fun sendChat(content: String, recipientId: String? = null) {
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return
         val current = _state.value
         val client = chatClient ?: return
-        val wire = client.sendText(current.settings.playerName, trimmed) ?: return
-        val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, trimmed, wire.timestamp * 1000, mine = true)
-        _state.update { it.copy(chatMessages = (it.chatMessages + message).takeLast(500)) }
+        val wire = client.sendText(current.settings.playerName, trimmed, recipientId) ?: return
+        val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, trimmed, wire.timestamp * 1000, mine = true, recipientId = recipientId)
+        _state.update { it.copy(chatMessages = orderedChatMessages(it.chatMessages + message)) }
     }
 
-    fun recallChat(messageId: String): RecallChatResult {
+    fun recallChat(messageId: String, recipientId: String? = null): RecallChatResult {
         val current = _state.value
         val target = current.chatMessages.firstOrNull { it.id == messageId } ?: return RecallChatResult.Unavailable
         if (!target.mine || target.recalled) return RecallChatResult.Unavailable
         if (System.currentTimeMillis() - target.timestamp > RecallWindowMs) return RecallChatResult.Expired
-        chatClient?.sendRecall(current.settings.playerName, messageId) ?: return RecallChatResult.Unavailable
+        chatClient?.sendRecall(current.settings.playerName, messageId, recipientId) ?: return RecallChatResult.Unavailable
         _state.update { state ->
             state.copy(chatMessages = state.chatMessages.map { message ->
                 if (message.id == messageId) message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
@@ -855,12 +872,12 @@ class MctierRepository(private val context: Context) {
 
     fun deleteChat(messageId: String) {
         _state.update { state ->
-            state.copy(chatMessages = state.chatMessages.filterNot { it.id == messageId })
+            state.copy(chatMessages = state.chatMessages.filterNot { it.id == messageId }, unreadChatMessages = state.unreadChatMessages - messageId)
         }
     }
 
     /** 发送图片消息（与桌面端互通，统一压成 JPEG 后以字节数组传输） */
-    fun sendImageChat(uri: Uri) {
+    fun sendImageChat(uri: Uri, recipientId: String? = null) {
         val current = _state.value
         val client = chatClient ?: return
         ioScope.launch {
@@ -871,10 +888,10 @@ class MctierRepository(private val context: Context) {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, baos)
                 val bytes = baos.toByteArray()
                 val intList = bytes.map { it.toInt() and 0xFF }
-                val wire = client.sendImage(current.settings.playerName, intList) ?: return@runCatching
+                val wire = client.sendImage(current.settings.playerName, intList, recipientId) ?: return@runCatching
                 val base64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, "[图片]", wire.timestamp * 1000, mine = true, type = "image", imageBase64 = base64)
-                _state.update { it.copy(chatMessages = (it.chatMessages + message).takeLast(500)) }
+                val message = ChatMessage(wire.id, current.playerId, current.settings.playerName, "[图片]", wire.timestamp * 1000, mine = true, type = "image", imageBase64 = base64, recipientId = recipientId)
+                _state.update { it.copy(chatMessages = orderedChatMessages(it.chatMessages + message)) }
             }
         }
     }
@@ -920,7 +937,7 @@ class MctierRepository(private val context: Context) {
                 if (target == null || target.playerId != wire.playerId || target.recalled || System.currentTimeMillis() - target.timestamp > RecallWindowMs) state
                 else {
                     applied = true
-                    state.copy(chatMessages = state.chatMessages.map { message ->
+                    state.copy(unreadChatMessages = state.unreadChatMessages - targetId, chatMessages = state.chatMessages.map { message ->
                         if (message.id == targetId) message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
                         else message
                     })
@@ -947,17 +964,26 @@ class MctierRepository(private val context: Context) {
             mine = false,
             type = wire.messageType,
             imageBase64 = base64,
+            recipientId = wire.recipientId,
         )
         val finalMessage = if (pendingChatRecalls.remove(message.id) == message.playerId && System.currentTimeMillis() - message.timestamp <= RecallWindowMs) {
             message.copy(content = "", type = "text", imageBase64 = null, recalled = true)
         } else message
         _state.update {
             if (it.chatMessages.any { m -> m.id == finalMessage.id }) it
-            else it.copy(chatMessages = (it.chatMessages + finalMessage).takeLast(500))
+            else {
+                val messages = orderedChatMessages(it.chatMessages + finalMessage)
+                val retainedIds = messages.map { m -> m.id }.toSet()
+                it.copy(chatMessages = messages, unreadChatMessages = recordUnread(
+                    it.unreadChatMessages, finalMessage, it.playerId,
+                    if (appForeground) activeChatConversation else null,
+                ).filterKeys { id -> id in retainedIds })
+            }
         }
+        val isUnread = finalMessage.id in _state.value.unreadChatMessages
         // 弹幕：他人消息以弹幕飘过屏幕（含游戏中）。
         // 仅当(不在聊天室界面) 或 (App 挂在后台)时才弹幕——已在聊天室且在前台能直接看到消息，无需再弹幕
-        if (!inChatRoom || !appForeground) {
+        if (isUnread) {
             runCatching {
                 if (wire.messageType == "image" && base64 != null) {
                     top.pmh13.mctier.ui.DanmakuOverlay.pushImage("$resolvedName:", base64)
@@ -969,7 +995,7 @@ class MctierRepository(private val context: Context) {
             }
         }
         // 仅当不在聊天室界面时才播放提示音(在聊天室内能直接看到，无需提示)
-        if (!inChatRoom) soundManager.message()
+        if (isUnread) soundManager.message()
     }
     fun addSharedFolder(uri: Uri, displayName: String, password: String?) {
         val current = _state.value
@@ -980,7 +1006,11 @@ class MctierRepository(private val context: Context) {
             password = password?.takeIf { it.isNotBlank() },
             ownerId = current.playerId,
         )
-        fileServer?.addFolder(folder)
+        val server = ensureFileServer() ?: run {
+            Log.e(TAG, "Unable to start file share server for ${folder.id}")
+            return
+        }
+        server.addFolder(folder)
         // 共享列表以状态为准（即使文件服务器异常也能让自己看到已共享的文件夹）
         val newList = current.sharedFolders.filterNot { it.id == folder.id } + folder
         _state.update { it.copy(sharedFolders = newList) }
@@ -1011,8 +1041,33 @@ class MctierRepository(private val context: Context) {
 
     fun removeSharedFolder(id: String) {
         fileServer?.removeFolder(id)
-        _state.update { it.copy(sharedFolders = it.sharedFolders.filterNot { f -> f.id == id }) }
+        val remaining = _state.value.sharedFolders.filterNot { it.id == id }
+        _state.update { it.copy(sharedFolders = remaining) }
+        // Do not leave the file-share listener around after the last share is
+        // removed. The chat server on 14540 is independent and stays running.
+        if (remaining.isEmpty()) {
+            runCatching { fileServer?.clearLobbyToken() }
+            runCatching { fileServer?.stop() }
+            fileServer = null
+        }
         broadcastMyShares()
+    }
+
+    /** Recreate the file server lazily after the last share was removed. */
+    private fun ensureFileServer(): FileShareHttpServer? {
+        fileServer?.let { return it }
+        val current = _state.value
+        val virtualIp = current.lobby?.virtualIp?.takeIf { it.isNotBlank() } ?: return null
+        val server = runCatching {
+            FileShareHttpServer(context, current.playerId, virtualIp).also { it.start(5_000, false) }
+        }.onFailure { Log.e(TAG, "Failed to start file share server", it) }.getOrNull() ?: return null
+        val token = chatToken
+        if (token != null && chatTokenEpoch > 0L && !server.configureLobbyToken(token, chatTokenEpoch)) {
+            runCatching { server.stop() }
+            return null
+        }
+        fileServer = server
+        return server
     }
 
     // ==================== 远端文件共享（浏览/下载电脑端等其他玩家的共享） ====================
@@ -1033,20 +1088,34 @@ class MctierRepository(private val context: Context) {
                 val ip = p.virtualIp.orEmpty()
                 ip in routedPeers && chatClient?.isAuthoritativePeer(p.id, ip) == true
             }.forEach { p ->
-                runCatching { remoteFileClient.listShares(p.virtualIp!!, lobbyToken) }
-                    .onSuccess { shares ->
-                        successOwners += p.id
-                        entries += shares.map { w ->
-                            RemoteShareEntry(
-                                shareId = w.shareId,
-                                shareName = w.shareName,
-                                ownerId = p.id,
-                                ownerName = w.playerName.ifBlank { p.name },
-                                ownerIp = p.virtualIp.orEmpty(),
-                                hasPassword = w.hasPassword,
-                            )
+                var shares: List<top.pmh13.mctier.data.FileShareWire>? = null
+                var lastError: Throwable? = null
+                for (attempt in 0 until 3) {
+                    if (shares != null) break
+                    runCatching { remoteFileClient.listShares(p.virtualIp!!, lobbyToken) }
+                        .onSuccess { result -> shares = result }
+                        .onFailure { error ->
+                            lastError = error
+                            if (attempt < 2) Thread.sleep(250L * (attempt + 1))
                         }
+                }
+                val resolved = shares
+                if (resolved != null) {
+                    successOwners += p.id
+                    entries += resolved.map { w ->
+                        RemoteShareEntry(
+                            shareId = w.shareId,
+                            shareName = w.shareName,
+                            ownerId = p.id,
+                            ownerName = w.playerName.ifBlank { p.name },
+                            ownerIp = p.virtualIp.orEmpty(),
+                            hasPassword = w.hasPassword,
+                        )
                     }
+                    Log.i(TAG, "远端共享列表同步成功 owner=${p.id} count=${resolved.size}")
+                } else {
+                    Log.w(TAG, "远端共享列表同步失败 owner=${p.id}: ${lastError?.message ?: "unknown"}")
+                }
             }
             if (successOwners.isNotEmpty()) {
                 scope.launch {
@@ -1550,14 +1619,33 @@ class MctierRepository(private val context: Context) {
     }
 
     private fun configureAuthenticatedChat(): Boolean {
-        val client = chatClient ?: return false
-        val token = chatToken ?: return false
+        val client = chatClient ?: run {
+            Log.e(TAG, "认证聊天初始化失败: chatClient=null")
+            return false
+        }
+        val token = chatToken ?: run {
+            Log.e(TAG, "认证聊天初始化失败: chatToken=null")
+            return false
+        }
         val epoch = chatTokenEpoch
-        if (epoch <= 0L) return false
+        if (epoch <= 0L) {
+            Log.e(TAG, "认证聊天初始化失败: tokenEpoch=$epoch")
+            return false
+        }
         val state = _state.value
-        if (!client.setPeers(currentChatPeers())) return false
-        if (!client.configureSession(token, epoch, state.settings.playerName, state.hostId)) return false
-        if (!client.start()) return false
+        val peers = currentChatPeers()
+        if (!client.setPeers(peers)) {
+            Log.e(TAG, "认证聊天初始化失败: setPeers rejected count=${peers.size}")
+            return false
+        }
+        if (!client.configureSession(token, epoch, state.settings.playerName, state.hostId)) {
+            Log.e(TAG, "认证聊天初始化失败: configureSession rejected epoch=$epoch host=${state.hostId} ip=${state.lobby?.virtualIp}")
+            return false
+        }
+        if (!client.start()) {
+            Log.e(TAG, "认证聊天初始化失败: HTTP server start rejected")
+            return false
+        }
         client.sendAvatar(state.settings.avatarData)
         return true
     }
@@ -1596,18 +1684,18 @@ class MctierRepository(private val context: Context) {
                     return
                 }
                 if (chatLobbyId != null && chatLobbyId != lobbyId) {
-                    rejectChatProtocol(L("聊天大厅身份发生冲突", "Chat lobby identity conflict"))
-                    return
+                    Log.i(TAG, "信令注册返回了新的大厅会话，重建聊天认证基线")
                 }
-                if (epoch < chatTokenEpoch || (epoch == chatTokenEpoch && chatToken != null && chatToken != token)) {
-                    rejectChatProtocol(L("聊天令牌版本发生冲突", "Chat token epoch conflict"))
-                    return
-                }
+                // register-success has already passed the signed v3 handshake in
+                // SignalingClient. It is the new transport's authority even when
+                // a restarted in-memory server resets its token epoch to 1.
+                chatClient?.resetAuthBaseline()
+                fileServer?.clearLobbyToken()
                 chatLobbyId = lobbyId
                 chatToken = token
                 chatTokenEpoch = epoch
                 serverSessionGeneration = sessionGeneration
-                if (fileServer?.configureLobbyToken(token!!, epoch) != true) {
+                if (fileServer != null && fileServer?.configureLobbyToken(token!!, epoch) != true) {
                     rejectChatProtocol(L("无法配置文件认证凭据", "Unable to configure file authentication token"))
                     return
                 }
@@ -1615,8 +1703,8 @@ class MctierRepository(private val context: Context) {
                     state.copy(
                         lobby = state.lobby?.copy(
                             id = lobbyId,
-                            virtualDomain = ChatAuth.virtualDomainForIdentityId(state.playerId),
-                            useDomain = true,
+                            virtualDomain = null,
+                            useDomain = false,
                         ),
                         hostId = message.hostId,
                         maxPlayers = message.maxPlayers,
@@ -1632,7 +1720,11 @@ class MctierRepository(private val context: Context) {
                         },
                     )
                 }
-                if (message.hostId == _state.value.playerId && !configureAuthenticatedChat()) {
+                // Install the authenticated HTTP session for every member
+                // immediately. Non-hosts previously waited for players-list,
+                // so the first request from the host could arrive while the
+                // Android service still had no token and return HTTP 401.
+                if (!configureAuthenticatedChat()) {
                     rejectChatProtocol(L("无法启动认证聊天服务", "Unable to start authenticated chat service"))
                     return
                 }
@@ -1660,7 +1752,7 @@ class MctierRepository(private val context: Context) {
                     rejectChatProtocol(L("聊天令牌轮换被拒绝", "Chat token rotation was rejected"))
                     return
                 }
-                if (fileServer?.configureLobbyToken(token!!, epoch) != true) {
+                if (fileServer != null && fileServer?.configureLobbyToken(token!!, epoch) != true) {
                     rejectChatProtocol(L("文件认证凭据轮换被拒绝", "File authentication token rotation was rejected"))
                     return
                 }
@@ -1675,8 +1767,8 @@ class MctierRepository(private val context: Context) {
                         it.playerId,
                         it.playerName,
                         it.virtualIp,
-                        it.virtualDomain,
-                        it.useDomain ?: false,
+                        null,
+                        false,
                         chatPublicKey = it.chatPublicKey,
                         sessionGeneration = it.sessionGeneration?.takeIf { generation -> generation > 0L },
                     )
@@ -1736,8 +1828,8 @@ class MctierRepository(private val context: Context) {
                     id,
                     name,
                     message.virtualIp,
-                    message.virtualDomain,
-                    message.useDomain ?: false,
+                    null,
+                    false,
                     chatPublicKey = message.chatPublicKey,
                     sessionGeneration = incomingGeneration,
                 )
@@ -2570,6 +2662,7 @@ class MctierRepository(private val context: Context) {
 
     private fun loadSettings(): UserSettings = UserSettings(
         playerName = storedPlayerNameOrDeviceName(),
+        avatarData = prefs.getString("avatarData", null),
         fileShareDownloadTreeUri = prefs.getString("fileShareDownloadTreeUri", null).orEmpty(),
         preferredServer = prefs.getString("preferredServer", null)
             ?.takeUnless { it == RemovedQingyunNode }
@@ -2616,7 +2709,6 @@ class MctierRepository(private val context: Context) {
         danmakuOpacity = prefs.getFloat("danmakuOpacity", 0.9f),
         danmakuTracks = prefs.getInt("danmakuTracks", 4),
         danmakuColor = prefs.getString("danmakuColor", null) ?: "#FFFFFF",
-        avatarData = prefs.getString("avatarData", null),
         voicePreset = prefs.getString("voicePreset", null) ?: "none",
     )
 }

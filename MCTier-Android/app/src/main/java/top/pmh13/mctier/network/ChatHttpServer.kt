@@ -90,7 +90,13 @@ class ChatHttpServer(
                 if (tokenEpoch < current.tokenEpoch) return false
                 if (tokenEpoch == current.tokenEpoch && current.token != token) return false
             }
-            if (!isValidHostId(hostId, identities)) return false
+            // register-success carries the authoritative host id before the
+            // first players-list snapshot arrives. At that point a remote
+            // host is intentionally not present in `identities` yet; defer
+            // strict roster validation until updatePeers() receives the
+            // snapshot. Once peers are known, reject any host id outside it.
+            val hostKnownOrBootstrap = isValidHostId(hostId, identities) || peers.isEmpty()
+            if (!hostKnownOrBootstrap) return false
             authSession = AuthSession(token, tokenEpoch, normalizedLocal, hostId, identities, peersByKey)
         }
         return true
@@ -162,6 +168,13 @@ class ChatHttpServer(
         }
     }
 
+    /** Revoke only signaling-issued authorization while preserving history. */
+    fun resetAuthBaseline() {
+        synchronized(sessionLock) { authSession = null }
+        synchronized(rateLimitLock) { requestTimes.clear() }
+        replayGuard.clear()
+    }
+
     private fun messagesSince(since: Long?): List<ChatWireMessage> = synchronized(historyLock) {
         if (since == null) messages.toList() else messages.filter { it.timestamp > since }
     }
@@ -196,7 +209,12 @@ class ChatHttpServer(
             rawSince.isBlank() -> reject(Response.Status.BAD_REQUEST)
             else -> rawSince.toLongOrNull()?.takeIf { it >= 0L } ?: reject(Response.Status.BAD_REQUEST)
         }
-        return json(messagesSince(since), origin)
+        val visible = messagesSince(since).filter { message ->
+            message.recipientId == null ||
+                message.recipientId == auth.identity.playerId ||
+                message.playerId == auth.identity.playerId
+        }
+        return json(visible, origin)
     }
 
     private fun handleSend(session: IHTTPSession, origin: String?): Response {
@@ -219,6 +237,7 @@ class ChatHttpServer(
             messageType = type,
             timestamp = System.currentTimeMillis() / 1000L,
             imageData = req.imageData,
+            recipientId = req.recipientId,
         )
         if (!isValidMessage(message, auth.hostId, checkHost = true)) {
             reject(Response.Status.BAD_REQUEST)

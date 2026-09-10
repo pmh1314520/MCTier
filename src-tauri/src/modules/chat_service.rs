@@ -73,6 +73,8 @@ pub struct ChatMessage {
     pub message_type: MessageType,
     pub timestamp: u64,
     pub image_data: Option<Vec<u8>>,
+    #[serde(default)]
+    pub recipient_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -119,6 +121,8 @@ pub struct SendMessageRequest {
     pub content: String,
     pub message_type: MessageType,
     pub image_data: Option<Vec<u8>>,
+    #[serde(default)]
+    pub recipient_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -431,10 +435,32 @@ impl ChatService {
         *self.signer.write() = None;
     }
 
+    /// Revoke the current signaling-issued authorization without rotating the
+    /// device signer or stopping the bound HTTP service. A newly authenticated
+    /// WebSocket registration can then install a fresh epoch baseline even when
+    /// an in-memory signaling server restarted its counter.
+    pub async fn reset_auth_baseline(&self) {
+        *self.session.write() = None;
+        self.rate_limiter.lock().await.clear();
+        self.replay_guard.lock().await.clear();
+    }
+
     /// Start only after a signaling-issued token has configured this session.
     pub async fn start_server(&self) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_running() {
-            return Ok(());
+            // A task can finish after an OS/network reset while its handle is
+            // still present. Abort and recreate the listener instead of
+            // leaving the UI with a false "running" state.
+            // Take the handle in its own scope. Keeping the write guard alive
+            // through the `if let` body would deadlock when putting a live
+            // handle back into the same RwLock.
+            let existing_handle = { self.server_handle.write().take() };
+            if let Some(handle) = existing_handle {
+                if !handle.is_finished() {
+                    *self.server_handle.write() = Some(handle);
+                    return Ok(());
+                }
+            }
         }
         let session = self
             .session
@@ -467,9 +493,24 @@ impl ChatService {
                 rate_limiter: Arc::clone(&self.rate_limiter),
                 replay_guard: Arc::clone(&self.replay_guard),
             });
-        let listener =
-            tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(ip), CHAT_SERVER_PORT))
-                .await?;
+        let address = SocketAddr::new(IpAddr::V4(ip), CHAT_SERVER_PORT);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let listener = loop {
+            match tokio::net::TcpListener::bind(address).await {
+                Ok(listener) => break listener,
+                Err(error) => {
+                    if !matches!(error.kind(), std::io::ErrorKind::AddrInUse) {
+                        return Err(error.into());
+                    }
+                    // Abort/restart and signaling reconnects can overlap. The
+                    // old listener needs a short time to release the socket.
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(error.into());
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        };
         let server_task = tokio::spawn(async move {
             if let Err(error) = axum::serve(
                 listener,
@@ -484,15 +525,23 @@ impl ChatService {
         Ok(())
     }
 
-    pub async fn stop_server(&self) {
+    /// Reset state for a lobby that has already reserved this signer as its
+    /// signaling identity. Unlike `stop_server`, this must not rotate the key
+    /// between the native lobby command and the renderer's registration.
+    pub async fn reset_for_lobby(&self) {
         if let Some(handle) = self.server_handle.write().take() {
             handle.abort();
         }
-        self.clear_session();
+        *self.session.write() = None;
         self.clear_local_messages();
         self.rate_limiter.lock().await.clear();
         self.replay_guard.lock().await.clear();
         *self.virtual_ip.write() = None;
+    }
+
+    pub async fn stop_server(&self) {
+        self.reset_for_lobby().await;
+        *self.signer.write() = None;
     }
 
     pub fn is_running(&self) -> bool {
@@ -977,14 +1026,15 @@ async fn get_messages(
 ) -> Result<Json<Vec<ChatMessage>>, StatusCode> {
     // History reads are signed too: otherwise a member could spoof another
     // member's address and harvest the history attributed to them.
-    authorize_request(&headers, peer, &state, "GET", "/api/chat/messages", &[]).await?;
+    let requester = authorize_request(&headers, peer, &state, "GET", "/api/chat/messages", &[]).await?;
     let messages = state.local_messages.read();
     let result = messages
         .iter()
         .filter(|message| {
-            params
-                .since
-                .is_none_or(|timestamp| message.timestamp > timestamp)
+            params.since.is_none_or(|timestamp| message.timestamp > timestamp)
+                && (message.recipient_id.is_none()
+                    || message.recipient_id.as_deref() == Some(requester.player_id.as_str())
+                    || message.player_id == requester.player_id)
         })
         .cloned()
         .collect();
@@ -1015,6 +1065,7 @@ async fn send_message(
         message_type: request.message_type,
         timestamp: unix_seconds(),
         image_data: request.image_data,
+        recipient_id: request.recipient_id,
     };
     if !store_message(
         &state.local_messages,
@@ -1311,6 +1362,7 @@ mod tests {
                 message_type: MessageType::Text,
                 timestamp: index,
                 image_data: None,
+                recipient_id: None,
             };
             assert!(store_message(&messages, &bytes, &tx, message));
         }
@@ -1331,6 +1383,7 @@ mod tests {
             message_type: MessageType::Text,
             timestamp: 1,
             image_data: None,
+            recipient_id: None,
         };
         assert!(store_message(&messages, &bytes, &tx, message.clone()));
         assert!(!store_message(&messages, &bytes, &tx, message));
@@ -1360,6 +1413,7 @@ mod tests {
             message_type: MessageType::Text,
             timestamp: 1,
             image_data: None,
+            recipient_id: None,
         }));
 
         service.stop_server().await;
@@ -1367,6 +1421,53 @@ mod tests {
         assert!(service.get_chat_token().is_none());
         assert!(service.get_virtual_ip().is_none());
         assert!(service.get_local_messages(None).is_empty());
+        assert!(service.signing_public_key().is_none());
+    }
+
+    #[tokio::test]
+    async fn lobby_reset_preserves_the_reserved_signaling_identity() {
+        let service = ChatService::new();
+        let before = service.signaling_identity().expect("signaling identity");
+        service.set_virtual_ip("10.126.126.1".to_string());
+
+        service.reset_for_lobby().await;
+
+        assert_eq!(service.signaling_identity().unwrap(), before);
+        assert!(service.get_chat_token().is_none());
+        assert!(service.get_virtual_ip().is_none());
+    }
+
+    #[tokio::test]
+    async fn auth_baseline_reset_allows_restarted_server_epoch() {
+        let service = ChatService::new();
+        service.set_virtual_ip("10.126.126.1".to_string());
+        let public_key = service.ensure_signing_key().expect("key generation");
+        service
+            .set_session(
+                "a".repeat(CHAT_TOKEN_HEX_BYTES),
+                7,
+                "local".to_string(),
+                "local".to_string(),
+                Some("local".to_string()),
+                Vec::new(),
+            )
+            .expect("old session");
+
+        service.reset_auth_baseline().await;
+        service
+            .set_session(
+                "b".repeat(CHAT_TOKEN_HEX_BYTES),
+                1,
+                "local".to_string(),
+                "local".to_string(),
+                Some("local".to_string()),
+                Vec::new(),
+            )
+            .expect("new server baseline");
+
+        let restarted_token = "b".repeat(CHAT_TOKEN_HEX_BYTES);
+        assert_eq!(service.signing_public_key().as_deref(), Some(public_key.as_str()));
+        assert_eq!(service.get_chat_token().as_deref(), Some(restarted_token.as_str()));
     }
 
     #[test]
@@ -1380,6 +1481,7 @@ mod tests {
                 message_type: MessageType::Text,
                 timestamp: unix_seconds(),
                 image_data: None,
+                recipient_id: None,
             }]))),
             history_bytes: Arc::new(RwLock::new(0)),
             message_tx: broadcast::channel(8).0,
@@ -1401,6 +1503,7 @@ mod tests {
             content: "target".to_string(),
             message_type: MessageType::Recall,
             image_data: None,
+            recipient_id: None,
         };
         assert!(validate_request(&request, &identity("10.126.126.2", "attacker"), &state).is_err());
     }

@@ -1238,3 +1238,17 @@ html[data-theme='light'] .reply-preview-close .anticon,
 html[data-theme='light'] .reply-preview-close svg {
   color: currentColor;
 }
+.chat-tabs{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border-color,#333);background:var(--panel-bg,#171923)}
+.chat-tabs button{border:0;background:transparent;color:var(--text-secondary,#999);padding:6px 12px;cursor:pointer}
+.chat-tabs button.active{color:var(--accent-color,#65d521);border-bottom:2px solid currentColor}
+.chat-tabs>button:not(.private-peer-current){display:inline-flex;align-items:center;flex-shrink:0}
+.chat-tabs .private-peer-current{min-width:0;max-width:50%}
+.private-peer-current>.anticon{flex-shrink:0}
+.private-peer-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chat-tab-badge{display:inline-flex;flex-shrink:0;min-width:18px;height:18px;margin-left:5px;padding:0 4px;box-sizing:border-box;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;line-height:18px}
+.private-peer-current{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:5px 9px;border-radius:7px;background:rgba(36,37,54,.95);color:#f4f4f5}
+.private-peer-list{display:flex;flex-direction:column;gap:4px;padding:8px 12px;width:100%;box-sizing:border-box}.private-peer-list-title{color:rgba(255,255,255,.6);font-size:13px;margin:0 0 3px 2px}.private-peer-item{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:1px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(36,37,54,.72);color:#f4f4f5;text-align:left;cursor:pointer;box-sizing:border-box}.private-peer-item:hover{background:rgba(65,70,95,.8)}.private-peer-item>span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.private-peer-unread{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:#e5484d;color:#fff;font-size:11px;font-weight:700;line-height:18px;box-sizing:border-box}.private-peer-unread.pill{min-width:25px}
+.private-peer-list{align-self:stretch;max-width:none;margin:0;padding:0;gap:3px}
+.private-peer-list-title{padding:2px 4px 6px;margin:0;font-size:12px}
+.private-peer-item{min-height:48px;padding:6px 8px;border-color:rgba(255,255,255,.08);background:rgba(36,37,54,.5)}
+.chat-messages:has(.private-peer-list){padding:8px 10px 12px;gap:0}

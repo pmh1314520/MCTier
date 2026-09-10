@@ -25,6 +25,11 @@ interface ScreenShareAnswer {
 const isNullish = (value: unknown): value is null | undefined =>
   value === null || value === undefined;
 
+const SCREEN_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.qq.com:3478' },
+  { urls: 'stun:stun.miwifi.com:3478' },
+];
+
 class ScreenShareService {
   private localStream: MediaStream | null = null;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
@@ -53,6 +58,8 @@ class ScreenShareService {
   private pendingIceCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
   private relayProtocolConfirmed: Set<string> = new Set();
   private viewingRouteVersions: Map<string, number> = new Map();
+  private requestedUpstreams: Map<string, string> = new Map();
+  private connectionRouteVersions = new Map<string, number | undefined>();
   private directViewFallbacks: Set<string> = new Set();
   private unhealthyRelays: Map<string, Map<string, { until: number; failures: number }>> =
     new Map();
@@ -147,10 +154,10 @@ class ScreenShareService {
         video: {
           cursor: 'always',
           displaySurface: 'monitor',
-          // 【优化】提高帧率和分辨率，确保画质清晰流畅
-          frameRate: { ideal: 60, max: 60 },
-          width: { ideal: 1920, max: 3840 },
-          height: { ideal: 1080, max: 2160 },
+          // 1080p/30fps 更适合 P2P relay，避免 4K/60fps 挤占上行导致慢动作。
+          frameRate: { ideal: 30, max: 30 },
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
         } as any,
         audio: false,
       });
@@ -158,7 +165,7 @@ class ScreenShareService {
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (videoTrack) {
         // 【优化】设置为detail模式，优先保证画质清晰
-        videoTrack.contentHint = 'detail';
+        videoTrack.contentHint = 'motion';
       }
 
       console.log('✅ [ScreenShareService] 屏幕捕获成功');
@@ -278,6 +285,7 @@ class ScreenShareService {
       }, 30000);
       this.pendingViewRequests.set(shareId, { resolve, reject, timer });
     });
+    const request = this.pendingViewRequests.get(shareId);
 
     this.sendWebSocketMessage({
       type: 'screen-share-relay',
@@ -289,16 +297,16 @@ class ScreenShareService {
       password,
     });
     window.setTimeout(() => {
-      // 收到 accepted/route 只代表控制面可用，不代表视频帧已经到达。
-      // 链式连接 5 秒内仍没有媒体时，直连共享者作为可靠性兜底。
-      if (!this.pendingViewRequests.has(shareId) || this.viewingUpstreams.has(shareId)) return;
+      // Legacy owners never assign a route. Once assigned, let that connection
+      // finish ICE; a second offer would replace the publisher's active PC.
+      if (this.pendingViewRequests.get(shareId) !== request || this.requestedUpstreams.has(shareId) || this.viewingUpstreams.has(shareId)) return;
       void this.requestViewScreenDirect(shareId, password)
         .then((stream) => {
           const pending = this.pendingViewRequests.get(shareId);
           const legacyEntry = Array.from(this.peerConnections.entries()).find(([key]) =>
             key.startsWith(shareId + '-viewer-')
           );
-          if (!pending) {
+          if (!pending || pending !== request) {
             if (legacyEntry) {
               legacyEntry[1].close();
               this.peerConnections.delete(legacyEntry[0]);
@@ -346,7 +354,7 @@ class ScreenShareService {
         })
         .catch((error) => {
           const pending = this.pendingViewRequests.get(shareId);
-          if (!pending) return;
+          if (!pending || pending !== request || this.requestedUpstreams.has(shareId)) return;
           window.clearTimeout(pending.timer);
           this.pendingViewRequests.delete(shareId);
           pending.reject(error instanceof Error ? error : new Error(String(error)));
@@ -381,10 +389,9 @@ class ScreenShareService {
       }
 
       // 创建PeerConnection
-      // 【稳定性修复】成员都在同一 EasyTier 虚拟局域网，使用 host 候选直连即可，
-      // 移除被墙的 Google STUN，避免连接/重连卡顿与超时失败
+      // Keep host candidates for EasyTier and STUN candidates for NAT paths.
       const pc = new RTCPeerConnection({
-        iceServers: [],
+        iceServers: SCREEN_ICE_SERVERS,
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -392,6 +399,7 @@ class ScreenShareService {
 
       const connectionKey = `${shareId}-viewer-${Date.now()}`;
       this.peerConnections.set(connectionKey, pc);
+      this.connectionRouteVersions.set(connectionKey, undefined);
 
       // 等待远程流的Promise
       const streamPromise = new Promise<MediaStream>((resolve, reject) => {
@@ -477,6 +485,10 @@ class ScreenShareService {
       });
 
       await pc.setLocalDescription(offer);
+      if (this.peerConnections.get(connectionKey) !== pc || this.requestedUpstreams.has(shareId)) {
+        pc.close();
+        throw new Error('共享路由已替代旧版连接');
+      }
 
       // 发送Offer到共享者
       this.sendWebSocketMessage({
@@ -532,6 +544,7 @@ class ScreenShareService {
       // 兼容旧版本曾把“自己看自己”加入观看者列表的状态。
       // 本地直出不应占用观看者名额，停止时主动清理并广播最新人数。
       this.handleViewerLeft(shareId, this.currentPlayerId);
+      return;
     } else if (notify && share) {
       this.sendWebSocketMessage({
         type: 'screen-share-viewer-left',
@@ -563,6 +576,7 @@ class ScreenShareService {
     keysToDelete.forEach((key) => {
       this.stopOutboundHealthHeartbeat(key);
       this.peerConnections.delete(key);
+      this.connectionRouteVersions.delete(key);
     });
 
     this.remoteStreams.delete(shareId);
@@ -570,6 +584,7 @@ class ScreenShareService {
     this.sourceFrameSequences.delete(shareId);
     this.viewingUpstreams.delete(shareId);
     this.viewingRouteVersions.delete(shareId);
+    this.requestedUpstreams.delete(shareId);
     const healthTimer = this.viewingHealthTimers.get(shareId);
     if (healthTimer) window.clearInterval(healthTimer);
     this.viewingHealthTimers.delete(shareId);
@@ -708,6 +723,10 @@ class ScreenShareService {
         return;
       }
       this.clearPasswordFailures(shareId, senderId);
+      // A viewer can reopen after closing its local connection before the
+      // owner's leave notification arrives. Reissue the existing route.
+      const previousUpstream = this.assignedUpstreams.get(shareId)?.get(senderId);
+      const previousVersion = this.assignedRouteVersions.get(shareId)?.get(senderId);
       const order = this.viewerOrder.get(shareId) ?? [];
       if (!order.includes(message.from)) order.push(message.from);
       this.viewerOrder.set(shareId, order);
@@ -722,6 +741,13 @@ class ScreenShareService {
         shareId,
       });
       this.rebuildRelayRoutes(shareId);
+      if (previousUpstream && previousVersion &&
+          this.assignedRouteVersions.get(shareId)?.get(senderId) === previousVersion) {
+        this.sendWebSocketMessage({
+          type: 'screen-share-relay', action: 'route', from: this.currentPlayerId,
+          to: senderId, shareId, upstreamId: previousUpstream, routeVersion: previousVersion,
+        });
+      }
       return;
     }
 
@@ -1085,17 +1111,21 @@ class ScreenShareService {
   ): Promise<void> {
     // A new owner-issued route supersedes a temporary direct fallback.
     this.directViewFallbacks.delete(shareId);
+    for (const [legacyKey, legacyPc] of this.peerConnections.entries()) {
+      if (!legacyKey.startsWith(shareId + '-viewer-')) continue;
+      this.peerConnections.delete(legacyKey);
+      this.connectionRouteVersions.delete(legacyKey);
+      legacyPc.close();
+    }
     const currentUpstream = this.viewingUpstreams.get(shareId);
-    const currentPc = currentUpstream
-      ? this.peerConnections.get(shareId + '-in-' + currentUpstream)
-      : undefined;
+    const currentPc = this.peerConnections.get(shareId + '-in-' + upstreamId);
     if (
-      currentUpstream === upstreamId &&
-      currentPc?.connectionState === 'connected' &&
+      this.requestedUpstreams.get(shareId) === upstreamId &&
+      currentPc && !['closed', 'failed'].includes(currentPc.connectionState) &&
       this.viewingRouteVersions.get(shareId) === routeVersion
     ) {
       const ownerId = this.activeShares.get(shareId)?.playerId;
-      if (ownerId)
+      if (ownerId && currentUpstream === upstreamId && currentPc.connectionState === 'connected')
         this.sendWebSocketMessage({
           type: 'screen-share-relay',
           action: 'ready',
@@ -1110,9 +1140,10 @@ class ScreenShareService {
     if (previousHealthTimer) window.clearInterval(previousHealthTimer);
     this.viewingHealthTimers.delete(shareId);
     this.viewingRouteVersions.set(shareId, routeVersion);
+    this.requestedUpstreams.set(shareId, upstreamId);
 
     const pc = new RTCPeerConnection({
-      iceServers: [],
+      iceServers: SCREEN_ICE_SERVERS,
       iceTransportPolicy: 'all',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
@@ -1121,11 +1152,12 @@ class ScreenShareService {
     const stalePc = this.peerConnections.get(key);
     if (stalePc) stalePc.close();
     this.peerConnections.set(key, pc);
+    this.connectionRouteVersions.set(key, routeVersion);
     pc.addTransceiver('video', { direction: 'recvonly' });
 
     let failureTimer: number | undefined;
     pc.onicecandidate = (event) => {
-      if (!event.candidate) return;
+      if (this.peerConnections.get(key) !== pc || !event.candidate) return;
       this.sendWebSocketMessage({
         type: 'screen-share-ice-candidate',
         from: this.currentPlayerId,
@@ -1137,6 +1169,7 @@ class ScreenShareService {
       });
     };
     pc.onconnectionstatechange = () => {
+      if (this.peerConnections.get(key) !== pc) return;
       if (pc.connectionState === 'connected' && failureTimer) {
         window.clearTimeout(failureTimer);
         failureTimer = undefined;
@@ -1148,6 +1181,7 @@ class ScreenShareService {
           () => {
             if (
               pc.connectionState !== 'connected' &&
+              this.peerConnections.get(key) === pc &&
               this.viewingRouteVersions.get(shareId) === routeVersion
             ) {
               const ownerId = this.activeShares.get(shareId)?.playerId;
@@ -1169,7 +1203,7 @@ class ScreenShareService {
       }
     };
     pc.ontrack = (event) => {
-      if (this.viewingRouteVersions.get(shareId) !== routeVersion) {
+      if (this.peerConnections.get(key) !== pc || this.viewingRouteVersions.get(shareId) !== routeVersion) {
         pc.close();
         if (this.peerConnections.get(key) === pc) this.peerConnections.delete(key);
         return;
@@ -1184,7 +1218,7 @@ class ScreenShareService {
       let mediaActivated = false;
       const activateMedia = () => {
         if (mediaActivated || this.directViewFallbacks.has(shareId)) return;
-        if (this.viewingRouteVersions.get(shareId) !== routeVersion || track.readyState !== 'live')
+        if (this.peerConnections.get(key) !== pc || this.viewingRouteVersions.get(shareId) !== routeVersion || track.readyState !== 'live')
           return;
         mediaActivated = true;
         stableStream.getVideoTracks().forEach((oldTrack) => stableStream!.removeTrack(oldTrack));
@@ -1241,10 +1275,11 @@ class ScreenShareService {
           }
         }
       };
-      void this.waitForDecodedVideoFrame(pc, track, 4500)
+      void this.waitForDecodedVideoFrame(pc, track, 15000)
         .then(activateMedia)
         .catch(() => {
           if (
+            this.peerConnections.get(key) !== pc ||
             this.viewingRouteVersions.get(shareId) !== routeVersion ||
             this.directViewFallbacks.has(shareId)
           )
@@ -1266,7 +1301,9 @@ class ScreenShareService {
     };
 
     const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false });
+    if (this.peerConnections.get(key) !== pc) return;
     await pc.setLocalDescription(offer);
+    if (this.peerConnections.get(key) !== pc) return;
     this.sendWebSocketMessage({
       type: 'screen-share-offer',
       from: this.currentPlayerId,
@@ -1544,9 +1581,8 @@ class ScreenShareService {
       }
 
       // 创建PeerConnection
-      // 【稳定性修复】同一虚拟局域网内 host 候选直连，移除被墙的 Google STUN
       const pc = new RTCPeerConnection({
-        iceServers: [],
+        iceServers: SCREEN_ICE_SERVERS,
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -1557,9 +1593,11 @@ class ScreenShareService {
       this.peerConnections.get(connectionKey)?.close();
       this.peerConnections.set(connectionKey, pc);
 
+      this.connectionRouteVersions.set(connectionKey, offer.routeVersion);
+
       // 必须在 setLocalDescription 前监听，否则首批 host ICE 候选可能已经生成并被漏掉。
       pc.onicecandidate = (event) => {
-        if (event.candidate) {
+        if (this.peerConnections.get(connectionKey) === pc && event.candidate) {
           this.sendWebSocketMessage({
             type: 'screen-share-ice-candidate',
             from: this.currentPlayerId,
@@ -1575,6 +1613,7 @@ class ScreenShareService {
       // 【修复】监听连接断开，但不立即清除查看者标记（避免误判）
       // 只有在真正关闭时才清除标记
       pc.onconnectionstatechange = () => {
+        if (this.peerConnections.get(connectionKey) !== pc) return;
         console.log(`🔗 [ScreenShareService] 连接状态变化: ${pc.connectionState}`);
 
         if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
@@ -1663,6 +1702,9 @@ class ScreenShareService {
         key.startsWith(`${answer.shareId}-viewer-`)
       );
       const connectionKey = isNullish(answer.routeVersion) && legacyKey ? legacyKey : inboundKey;
+      const share = this.activeShares.get(answer.shareId);
+      const expectedPeer = isNullish(answer.routeVersion) ? share?.playerId : this.requestedUpstreams.get(answer.shareId);
+      if (upstreamPlayerId !== expectedPeer) return;
       const foundPc = this.peerConnections.get(connectionKey) ?? null;
 
       if (!foundPc) {
@@ -1731,14 +1773,16 @@ class ScreenShareService {
         // Upstream ICE is accepted only for the current owner-issued route.
         // Before route creation, retain it by routeVersion for later flush.
         if (isNullish(normalizedRouteVersion) && remotePlayerId !== share.playerId) return;
+        if (!isNullish(normalizedRouteVersion) && remotePlayerId !== this.requestedUpstreams.get(shareId)) return;
         const currentRoute = this.viewingRouteVersions.get(shareId);
-        if (!isNullish(currentRoute) && normalizedRouteVersion !== currentRoute) return;
+        if (!(isNullish(normalizedRouteVersion) && legacyViewerKey) && !isNullish(currentRoute) && normalizedRouteVersion !== currentRoute) return;
         direction = 'in';
       } else if (connectionRole === 'out') {
-        // Legacy no-route ICE is valid only on the owner's direct path.
-        if (isNullish(normalizedRouteVersion) && !isOwner) return;
+        // Role names identify the recipient's connection: owners send video
+        // on `out`, viewers receive on `in`, including the legacy direct path.
         const expectedRoute = this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
-        if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
+        if (isNullish(normalizedRouteVersion) && !isOwner) return;
+        if (!isNullish(normalizedRouteVersion) && expectedRoute !== normalizedRouteVersion) return;
         direction = 'out';
       } else if (
         this.peerConnections.has(outboundKey) ||
@@ -1766,11 +1810,13 @@ class ScreenShareService {
         direction === 'in'
           ? this.viewingRouteVersions.get(shareId)
           : this.expectedDownstreams.get(shareId)?.get(remotePlayerId);
-      if (!isNullish(expectedRoute) && normalizedRouteVersion !== expectedRoute) return;
+      if (!isNullish(normalizedRouteVersion) && normalizedRouteVersion !== expectedRoute) return;
       const pc = this.peerConnections.get(connectionKey);
-      if (!pc || !pc.remoteDescription) {
+      if (!pc || !pc.remoteDescription || this.connectionRouteVersions.get(connectionKey) !== normalizedRouteVersion) {
         const pendingKey = this.iceKey(shareId, direction, remotePlayerId, normalizedRouteVersion);
+        if (!this.pendingIceCandidates.has(pendingKey) && this.pendingIceCandidates.size >= 256) return;
         const pending = this.pendingIceCandidates.get(pendingKey) ?? [];
+        if (pending.length >= 64) return;
         pending.push(candidate);
         this.pendingIceCandidates.set(pendingKey, pending);
         return;
@@ -1904,6 +1950,8 @@ class ScreenShareService {
     // 关闭所有PeerConnection
     this.peerConnections.forEach((pc) => pc.close());
     this.peerConnections.clear();
+    this.connectionRouteVersions.clear();
+    this.requestedUpstreams.clear();
     this.outboundHealthTimers.forEach((timer) => window.clearInterval(timer));
     this.outboundHealthTimers.clear();
     this.viewingHealthTimers.forEach((timer) => window.clearInterval(timer));

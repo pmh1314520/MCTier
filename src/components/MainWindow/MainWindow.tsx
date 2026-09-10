@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Space, Typography, Modal } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-shell';
@@ -53,6 +54,45 @@ export const MainWindow: React.FC = () => {
     void getVersion().then(setAppVersion).catch((error) => {
       console.warn('读取应用版本失败:', error);
     });
+  }, []);
+
+  // The backend emits the auto-lobby configuration once during startup. Keep
+  // an event subscription in addition to the settings fallback below: the
+  // event can arrive before/after MainWindow mounts depending on WebView
+  // startup timing, and previously it was silently dropped because no
+  // listener existed at all.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{
+      lobbyName?: unknown;
+      lobbyPassword?: unknown;
+      playerName?: unknown;
+      useDomain?: unknown;
+    }>('auto-lobby-config', (event) => {
+      if (disposed || (window as any).__autoLobbyTriggered) return;
+      const payload = event.payload ?? {};
+      const lobbyName = typeof payload.lobbyName === 'string' ? payload.lobbyName.trim() : '';
+      const playerName = typeof payload.playerName === 'string' ? payload.playerName.trim() : '';
+      const lobbyPassword = typeof payload.lobbyPassword === 'string' ? payload.lobbyPassword : '';
+      if (!lobbyName || !playerName) return;
+      (window as any).__autoLobbyTriggered = true;
+      (window as any).__autoLobbyConfig = {
+        lobbyName,
+        lobbyPassword,
+        playerName,
+        useDomain: payload.useDomain === true,
+      };
+      setFormMode('create');
+      setShowForm(true);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    }).catch((error) => console.warn('监听自动大厅配置失败:', error));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   // 监听 GPU 渲染设置变化的全局事件
@@ -113,7 +153,7 @@ export const MainWindow: React.FC = () => {
         setEnableGpuRendering(gpuEnabled);
         console.log('GPU 渲染设置:', gpuEnabled);
         
-        if (settings.autoLobbyEnabled && settings.lobbyName && settings.lobbyPassword && settings.playerName) {
+        if (settings.autoLobbyEnabled && settings.lobbyName && settings.playerName) {
           console.log('检测到自动大厅配置，自动创建大厅:', settings.lobbyName);
           (window as any).__autoLobbyTriggered = true;
           setFormMode('create');

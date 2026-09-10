@@ -22,6 +22,7 @@ const chatClient = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/netwo
 const chatAuth = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/ChatAuth.kt');
 const lanCors = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/LanCors.kt');
 const signalingClient = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/SignalingClient.kt');
+const screenShareController = read('MCTier-Android/app/src/main/java/top/pmh13/mctier/network/ScreenShareController.kt');
 
 test('Android manifest keeps non-entry components private and disables global cleartext', () => {
   assert.match(manifest, /android:usesCleartextTraffic="false"/);
@@ -94,6 +95,20 @@ test('Android P2P chat is gated by signaling token, epoch, and member signatures
   assert.match(chatClient, /followSslRedirects\(false\)/);
   assert.match(chatClient, /\.header\(ChatTokenHeader, token\)/);
   assert.match(chatClient, /Chat send suppressed before authenticated session/);
+});
+
+test('Android rebuilds auth only from one validated registration per connection', () => {
+  assert.match(signalingClient, /var registrationAccepted = false/);
+  assert.match(signalingClient, /if \(registrationAccepted\)[\s\S]{0,300}duplicate-register-success/);
+  assert.match(signalingClient, /registrationAccepted = true/);
+  assert.match(repository, /"register-success"[\s\S]{0,1800}resetAuthBaseline\(\)/);
+  assert.match(repository, /"chat-token-rotated"[\s\S]{0,900}epoch < chatTokenEpoch/);
+});
+
+test('Android screen sharing receives Unified Plan video tracks', () => {
+  assert.match(screenShareController, /sdpSemantics = PeerConnection\.SdpSemantics\.UNIFIED_PLAN/);
+  assert.match(screenShareController, /override fun onTrack\(transceiver: RtpTransceiver\)/);
+  assert.match(screenShareController, /transceiver\.receiver\.track\(\)/);
 });
 
 // The shared lobby token only proves membership; every member holds the same

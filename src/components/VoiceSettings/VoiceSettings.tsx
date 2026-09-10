@@ -136,9 +136,9 @@ export const VoiceDevicePanel: React.FC<VoiceDevicePanelProps> = ({ active = tru
       const constraints: MediaStreamConstraints = {
         audio: {
           ...(id ? { deviceId: { ideal: id } } : {}),
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
         video: false,
       };

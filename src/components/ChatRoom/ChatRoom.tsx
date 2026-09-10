@@ -11,6 +11,8 @@ import { EmojiPicker } from '../EmojiPicker/EmojiPicker';
 import { EmojiIcon, ImageIcon } from '../icons';
 import { Avatar } from '../Avatar/Avatar';
 import { saveAvatarData } from '../../services/avatar/avatarService';
+import { createChatMessageId } from '../../services/chat/messageOrder';
+import { unreadLabel } from '../../services/chat/unread';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { isSafeHttpUrl, isSafeImageDataUrl } from '../../security/trustBoundary';
@@ -47,6 +49,27 @@ export const ChatRoom: React.FC = () => {
   const { currentPlayerId, chatMessages, addChatMessage, deleteChatMessage, recallChatMessage, config } = useAppStore();
   const players = useAppStore((state) => state.players);
   const [inputValue, setInputValue] = useState('');
+  const [chatTab, setChatTab] = useState<'lobby' | 'private'>('lobby');
+  const [privatePeerId, setPrivatePeerId] = useState<string>('');
+  const unreadChatMessages = useAppStore((state) => state.unreadChatMessages);
+  const setActiveChatConversation = useAppStore((state) => state.setActiveChatConversation);
+  const conversation = chatTab === 'lobby' ? 'lobby' : privatePeerId ? `private:${privatePeerId}` : null;
+  const conversationMessages = React.useMemo(() => chatMessages.filter(message => chatTab === 'private'
+    ? !!privatePeerId && ((message.playerId === currentPlayerId && message.recipientId === privatePeerId) || (message.playerId === privatePeerId && message.recipientId === currentPlayerId))
+    : !message.recipientId), [chatMessages, chatTab, privatePeerId, currentPlayerId]);
+  useLayoutEffect(() => {
+    const update = () => setActiveChatConversation(document.visibilityState === 'visible' && document.hasFocus() ? conversation : null);
+    update();
+    window.addEventListener('focus', update);
+    window.addEventListener('blur', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+      setActiveChatConversation(null);
+    };
+  }, [conversation, setActiveChatConversation]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const isAtBottomRef = useRef(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -89,6 +112,18 @@ export const ChatRoom: React.FC = () => {
   const highlightStartTimerRef = useRef<number | null>(null);
   const initializedScrollRef = useRef(false);
 
+  useLayoutEffect(() => {
+    setReplyTo(null);
+    setMentionOpen(false);
+    setLastReadMessageIndex(conversationMessages.length);
+    setIsAtBottom(true);
+    isAtBottomRef.current = true;
+    initializedScrollRef.current = false;
+    if (messagesContainerRef.current) messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    // Only reset when switching conversations, not when messages arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation]);
+
   useEffect(() => {
     if (!messageContextMenu) return;
     const closeMenu = (event?: MouseEvent) => {
@@ -125,10 +160,14 @@ export const ChatRoom: React.FC = () => {
   }, [previewZoom]);
 
   // 计算未读消息数量（只计算其他人发送的消息）
-  const unreadMessages = chatMessages.filter((msg, index) => 
+  const unreadMessages = conversationMessages.filter((msg, index) =>
     msg.playerId !== currentPlayerId && index >= lastReadMessageIndex
   );
   const hasUnreadMessages = unreadMessages.length > 0;
+  const unreadConversations = Object.values(unreadChatMessages);
+  const privateUnreadFor = (playerId: string) => unreadConversations.filter(value => value === `private:${playerId}`).length;
+  const privateUnread = unreadConversations.filter(value => value.startsWith('private:')).length;
+  const lobbyUnread = unreadConversations.filter(value => value === 'lobby').length;
 
   // 获取MiniWindow的已读消息标记函数
   const markMessagesAsRead = () => {
@@ -159,7 +198,7 @@ export const ChatRoom: React.FC = () => {
     
     // 如果滚动到底部，标记所有消息为已读
     if (isBottom) {
-      setLastReadMessageIndex(chatMessages.length);
+      setLastReadMessageIndex(conversationMessages.length);
       markMessagesAsRead();
     }
     
@@ -185,7 +224,7 @@ export const ChatRoom: React.FC = () => {
     setDisplayedMessageCount(newCount);
     
     // 如果已经显示所有消息，标记没有更多消息
-    if (newCount >= chatMessages.length) {
+    if (newCount >= conversationMessages.length) {
       setHasMoreMessages(false);
     }
     
@@ -212,7 +251,7 @@ export const ChatRoom: React.FC = () => {
       setTimeout(doScroll, 340);
     });
     // 滚动到底部后标记所有消息为已读
-    setLastReadMessageIndex(chatMessages.length);
+    setLastReadMessageIndex(conversationMessages.length);
     markMessagesAsRead();
   };
 
@@ -227,25 +266,25 @@ export const ChatRoom: React.FC = () => {
   // 否则 initializedScrollRef 永远为 false 会导致后续自动滚动失效。
   useLayoutEffect(() => {
     if (initializedScrollRef.current) return;
-    if (chatMessages.length <= 0) return;
+    if (conversationMessages.length <= 0) return;
     initializedScrollRef.current = true;
     const el = messagesContainerRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight; // 瞬间置底，无动画
     }
-    setLastReadMessageIndex(chatMessages.length);
+    setLastReadMessageIndex(conversationMessages.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages.length]);
+  }, [conversationMessages.length, conversation]);
 
   // 新消息到达时：仅当用户当前已处于底部时才跟随他人消息（标准聊天行为）。
   // 不再因"最新消息是自己发的"而强制置底——那会导致用户往上翻历史时被反复拽回底部。
   // 自己发送消息时的瞬时置底由发送处理函数显式触发。
   useEffect(() => {
-    if (chatMessages.length <= 0) return;
+    if (conversationMessages.length <= 0) return;
     if (!initializedScrollRef.current) return;
     if (isAtBottomRef.current) scrollToBottom(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages.length]);
+  }, [conversationMessages.length]);
 
   const buildReplyContent = (body: string): string => {
     if (!replyTo) return body;
@@ -274,7 +313,7 @@ export const ChatRoom: React.FC = () => {
       return;
     }
     try {
-      await p2pChatService.recallMessage(message.id);
+      await p2pChatService.recallMessage(message.id, chatTab === 'private' ? privatePeerId : undefined);
       recallChatMessage(message.id, currentPlayerId);
       if (replyTo?.id === message.id) setReplyTo(null);
       antdMessage.success(tl('消息已撤回', 'Message recalled'));
@@ -282,7 +321,7 @@ export const ChatRoom: React.FC = () => {
       console.error('撤回消息失败:', error);
       antdMessage.error(tl('撤回失败，请检查网络后重试', 'Recall failed. Check the network and try again.'));
     }
-  }, [currentPlayerId, recallChatMessage, replyTo]);
+  }, [currentPlayerId, recallChatMessage, replyTo, chatTab, privatePeerId]);
 
   const handleJumpToReply = useCallback((sourceMessage: ChatMessage) => {
     const parsed = parseReplyContent(sourceMessage.content);
@@ -339,7 +378,7 @@ export const ChatRoom: React.FC = () => {
 
   // 发送文本消息
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !currentPlayerId) return;
+    if (!inputValue.trim() || !currentPlayerId || (chatTab === 'private' && !privatePeerId)) return;
     
     const text = inputValue.trim();
     // 引用回复：在正文前加入 "> @名字 摘要" 引用行（与安卓端格式一致，跨端互通）
@@ -352,7 +391,7 @@ export const ChatRoom: React.FC = () => {
     try {
       // 乐观更新：立即在本地显示自己发送的消息
       const optimisticMessage: ChatMessage = {
-        id: `msg-${currentPlayerId}-${Date.now()}`,
+        id: createChatMessageId(currentPlayerId!),
         playerId: currentPlayerId,
         playerName: config.playerName || tl('我', 'Me'),
         content: messageContent,
@@ -360,6 +399,8 @@ export const ChatRoom: React.FC = () => {
         type: 'text',
       };
       
+      const recipientId = chatTab === 'private' ? privatePeerId : undefined;
+      optimisticMessage.recipientId = recipientId;
       // 立即添加到本地消息列表
       addChatMessage(optimisticMessage);
       console.log('✅ [ChatRoom] 乐观更新：本地显示消息');
@@ -368,7 +409,7 @@ export const ChatRoom: React.FC = () => {
       scrollToBottom(false);
       
       // 发送到P2P网络
-      const res = await p2pChatService.sendTextMessage(messageContent, optimisticMessage.id);
+      const res = await p2pChatService.sendTextMessage(messageContent, optimisticMessage.id, recipientId);
       console.log('✅ [ChatRoom] 文本消息已发送到P2P网络', res);
       // 回执：有其他玩家但一个都没送达时，提示可能未送达
       if (res && res.total > 0 && res.delivered === 0) {
@@ -425,7 +466,8 @@ export const ChatRoom: React.FC = () => {
     const value = e.target.value;
     setInputValue(value);
     const cursor = e.target.selectionStart ?? value.length;
-    detectMention(value, cursor);
+    if (chatTab === 'private') setMentionOpen(false);
+    else detectMention(value, cursor);
   };
 
   // 选择一个 @ 提及候选
@@ -544,7 +586,7 @@ export const ChatRoom: React.FC = () => {
 
           // 乐观更新：立即在本地显示自己发送的图片
           const optimisticMessage: ChatMessage = {
-            id: `msg-${currentPlayerId}-${Date.now()}`,
+            id: createChatMessageId(currentPlayerId!),
             playerId: currentPlayerId!,
             playerName: config.playerName || tl('我', 'Me'),
             content: messageContent,
@@ -553,12 +595,14 @@ export const ChatRoom: React.FC = () => {
             imageData: optimizedDataUrl,
           };
           
+          const recipientId = chatTab === 'private' ? privatePeerId : undefined;
+          optimisticMessage.recipientId = recipientId;
           // 立即添加到本地消息列表
           addChatMessage(optimisticMessage);
           console.log('✅ [ChatRoom] 乐观更新：本地显示图片');
           
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id, recipientId);
           setReplyTo(null);
           antdMessage.success(tl('图片发送成功', 'Image sent'));
           
@@ -611,7 +655,7 @@ export const ChatRoom: React.FC = () => {
 
           // 乐观更新：立即在本地显示自己发送的图片
           const optimisticMessage: ChatMessage = {
-            id: `msg-${currentPlayerId}-${Date.now()}`,
+            id: createChatMessageId(currentPlayerId!),
             playerId: currentPlayerId!,
             playerName: config.playerName || tl('我', 'Me'),
             content: messageContent,
@@ -620,12 +664,14 @@ export const ChatRoom: React.FC = () => {
             imageData: optimizedDataUrl,
           };
           
+          const recipientId = chatTab === 'private' ? privatePeerId : undefined;
+          optimisticMessage.recipientId = recipientId;
           // 立即添加到本地消息列表
           addChatMessage(optimisticMessage);
           console.log('✅ [ChatRoom] 乐观更新：本地显示粘贴的图片');
 
           // 发送图片消息到P2P网络
-          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
+          await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id, recipientId);
           setReplyTo(null);
 
           antdMessage.success(tl('图片发送成功', 'Image sent'));
@@ -679,7 +725,7 @@ export const ChatRoom: React.FC = () => {
 
       // 乐观更新：立即在本地显示自己发送的图片
       const optimisticMessage: ChatMessage = {
-        id: `msg-${currentPlayerId}-${Date.now()}`,
+        id: createChatMessageId(currentPlayerId!),
         playerId: currentPlayerId!,
         playerName: config.playerName || tl('我', 'Me'),
         content: messageContent,
@@ -688,12 +734,14 @@ export const ChatRoom: React.FC = () => {
         imageData: optimizedDataUrl,
       };
       
+      const recipientId = chatTab === 'private' ? privatePeerId : undefined;
+      optimisticMessage.recipientId = recipientId;
       // 立即添加到本地消息列表
       addChatMessage(optimisticMessage);
       console.log('✅ [ChatRoom] 乐观更新：本地显示拖拽的图片');
 
       // 发送图片消息到P2P网络
-      await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id);
+      await p2pChatService.sendImageMessage(optimizedDataUrl, messageContent, optimisticMessage.id, recipientId);
       setReplyTo(null);
 
       antdMessage.success(tl('图片发送成功', 'Image sent'));
@@ -816,7 +864,7 @@ export const ChatRoom: React.FC = () => {
   };
 
   // 获取要显示的消息（只显示最近的N条）
-  const displayedMessages = chatMessages.slice(-displayedMessageCount);
+  const displayedMessages = conversationMessages.slice(-displayedMessageCount);
 
   // 当前玩家名（用于 @ 提醒判断）
   const ownName = (players.find((p) => p.id === currentPlayerId)?.name || config.playerName || '').trim();
@@ -824,7 +872,7 @@ export const ChatRoom: React.FC = () => {
   // 未读分隔线：定位第一条未读(他人)消息的 id，仅当当前不在底部且确有未读时显示
   const firstUnreadId =
     hasUnreadMessages && !isAtBottom
-      ? chatMessages.find(
+      ? conversationMessages.find(
           (m, idx) => idx >= lastReadMessageIndex && m.playerId !== currentPlayerId
         )?.id
       : undefined;
@@ -888,11 +936,33 @@ export const ChatRoom: React.FC = () => {
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
+      <div className="chat-tabs" role="tablist">
+        <button type="button" className={chatTab === 'lobby' ? 'active' : ''} onClick={() => setChatTab('lobby')}>{tl('大厅', 'Lobby')}{lobbyUnread > 0 && <span className="chat-tab-badge">{unreadLabel(lobbyUnread)}</span>}</button>
+        <button type="button" className={chatTab === 'private' ? 'active' : ''} onClick={() => setChatTab('private')}>
+          {tl('私聊', 'Private')}{privateUnread > 0 && <span className="chat-tab-badge">{unreadLabel(privateUnread)}</span>}
+        </button>
+        {chatTab === 'private' && privatePeerId && <button type="button" className="private-peer-current" title={tl('返回玩家列表', 'Back to players')} onClick={() => setPrivatePeerId('')}><RollbackOutlined /><span className="private-peer-name">{players.find((p) => p.id === privatePeerId)?.name}</span></button>}
+      </div>
       <div 
         className="chat-messages" 
         ref={messagesContainerRef}
         onScroll={handleScroll}
       >
+        {chatTab === 'private' && !privatePeerId && (
+          <div className="private-peer-list">
+            <div className="private-peer-list-title">{tl('选择要私聊的玩家', 'Choose a player to message')}</div>
+            {players.filter((p) => p.id !== currentPlayerId).map((p) => {
+              const unread = privateUnreadFor(p.id);
+              return <button type="button" className="private-peer-item" key={p.id} onClick={() => {
+                setPrivatePeerId(p.id);
+              }}>
+                <Avatar name={p.name} avatarData={p.avatarData} size={38} />
+                <span>{p.name}</span>
+                {unread > 0 && <span className={`private-peer-unread ${unread >= 10 ? 'pill' : ''}`}>{unread > 99 ? '99+' : unread}</span>}
+              </button>;
+            })}
+          </div>
+        )}
         {isLoadingMore && (
           <div className="chat-loading">
             <span>{tl('加载中...', 'Loading...')}</span>
@@ -1207,7 +1277,7 @@ export const ChatRoom: React.FC = () => {
         </div>
       )}
 
-      <motion.div 
+      {(chatTab !== 'private' || privatePeerId) && <motion.div
         className="chat-input-area"
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -1220,7 +1290,7 @@ export const ChatRoom: React.FC = () => {
       >
         {/* @ 提及候选下拉 */}
         <AnimatePresence>
-          {mentionOpen && mentionCandidates.length > 0 && (
+          {chatTab !== 'private' && mentionOpen && mentionCandidates.length > 0 && (
             <motion.div
               className="mention-dropdown"
               initial={{ opacity: 0, y: 8 }}
@@ -1287,7 +1357,7 @@ export const ChatRoom: React.FC = () => {
             className="send-button"
           />
         </div>
-      </motion.div>
+      </motion.div>}
 
       {/* 隐藏的文件输入 */}
       <input

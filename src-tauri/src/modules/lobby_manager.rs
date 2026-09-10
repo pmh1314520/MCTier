@@ -160,6 +160,67 @@ pub struct LobbyManager {
 }
 
 impl LobbyManager {
+    /// Start EasyTier with bounded recovery for transient resolver/socket
+    /// failures. EasyTier can terminate during startup when Windows briefly
+    /// exhausts UDP buffers (WSA 10055) or its DNS resolver races the virtual
+    /// adapter. The old call path surfaced that first failure directly, which
+    /// left auto-lobby in a half-connected state until the application was
+    /// restarted. A retry is safe here because NetworkService cleans the
+    /// failed child and virtual adapter before returning the error.
+    async fn start_easytier_with_retry(
+        network_service: &crate::modules::network_service::NetworkService,
+        network_name: String,
+        network_key: String,
+        server_node: String,
+        player_name: String,
+        app_handle: &tauri::AppHandle,
+        global_config: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
+        lobby_config: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
+    ) -> Result<String, AppError> {
+        const MAX_ATTEMPTS: usize = 3;
+        let mut last_error = None;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match network_service
+                .start_easytier_with_config(
+                    network_name.clone(),
+                    network_key.clone(),
+                    server_node.clone(),
+                    player_name.clone(),
+                    app_handle,
+                    global_config.clone(),
+                    lobby_config.clone(),
+                )
+                .await
+            {
+                Ok(ip) => return Ok(ip),
+                Err(error) => {
+                    let text = error.to_string();
+                    let transient = text.contains("10055")
+                        || text.contains("缓冲区空间不足")
+                        || text.contains("DNS")
+                        || text.contains("dns")
+                        || text.contains("lookup")
+                        || text.contains("连接错误")
+                        || text.contains("connect to peer error");
+                    log::warn!(
+                        "EasyTier 启动失败 ({}/{}): {}{}",
+                        attempt,
+                        MAX_ATTEMPTS,
+                        text,
+                        if transient { "，判定为瞬时错误" } else { "" }
+                    );
+                    last_error = Some(error);
+                    if !transient || attempt == MAX_ATTEMPTS {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1200 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| AppError::NetworkError("EasyTier 启动失败".to_string())))
+    }
+
     /// 创建新的大厅管理器实例
     ///
     /// # 返回
@@ -401,16 +462,67 @@ impl LobbyManager {
         let normalized_server_node = Self::normalize_server_node(&server_node);
         log::info!("使用服务器节点: {}", normalized_server_node);
 
+        // 创建者必须占用保留的 .1 地址。部分公共节点不运行 DHCP，
+        // 此时使用默认 dhcp=true 会让 TUN 建立但永远没有可达地址。
+        // 只对创建路径应用静态地址；加入者仍使用用户选择的 DHCP/IPv4 配置。
+        let mut creator_lobby_config = lobby_config;
+        if creator_lobby_config.is_none() {
+            // The common/default path has no per-lobby override.  In that case
+            // start_easytier would otherwise consume the global DHCP setting
+            // (the public node does not provide DHCP) and create a TUN without
+            // an address.  Materialize an explicit creator override so the
+            // final config cannot silently fall back to DHCP.
+            if let Some(global) = global_config.as_ref() {
+                if global.dhcp && global.ipv4.as_deref().unwrap_or("").trim().is_empty() {
+                    let mut static_config = global.clone();
+                    static_config.use_global_config = false;
+                    static_config.dhcp = false;
+                    static_config.ipv4 = Some("10.126.126.1/24".to_string());
+                    creator_lobby_config = Some(static_config);
+                    log::warn!("公共节点未提供 DHCP，创建者回退到静态 IPv4 10.126.126.1/24");
+                }
+            } else {
+                // No advanced settings have been persisted on a fresh install.
+                // The EasyTier default is DHCP, which is not available on the
+                // public node, so use a deterministic creator address here too.
+                let mut static_config = crate::modules::config_manager::EasyTierAdvancedConfig::default();
+                static_config.use_global_config = false;
+                static_config.dhcp = false;
+                static_config.ipv4 = Some("10.126.126.1/24".to_string());
+                creator_lobby_config = Some(static_config);
+                log::warn!("未配置 EasyTier 高级设置，创建者使用静态 IPv4 10.126.126.1/24");
+            }
+        }
+        if let Some(config) = creator_lobby_config.as_mut() {
+            if config.use_global_config {
+                if let Some(global) = global_config.as_ref() {
+                    if global.dhcp && global.ipv4.as_deref().unwrap_or("").trim().is_empty() {
+                        let mut static_config = global.clone();
+                        static_config.use_global_config = false;
+                        static_config.dhcp = false;
+                        static_config.ipv4 = Some("10.126.126.1/24".to_string());
+                        creator_lobby_config = Some(static_config);
+                        log::warn!("公共节点未提供 DHCP，创建者回退到静态 IPv4 10.126.126.1/24");
+                    }
+                }
+            } else if config.dhcp && config.ipv4.as_deref().unwrap_or("").trim().is_empty() {
+                config.use_global_config = false;
+                config.dhcp = false;
+                config.ipv4 = Some("10.126.126.1/24".to_string());
+                log::warn!("公共节点未提供 DHCP，创建者回退到静态 IPv4 10.126.126.1/24");
+            }
+        }
+
         // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
-        let virtual_ip = network_service
-            .start_easytier_with_config(
+        let virtual_ip = Self::start_easytier_with_retry(
+                network_service,
                 network_name,
                 network_key,
                 normalized_server_node,
                 player_name.clone(),
                 app_handle,
                 Some(global_config),
-                Some(lobby_config),
+                Some(creator_lobby_config),
             )
             .await
             .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
@@ -437,11 +549,10 @@ impl LobbyManager {
             self.hosts_manager = Some(hosts_manager);
         }
 
-        // 创建大厅实例
-        // 约定：所有节点都连接到 10.126.126.1:8445
-        // 在 EasyTier DHCP 模式下，第一个加入网络的节点通常会获得 10.126.126.1
-        let creator_virtual_ip = "10.126.126.1".to_string();
-        log::info!("约定的信令服务器地址: {}:8445", creator_virtual_ip);
+        // EasyTier DHCP 地址可能在应用重启后发生变化；使用本次实际
+        // 分配的地址，避免对端继续访问已经失效的旧创建者地址。
+        let creator_virtual_ip = virtual_ip.clone();
+        log::info!("创建者 EasyTier 地址: {}", creator_virtual_ip);
         let lobby = Lobby::new(
             name,
             Some(password),
@@ -558,8 +669,8 @@ impl LobbyManager {
         // 创建大厅实例
         // 约定：所有节点都连接到 10.126.126.1:8445
         // 在 EasyTier DHCP 模式下，第一个加入网络的节点通常会获得 10.126.126.1
-        let creator_virtual_ip = "10.126.126.1".to_string();
-        log::info!("约定的信令服务器地址: {}:8445", creator_virtual_ip);
+        let creator_virtual_ip = virtual_ip.clone();
+        log::info!("创建者 EasyTier 地址: {}", creator_virtual_ip);
         let lobby = Lobby::new(
             name,
             Some(password),
@@ -657,8 +768,8 @@ impl LobbyManager {
         log::info!("使用服务器节点: {}", normalized_server_node);
 
         // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
-        let virtual_ip = network_service
-            .start_easytier_with_config(
+        let virtual_ip = Self::start_easytier_with_retry(
+                network_service,
                 network_name,
                 network_key,
                 normalized_server_node,
@@ -884,6 +995,15 @@ impl LobbyManager {
         log::info!("已成功退出大厅");
 
         Ok(())
+    }
+
+    /// Clear stale lobby state after an interrupted connection attempt.
+    /// This is intentionally separate from `leave_lobby`, which assumes a
+    /// live EasyTier service and therefore cannot be used by force cleanup.
+    pub fn force_clear_state(&mut self) {
+        self.current_lobby = None;
+        self.players.clear();
+        self.hosts_manager = None;
     }
 
     /// 添加玩家

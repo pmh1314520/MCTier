@@ -180,6 +180,7 @@ export interface ChatMessage {
   imageData?: string;
   /** 消息是否已由原发送者撤回 */
   recalled?: boolean;
+  recipientId?: string;
 }
 
 /**

@@ -107,6 +107,7 @@ class SignalingClient {
         webSocket?.let { runCatching { it.cancel() } }
         webSocket = null
         val request = Request.Builder().url(args.url).build()
+        var registrationAccepted = false
         val ws = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 if (ws !== webSocket || generation != connectionGeneration) return
@@ -123,6 +124,11 @@ class SignalingClient {
                     when (message.type) {
                         "server-challenge" -> handleServerChallenge(ws, args, generation, message)
                         "register-success" -> {
+                            if (registrationAccepted) {
+                                android.util.Log.e("SignalingClient", "拒绝同一连接上的重复注册响应")
+                                ws.close(1008, "duplicate-register-success")
+                                return@onSuccess
+                            }
                             val assignedId = message.clientId
                             val assignedGeneration = message.sessionGeneration
                             if (assignedId != args.identityId || assignedGeneration == null || assignedGeneration <= 0L) {
@@ -130,6 +136,7 @@ class SignalingClient {
                                 ws.close(1008, "invalid-register-success")
                                 return@onSuccess
                             }
+                            registrationAccepted = true
                             serverSessionGeneration = assignedGeneration
                             _connected.value = true
                             startHeartbeat()

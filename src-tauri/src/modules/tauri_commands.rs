@@ -500,6 +500,7 @@ pub async fn create_lobby(
     // 获取各个服务的引用
     let lobby_manager = core.get_lobby_manager();
     let network_service = core.get_network_service();
+    let p2p_signaling = core.get_p2p_signaling();
     let file_transfer = core.get_file_transfer();
     let chat_service = core.get_chat_service();
 
@@ -546,6 +547,28 @@ pub async fn create_lobby(
             // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://test.pmhs.top)
             log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://test.pmhs.top");
 
+            // 创建者也必须注册到远程信令服务器。此前只有加入大厅路径启动
+            // P2P 信令，导致创建者没有向 Android/其他客户端发布大厅成员、
+            // 聊天凭据和 WebRTC 信令，加入端会误判大厅不存在并自行成为房主。
+            log::info!("正在启动P2P信令服务（创建大厅）...");
+            let p2p_svc = p2p_signaling.lock().await;
+            match p2p_svc
+                .start(player_id, player_name, virtual_ip.clone())
+                .await
+            {
+                Ok(_) => log::info!("✅ P2P信令服务启动成功（创建大厅）"),
+                Err(e) => {
+                    log::error!("❌ 启动P2P信令服务失败（创建大厅）: {}", e);
+                    drop(p2p_svc);
+                    let core = state.core.lock().await;
+                    core.set_state(CoreAppState::Error(format!("P2P信令服务启动失败: {}", e)))
+                        .await;
+                    drop(core);
+                    return Err(format!("P2P信令服务启动失败: {}", e));
+                }
+            }
+            drop(p2p_svc);
+
             // 不再在创建大厅时自动启动HTTP文件服务器
             // HTTP服务器将在第一次添加共享时按需启动
             log::info!("📝 HTTP文件服务器将在添加共享时按需启动");
@@ -555,7 +578,7 @@ pub async fn create_lobby(
 
             // 聊天服务必须等待信令服务器下发 lobby token 后才能启动。
             let chat_svc = chat_service.lock().await;
-            chat_svc.stop_server().await;
+            chat_svc.reset_for_lobby().await;
             chat_svc.set_virtual_ip(virtual_ip.clone());
             drop(chat_svc);
 
@@ -568,6 +591,13 @@ pub async fn create_lobby(
         }
         Err(e) => {
             log::error!("创建大厅失败: {}", e);
+
+            // Roll back partial setup.  EasyTier may already be running and
+            // LobbyManager may already contain a lobby when the later P2P
+            // signaling step fails; leaving either behind makes the next
+            // click fail immediately with AlreadyInLobby.
+            lobby_mgr.force_clear_state();
+            let _ = network_svc.stop_easytier().await;
 
             // 更新应用状态为错误
             let core = state.core.lock().await;
@@ -714,7 +744,7 @@ pub async fn join_lobby(
 
             // 聊天服务必须等待信令服务器下发 lobby token 后才能启动。
             let chat_svc = chat_service.lock().await;
-            chat_svc.stop_server().await;
+            chat_svc.reset_for_lobby().await;
             chat_svc.set_virtual_ip(virtual_ip.clone());
             drop(chat_svc);
 
@@ -727,6 +757,11 @@ pub async fn join_lobby(
         }
         Err(e) => {
             log::error!("加入大厅失败: {}", e);
+
+            // Roll back partial setup so a failed join can be retried without
+            // requiring an application restart or a separate force-stop.
+            lobby_mgr.force_clear_state();
+            let _ = network_svc.stop_easytier().await;
 
             // 更新应用状态为错误
             let core = state.core.lock().await;
@@ -1697,6 +1732,7 @@ pub async fn force_stop_easytier(state: State<'_, AppState>) -> Result<(), Strin
 
     let core = state.core.lock().await;
     let network_service = core.get_network_service();
+    let lobby_manager = core.get_lobby_manager();
     let network_svc = network_service.lock().await;
 
     // 调用NetworkService的stop_easytier方法
@@ -1707,12 +1743,20 @@ pub async fn force_stop_easytier(state: State<'_, AppState>) -> Result<(), Strin
     // 4. 刷新DNS缓存
     match network_svc.stop_easytier().await {
         Ok(_) => {
-            log::info!("✅ EasyTier进程已强制停止并清理完成");
+            drop(network_svc);
+            // A force-stop can be invoked after a cancelled/failed lobby
+            // attempt.  EasyTier cleanup alone is insufficient: stale
+            // LobbyManager state makes the next create/join fail with
+            // AlreadyInLobby immediately.
+            lobby_manager.lock().await.force_clear_state();
+            log::info!("✅ EasyTier进程及残留大厅状态已强制清理完成");
             Ok(())
         }
         Err(e) => {
             log::warn!("⚠️ 强制停止EasyTier进程时出现警告: {}", e);
             // 即使出现错误，也返回成功，因为可能只是没有进程在运行
+            drop(network_svc);
+            lobby_manager.lock().await.force_clear_state();
             Ok(())
         }
     }
@@ -1816,16 +1860,6 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
 
     #[cfg(windows)]
     {
-        // 开发模式：跳过防火墙检查，直接返回 true
-        #[cfg(debug_assertions)]
-        {
-            log::info!("🔧 开发模式 - 跳过防火墙规则检查");
-            return Ok(true);
-        }
-
-        // 生产模式：通过 privileged helper 检查
-        #[cfg(not(debug_assertions))]
-        {
         let has_rules = crate::modules::privileged_helper::run_one_shot(
             crate::modules::privileged_helper::HelperRequest::CheckFirewall,
         )?
@@ -1834,7 +1868,6 @@ pub async fn check_firewall_rules() -> Result<bool, String> {
 
         log::info!("防火墙规则检查结果: {}", has_rules);
         Ok(has_rules)
-    }
         }
 
     #[cfg(target_os = "linux")]
@@ -1890,16 +1923,6 @@ pub async fn is_admin() -> bool {
 pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     {
-        // 开发模式：跳过防火墙规则添加
-        #[cfg(debug_assertions)]
-        {
-            log::info!("🔧 开发模式 - 跳过防火墙规则添加");
-            return Ok("开发模式：已跳过防火墙配置".to_string());
-        }
-
-        // 生产模式：通过 privileged helper 添加规则
-        #[cfg(not(debug_assertions))]
-        {
         let easytier_path =
             crate::modules::resource_manager::ResourceManager::get_easytier_path(&app_handle)
                 .map_err(|e| e.to_string())?;
@@ -1909,7 +1932,6 @@ pub async fn add_firewall_rules(app_handle: tauri::AppHandle) -> Result<String, 
             },
         )?;
         Ok(value.unwrap_or_else(|| "防火墙规则已更新".to_string()))
-    }
         }
     #[cfg(target_os = "linux")]
     {
@@ -5107,11 +5129,16 @@ pub struct SignalingRegistrationProof {
 pub async fn prepare_signaling_identity(
     state: State<'_, AppState>,
 ) -> Result<SignalingIdentity, String> {
+    log::info!("信令身份请求已收到");
+    log::info!("信令身份请求：等待核心状态锁");
     let chat_service = {
         let core = state.core.lock().await;
+        log::info!("信令身份请求：已取得核心状态锁");
         core.get_chat_service()
     };
+    log::info!("信令身份请求：等待聊天服务锁");
     let (client_id, identity_public_key) = chat_service.lock().await.signaling_identity()?;
+    log::info!("信令身份请求成功: client_id={}", client_id);
     Ok(SignalingIdentity {
         client_id,
         identity_public_key,
@@ -5125,6 +5152,11 @@ pub async fn sign_signaling_registration(
     virtual_ip: String,
     state: State<'_, AppState>,
 ) -> Result<SignalingRegistrationProof, String> {
+    log::info!(
+        "信令注册签名请求已收到: lobby={}, virtual_ip={}",
+        lobby_name,
+        virtual_ip
+    );
     if challenge.len() != 64
         || !challenge
             .bytes()
@@ -5145,14 +5177,18 @@ pub async fn sign_signaling_registration(
         .map_err(|_| "虚拟 IP 格式无效".to_string())?
         .to_string();
 
+    log::info!("信令注册签名：等待核心状态锁");
     let chat_service = {
         let core = state.core.lock().await;
+        log::info!("信令注册签名：已取得核心状态锁");
         core.get_chat_service()
     };
+    log::info!("信令注册签名：等待聊天服务锁");
     let (client_id, identity_public_key, challenge_signature) = chat_service
         .lock()
         .await
         .sign_signaling_registration(&challenge, &lobby_name, &normalized_ip)?;
+    log::info!("信令注册签名请求成功: client_id={}", client_id);
     Ok(SignalingRegistrationProof {
         client_id,
         identity_public_key,
@@ -5168,6 +5204,7 @@ pub async fn configure_p2p_chat(
     player_name: String,
     host_id: Option<String>,
     peers: Vec<ChatPeerIdentity>,
+    reset_auth_baseline: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if peers.len() > MAX_CHAT_TARGETS {
@@ -5178,22 +5215,45 @@ pub async fn configure_p2p_chat(
         let core = state.core.lock().await;
         (core.get_chat_service(), core.get_file_transfer())
     };
-    let chat_svc = chat_service.lock().await;
-    chat_svc.set_session(
-        chat_token,
-        chat_token_epoch,
-        player_id,
-        player_name,
-        host_id,
-        peers,
-    )?;
-    chat_svc
-        .start_server()
-        .await
-        .map_err(|error| format!("启动聊天服务失败: {}", error))?;
-    drop(chat_svc);
-    let result = file_transfer.lock().await.set_lobby_token(file_token);
-    result
+    let reset_auth = reset_auth_baseline.unwrap_or(false);
+    {
+        log::info!("配置聊天会话：等待聊天服务锁");
+        let chat_svc = chat_service.lock().await;
+        log::info!("配置聊天会话：已取得聊天服务锁");
+        if reset_auth {
+            log::info!("配置聊天会话：重置认证基线");
+            chat_svc.reset_auth_baseline().await;
+        }
+        log::info!("配置聊天会话：安装令牌和成员列表");
+        chat_svc.set_session(
+            chat_token,
+            chat_token_epoch,
+            player_id,
+            player_name,
+            host_id,
+            peers,
+        )?;
+    }
+
+    // Never hold the chat lock while waiting for the file service (or while
+    // binding the HTTP listener). Signaling reconnects need the same chat
+    // lock to sign their challenge, so cross-service lock ordering here would
+    // otherwise stall registration indefinitely.
+    {
+        log::info!("配置聊天会话：启动聊天 HTTP 服务");
+        let chat_svc = chat_service.lock().await;
+        chat_svc
+            .start_server()
+            .await
+            .map_err(|error| format!("启动聊天服务失败: {}", error))?;
+        log::info!("配置聊天会话：聊天 HTTP 服务已启动");
+    }
+
+    let mut file_svc = file_transfer.lock().await;
+    if reset_auth {
+        file_svc.clear_lobby_token();
+    }
+    file_svc.set_lobby_token(file_token)
 }
 
 #[tauri::command]
@@ -5245,6 +5305,7 @@ pub async fn send_p2p_chat_message(
     message_type: String,
     image_data: Option<Vec<u8>>,
     message_id: Option<String>,
+    recipient_id: Option<String>,
     peer_ips: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
@@ -5302,7 +5363,16 @@ pub async fn send_p2p_chat_message(
 
     // The renderer may request a subset for UI reasons, but it never chooses
     // network destinations. Broadcast to the authoritative signaling roster.
-    let authoritative_peers = chat_svc.authoritative_peers();
+    let mut authoritative_peers = chat_svc.authoritative_peers();
+    if let Some(target) = recipient_id.as_ref() {
+        if !matches!(msg_type, MessageType::Text | MessageType::Image | MessageType::Recall) {
+            return Err("此消息类型不支持私聊".to_string());
+        }
+        authoritative_peers.retain(|peer| &peer.player_id == target);
+        if authoritative_peers.len() != 1 {
+            return Err("私聊对象已离开大厅".to_string());
+        }
+    }
 
     let message = ChatServiceMessage {
         id: message_id.clone(),
@@ -5312,6 +5382,7 @@ pub async fn send_p2p_chat_message(
         message_type: msg_type.clone(),
         timestamp: current_unix_seconds(),
         image_data: image_data.clone(),
+        recipient_id: recipient_id.clone(),
     };
 
     // Keep an origin copy of every validated message. Remote history fetches
@@ -5353,6 +5424,7 @@ pub async fn send_p2p_chat_message(
             content: content.clone(),
             message_type: msg_type.clone(),
             image_data: image_data.clone(),
+            recipient_id: recipient_id.clone(),
         };
         // Serialize once and send those exact bytes, because the signature
         // covers a digest of the body: letting reqwest re-serialize could in

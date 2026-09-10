@@ -35,6 +35,9 @@ pub enum RemoteInputEvent {
     /// 文本输入（Unicode，逐字符注入，供手机端软键盘向电脑被控端打字）
     #[serde(rename = "text")]
     Text { text: String },
+    /// 手机端系统导航键的跨平台语义。
+    #[serde(rename = "key")]
+    NamedKey { key: String },
     /// 未知/对端专属事件(如手机的 home/recents)：电脑端忽略，避免整批解析失败
     #[serde(other)]
     Unknown,
@@ -232,6 +235,31 @@ mod platform {
                         inputs.push(unicode_input(unit, true));
                     }
                 }
+                RemoteInputEvent::NamedKey { key } => match key.as_str() {
+                    "back" => {
+                        inputs.push(key_input(0x1B, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x1B, KEYEVENTF_KEYUP));
+                    }
+                    // Win+D: 显示桌面
+                    "home" => {
+                        inputs.push(key_input(0x5B, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x44, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x44, KEYEVENTF_KEYUP));
+                        inputs.push(key_input(0x5B, KEYEVENTF_KEYUP));
+                    }
+                    // Alt+Tab: 切换到最近窗口
+                    "recents" => {
+                        inputs.push(key_input(0x12, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x09, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x09, KEYEVENTF_KEYUP));
+                        inputs.push(key_input(0x12, KEYEVENTF_KEYUP));
+                    }
+                    "backspace" | "delete" => {
+                        inputs.push(key_input(0x08, KEYBD_EVENT_FLAGS(0)));
+                        inputs.push(key_input(0x08, KEYEVENTF_KEYUP));
+                    }
+                    _ => {}
+                },
                 RemoteInputEvent::Unknown => { /* 忽略对端专属事件 */ }
             }
         }
@@ -873,6 +901,9 @@ mod linux_uinput {
                         // uinput 工作在输入法之下，无法注入中文/emoji 等需要输入法
                         // 参与的文本。这里明确降级为忽略（而不是报错中断整批事件），
                         // 手机端软键盘的英文/数字仍可通过 KeyDown/KeyUp 生效。
+                    }
+                    RemoteInputEvent::NamedKey { .. } => {
+                        // 手机端系统导航语义只适用于 Android 被控端；桌面 Linux 忽略。
                     }
                     RemoteInputEvent::Unknown => {}
                 }
