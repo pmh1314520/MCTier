@@ -193,7 +193,10 @@ pub fn start_mc_lan_broadcast(servers: Vec<McServer>) -> Result<(), String> {
     // 期望的 key 集合
     let mut wanted: HashMap<String, McServer> = HashMap::new();
     for s in servers {
-        if s.ip.trim().is_empty() || s.port == 0 {
+        if s.ip.trim().is_empty()
+            || s.port == 0
+            || !crate::modules::minecraft_discovery::is_allowed_mc_target(&s.ip)
+        {
             continue;
         }
         wanted.insert(format!("{}:{}", s.ip, s.port), s);
