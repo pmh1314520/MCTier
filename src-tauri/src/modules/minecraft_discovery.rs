@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use super::virtual_network::virtual_host;
 
 /// 发现的 Minecraft 服务器信息
 #[derive(Debug, Clone, Serialize)]
@@ -100,10 +101,12 @@ fn collect_text(v: &serde_json::Value, out: &mut String) {
 
 /// 查询单个 Minecraft 服务器（SLP），成功返回状态信息
 async fn query_server(ip: &str, port: u16) -> Option<DiscoveredServer> {
+    let address = virtual_host(ip)?;
+    if port == 0 { return None; }
     let start = std::time::Instant::now();
 
     // 连接（带超时）
-    let connect = TcpStream::connect((ip, port));
+    let connect = TcpStream::connect((address, port));
     let mut stream = match tokio::time::timeout(Duration::from_millis(1500), connect).await {
         Ok(Ok(s)) => s,
         _ => return None,
@@ -199,22 +202,9 @@ async fn query_server(ip: &str, port: u16) -> Option<DiscoveredServer> {
     })
 }
 
-/// 检查目标是否属于合法的 EasyTier 虚拟网络目标（10.126.126.1~254 或 *.mct.net）
+/// Accept only literal overlay hosts; a DNS suffix does not constrain the resolved IP.
 pub fn is_allowed_mc_target(target: &str) -> bool {
-    let target = target.trim();
-    if let Ok(ip) = target.parse::<std::net::Ipv4Addr>() {
-        let octets = ip.octets();
-        octets[..3] == [10, 126, 126] && octets[3] >= 1 && octets[3] <= 254
-    } else {
-        let lower = target.to_ascii_lowercase();
-        lower.ends_with(".mct.net")
-            && lower.len() > 8
-            && !lower.contains('/')
-            && !lower.contains('\\')
-            && !lower.contains(':')
-            && !lower.contains(' ')
-            && !lower.contains('#')
-    }
+    virtual_host(target).is_some()
 }
 
 /// 扫描多个虚拟 IP 上的 Minecraft 服务器
@@ -231,7 +221,7 @@ pub async fn scan_minecraft_servers(
     if port == 0 {
         return Vec::new();
     }
-    let valid_targets: Vec<String> = peer_ips
+    let valid_targets: std::collections::BTreeSet<String> = peer_ips
         .into_iter()
         .filter(|ip| is_allowed_mc_target(ip))
         .collect();
@@ -284,8 +274,9 @@ pub struct PeerLatency {
 
 /// 测量到某个虚拟 IP 的延迟（通过 TCP 连接其聊天端口 14540 估算 RTT）
 async fn measure_one(ip: &str) -> Option<u64> {
+    let address = virtual_host(ip)?;
     let start = std::time::Instant::now();
-    let connect = TcpStream::connect((ip, 14540u16));
+    let connect = TcpStream::connect((address, 14540u16));
     match tokio::time::timeout(Duration::from_millis(800), connect).await {
         Ok(Ok(_stream)) => Some(start.elapsed().as_millis() as u64),
         // 连接被拒绝也说明主机可达（端口可能未开），仍记录 RTT
@@ -301,7 +292,7 @@ async fn measure_one(ip: &str) -> Option<u64> {
 #[tauri::command]
 pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
     let mut tasks = Vec::new();
-    for ip in peer_ips {
+    for ip in peer_ips.into_iter().filter(|ip| is_allowed_mc_target(ip)).collect::<std::collections::BTreeSet<_>>() {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(async move {
             let probes = 2u32;
@@ -342,8 +333,8 @@ mod tests {
         assert!(is_allowed_mc_target("10.126.126.1"));
         assert!(is_allowed_mc_target("10.126.126.100"));
         assert!(is_allowed_mc_target("10.126.126.254"));
-        assert!(is_allowed_mc_target("player.mct.net"));
-        assert!(is_allowed_mc_target("abc-123.mct.net"));
+        assert!(!is_allowed_mc_target("player.mct.net"));
+        assert!(!is_allowed_mc_target("abc-123.mct.net"));
 
         // Reject physical LAN, loopback, broadcast, and external IPs
         assert!(!is_allowed_mc_target("10.126.126.0"));
