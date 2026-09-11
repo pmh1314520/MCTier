@@ -19,10 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpListener as AsyncTcpListener;
 use tokio::sync::Mutex as AsyncMutex;
 
 const HELPER_SWITCH: &str = "--mctier-privileged-helper";
@@ -103,29 +102,12 @@ pub async fn start_easytier(
     let token = uuid::Uuid::new_v4().to_string();
     launch_elevated_helper(port, &token)?;
 
-    let listener = AsyncTcpListener::from_std(listener)
-        .map_err(|e| format!("无法接管特权 helper 通道: {}", e))?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let stream = loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string());
-        }
-        let accepted = tokio::time::timeout(remaining, listener.accept())
-            .await
-            .map_err(|_| "等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string())?
-            .map_err(|e| format!("接受特权 helper 通道失败: {}", e))?;
-        let (stream, _) = accepted;
-        let mut handshake_reader = AsyncBufReader::new(stream);
-        let mut handshake = String::new();
-        handshake_reader
-            .read_line(&mut handshake)
-            .await
-            .map_err(|e| format!("读取特权 helper 握手失败: {}", e))?;
-        if handshake.trim() == format!("{} {}", HANDSHAKE_PREFIX, token) {
-            break handshake_reader.into_inner();
-        }
-    };
+    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let stream = tokio::task::spawn_blocking(move || {
+        super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))
+    }).await.map_err(|e| e.to_string())??;
+    stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let stream = tokio::net::TcpStream::from_std(stream).map_err(|e| e.to_string())?;
 
     let (read_half, mut write_half) = stream.into_split();
     write_async_json(
@@ -176,42 +158,11 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
     let token = uuid::Uuid::new_v4().to_string();
     launch_elevated_helper(port, &token)?;
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut stream = loop {
-        if Instant::now() >= deadline {
-            return Err("等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string());
-        }
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) => return Err(format!("接受特权 helper 通道失败: {}", error)),
-        }
-    };
-    // 将 stream 设置为阻塞模式（listener 是非阻塞的）
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| format!("配置特权 helper 通道为阻塞模式失败: {}", e))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 读取超时失败: {}", e))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 写入超时失败: {}", e))?;
-
-    let mut reader = BufReader::new(
-        stream
-            .try_clone()
-            .map_err(|e| format!("复制特权 helper 通道失败: {}", e))?,
-    );
-    let mut handshake = String::new();
-    reader
-        .read_line(&mut handshake)
-        .map_err(|e| format!("读取特权 helper 握手失败: {}", e))?;
-    if handshake.trim() != format!("{} {}", HANDSHAKE_PREFIX, token) {
-        return Err("特权 helper 握手令牌不匹配".to_string());
-    }
+    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let stream = super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))?;
+    stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
 
     let mut writer = BufWriter::new(stream);
     write_json(&mut writer, &request)?;
