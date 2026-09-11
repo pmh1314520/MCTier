@@ -1796,6 +1796,9 @@ class MctierRepository(private val context: Context) {
                         .mapTo(mutableSetOf()) { it.id }
                     st.copy(
                         players = merged.filter { it.id in allowedIds },
+                        unreadChatMessages = ghosts.fold(st.unreadChatMessages) { unread, id ->
+                            readConversation(unread, "private:$id")
+                        },
                         screenShares = st.screenShares.filterNot { it.playerId in ghostSet },
                         viewingShareId = st.viewingShareId?.takeUnless { it in removedShareIds },
                     )

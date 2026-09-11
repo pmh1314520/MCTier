@@ -31,3 +31,16 @@ test('own, recalled and misaddressed messages do not count; duplicates count onc
 test('badge counts cap at 99+ from 100 onwards', () => {
   assert.deepEqual([1, 9, 10, 99, 100, 101, 1000].map(unreadLabel), ['1', '9', '10', '99', '99+', '99+', '99+']);
 });
+
+test('departure clears only that sender private unread, including a capped badge', () => {
+  let unread = {};
+  for (let index = 0; index < 101; index++) {
+    unread = recordUnread(unread, message(`alice-${index}`), 'me', null);
+  }
+  unread = recordUnread(unread, message('bob', 'bob'), 'me', null);
+  unread = recordUnread(unread, message('public', 'alice', null), 'me', null);
+  unread = readConversation(unread, 'private:alice');
+  assert.deepEqual(unread, { bob: 'private:bob', public: 'lobby' });
+  assert.deepEqual(readConversation(unread, 'private:alice'), unread);
+  assert.equal(recordUnread(unread, message('after-rejoin'), 'me', null)['after-rejoin'], 'private:alice');
+});

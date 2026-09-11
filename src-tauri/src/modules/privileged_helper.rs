@@ -19,10 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpListener as AsyncTcpListener;
 use tokio::sync::Mutex as AsyncMutex;
 
 const HELPER_SWITCH: &str = "--mctier-privileged-helper";
@@ -103,29 +102,12 @@ pub async fn start_easytier(
     let token = uuid::Uuid::new_v4().to_string();
     launch_elevated_helper(port, &token)?;
 
-    let listener = AsyncTcpListener::from_std(listener)
-        .map_err(|e| format!("无法接管特权 helper 通道: {}", e))?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let stream = loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string());
-        }
-        let accepted = tokio::time::timeout(remaining, listener.accept())
-            .await
-            .map_err(|_| "等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string())?
-            .map_err(|e| format!("接受特权 helper 通道失败: {}", e))?;
-        let (stream, _) = accepted;
-        let mut handshake_reader = AsyncBufReader::new(stream);
-        let mut handshake = String::new();
-        handshake_reader
-            .read_line(&mut handshake)
-            .await
-            .map_err(|e| format!("读取特权 helper 握手失败: {}", e))?;
-        if handshake.trim() == format!("{} {}", HANDSHAKE_PREFIX, token) {
-            break handshake_reader.into_inner();
-        }
-    };
+    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let stream = tokio::task::spawn_blocking(move || {
+        super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))
+    }).await.map_err(|e| e.to_string())??;
+    stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let stream = tokio::net::TcpStream::from_std(stream).map_err(|e| e.to_string())?;
 
     let (read_half, mut write_half) = stream.into_split();
     write_async_json(
@@ -176,42 +158,11 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
     let token = uuid::Uuid::new_v4().to_string();
     launch_elevated_helper(port, &token)?;
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut stream = loop {
-        if Instant::now() >= deadline {
-            return Err("等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string());
-        }
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) => return Err(format!("接受特权 helper 通道失败: {}", error)),
-        }
-    };
-    // 将 stream 设置为阻塞模式（listener 是非阻塞的）
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| format!("配置特权 helper 通道为阻塞模式失败: {}", e))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 读取超时失败: {}", e))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 写入超时失败: {}", e))?;
-
-    let mut reader = BufReader::new(
-        stream
-            .try_clone()
-            .map_err(|e| format!("复制特权 helper 通道失败: {}", e))?,
-    );
-    let mut handshake = String::new();
-    reader
-        .read_line(&mut handshake)
-        .map_err(|e| format!("读取特权 helper 握手失败: {}", e))?;
-    if handshake.trim() != format!("{} {}", HANDSHAKE_PREFIX, token) {
-        return Err("特权 helper 握手令牌不匹配".to_string());
-    }
+    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let stream = super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))?;
+    stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
 
     let mut writer = BufWriter::new(stream);
     write_json(&mut writer, &request)?;
@@ -766,105 +717,7 @@ fn write_hosts(expected_sha256: &str, content: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_hosts_update(old: &str, new: &str) -> Result<(), String> {
-    let old_outside = hosts_outside_mctier(old)?;
-    let new_outside = hosts_outside_mctier(new)?;
-    if old_outside != new_outside {
-        return Err("特权 helper 只允许修改 MCTier hosts 区域".to_string());
-    }
-    validate_mctier_entries(new)
-}
-
-fn hosts_outside_mctier(content: &str) -> Result<String, String> {
-    let mut outside = Vec::new();
-    let mut in_section = false;
-    for line in content.lines() {
-        if line.starts_with("# MCTier Magic DNS") {
-            if in_section {
-                return Err("hosts MCTier 区域标记嵌套".to_string());
-            }
-            in_section = true;
-        } else if line == "# MCTier Magic DNS End" {
-            if !in_section {
-                return Err("hosts MCTier 结束标记缺失起点".to_string());
-            }
-            in_section = false;
-        } else if !in_section {
-            outside.push(line);
-        }
-    }
-    if in_section {
-        return Err("hosts MCTier 区域缺少结束标记".to_string());
-    }
-    Ok(outside.join("\n"))
-}
-
-fn validate_mctier_entries(content: &str) -> Result<(), String> {
-    let mut in_section = false;
-    for line in content.lines() {
-        if line.starts_with("# MCTier Magic DNS") {
-            if in_section {
-                return Err("hosts MCTier 区域标记嵌套".to_string());
-            }
-            in_section = true;
-            continue;
-        }
-        if line == "# MCTier Magic DNS End" {
-            if !in_section {
-                return Err("hosts MCTier 结束标记缺失起点".to_string());
-            }
-            in_section = false;
-            continue;
-        }
-        if !in_section || line.trim().is_empty() {
-            continue;
-        }
-        if line.chars().any(|ch| ch.is_control() || ch == '#') {
-            return Err("hosts MCTier 条目包含非法字符".to_string());
-        }
-        let mut fields = line.split_whitespace();
-        let ip = fields
-            .next()
-            .ok_or_else(|| "hosts MCTier 条目缺少 IP".to_string())?
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "hosts MCTier 条目 IP 无效".to_string())?;
-        let octets = ip.octets();
-        if octets[..3] != [10, 126, 126] || octets[3] == 0 || octets[3] == 255 {
-            return Err("hosts MCTier 条目 IP 不属于 EasyTier 虚拟网段".to_string());
-        }
-        let mut host_count = 0;
-        for host in fields {
-            host_count += 1;
-            if !is_mctier_domain(host) {
-                return Err("hosts MCTier 条目只能使用 *.mct.net".to_string());
-            }
-        }
-        if host_count == 0 {
-            return Err("hosts MCTier 条目缺少域名".to_string());
-        }
-    }
-    if in_section {
-        return Err("hosts MCTier 区域缺少结束标记".to_string());
-    }
-    Ok(())
-}
-
-fn is_mctier_domain(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    let Some(prefix) = lower.strip_suffix(".mct.net") else {
-        return false;
-    };
-    !prefix.is_empty()
-        && prefix.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-        })
-}
+use super::hosts_security::validate_hosts_update;
 
 fn validate_easy_path(path: &Path) -> Result<(), String> {
     let executable_dir = std::env::current_exe()

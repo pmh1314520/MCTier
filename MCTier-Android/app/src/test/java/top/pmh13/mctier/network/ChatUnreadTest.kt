@@ -34,4 +34,15 @@ class ChatUnreadTest {
     @Test fun badgeCapsAtNinetyNinePlus() {
         assertEquals(listOf("1", "9", "10", "99", "99+", "99+"), listOf(1, 9, 10, 99, 100, 101).map(::unreadLabel))
     }
+
+    @Test fun departureClearsOnlyThatSenderPrivateUnread() {
+        var unread = emptyMap<String, String>()
+        repeat(101) { unread = recordUnread(unread, message("alice-$it"), "me", null) }
+        unread = recordUnread(unread, message("bob", "bob"), "me", null)
+        unread = recordUnread(unread, message("public", recipient = null), "me", null)
+        unread = readConversation(unread, "private:alice")
+        assertEquals(mapOf("bob" to "private:bob", "public" to "lobby"), unread)
+        assertEquals(unread, readConversation(unread, "private:alice"))
+        assertEquals("private:alice", recordUnread(unread, message("after-rejoin"), "me", null)["after-rejoin"])
+    }
 }

@@ -4,6 +4,7 @@
  */
 
 import type { ScreenShare } from '../../types';
+import { isSignalingSocketRegistered } from '../signaling/registeredSocket';
 import { buildRelayTopology } from './relayTopology';
 
 interface ScreenShareOffer {
@@ -1319,7 +1320,7 @@ class ScreenShareService {
    * 发送WebSocket消息
    */
   private sendWebSocketMessage(message: any): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (isSignalingSocketRegistered(this.ws)) {
       this.ws.send(JSON.stringify(message));
     }
   }

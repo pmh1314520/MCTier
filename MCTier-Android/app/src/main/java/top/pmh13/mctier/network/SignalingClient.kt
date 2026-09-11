@@ -60,6 +60,7 @@ class SignalingClient {
     }
 
     fun send(message: SignalingEnvelope): Boolean {
+        if (message.type != "register-v3" && (!_connected.value || serverSessionGeneration == null)) return false
         val outgoing = serverSessionGeneration?.let { generation ->
             if (message.type == "register-v3" || message.type == "server-challenge") message
             else message.copy(sessionGeneration = message.sessionGeneration ?: generation)
@@ -103,6 +104,9 @@ class SignalingClient {
     }
 
     private fun open(args: ConnectArgs, generation: Long) {
+        _connected.value = false
+        serverSessionGeneration = null
+        registrationSent = false
         // 先彻底关闭旧连接，避免与服务器形成“重复连接”被来回踢导致信令抖动(flapping)
         webSocket?.let { runCatching { it.cancel() } }
         webSocket = null

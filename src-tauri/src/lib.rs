@@ -1077,6 +1077,10 @@ async fn apply_hotkeys(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(unix)]
+    if modules::unix_hosts_helper::run_if_requested() {
+        return;
+    }
     #[cfg(windows)]
     if modules::privileged_helper::run_if_requested() {
         return;

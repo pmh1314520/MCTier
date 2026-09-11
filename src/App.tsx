@@ -494,9 +494,9 @@ function App() {
   useEffect(() => {
     if (appState === 'in-lobby' && lobby) {
       const initWebRTC = async () => {
+        const sessionTicket =
+          lobbySessionCoordinator.current() ?? lobbySessionCoordinator.begin();
         try {
-          const sessionTicket =
-            lobbySessionCoordinator.current() ?? lobbySessionCoordinator.begin();
           const { currentPlayerId: playerId } = useAppStore.getState();
 
           if (!playerId) {
@@ -725,6 +725,14 @@ function App() {
           }
         } catch (error) {
           console.error('❌ WebRTC 初始化失败:', error);
+          if (lobbySessionCoordinator.isCurrent(sessionTicket) && !useAppStore.getState().versionError) {
+            Modal.error({
+              title: tl('大厅连接未完成', 'Lobby connection failed'),
+              content: sanitizeUntrustedText(
+                error instanceof Error ? error.message : String(error), 1024
+              ),
+            });
+          }
         }
       };
 

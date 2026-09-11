@@ -380,6 +380,7 @@ export const useAppStore = create<AppStore>()(
         set(
           (state) => ({
             players: state.players.filter((p) => p.id !== playerId),
+            unreadChatMessages: readConversation(state.unreadChatMessages, `private:${playerId}`),
           }),
           false,
           'removePlayer'

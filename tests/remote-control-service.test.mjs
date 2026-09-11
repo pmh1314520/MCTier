@@ -9,9 +9,13 @@ const serviceSource = fs.readFileSync(sourceFile, 'utf8');
 const androidRepository = fs.readFileSync(new URL('../MCTier-Android/app/src/main/java/top/pmh13/mctier/MctierRepository.kt', import.meta.url), 'utf8');
 let moduleVersion = 0;
 
-async function loadService() {
+async function loadService(websocket) {
   const result = await build({
-    entryPoints: [sourceFile],
+    stdin: {
+      contents: `export * from ${JSON.stringify(sourceFile)}; export * from ${JSON.stringify(fileURLToPath(new URL('../src/services/signaling/registeredSocket.ts', import.meta.url)))};`,
+      resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+      loader: 'ts',
+    },
     bundle: true,
     format: 'esm',
     platform: 'browser',
@@ -28,7 +32,9 @@ async function loadService() {
     }],
   });
   const version = ++moduleVersion;
-  return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(result.outputFiles[0].text)}#test-${version}`);
+  const module = await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(result.outputFiles[0].text)}#test-${version}`);
+  if (websocket) module.markSignalingSocketRegistered(websocket);
+  return module;
 }
 
 function installBrowserMocks({ capture, randomUUID = () => 'test-uuid', peerConnections = [] } = {}) {
@@ -108,7 +114,7 @@ test('capture denial rolls back and allows a later request', async () => {
   const tracks = [{ contentHint: '', onended: null, stopped: false, stop() { this.stopped = true; } }];
   let capture = async () => { throw new Error('permission denied'); };
   const mocks = installBrowserMocks({ capture: (...args) => capture(...args) });
-  const { remoteControlService } = await loadService();
+  const { remoteControlService } = await loadService(mocks.websocket);
   remoteControlService.initialize('local', 'Local', mocks.websocket);
 
   remoteControlService.handleRequest('sid-1', 'controller', 'Controller', 'local');
@@ -138,7 +144,7 @@ test('capture denial rolls back and allows a later request', async () => {
 
 test('pending request stop invalidates delayed accept', async () => {
   const mocks = installBrowserMocks();
-  const { remoteControlService } = await loadService();
+  const { remoteControlService } = await loadService(mocks.websocket);
   remoteControlService.initialize('local', 'Local', mocks.websocket);
 
   remoteControlService.handleRequest('sid-stop', 'controller', 'Controller', 'local');
@@ -155,7 +161,7 @@ test('old PC callbacks cannot stop or signal a second session', async () => {
   const peerConnections = [];
   const uuids = ['session-one', 'session-two'];
   const mocks = installBrowserMocks({ randomUUID: () => uuids.shift(), peerConnections });
-  const { remoteControlService } = await loadService();
+  const { remoteControlService } = await loadService(mocks.websocket);
   remoteControlService.initialize('local', 'Local', mocks.websocket);
 
   remoteControlService.requestControl('peer', 'Peer');
@@ -182,7 +188,7 @@ test('old PC callbacks cannot stop or signal a second session', async () => {
 
 test('randomUUID failure leaves request state idle', async () => {
   const mocks = installBrowserMocks({ randomUUID: () => { throw new Error('uuid unavailable'); } });
-  const { remoteControlService } = await loadService();
+  const { remoteControlService } = await loadService(mocks.websocket);
   remoteControlService.initialize('local', 'Local', mocks.websocket);
 
   assert.throws(() => remoteControlService.requestControl('peer', 'Peer'), /uuid unavailable/);

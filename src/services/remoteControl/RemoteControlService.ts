@@ -8,6 +8,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { isSignalingSocketRegistered } from '../signaling/registeredSocket';
 import { isSafeIdentifier, isSafeSessionId, sanitizeUntrustedText } from '../../security/trustBoundary';
 
 export type RemoteInputEvent =
@@ -75,7 +76,7 @@ class RemoteControlService {
   }
 
   private send(message: any): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (isSignalingSocketRegistered(this.ws)) {
       this.ws.send(JSON.stringify(message));
     }
   }

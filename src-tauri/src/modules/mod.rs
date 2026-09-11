@@ -18,6 +18,11 @@ pub mod lobby_manager;
 
 // Hosts文件管理模块（Magic DNS）
 pub mod hosts_manager;
+pub mod hosts_security;
+pub mod helper_handshake;
+pub mod virtual_network;
+#[cfg(unix)]
+pub mod unix_hosts_helper;
 
 // 语音服务模块
 #[cfg(windows)]

@@ -8,6 +8,38 @@ import top.pmh13.mctier.data.ChatPeerIdentity
 
 class SecurityHardeningTest {
     @Test
+    fun signalingBusinessMessagesRequireAcceptedRegistration() {
+        val signaling = SignalingClient()
+        val sent = mutableListOf<String>()
+        val socket = object : okhttp3.WebSocket {
+            override fun request() = okhttp3.Request.Builder().url("https://localhost").build()
+            override fun queueSize() = 0L
+            override fun send(text: String): Boolean { sent.add(text); return true }
+            override fun send(bytes: okio.ByteString) = false
+            override fun close(code: Int, reason: String?) = true
+            override fun cancel() {}
+        }
+        fun setField(name: String, value: Any?) {
+            SignalingClient::class.java.getDeclaredField(name).apply { isAccessible = true }.set(signaling, value)
+        }
+        setField("webSocket", socket)
+        val request = top.pmh13.mctier.data.SignalingEnvelope(type = "players-list-request")
+        assertFalse(signaling.send(request))
+        assertTrue(signaling.send(top.pmh13.mctier.data.SignalingEnvelope(type = "register-v3")))
+        setField("serverSessionGeneration", 1234567890123456L)
+        assertFalse(signaling.send(request))
+        @Suppress("UNCHECKED_CAST")
+        val connected = SignalingClient::class.java.getDeclaredField("_connected").apply { isAccessible = true }
+            .get(signaling) as kotlinx.coroutines.flow.MutableStateFlow<Boolean>
+        connected.value = true
+        assertTrue(signaling.send(request))
+        assertTrue(sent.last().contains("1234567890123456"))
+        connected.value = false
+        assertFalse(signaling.send(request))
+        assertEquals(2, sent.size)
+    }
+
+    @Test
     fun chatAuthBaselineCanResetAfterSignalingServerRestart() {
         val localSigner = ChatAuth.ChatSigner.generate() ?: error("P-256 unavailable")
         val server = ChatHttpServer(localSigner.identityId(), "10.126.126.7")

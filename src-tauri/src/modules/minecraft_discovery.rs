@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use super::virtual_network::virtual_host;
 
 /// 发现的 Minecraft 服务器信息
 #[derive(Debug, Clone, Serialize)]
@@ -100,10 +101,12 @@ fn collect_text(v: &serde_json::Value, out: &mut String) {
 
 /// 查询单个 Minecraft 服务器（SLP），成功返回状态信息
 async fn query_server(ip: &str, port: u16) -> Option<DiscoveredServer> {
+    let address = virtual_host(ip)?;
+    if port == 0 { return None; }
     let start = std::time::Instant::now();
 
     // 连接（带超时）
-    let connect = TcpStream::connect((ip, port));
+    let connect = TcpStream::connect((address, port));
     let mut stream = match tokio::time::timeout(Duration::from_millis(1500), connect).await {
         Ok(Ok(s)) => s,
         _ => return None,
@@ -217,7 +220,7 @@ pub async fn scan_minecraft_servers(
     );
 
     let mut tasks = Vec::new();
-    for ip in peer_ips {
+    for ip in peer_ips.into_iter().filter(|ip| virtual_host(ip).is_some()).collect::<std::collections::BTreeSet<_>>() {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(
             async move { query_server(&ip_clone, port).await },
@@ -255,8 +258,9 @@ pub struct PeerLatency {
 
 /// 测量到某个虚拟 IP 的延迟（通过 TCP 连接其聊天端口 14540 估算 RTT）
 async fn measure_one(ip: &str) -> Option<u64> {
+    let address = virtual_host(ip)?;
     let start = std::time::Instant::now();
-    let connect = TcpStream::connect((ip, 14540u16));
+    let connect = TcpStream::connect((address, 14540u16));
     match tokio::time::timeout(Duration::from_millis(800), connect).await {
         Ok(Ok(_stream)) => Some(start.elapsed().as_millis() as u64),
         // 连接被拒绝也说明主机可达（端口可能未开），仍记录 RTT
@@ -272,7 +276,7 @@ async fn measure_one(ip: &str) -> Option<u64> {
 #[tauri::command]
 pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
     let mut tasks = Vec::new();
-    for ip in peer_ips {
+    for ip in peer_ips.into_iter().filter(|ip| virtual_host(ip).is_some()).collect::<std::collections::BTreeSet<_>>() {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(async move {
             let probes = 2u32;

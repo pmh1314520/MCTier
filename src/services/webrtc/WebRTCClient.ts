@@ -6,6 +6,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { prepareAudioAnswer, sendingAudioTransceiver } from './audioTransceiver';
 import { invoke } from '@tauri-apps/api/core';
+import { invalidateSignalingSocket, isSignalingSocketRegistered, markSignalingSocketRegistered } from '../signaling/registeredSocket';
 import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
@@ -172,6 +173,8 @@ export class WebRTCClient {
   private queuedWebSocketBytes = 0;
   private lobbySessionTicket: LobbySessionTicket | null = null;
   private serverSessionGeneration: string = '';
+  private cancelPendingRegistration: (() => void) | null = null;
+  private registrationFailure: Error | null = null;
   private peerSessionGenerations: Map<string, string> = new Map();
   // 记录每个玩家的虚拟域名（playerId -> virtualDomain），
   // 因为信令服务器的 player-left 只携带 playerId，离开时需据此清理 hosts 映射
@@ -448,18 +451,20 @@ export class WebRTCClient {
     // public half, and that message is what binds the key to this player id.
     // Failing here is deliberate - joining without a key would leave this member
     // unable to be verified by anyone.
-    await this.ensureChatSigningKey();
     const ticket = this.lobbySessionTicket;
     if (!ticket) throw new Error('大厅会话未就绪');
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         lobbySessionCoordinator.assertCurrent(ticket);
+        await this.ensureChatSigningKey();
+        lobbySessionCoordinator.assertCurrent(ticket);
         await this.connectToSignalingServer();
         lobbySessionCoordinator.assertCurrent(ticket);
         return;
       } catch (e) {
         lastErr = e;
+        if (this.isIntentionalDisconnect) throw e;
         console.warn(`⚠️ 第 ${attempt}/${maxAttempts} 次连接信令服务器失败:`, e);
         // 清理失败的连接，避免句柄残留
         try {
@@ -503,13 +508,18 @@ export class WebRTCClient {
    * 连接到WebSocket信令服务器
    */
   private async connectToSignalingServer(): Promise<void> {
+    this.cancelPendingRegistration?.();
+    invalidateSignalingSocket(this.websocket);
+    this.serverSessionGeneration = '';
+    this.registrationFailure = null;
     return new Promise((resolve, reject) => {
       try {
         console.log('正在连接到信令服务器');
 
         const socket = new WebSocket(this.signalingServerUrl);
-        let hasOpened = false;
         let registrationSent = false;
+        let registrationAccepted = false;
+        let settled = false;
         let challengeHandled = false;
         let challengeTimeout: number | null = null;
         this.websocket = socket;
@@ -520,25 +530,28 @@ export class WebRTCClient {
             challengeTimeout = null;
           }
         };
+        const failRegistration = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          clearChallengeTimeout();
+          if (this.cancelPendingRegistration === cancel) this.cancelPendingRegistration = null;
+          invalidateSignalingSocket(socket);
+          socket.close();
+          reject(this.registrationFailure ?? error);
+        };
+        const cancel = () => failRegistration(new Error('信令注册已取消'));
+        this.cancelPendingRegistration = cancel;
+        // Bound the entire handshake, including challenge signing and local auth setup.
+        challengeTimeout = window.setTimeout(() => {
+          failRegistration(new Error('信令注册未在 15 秒内完成'));
+        }, 15_000);
 
         this.websocket.onopen = () => {
           if (this.websocket !== socket) return;
-          hasOpened = true;
           console.log('✅ 已连接到信令服务器');
-
-          challengeTimeout = window.setTimeout(() => {
-            if (this.websocket !== socket || registrationSent) return;
-            socket.close(1008, 'server-challenge-timeout');
-            reject(new Error('信令服务器未及时发送协议 v3 challenge'));
-          }, 10_000);
 
           // 启动 WebSocket 心跳保活
           this.startWebSocketHeartbeat();
-          if (this.websocketStableTimer !== null) clearTimeout(this.websocketStableTimer);
-          this.websocketStableTimer = window.setTimeout(() => {
-            if (this.websocket === socket) this.reconnectAttempts = 0;
-            this.websocketStableTimer = null;
-          }, 6000);
         };
 
         this.websocket.onmessage = (event) => {
@@ -556,21 +569,17 @@ export class WebRTCClient {
                 message.protocolVersion !== SIGNALING_PROTOCOL_VERSION ||
                 !isServerChallenge(message.challenge)
               ) {
-                clearChallengeTimeout();
                 socket.close(1008, 'invalid-server-challenge');
-                reject(new Error('信令服务器返回了无效的协议 v3 challenge'));
+                failRegistration(new Error('信令服务器返回了无效的协议 v3 challenge'));
                 return;
               }
               challengeHandled = true;
-              clearChallengeTimeout();
               void this.sendV3Registration(socket, message.challenge)
                 .then(() => {
                   registrationSent = true;
-                  resolve();
                 })
                 .catch((error) => {
-                  socket.close(1008, 'register-v3-failed');
-                  reject(error);
+                  failRegistration(error instanceof Error ? error : new Error('信令注册签名失败'));
                 });
               return;
             }
@@ -584,7 +593,32 @@ export class WebRTCClient {
             this.queuedWebSocketFrames += 1;
             this.queuedWebSocketBytes += frameBytes;
             this.websocketMessageQueue = this.websocketMessageQueue
-              .then(() => this.handleWebSocketMessage(message, socket))
+              .then(async () => {
+                if (this.websocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+                if (message.type === 'register-success' && !registrationSent) {
+                  failRegistration(new Error('信令服务器在注册请求之前返回成功'));
+                  return;
+                }
+                await this.handleWebSocketMessage(message, socket);
+                if (message.type === 'register-error' || message.type === 'version-too-old') {
+                  failRegistration(new Error(sanitizeUntrustedText(message.message, 512) || '信令注册被拒绝'));
+                } else if (message.type === 'register-success' && !settled) {
+                  if (!isSignalingSocketRegistered(socket) || this.websocket !== socket) {
+                    failRegistration(new Error('信令注册响应或本地认证配置无效'));
+                    return;
+                  }
+                  settled = true;
+                  registrationAccepted = true;
+                  clearChallengeTimeout();
+                  if (this.cancelPendingRegistration === cancel) this.cancelPendingRegistration = null;
+                  if (this.websocketStableTimer !== null) clearTimeout(this.websocketStableTimer);
+                  this.websocketStableTimer = window.setTimeout(() => {
+                    if (this.websocket === socket) this.reconnectAttempts = 0;
+                    this.websocketStableTimer = null;
+                  }, 6000);
+                  resolve();
+                }
+              })
               .catch((error) => console.error('WebSocket message processing failed:', error))
               .finally(() => {
                 this.queuedWebSocketFrames = Math.max(0, this.queuedWebSocketFrames - 1);
@@ -598,12 +632,14 @@ export class WebRTCClient {
         this.websocket.onerror = (error) => {
           if (this.websocket !== socket) return;
           console.error('❌ WebSocket连接错误:', error);
-          if (!hasOpened) reject(new Error('无法连接到信令服务器'));
+          if (!registrationAccepted) failRegistration(new Error('无法完成信令服务器注册'));
         };
 
         this.websocket.onclose = () => {
           if (this.websocket !== socket) return;
           clearChallengeTimeout();
+          invalidateSignalingSocket(socket);
+          this.serverSessionGeneration = '';
           this.websocket = null;
           this.resetRemoteControlOnSignalingDisconnect();
           if (this.websocketStableTimer !== null) {
@@ -615,13 +651,13 @@ export class WebRTCClient {
           // 停止 WebSocket 心跳
           this.stopWebSocketHeartbeat();
 
-          // 如果不是主动断开，尝试重连
-          if (this.isIntentionalDisconnect) {
+          if (!registrationAccepted) {
+            failRegistration(new Error('信令服务器在注册完成前断开'));
             return;
           }
 
-          if (!hasOpened || !registrationSent) {
-            reject(new Error('信令服务器在协议 v3 注册完成前断开'));
+          // 如果不是主动断开，尝试重连
+          if (this.isIntentionalDisconnect) {
             return;
           }
 
@@ -708,6 +744,8 @@ export class WebRTCClient {
       }
 
       // 重新连接
+      await this.ensureChatSigningKey();
+      lobbySessionCoordinator.assertCurrent(ticket);
       await this.connectToSignalingServer();
       lobbySessionCoordinator.assertCurrent(ticket);
 
@@ -1033,12 +1071,17 @@ export class WebRTCClient {
       return;
     }
     const peers = this.chatPeerSnapshot();
+    // The registration response precedes the roster. Until that snapshot
+    // arrives, install only local credentials and grant no remote host role.
+    const hostId = resetAuthBaseline && this.chatHostId !== this.localPlayerId &&
+      !peers.some((peer) => peer.player_id === this.chatHostId)
+      ? undefined : this.chatHostId;
     await invoke('configure_p2p_chat', {
       chatToken: this.chatToken,
       chatTokenEpoch: this.chatTokenEpoch,
       playerId: this.localPlayerId,
       playerName: this.localPlayerName,
-      hostId: this.chatHostId,
+      hostId,
       peers,
       resetAuthBaseline,
     });
@@ -1077,6 +1120,10 @@ export class WebRTCClient {
   }
 
   private async failClosedChatSession(context: string, error?: unknown): Promise<void> {
+    const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+    this.registrationFailure = new Error(detail ? `${context}: ${detail}` : context);
+    invalidateSignalingSocket(this.websocket);
+    this.serverSessionGeneration = '';
     console.error(`${context}，关闭本地聊天/文件认证服务`, error);
     this.chatToken = '';
     this.chatTokenEpoch = 0;
@@ -1102,9 +1149,12 @@ export class WebRTCClient {
    * 处理WebSocket消息
    */
   private async handleWebSocketMessage(message: any, sourceSocket?: WebSocket): Promise<void> {
+    if (sourceSocket && sourceSocket !== this.websocket) return;
     if (!message || typeof message !== 'object') return;
     const messageType = sanitizeIdentifier(message.type, 64);
     if (!messageType) return;
+    if (sourceSocket && !isSignalingSocketRegistered(sourceSocket) &&
+        !['register-success', 'register-error', 'version-too-old', 'pong'].includes(messageType)) return;
     console.log(`📨 收到WebSocket消息: ${messageType}`);
 
     // 【健壮性】收到任何服务器消息都视为连接存活，重置 pong 超时，
@@ -1178,9 +1228,12 @@ export class WebRTCClient {
           try {
             await this.configureChatSession(true);
           } catch (error) {
+            if (sourceSocket !== this.websocket) break;
             await this.failClosedChatSession('恢复聊天会话失败', error);
             break;
           }
+          if (sourceSocket !== this.websocket || sourceSocket.readyState !== WebSocket.OPEN) break;
+          markSignalingSocketRegistered(sourceSocket);
           console.log('✅ 注册成功');
           // 携带房主/人数上限/公开状态/禁言列表等大厅元数据
           if (this.onLobbyMetaCallback) {
@@ -1227,8 +1280,7 @@ export class WebRTCClient {
         case 'register-error':
           // 注册失败
           console.error('❌ 注册失败');
-          // 不要抛出错误,只记录日志
-          // 用户可能输入了错误的密码,应该让他们看到错误信息而不是断开连接
+          // The connection handshake rejects with the server error after dispatch.
           break;
 
         case 'version-too-old':
@@ -1736,11 +1788,8 @@ export class WebRTCClient {
           // 随后由对方作为发起方送来全新的 Offer 完成重建。
           // 必须双端同时拆掉旧连接，否则一端沿用旧 PeerConnection 会因指纹/ufrag
           // 不匹配而出现"连上了但没声音"。
-          const reconnectPlayerId = message.from;
-          if (
-            this.isKnownPlayer(reconnectPlayerId, false) &&
-            (!message.to || message.to === this.localPlayerId)
-          ) {
+          const reconnectPlayerId = this.authenticatedPeerId(message);
+          if (reconnectPlayerId) {
             console.log('🔄 收到语音重连请求，拆除旧连接等待重建');
             this.clearPeerReconnectState(reconnectPlayerId);
             this.removePeerConnection(reconnectPlayerId);
@@ -2873,6 +2922,7 @@ export class WebRTCClient {
    * 发送WebSocket消息（公开方法，供外部调用）
    */
   public sendWebSocketMessage(message: any): boolean {
+    if (!isSignalingSocketRegistered(this.websocket)) return false;
     if (!message || typeof message !== 'object' || Array.isArray(message)) {
       return false;
     }
@@ -4332,11 +4382,12 @@ export class WebRTCClient {
       console.log('🔄 [语音重连] 开始重建语音连接');
 
       // 通知对方拆除旧连接（对端不识别该消息时会被忽略，此时退化为单端重建）
-      this.sendWebSocketMessage({
+      const notified = this.sendWebSocketMessage({
         type: 'voice-reconnect',
         from: this.localPlayerId,
         to: safePeerId,
       });
+      if (!notified) return false;
 
       // 取消可能存在的自动重连调度，避免与手动重连冲突
       this.clearPeerReconnectState(safePeerId);
@@ -4472,6 +4523,9 @@ export class WebRTCClient {
    * 清理资源
    */
   async cleanup(preserveSigningIdentity = false): Promise<void> {
+    this.isIntentionalDisconnect = true;
+    this.cancelPendingRegistration?.();
+    invalidateSignalingSocket(this.websocket);
     try {
       console.log('🧹 开始清理 WebRTC 客户端...');
 
