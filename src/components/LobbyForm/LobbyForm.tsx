@@ -18,6 +18,7 @@ import { statsService } from '../../services/stats/statsService';
 import { PublicPlaza } from '../PublicPlaza/PublicPlaza';
 import type { PublicLobby } from '../../services/lobby/publicLobbies';
 import { parseLobbyInviteText, type LobbyInvite } from '../../services/lobby/lobbyInvite';
+import { selectSavedLobbyPlayerName } from '../../services/lobby/savedLobbyIdentity';
 import {
   lobbySessionCoordinator,
   type LobbySessionTicket,
@@ -624,7 +625,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     applyImportedLobby({
       name: lobby.name,
       password: '',
-      playerName: lobby.playerName,
+      playerName: selectSavedLobbyPlayerName(form.getFieldValue('playerName'), lobby.playerName, config.playerName),
       useDomain: lobby.useDomain,
       serverNode: lobby.serverNode,
       signalingServer: lobby.signalingServer,
@@ -636,7 +637,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     applyImportedLobby({
       name: lobby.name,
       password: '',
-      playerName: lobby.playerName,
+      playerName: selectSavedLobbyPlayerName(form.getFieldValue('playerName'), lobby.playerName, config.playerName),
       useDomain: lobby.useDomain,
       serverNode: lobby.serverNode,
       signalingServer: lobby.signalingServer,
@@ -1501,6 +1502,8 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         >
           <Form
             form={form}
+            name="lobby-connection"
+            autoComplete="off"
             layout="vertical"
             onFinish={handleSubmit}
             initialValues={initialValues}

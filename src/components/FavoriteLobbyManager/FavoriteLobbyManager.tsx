@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { tl } from '../../i18n';
 import { isSafeServerNode, isSafeSignalingServer, sanitizeUntrustedText } from '../../security/trustBoundary';
+import { savedLobbyPlayerName } from '../../services/lobby/savedLobbyIdentity';
 import './FavoriteLobbyManager.css';
 
 export interface FavoriteLobby {
@@ -36,7 +37,7 @@ function normalizeFavorite(value: unknown): FavoriteLobby | null {
   const name = sanitizeUntrustedText(item.name, 64).trim();
   const id = sanitizeUntrustedText(item.id, 128).trim();
   if (!name || !id) return null;
-  const playerName = sanitizeUntrustedText(item.playerName, 64).trim();
+  const playerName = savedLobbyPlayerName(item.playerName, item.password);
   const serverNode = typeof item.serverNode === 'string' && isSafeServerNode(item.serverNode) && item.serverNode !== 'custom'
     ? item.serverNode.trim()
     : undefined;
@@ -247,7 +248,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <Form form={form} layout="vertical">
+              <Form form={form} name="favorite-lobby" layout="vertical" autoComplete="off">
                 <Form.Item
                   label={tl('大厅名称', 'Lobby Name')}
                   name="name"
@@ -261,6 +262,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                   ]}
                 >
                   <Input 
+                    autoComplete="off"
                     placeholder={tl('输入大厅名称', 'Enter lobby name')} 
                     onChange={(e) => {
                       const value = e.target.value;
@@ -280,7 +282,7 @@ export const FavoriteLobbyManager: React.FC<FavoriteLobbyManagerProps> = ({
                     { min: 1, max: 8, message: tl('玩家名称长度为 1-8 个字', 'Player name must be 1-8 characters') },
                   ]}
                 >
-                  <Input placeholder={tl('输入玩家名称', 'Enter player name')} maxLength={8} />
+                  <Input placeholder={tl('输入玩家名称', 'Enter player name')} maxLength={8} autoComplete="off" />
                 </Form.Item>
                 <Form.Item
                   label={tl('开启虚拟域名', 'Enable virtual domain')}
