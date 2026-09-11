@@ -199,6 +199,24 @@ async fn query_server(ip: &str, port: u16) -> Option<DiscoveredServer> {
     })
 }
 
+/// 检查目标是否属于合法的 EasyTier 虚拟网络目标（10.126.126.1~254 或 *.mct.net）
+pub fn is_allowed_mc_target(target: &str) -> bool {
+    let target = target.trim();
+    if let Ok(ip) = target.parse::<std::net::Ipv4Addr>() {
+        let octets = ip.octets();
+        octets[..3] == [10, 126, 126] && octets[3] >= 1 && octets[3] <= 254
+    } else {
+        let lower = target.to_ascii_lowercase();
+        lower.ends_with(".mct.net")
+            && lower.len() > 8
+            && !lower.contains('/')
+            && !lower.contains('\\')
+            && !lower.contains(':')
+            && !lower.contains(' ')
+            && !lower.contains('#')
+    }
+}
+
 /// 扫描多个虚拟 IP 上的 Minecraft 服务器
 ///
 /// # 参数
@@ -210,14 +228,21 @@ pub async fn scan_minecraft_servers(
     port: Option<u16>,
 ) -> Vec<DiscoveredServer> {
     let port = port.unwrap_or(25565);
+    if port == 0 {
+        return Vec::new();
+    }
+    let valid_targets: Vec<String> = peer_ips
+        .into_iter()
+        .filter(|ip| is_allowed_mc_target(ip))
+        .collect();
     log::info!(
-        "🔍 扫描 Minecraft 局域网世界: {} 个IP, 端口 {}",
-        peer_ips.len(),
+        "🔍 扫描 Minecraft 局域网世界: {} 个合规IP, 端口 {}",
+        valid_targets.len(),
         port
     );
 
     let mut tasks = Vec::new();
-    for ip in peer_ips {
+    for ip in valid_targets {
         let ip_clone = ip.clone();
         tasks.push(tokio::spawn(
             async move { query_server(&ip_clone, port).await },
@@ -238,7 +263,11 @@ pub async fn scan_minecraft_servers(
 /// 查询单个虚拟 IP 上的 Minecraft 服务器（用于精确探测某个玩家）
 #[tauri::command]
 pub async fn query_minecraft_server(ip: String, port: Option<u16>) -> Option<DiscoveredServer> {
-    query_server(&ip, port.unwrap_or(25565)).await
+    let port = port.unwrap_or(25565);
+    if port == 0 || !is_allowed_mc_target(&ip) {
+        return None;
+    }
+    query_server(&ip, port).await
 }
 
 /// 单个对等节点的连接质量
@@ -302,4 +331,30 @@ pub async fn measure_peers_latency(peer_ips: Vec<String>) -> Vec<PeerLatency> {
         }
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_allowed_mc_target() {
+        assert!(is_allowed_mc_target("10.126.126.1"));
+        assert!(is_allowed_mc_target("10.126.126.100"));
+        assert!(is_allowed_mc_target("10.126.126.254"));
+        assert!(is_allowed_mc_target("player.mct.net"));
+        assert!(is_allowed_mc_target("abc-123.mct.net"));
+
+        // Reject physical LAN, loopback, broadcast, and external IPs
+        assert!(!is_allowed_mc_target("10.126.126.0"));
+        assert!(!is_allowed_mc_target("10.126.126.255"));
+        assert!(!is_allowed_mc_target("127.0.0.1"));
+        assert!(!is_allowed_mc_target("192.168.1.1"));
+        assert!(!is_allowed_mc_target("10.0.0.1"));
+        assert!(!is_allowed_mc_target("169.254.169.254"));
+        assert!(!is_allowed_mc_target("mct.net"));
+        assert!(!is_allowed_mc_target(".mct.net"));
+        assert!(!is_allowed_mc_target("attacker.com"));
+        assert!(!is_allowed_mc_target("evil.mct.net/path"));
+    }
 }

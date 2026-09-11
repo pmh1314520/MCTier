@@ -87,6 +87,9 @@ fn pipe(mut a: TcpStream, mut b: TcpStream) {
 
 /// 启动一个本地代理监听，转发到 远端 ip:port，返回分配到的本地端口
 fn start_proxy(target_ip: String, target_port: u16, alive: Arc<AtomicBool>) -> Option<u16> {
+    if !crate::modules::minecraft_discovery::is_allowed_mc_target(&target_ip) || target_port == 0 {
+        return None;
+    }
     // 仅监听 127.0.0.1：组播公告的源地址即 127.0.0.1，本机 Minecraft 会回连到 127.0.0.1:端口；
     // 不暴露到其它网卡，避免物理局域网的人通过本代理连到房主游戏。
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
@@ -187,7 +190,10 @@ pub fn start_mc_lan_broadcast(servers: Vec<McServer>) -> Result<(), String> {
     // 期望的 key 集合
     let mut wanted: HashMap<String, McServer> = HashMap::new();
     for s in servers {
-        if s.ip.trim().is_empty() || s.port == 0 {
+        if s.ip.trim().is_empty()
+            || s.port == 0
+            || !crate::modules::minecraft_discovery::is_allowed_mc_target(&s.ip)
+        {
             continue;
         }
         wanted.insert(format!("{}:{}", s.ip, s.port), s);

@@ -177,41 +177,50 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
     launch_elevated_helper(port, &token)?;
 
     let deadline = Instant::now() + Duration::from_secs(10);
-    let mut stream = loop {
+    let (stream, mut reader) = loop {
         if Instant::now() >= deadline {
             return Err("等待特权 helper 响应超时，请确认已允许 UAC 请求".to_string());
         }
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
+        let incoming = match listener.accept() {
+            Ok((stream, _)) => stream,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(20));
+                continue;
             }
             Err(error) => return Err(format!("接受特权 helper 通道失败: {}", error)),
-        }
-    };
-    // 将 stream 设置为阻塞模式（listener 是非阻塞的）
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| format!("配置特权 helper 通道为阻塞模式失败: {}", e))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 读取超时失败: {}", e))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| format!("配置特权 helper 写入超时失败: {}", e))?;
+        };
 
-    let mut reader = BufReader::new(
-        stream
-            .try_clone()
-            .map_err(|e| format!("复制特权 helper 通道失败: {}", e))?,
-    );
-    let mut handshake = String::new();
-    reader
-        .read_line(&mut handshake)
-        .map_err(|e| format!("读取特权 helper 握手失败: {}", e))?;
-    if handshake.trim() != format!("{} {}", HANDSHAKE_PREFIX, token) {
-        return Err("特权 helper 握手令牌不匹配".to_string());
-    }
+        // 将 stream 设置为阻塞模式（listener 是非阻塞的）
+        if let Err(e) = incoming.set_nonblocking(false) {
+            log::warn!("配置特权 helper 通道为阻塞模式失败: {}", e);
+            continue;
+        }
+        let _ = incoming.set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = incoming.set_write_timeout(Some(Duration::from_secs(5)));
+
+        let cloned = match incoming.try_clone() {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("复制特权 helper 通道失败: {}", e);
+                continue;
+            }
+        };
+
+        let mut reader = BufReader::new(cloned);
+        let mut handshake = String::new();
+        if let Err(e) = reader.read_line(&mut handshake) {
+            log::warn!("读取特权 helper 握手失败: {}", e);
+            continue;
+        }
+        if handshake.trim() != format!("{} {}", HANDSHAKE_PREFIX, token) {
+            log::warn!("特权 helper 握手令牌不匹配，忽略非特权探测连接");
+            continue;
+        }
+
+        let _ = incoming.set_read_timeout(Some(Duration::from_secs(10)));
+        let _ = incoming.set_write_timeout(Some(Duration::from_secs(10)));
+        break (incoming, reader);
+    };
 
     let mut writer = BufWriter::new(stream);
     write_json(&mut writer, &request)?;
