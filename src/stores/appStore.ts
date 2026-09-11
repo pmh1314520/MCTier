@@ -17,6 +17,7 @@ import type {
 import { applyMessageRecall } from '../services/chat/recallPolicy';
 import { compareChatMessages } from '../services/chat/messageOrder';
 import { recordUnread, readConversation, type ChatUnread } from '../services/chat/unread';
+import type { SignalingConnectionStatus } from '../services/signaling/registeredSocket';
 
 /** 共享待办项（双端字段名一致） */
 export interface TodoItem {
@@ -51,6 +52,9 @@ interface AppStore {
   // ==================== 大厅信息 ====================
   /** 当前大厅信息 */
   lobby: Lobby | null;
+  signalingStatus: SignalingConnectionStatus;
+  signalingError: string | null;
+  setSignalingStatus: (status: SignalingConnectionStatus, error?: string) => void;
   /** 设置大厅信息 */
   setLobby: (lobby: Lobby | null) => void;
   /** 清除大厅信息 */
@@ -257,6 +261,8 @@ const initialState = {
 
   // 大厅信息
   lobby: null,
+  signalingStatus: 'disconnected' as SignalingConnectionStatus,
+  signalingError: null,
 
   // 玩家列表
   currentPlayerId: null,
@@ -324,13 +330,18 @@ export const useAppStore = create<AppStore>()(
 
       // ==================== 大厅信息操作 ====================
       setLobby: (lobby: Lobby | null) => {
-        set({ lobby }, false, 'setLobby');
+        set({ lobby, signalingStatus: lobby ? 'connecting' : 'disconnected', signalingError: null }, false, 'setLobby');
         if (lobby) {
           set({ appState: 'in-lobby' }, false, 'setAppState/in-lobby');
         }
       },
 
+      setSignalingStatus: (signalingStatus, error) => {
+        set({ signalingStatus, signalingError: error ?? null }, false, 'setSignalingStatus');
+      },
+
       clearLobby: () => {
+        get().setSignalingStatus('disconnected');
         set({ lobby: null }, false, 'clearLobby');
         // 清除大厅时也清除玩家列表
         get().clearPlayers();

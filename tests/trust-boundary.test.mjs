@@ -76,7 +76,9 @@ test('chat credentials are fixed-size hexadecimal values', () => {
 });
 
 test('desktop chat and file authorization fail closed when session synchronization fails', () => {
-  assert.match(webRtcSource, /failClosedChatSession[\s\S]{0,900}invoke\('stop_p2p_chat'\)/);
+  assert.match(webRtcSource, /failClosedChatSession[\s\S]{0,1400}invoke\('stop_p2p_chat', \{ preserveSigningIdentity: true \}\)/);
+  const nativeCommands = fs.readFileSync(new URL('../src-tauri/src/modules/tauri_commands.rs', import.meta.url), 'utf8');
+  assert.match(nativeCommands, /pub async fn stop_p2p_chat[\s\S]{0,1000}clear_lobby_token\(\)[\s\S]{0,600}reset_auth_baseline\(\)\.await/);
   assert.match(webRtcSource, /chat-token-rotated[\s\S]{0,1200}failClosedChatSession/);
   assert.match(webRtcSource, /撤销离开玩家的聊天权限失败[\s\S]{0,120}break/);
 });

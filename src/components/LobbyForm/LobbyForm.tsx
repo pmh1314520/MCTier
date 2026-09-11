@@ -1097,11 +1097,7 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.warn('记录统计会话失败（忽略）:', e);
       }
 
-      message.success(
-        mode === 'create'
-          ? tl('大厅创建成功！', 'Lobby created!')
-          : tl('成功加入大厅！', 'Joined the lobby!')
-      );
+      message.info(tl('正在连接大厅...', 'Connecting to lobby...'));
 
       // 关闭表单
       onClose();

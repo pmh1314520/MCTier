@@ -416,7 +416,7 @@ impl Default for UserConfig {
             auto_lobby: Some(AutoLobbyConfig::default()),
             use_private_server: Some(false),
             private_easytier_server: Some("udp://us01.225284.xyz:11010".to_string()),
-            private_signaling_server: Some("wss://test.pmhs.top".to_string()),
+            private_signaling_server: Some("wss://mctier.pmhs.top/signaling".to_string()),
             always_on_top: Some(true),
             remember_window_position: Some(false),
             close_to_tray: Some(false),
@@ -428,6 +428,17 @@ impl Default for UserConfig {
             global_easytier_advanced_config: None,
             lobby_easytier_advanced_config: None,
             file_share_download_dir: None,
+        }
+    }
+}
+
+impl UserConfig {
+    fn migrate_legacy_signaling_server(&mut self) {
+        let legacy = self.private_signaling_server.as_deref().map(str::trim);
+        if matches!(legacy.map(|url| url.trim_end_matches('/')),
+            Some("ws://test.pmhs.top" | "wss://test.pmhs.top" |
+                 "ws://test.pmhs.top/signaling" | "wss://test.pmhs.top/signaling")) {
+            self.private_signaling_server = Some("wss://mctier.pmhs.top/signaling".to_string());
         }
     }
 }
@@ -533,9 +544,9 @@ impl ConfigManager {
             .map_err(|e| AppError::ConfigError(format!("读取配置文件失败: {}", e)))?;
 
         // 解析 JSON
-        let config: UserConfig = serde_json::from_str(&content)
+        let mut config: UserConfig = serde_json::from_str(&content)
             .map_err(|e| AppError::ConfigError(format!("解析配置文件失败: {}", e)))?;
-
+        config.migrate_legacy_signaling_server();
         Ok(config)
     }
 
@@ -620,6 +631,7 @@ impl ConfigManager {
     {
         // 应用更新
         updater(&mut self.config);
+        self.config.migrate_legacy_signaling_server();
 
         // 立即保存到文件
         self.save().await?;
@@ -932,6 +944,22 @@ impl ConfigManager {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn legacy_signaling_defaults_migrate_without_replacing_custom_endpoints() {
+        let mut config = UserConfig::default();
+        assert_eq!(config.private_signaling_server.as_deref(), Some("wss://mctier.pmhs.top/signaling"));
+        for old in ["wss://test.pmhs.top", "ws://test.pmhs.top/", "wss://test.pmhs.top/signaling"] {
+            config.private_signaling_server = Some(old.to_string());
+            config.migrate_legacy_signaling_server();
+            assert_eq!(config.private_signaling_server.as_deref(), Some("wss://mctier.pmhs.top/signaling"));
+        }
+        for custom in ["wss://signal.example.com/private", "wss://test.pmhs.top/custom"] {
+            config.private_signaling_server = Some(custom.to_string());
+            config.migrate_legacy_signaling_server();
+            assert_eq!(config.private_signaling_server.as_deref(), Some(custom));
+        }
+    }
 
     /// 创建临时配置管理器用于测试
     async fn create_test_config_manager(temp_dir: &TempDir) -> ConfigManager {

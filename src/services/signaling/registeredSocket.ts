@@ -1,3 +1,5 @@
+export type SignalingConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'failed';
+
 const registeredSockets = new WeakSet<WebSocket>();
 
 export function markSignalingSocketRegistered(socket: WebSocket): void {

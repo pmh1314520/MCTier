@@ -19,7 +19,7 @@ const bundle = await build({ entryPoints: [entry], bundle: true, format: 'esm', 
     return { path: args.path, namespace: 'fixture' };
   });
   b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ loader: 'js', contents:
-    args.path.endsWith('signalingIdentity') ? 'export const isServerChallenge=x=>/^[a-f0-9]{64}$/.test(x); export const prepareSignalingIdentity=async()=>({}); export const signSignalingRegistration=async()=>({});'
+    args.path.endsWith('signalingIdentity') ? 'export const isServerChallenge=x=>/^[a-f0-9]{64}$/.test(x); export const prepareSignalingIdentity=async()=>globalThis.registrationTestIdentity; export const signSignalingRegistration=async()=>({});'
     : args.path.endsWith('P2PChatService') ? 'export const p2pChatService={setChatToken(){},reset(){},initialize(){}};'
     : args.path.endsWith('LobbySessionCoordinator') ? 'export const lobbySessionCoordinator={assertCurrent(){},isCurrent(){return true;}};'
     : args.path === '@tauri-apps/api/core' ? 'export const invoke=async(...args)=>globalThis.registrationTestInvoke?.(...args);'
@@ -33,6 +33,7 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
 function fixture() {
   const oldWindow = globalThis.window, oldSocket = globalThis.WebSocket;
   const oldInvoke = globalThis.registrationTestInvoke;
+  const oldIdentity = globalThis.registrationTestIdentity;
   const timers = new Map();
   let serial = 0;
   class Socket {
@@ -44,7 +45,10 @@ function fixture() {
     open() { this.readyState = 1; this.onopen?.(); }
     receive(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
     send(message) { assert.equal(this.readyState, 1); this.sent.push(JSON.parse(message)); }
-    close() {
+    close(code = 1000) {
+      if (code !== 1000 && (code < 3000 || code > 4999)) {
+        throw new DOMException('Invalid browser WebSocket close code', 'InvalidAccessError');
+      }
       if (this.readyState >= 2) return;
       this.readyState = 3;
       queueMicrotask(() => this.onclose?.());
@@ -58,6 +62,7 @@ function fixture() {
   };
   const client = new WebRTCClient();
   client.localPlayerId = 'a'.repeat(64);
+  globalThis.registrationTestIdentity = { clientId: client.localPlayerId, identityPublicKey: 'prepared-key' };
   client.knownPlayers.add('b'.repeat(64));
   client.resetRemoteControlOnSignalingDisconnect = () => {};
   client.sendV3Registration = async socket => socket.send(JSON.stringify({ type: 'register-v3' }));
@@ -72,6 +77,7 @@ function fixture() {
     await flush();
     globalThis.window = oldWindow; globalThis.WebSocket = oldSocket;
     globalThis.registrationTestInvoke = oldInvoke;
+    globalThis.registrationTestIdentity = oldIdentity;
   } };
 }
 
@@ -185,6 +191,62 @@ test('local registration failures retain their cause for the caller', async () =
     await flush();
     socket.receive(f.success);
     await rejected;
+  } finally { await f.dispose(); }
+});
+
+test('a failed local bind revokes authorization but a retry keeps the registered fingerprint', async () => {
+  const f = fixture();
+  try {
+    f.client.lobbySessionTicket = {};
+    const commands = [];
+    globalThis.registrationTestInvoke = async (command, args) => {
+      commands.push({ command, args });
+      if (command === 'stop_p2p_chat' && !args?.preserveSigningIdentity) {
+        globalThis.registrationTestIdentity = { clientId: 'c'.repeat(64), identityPublicKey: 'changed-key' };
+      }
+    };
+    let attempts = 0;
+    const connect = f.client.connectToSignalingServer.bind(f.client);
+    f.client.connectToSignalingServer = () => {
+      attempts++;
+      const pending = connect();
+      const socket = f.client.websocket;
+      socket.open();
+      socket.receive(f.challenge);
+      void flush().then(() => socket.receive(f.success));
+      return pending;
+    };
+    f.client.configureChatSession = async () => {
+      if (attempts === 1) throw new Error('address not ready (10049)');
+    };
+    const states = [];
+    f.client.onSignalingStatus(status => states.push(status));
+    await f.client.connectToSignalingServerWithRetry(2);
+    assert.equal(attempts, 2);
+    assert.equal(globalThis.registrationTestIdentity.clientId, f.client.localPlayerId);
+    assert.equal(f.client.requestPlayersList(), true);
+    assert.deepEqual(commands, [{ command: 'stop_p2p_chat', args: { preserveSigningIdentity: true } }]);
+    assert.equal(states.at(-1), 'connected');
+  } finally { await f.dispose(); }
+});
+
+test('registration publishes authoritative host and readiness before completing initialization', async () => {
+  const f = fixture();
+  try {
+    const events = [];
+    f.client.onLobbyMeta(meta => events.push(['host', meta.hostId]));
+    f.client.onSignalingStatus(status => events.push(['status', status]));
+    const pending = f.client.connectToSignalingServer().then(() => events.push(['complete']));
+    const socket = f.client.websocket;
+    socket.open();
+    socket.receive(f.challenge);
+    await flush();
+    socket.receive({ ...f.success, hostId: f.client.localPlayerId });
+    await pending;
+    assert.deepEqual(events, [
+      ['status', 'connecting'], ['status', 'connected'],
+      ['host', f.client.localPlayerId], ['complete'],
+    ]);
   } finally { await f.dispose(); }
 });
 

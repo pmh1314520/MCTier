@@ -494,23 +494,17 @@ impl ChatService {
                 replay_guard: Arc::clone(&self.replay_guard),
             });
         let address = SocketAddr::new(IpAddr::V4(ip), CHAT_SERVER_PORT);
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        let listener = loop {
-            match tokio::net::TcpListener::bind(address).await {
-                Ok(listener) => break listener,
-                Err(error) => {
-                    if !matches!(error.kind(), std::io::ErrorKind::AddrInUse) {
-                        return Err(error.into());
-                    }
-                    // Abort/restart and signaling reconnects can overlap. The
-                    // old listener needs a short time to release the socket.
-                    if tokio::time::Instant::now() >= deadline {
-                        return Err(error.into());
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-        };
+        // EasyTier reports its assigned IP before Windows finishes creating
+        // the TUN interface. Keep registration alive while that IP becomes bindable.
+        let listener = retry_chat_bind(
+            || std::future::ready(super::virtual_network::bind_service_listener(address)),
+            Duration::from_secs(5),
+        )
+        .await
+        .map_err(|error| {
+            log::error!("聊天服务绑定失败: address={}, error={}", address, error);
+            error
+        })?;
         let server_task = tokio::spawn(async move {
             if let Err(error) = axum::serve(
                 listener,
@@ -569,6 +563,29 @@ impl ChatService {
     pub fn clear_local_messages(&self) {
         self.local_messages.write().clear();
         *self.history_bytes.write() = 0;
+    }
+}
+
+async fn retry_chat_bind<T, F, Fut>(mut bind: F, timeout: Duration) -> std::io::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<T>>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match bind().await {
+            Ok(listener) => return Ok(listener),
+            Err(error) => {
+                if !matches!(error.kind(), std::io::ErrorKind::AddrInUse | std::io::ErrorKind::AddrNotAvailable)
+                    || tokio::time::Instant::now() >= deadline
+                {
+                    return Err(error);
+                }
+                tokio::time::sleep_until(
+                    deadline.min(tokio::time::Instant::now() + Duration::from_millis(100)),
+                ).await;
+            }
+        }
     }
 }
 
@@ -1118,6 +1135,53 @@ async fn stream_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn chat_bind_waits_for_virtual_adapter_and_port_release() {
+        let mut attempts = 0;
+        let result = retry_chat_bind(|| {
+            attempts += 1;
+            std::future::ready(match attempts {
+                1 => Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable)),
+                2 => Err(std::io::Error::from(std::io::ErrorKind::AddrInUse)),
+                _ => Ok("bound"),
+            })
+        }, Duration::from_secs(1)).await.unwrap();
+        assert_eq!(result, "bound");
+        assert_eq!(attempts, 3);
+    }
+
+    #[tokio::test]
+    async fn chat_bind_is_bounded_and_does_not_retry_permission_errors() {
+        for kind in [std::io::ErrorKind::PermissionDenied, std::io::ErrorKind::AddrNotAvailable] {
+            let mut attempts = 0;
+            let result = retry_chat_bind(|| {
+                attempts += 1;
+                std::future::ready(Err::<(), _>(std::io::Error::from(kind)))
+            }, Duration::from_millis(5)).await;
+            assert_eq!(result.unwrap_err().kind(), kind);
+            if kind == std::io::ErrorKind::PermissionDenied { assert_eq!(attempts, 1); }
+            else { assert!(attempts <= 2); }
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_registration_can_revoke_auth_without_changing_identity() {
+        let service = ChatService::new();
+        let before = service.signaling_identity().unwrap();
+        service.set_virtual_ip("10.126.126.1".to_string());
+        service.set_session("a".repeat(64), 1, before.0.clone(), "Local".to_string(),
+            Some(before.0.clone()), vec![]).unwrap();
+        service.reset_auth_baseline().await;
+        assert!(service.session.read().is_none());
+        assert_eq!(service.signaling_identity().unwrap(), before);
+        assert_eq!(service.get_virtual_ip().as_deref(), Some("10.126.126.1"));
+        service.set_session("b".repeat(64), 1, before.0.clone(), "Local".to_string(),
+            Some(before.0.clone()), vec![]).unwrap();
+        service.stop_server().await;
+        assert_ne!(service.signaling_identity().unwrap(), before);
+        assert!(service.session.read().is_none());
+    }
 
     fn identity(ip: &str, id: &str) -> ChatPeerIdentity {
         ChatPeerIdentity {

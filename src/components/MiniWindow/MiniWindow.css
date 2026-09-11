@@ -1815,3 +1815,19 @@ html[data-theme='light'] .mini-vg-chip {
   transition: all 0.18s ease;
 }
 .qr-download-btn:hover { background: rgba(82, 196, 26, 0.28); color: #fff; }
+
+.mini-signaling-status {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #60a5fa;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.mini-signaling-status strong,
+.mini-signaling-status span { display: block; }
+.mini-signaling-status[data-failed="true"] { border-color: #ef4444; }
+.mini-signaling-status span { margin-top: 4px; opacity: 0.8; }
+.copy-lobby-btn:disabled { opacity: 0.4; cursor: not-allowed; }

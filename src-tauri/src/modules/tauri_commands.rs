@@ -544,8 +544,7 @@ pub async fn create_lobby(
 
             log::info!("使用前端提供的玩家ID: {}", player_id);
 
-            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://test.pmhs.top)
-            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://test.pmhs.top");
+            log::info!("客户端将连接到 WebSockets 信令服务器: {}", signaling_server);
 
             // 创建者也必须注册到远程信令服务器。此前只有加入大厅路径启动
             // P2P 信令，导致创建者没有向 Android/其他客户端发布大厅成员、
@@ -709,8 +708,7 @@ pub async fn join_lobby(
 
             log::info!("使用前端提供的玩家ID: {}", player_id);
 
-            // 所有客户端都连接到官方 WebSockets 信令服务器 (wss://test.pmhs.top)
-            log::info!("客户端将连接到官方 WebSockets 信令服务器: wss://test.pmhs.top");
+            log::info!("客户端将连接到 WebSockets 信令服务器: {}", signaling_server);
 
             // 启动P2P信令服务
             log::info!("正在启动P2P信令服务（加入大厅）...");
@@ -5274,13 +5272,23 @@ pub async fn update_p2p_chat_peers(
 }
 
 #[tauri::command]
-pub async fn stop_p2p_chat(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn stop_p2p_chat(
+    preserve_signing_identity: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let (chat_service, file_transfer) = {
         let core = state.core.lock().await;
         (core.get_chat_service(), core.get_file_transfer())
     };
     file_transfer.lock().await.clear_lobby_token();
-    chat_service.lock().await.stop_server().await;
+    let chat_svc = chat_service.lock().await;
+    if preserve_signing_identity.unwrap_or(false) {
+        // Revoke all request authorization, but keep the fingerprint reserved
+        // for this lobby so a failed registration can retry with the same identity.
+        chat_svc.reset_auth_baseline().await;
+    } else {
+        chat_svc.stop_server().await;
+    }
     Ok(())
 }
 

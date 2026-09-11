@@ -202,7 +202,7 @@ impl FileTransferService {
         let max_attempts = 20; // 20次 * 500ms = 10秒
         loop {
             // 尝试绑定到虚拟IP的一个临时端口，测试IP是否可用
-            match tokio::net::TcpListener::bind(SocketAddr::new(addr.ip(), 0)).await {
+            match super::virtual_network::bind_service_listener(SocketAddr::new(addr.ip(), 0)) {
                 Ok(test_listener) => {
                     drop(test_listener);
                     log::info!("✅ 虚拟IP已就绪");
@@ -257,7 +257,7 @@ impl FileTransferService {
         log::debug!("📂 共享文件夹数量: {}", shared_folders.len());
 
         // 尝试绑定端口
-        let listener = match tokio::net::TcpListener::bind(addr).await {
+        let listener = match super::virtual_network::bind_service_listener(addr) {
             Ok(l) => {
                 log::info!("✅ 成功绑定端口 {}", FILE_SERVER_PORT);
                 l

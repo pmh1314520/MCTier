@@ -175,6 +175,8 @@ export const MiniWindow: React.FC = () => {
     announcement,
     myVoiceGroup,
     playerVoiceGroups,
+    signalingStatus,
+    signalingError,
   } = useAppStore();
 
   const isHost = !!currentPlayerId && hostId === currentPlayerId;
@@ -354,6 +356,10 @@ export const MiniWindow: React.FC = () => {
   useEffect(() => {
     setShowQrModal(false);
   }, [lobby?.name, lobby?.password]);
+
+  useEffect(() => {
+    if (signalingStatus !== 'connected') setShowQrModal(false);
+  }, [signalingStatus]);
 
   // 下载二维码：合成 MCTier 主题邀请图，弹出系统保存对话框让用户选择位置
   const downloadQrPoster = async () => {
@@ -1643,6 +1649,7 @@ export const MiniWindow: React.FC = () => {
                       <motion.button
                         className="copy-lobby-btn"
                         onClick={handleCopyLobbyInfo}
+                        disabled={signalingStatus !== 'connected'}
                         title={tl('复制大厅信息', 'Copy Lobby Info')}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
@@ -1655,6 +1662,7 @@ export const MiniWindow: React.FC = () => {
                       <motion.button
                         className="copy-lobby-btn"
                         onClick={() => setShowQrModal(true)}
+                        disabled={signalingStatus !== 'connected'}
                         title={tl('大厅二维码（手机 MCTier 扫码加入）', 'Lobby QR (scan with MCTier)')}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
@@ -1694,6 +1702,16 @@ export const MiniWindow: React.FC = () => {
               )}
 
               {/* 大厅公告（只读跑马灯滚动展示；房主在“房主管理”中设置） */}
+              {signalingStatus !== 'connected' && (
+                <div className="mini-signaling-status" role="status" data-failed={signalingStatus === 'failed'}>
+                  <strong>{signalingStatus === 'failed'
+                    ? tl('大厅连接失败', 'Lobby connection failed')
+                    : signalingStatus === 'connecting'
+                      ? tl('正在连接大厅...', 'Connecting to lobby...')
+                      : tl('大厅连接已断开，正在重连...', 'Lobby disconnected. Reconnecting...')}</strong>
+                  {signalingError && <span>{signalingError}</span>}
+                </div>
+              )}
               {announcement && (
                 <div className="mini-announcement">
                   <span className="mini-announce-icon" title={tl('大厅公告', 'Lobby announcement')}>
@@ -2193,7 +2211,7 @@ export const MiniWindow: React.FC = () => {
 
       {/* 大厅二维码弹窗：手机端 MCTier 扫码即可加入 */}
       <Modal
-        open={showQrModal}
+        open={showQrModal && signalingStatus === 'connected'}
         onCancel={() => setShowQrModal(false)}
         footer={null}
         centered

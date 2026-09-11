@@ -22,7 +22,6 @@ import { GameHudOverlay } from './components/GameHud/GameHudOverlay';
 import { VersionUpdateModal } from './components/VersionUpdateModal';
 import { useAppStore, initializeStore } from './stores';
 import { hotkeyManager, webrtcClient, audioService, fileShareService } from './services';
-import { screenShareService } from './services/screenShare/ScreenShareService';
 import { speakingDetector } from './services/voice/SpeakingDetector';
 import { versionCheckService } from './services/version/VersionCheckService';
 import { DOWNLOAD_WEBSITE } from './services/version/versionPolicy';
@@ -500,8 +499,7 @@ function App() {
           const { currentPlayerId: playerId } = useAppStore.getState();
 
           if (!playerId) {
-            console.error('玩家ID不存在，无法初始化WebRTC');
-            return;
+            throw new Error(tl('玩家身份未就绪，无法注册大厅', 'Player identity is not ready'));
           }
 
           console.log('使用已存在的玩家ID初始化WebRTC:', playerId);
@@ -552,31 +550,13 @@ function App() {
             })();
           });
 
-          // 初始化WebRTC客户端
-          // 从 lobby 对象中获取信令服务器地址，如果没有则使用默认值
-          const signalingServer = lobby.signalingServer || 'wss://mctier.pmhs.top/signaling';
-          console.log('已准备 WebRTC 连接参数');
-
-          await webrtcClient.initialize(
-            playerId,
-            playerName,
-            lobby.name,
-            lobby.password || '',
-            undefined,
-            lobby.useDomain,
-            signalingServer,
-            sessionTicket
-          );
-          lobbySessionCoordinator.assertCurrent(sessionTicket);
-
-          // 初始化屏幕共享服务
-          const ws = (webrtcClient as any).websocket; // 获取WebSocket实例
-          if (ws) {
-            screenShareService.initialize(playerId, playerName, ws);
-            console.log('✅ 屏幕共享服务已初始化');
-          }
-
-          // 设置事件回调
+          // Register observers before initialize(): it consumes register-success
+          // and the first roster before resolving.
+          webrtcClient.onSignalingStatus((status) => {
+            if (lobbySessionCoordinator.isCurrent(sessionTicket)) {
+              useAppStore.getState().setSignalingStatus(status);
+            }
+          });
           webrtcClient.onPlayerJoined(
             (playerId, playerName, virtualIp, virtualDomain, useDomain) => {
               console.log(
@@ -711,6 +691,13 @@ function App() {
             }
           });
 
+          const signalingServer = lobby.signalingServer || 'wss://mctier.pmhs.top/signaling';
+          await webrtcClient.initialize(
+            playerId, playerName, lobby.name, lobby.password || '',
+            undefined, lobby.useDomain, signalingServer, sessionTicket
+          );
+          lobbySessionCoordinator.assertCurrent(sessionTicket);
+
           console.log('✅ WebRTC 初始化完成，玩家ID:', playerId);
 
           // 启动HTTP文件服务器
@@ -726,12 +713,9 @@ function App() {
         } catch (error) {
           console.error('❌ WebRTC 初始化失败:', error);
           if (lobbySessionCoordinator.isCurrent(sessionTicket) && !useAppStore.getState().versionError) {
-            Modal.error({
-              title: tl('大厅连接未完成', 'Lobby connection failed'),
-              content: sanitizeUntrustedText(
-                error instanceof Error ? error.message : String(error), 1024
-              ),
-            });
+            useAppStore.getState().setSignalingStatus('failed', sanitizeUntrustedText(
+              error instanceof Error ? error.message : String(error), 1024
+            ));
           }
         }
       };

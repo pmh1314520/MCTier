@@ -6,7 +6,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { prepareAudioAnswer, sendingAudioTransceiver } from './audioTransceiver';
 import { invoke } from '@tauri-apps/api/core';
-import { invalidateSignalingSocket, isSignalingSocketRegistered, markSignalingSocketRegistered } from '../signaling/registeredSocket';
+import { invalidateSignalingSocket, isSignalingSocketRegistered, markSignalingSocketRegistered, type SignalingConnectionStatus } from '../signaling/registeredSocket';
 import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
 import { audioDevices } from '../voice/audioDevices';
@@ -241,6 +241,7 @@ export class WebRTCClient {
     isPublic?: boolean;
     mutedPlayers?: string[];
   }) => void;
+  private onSignalingStatusCallback?: (status: SignalingConnectionStatus) => void;
   private onHostChangedCallback?: (hostId: string) => void;
   private onMuteChangedCallback?: (playerId: string, muted: boolean) => void;
   private onLobbyOptionsChangedCallback?: (maxPlayers: number | null, isPublic: boolean) => void;
@@ -436,7 +437,7 @@ export class WebRTCClient {
       // 清理已创建的资源
       await this.cleanup();
       throw new Error(
-        tl(`无法初始化语音系统: ${error}`, `Failed to initialize the voice system: ${error}`)
+        tl(`无法连接大厅: ${error}`, `Failed to connect to the lobby: ${error}`)
       );
     }
   }
@@ -512,6 +513,7 @@ export class WebRTCClient {
     invalidateSignalingSocket(this.websocket);
     this.serverSessionGeneration = '';
     this.registrationFailure = null;
+    this.onSignalingStatusCallback?.('connecting');
     return new Promise((resolve, reject) => {
       try {
         console.log('正在连接到信令服务器');
@@ -558,7 +560,7 @@ export class WebRTCClient {
           if (this.websocket !== socket) return;
           try {
             if (typeof event.data !== 'string' || event.data.length > MAX_SIGNALING_FRAME_BYTES) {
-              socket.close(1009, 'signaling-frame-too-large');
+              socket.close(4009, 'signaling-frame-too-large');
               return;
             }
             const frameBytes = event.data.length;
@@ -569,7 +571,7 @@ export class WebRTCClient {
                 message.protocolVersion !== SIGNALING_PROTOCOL_VERSION ||
                 !isServerChallenge(message.challenge)
               ) {
-                socket.close(1008, 'invalid-server-challenge');
+                socket.close(4008, 'invalid-server-challenge');
                 failRegistration(new Error('信令服务器返回了无效的协议 v3 challenge'));
                 return;
               }
@@ -587,7 +589,7 @@ export class WebRTCClient {
               this.queuedWebSocketFrames >= MAX_QUEUED_WS_FRAMES ||
               this.queuedWebSocketBytes + frameBytes > MAX_QUEUED_WS_BYTES
             ) {
-              socket.close(1009, 'signaling-queue-overflow');
+              socket.close(4009, 'signaling-queue-overflow');
               return;
             }
             this.queuedWebSocketFrames += 1;
@@ -635,7 +637,7 @@ export class WebRTCClient {
           if (!registrationAccepted) failRegistration(new Error('无法完成信令服务器注册'));
         };
 
-        this.websocket.onclose = () => {
+        this.websocket.onclose = (event) => {
           if (this.websocket !== socket) return;
           clearChallengeTimeout();
           invalidateSignalingSocket(socket);
@@ -646,7 +648,8 @@ export class WebRTCClient {
             clearTimeout(this.websocketStableTimer);
             this.websocketStableTimer = null;
           }
-          console.log('⚠️ 与信令服务器的连接已断开');
+          console.warn('与信令服务器的连接已断开', { code: event?.code, reason: event?.reason });
+          this.onSignalingStatusCallback?.('disconnected');
 
           // 停止 WebSocket 心跳
           this.stopWebSocketHeartbeat();
@@ -1128,20 +1131,19 @@ export class WebRTCClient {
     this.chatToken = '';
     this.chatTokenEpoch = 0;
     this.chatAuthBaselineResetPending = false;
-    this.chatAuthBaselineResetPending = false;
-    // stop_p2p_chat retires the backend signer, so the cached public key is
-    // stale from here on and must not be re-published on reconnect.
+    // Authorization is revoked on failure. The device fingerprint must remain
+    // stable until leaving the lobby, otherwise every retry fails identity validation.
     this.chatPublicKey = '';
     this.chatHostId = undefined;
     this.chatPeers.clear();
     p2pChatService.reset();
     try {
-      await invoke('stop_p2p_chat');
+      await invoke('stop_p2p_chat', { preserveSigningIdentity: true });
     } catch (stopError) {
       console.error('清理本地聊天/文件认证服务失败:', stopError);
     }
     if (this.websocket?.readyState === WebSocket.OPEN) {
-      this.websocket.close(1011, 'chat-auth-sync-failed');
+      this.websocket.close(4011, 'chat-auth-sync-failed');
     }
   }
 
@@ -1174,23 +1176,23 @@ export class WebRTCClient {
             sourceSocket !== this.websocket ||
             this.acceptedRegistrationSockets.has(sourceSocket)
           ) {
-            sourceSocket?.close(1008, 'duplicate-register-success');
+            sourceSocket?.close(4008, 'duplicate-register-success');
             await this.failClosedChatSession('信令服务器返回了重复或过期的注册响应');
             break;
           }
           if (message.clientId !== this.localPlayerId) {
-            this.websocket?.close(1008, 'signaling-identity-mismatch');
+            this.websocket?.close(4008, 'signaling-identity-mismatch');
             await this.failClosedChatSession('信令服务器返回了不匹配的权威身份');
             break;
           }
           const registeredSessionGeneration = this.safeSessionGeneration(message.sessionGeneration);
           if (!registeredSessionGeneration) {
-            this.websocket?.close(1008, 'invalid-session-generation');
+            this.websocket?.close(4008, 'invalid-session-generation');
             await this.failClosedChatSession('信令服务器未返回有效的会话 generation');
             break;
           }
           if (!isSafeChatToken(message.chatToken)) {
-            sourceSocket.close(1008, 'invalid-chat-token');
+            sourceSocket.close(4008, 'invalid-chat-token');
             await this.failClosedChatSession('信令服务器返回了无效的聊天令牌');
             break;
           }
@@ -1201,7 +1203,7 @@ export class WebRTCClient {
               ? message.chatTokenEpoch
               : 0;
           if (registeredTokenEpoch === 0) {
-            sourceSocket.close(1008, 'invalid-chat-token-epoch');
+            sourceSocket.close(4008, 'invalid-chat-token-epoch');
             await this.failClosedChatSession('信令服务器返回了无效的聊天令牌版本');
             break;
           }
@@ -1234,6 +1236,7 @@ export class WebRTCClient {
           }
           if (sourceSocket !== this.websocket || sourceSocket.readyState !== WebSocket.OPEN) break;
           markSignalingSocketRegistered(sourceSocket);
+          this.onSignalingStatusCallback?.('connected');
           console.log('✅ 注册成功');
           // 携带房主/人数上限/公开状态/禁言列表等大厅元数据
           if (this.onLobbyMetaCallback) {
@@ -4317,6 +4320,10 @@ export class WebRTCClient {
   }
 
   // ==================== 房主/大厅管理 ====================
+  onSignalingStatus(callback: (status: SignalingConnectionStatus) => void): void {
+    this.onSignalingStatusCallback = callback;
+  }
+
   onLobbyMeta(
     cb: (meta: {
       hostId?: string;
@@ -4524,6 +4531,7 @@ export class WebRTCClient {
    */
   async cleanup(preserveSigningIdentity = false): Promise<void> {
     this.isIntentionalDisconnect = true;
+    this.onSignalingStatusCallback?.('disconnected');
     this.cancelPendingRegistration?.();
     invalidateSignalingSocket(this.websocket);
     try {
