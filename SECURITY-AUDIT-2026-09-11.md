@@ -24,7 +24,7 @@
 - 桌面端 `npm test`：114 项通过，包含前次注册/语音修复的测试。远控测试夹具已正确模拟注册成功，不绕过生产注册状态检查。
 - 信令端 `cargo test --no-fail-fast`：56 项通过。包含真实本地 WebSocket 的错误密码、同名大厅、反代来源隔离、投稿冷却、跨大厅伪造、注册超时和语音重连测试。
 - 桌面 Rust `cargo check --tests --locked`：通过。
-- `rustc --edition=2021 --test tests/native-security.rs`：5 项通过，实际执行 hosts 校验、虚拟网段校验与 TCP Helper 握手抢占/静默超时测试。
+- `cargo test --test native_security`（`src-tauri/tests/native_security.rs`，自 `tests/native-security.rs` 迁移：其引入的 `virtual_network.rs` 依赖 tokio/windows，原独立 `rustc` 单文件编译无法链接这些 crate）：5 项通过，实际执行 hosts 校验、虚拟网段校验与 TCP Helper 握手抢占/静默超时测试。
 - Unix Helper 与共享校验模块：通过 `x86_64-unknown-linux-gnu` 目标的独立编译检查。隔离编译目录 `.security-check` 已被 Git 忽略，不属于发布源码。
 
 ## 部署要求与验证边界

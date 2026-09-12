@@ -25,7 +25,6 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex as AsyncMutex;
 
 const HELPER_SWITCH: &str = "--mctier-privileged-helper";
-const HANDSHAKE_PREFIX: &str = "MCTIER_PRIVILEGED_HELPER/1";
 const MAX_PROTOCOL_LINE: usize = 8 * 1024 * 1024;
 const MAX_HOSTS_BYTES: usize = 1024 * 1024;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -99,13 +98,12 @@ pub async fn start_easytier(
         .local_addr()
         .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
         .port();
-    let token = uuid::Uuid::new_v4().to_string();
-    launch_elevated_helper(port, &token)?;
-
-    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let elevated = launch_elevated_helper(port)?;
+    let helper_pid = elevated.pid;
     let stream = tokio::task::spawn_blocking(move || {
-        super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))
+        super::helper_handshake::accept_authenticated(listener, helper_pid, Duration::from_secs(10))
     }).await.map_err(|e| e.to_string())??;
+    drop(elevated);
     stream.set_nonblocking(true).map_err(|e| e.to_string())?;
     let stream = tokio::net::TcpStream::from_std(stream).map_err(|e| e.to_string())?;
 
@@ -155,11 +153,14 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
         .local_addr()
         .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
         .port();
-    let token = uuid::Uuid::new_v4().to_string();
-    launch_elevated_helper(port, &token)?;
+    let elevated = launch_elevated_helper(port)?;
 
-    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
-    let stream = super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))?;
+    let stream = super::helper_handshake::accept_authenticated(
+        listener,
+        elevated.pid,
+        Duration::from_secs(10),
+    )?;
+    drop(elevated);
     stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
     stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
@@ -215,11 +216,42 @@ fn write_json<W: Write>(writer: &mut W, request: &HelperRequest) -> Result<(), S
         .map_err(|e| format!("刷新 helper 请求失败: {}", e))
 }
 
-fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
+/// 提升后的 helper 进程句柄守卫：认证完成前保持进程对象存活。
+/// 除了绑定通道对端身份（PID），持有句柄还能阻止 PID 被系统复用。
+struct ElevatedProcess {
+    handle: isize,
+    pid: u32,
+}
+
+// 仅持有两个整数；句柄只会在 Drop 中关闭一次，跨线程移动是安全的
+// （spawn_blocking 路径需要 Send）。
+unsafe impl Send for ElevatedProcess {}
+
+impl ElevatedProcess {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+}
+
+impl Drop for ElevatedProcess {
+    fn drop(&mut self) {
+        if self.handle != 0 {
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(
+                    windows::Win32::Foundation::HANDLE(self.handle as _),
+                );
+            }
+        }
+    }
+}
+
+/// 以 `runas` 启动特权 helper。命令行只携带监听端口 —— 端口不是机密；
+/// 认证凭据不再进入命令行，避免被同会话进程读取或写入 4688 审计日志。
+fn launch_elevated_helper(port: u16) -> Result<ElevatedProcess, String> {
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::process::CommandExt;
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Threading::GetProcessId;
     use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
     use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
@@ -230,7 +262,7 @@ fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let parameters = format!("{} {} {}", HELPER_SWITCH, port, token);
+    let parameters = format!("{} {}", HELPER_SWITCH, port);
     let parameters_wide: Vec<u16> = parameters
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -247,10 +279,18 @@ fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
 
     unsafe { ShellExecuteExW(&mut info) }
         .map_err(|e| format!("请求 UAC 启动特权 helper 失败: {}", e))?;
-    if !info.hProcess.0.is_null() {
-        let _ = unsafe { CloseHandle(info.hProcess) };
+    let raw = info.hProcess.0 as isize;
+    if raw == 0 {
+        return Err("未取得特权 helper 进程句柄".to_string());
     }
-    Ok(())
+    let pid = unsafe { GetProcessId(HANDLE(raw as _)) };
+    if pid == 0 {
+        unsafe {
+            let _ = CloseHandle(HANDLE(raw as _));
+        }
+        return Err("无法读取特权 helper 进程 ID".to_string());
+    }
+    Ok(ElevatedProcess { handle: raw, pid })
 }
 
 pub fn run_if_requested() -> bool {
@@ -263,11 +303,7 @@ pub fn run_if_requested() -> bool {
         Some(port) if port != 0 => port,
         _ => std::process::exit(2),
     };
-    let token = match args.next() {
-        Some(token) if token.len() >= 16 && token.len() <= 128 => token,
-        _ => std::process::exit(2),
-    };
-    let result = helper_main(port, token);
+    let result = helper_main(port);
     if let Err(error) = result {
         eprintln!("MCTier privileged helper failed: {}", error);
         std::process::exit(1);
@@ -275,7 +311,7 @@ pub fn run_if_requested() -> bool {
     std::process::exit(0)
 }
 
-fn helper_main(port: u16, token: String) -> Result<(), String> {
+fn helper_main(port: u16) -> Result<(), String> {
     if !is_elevated() {
         return Err("特权 helper 未获得管理员令牌".to_string());
     }
@@ -285,7 +321,8 @@ fn helper_main(port: u16, token: String) -> Result<(), String> {
     stream
         .set_nodelay(true)
         .map_err(|e| format!("配置特权 helper 客户端失败: {}", e))?;
-    writeln!(stream, "{} {}", HANDSHAKE_PREFIX, token)
+    // 握手只声明协议前缀；父进程以连接的 TCP 属主 PID（即本进程）完成认证。
+    writeln!(stream, "{}", super::helper_handshake::HANDSHAKE_PREFIX)
         .map_err(|e| format!("发送特权 helper 握手失败: {}", e))?;
 
     let reader_stream = stream
