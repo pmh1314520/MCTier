@@ -15,13 +15,13 @@ for (const stmt of ast.statements) {
 }
 const bundle = await build({ entryPoints: [entry], bundle: true, format: 'esm', write: false, drop: ['console'], plugins: [{ name: 'registration-fixture', setup(b) {
   b.onResolve({ filter: /.*/ }, args => {
-    if (args.kind === 'entry-point' || /trustBoundary$|registeredSocket$|audioTransceiver$/.test(args.path)) return;
+    if (args.kind === 'entry-point' || /trustBoundary$|registeredSocket$|registrationRecovery$|audioTransceiver$/.test(args.path)) return;
     return { path: args.path, namespace: 'fixture' };
   });
   b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ loader: 'js', contents:
     args.path.endsWith('signalingIdentity') ? 'export const isServerChallenge=x=>/^[a-f0-9]{64}$/.test(x); export const prepareSignalingIdentity=async()=>globalThis.registrationTestIdentity; export const signSignalingRegistration=async()=>({});'
     : args.path.endsWith('P2PChatService') ? 'export const p2pChatService={setChatToken(){},reset(){},initialize(){}};'
-    : args.path.endsWith('LobbySessionCoordinator') ? 'export const lobbySessionCoordinator={assertCurrent(){},isCurrent(){return true;}};'
+    : args.path.endsWith('LobbySessionCoordinator') ? 'export const lobbySessionCoordinator={assertCurrent(ticket){if(ticket?.signal?.aborted) throw new DOMException("cancelled", "AbortError");},isCurrent(ticket){return !ticket?.signal?.aborted;}};'
     : args.path === '@tauri-apps/api/core' ? 'export const invoke=async(...args)=>globalThis.registrationTestInvoke?.(...args);'
     : stubs.get(args.path) ?? 'export const useAppStore={}; export const remoteControlService={}; export const screenShareService={}; export const danmakuService={};'
   }));
@@ -51,7 +51,7 @@ function fixture() {
       }
       if (this.readyState >= 2) return;
       this.readyState = 3;
-      queueMicrotask(() => this.onclose?.());
+      queueMicrotask(() => this.onclose?.({ code, reason: '' }));
     }
   }
   globalThis.WebSocket = Socket;
@@ -271,6 +271,130 @@ test('rejection, timeout, cancellation and invalid success reject the pending co
       assert.equal([...f.timers.values()].some(t => t.delay === 1000), false, 'initial retry owner handles registration failures');
     } finally { await f.dispose(); }
   }
+});
+
+test('concurrent initialization of the same lobby runs once', async () => {
+  const f = fixture();
+  try {
+    const ticket = { signal: new AbortController().signal };
+    const work = deferred();
+    let calls = 0;
+    f.client.initializeSession = async () => { calls++; await work.promise; };
+    const args = ['player', 'name', 'room', '', undefined, false, undefined, ticket];
+    const first = f.client.initialize(...args);
+    const second = f.client.initialize(...args);
+    await flush();
+    assert.equal(calls, 1);
+    work.resolve();
+    await Promise.all([first, second]);
+  } finally { await f.dispose(); }
+});
+
+test('replacement initialization waits for the old task and survives its failure', async () => {
+  const f = fixture();
+  try {
+    const old = new AbortController();
+    const next = new AbortController();
+    const work = deferred();
+    const calls = [];
+    f.client.initializeSession = async (...args) => {
+      calls.push(args[0]);
+      if (args[0] === 'old') {
+        await work.promise;
+        throw new Error('old registration failed');
+      }
+    };
+    const first = f.client.initialize('old', 'name', 'room', '', undefined, false, undefined, { signal: old.signal });
+    const rejected = assert.rejects(first, /old registration failed/);
+    old.abort();
+    const second = f.client.initialize('new', 'name', 'room', '', undefined, false, undefined, { signal: next.signal });
+    await flush();
+    assert.deepEqual(calls, ['old']);
+    work.resolve();
+    await Promise.all([rejected, second]);
+    assert.deepEqual(calls, ['old', 'new']);
+    assert.equal(f.client.initialization, null);
+  } finally { await f.dispose(); }
+});
+
+test('retry loop stops at the total deadline even if attempts remain', async () => {
+  const f = fixture();
+  const originalNow = Date.now;
+  try {
+    let now = 0;
+    Date.now = () => now;
+    f.client.lobbySessionTicket = { signal: new AbortController().signal };
+    f.client.ensureChatSigningKey = async () => {};
+    let attempts = 0;
+    f.client.connectToSignalingServer = async () => { attempts++; now = 75000; throw new Error('timeout'); };
+    await assert.rejects(f.client.connectToSignalingServerWithRetry(), /timeout/);
+    assert.equal(attempts, 1);
+  } finally { Date.now = originalNow; await f.dispose(); }
+});
+
+test('server rejection survives an immediate transport failure and is not retried', async () => {
+  const f = fixture();
+  try {
+    f.client.lobbySessionTicket = { signal: new AbortController().signal };
+    f.client.ensureChatSigningKey = async () => {};
+    let attempts = 0;
+    const connect = f.client.connectToSignalingServer.bind(f.client);
+    f.client.connectToSignalingServer = () => {
+      attempts++;
+      const pending = connect();
+      const socket = f.client.websocket;
+      socket.open();
+      socket.receive({ type: 'register-error', message: '大厅密码错误' });
+      socket.onerror?.({});
+      return pending;
+    };
+    await assert.rejects(f.client.connectToSignalingServerWithRetry(), /大厅密码错误/);
+    assert.equal(attempts, 1);
+  } finally { await f.dispose(); }
+});
+
+test('connection errors identify the registration stage without claiming a DNS diagnosis', async () => {
+  for (const opened of [false, true]) {
+    const f = fixture();
+    try {
+      const pending = f.client.connectToSignalingServer();
+      const rejected = assert.rejects(pending, opened ? /等待服务器协议挑战/ : /浏览器未提供/);
+      if (opened) f.client.websocket.open();
+      f.client.websocket.onerror({});
+      await rejected;
+    } finally { await f.dispose(); }
+  }
+});
+
+test('session abort immediately cancels a connecting socket', async () => {
+  const f = fixture();
+  try {
+    const controller = new AbortController();
+    f.client.lobbySessionTicket = { signal: controller.signal };
+    const pending = f.client.connectToSignalingServer();
+    const rejected = assert.rejects(pending, /取消/);
+    controller.abort();
+    await rejected;
+    assert.equal(f.client.websocket?.readyState === WebSocket.OPEN, false);
+  } finally { await f.dispose(); }
+});
+
+test('transient startup failures recover beyond the old three-attempt limit', async () => {
+  const f = fixture();
+  const original = globalThis.setTimeout;
+  try {
+    const delays = [];
+    globalThis.setTimeout = (fn, delay) => { delays.push(delay); return original(fn, 0); };
+    f.client.lobbySessionTicket = { signal: new AbortController().signal };
+    f.client.ensureChatSigningKey = async () => {};
+    let attempts = 0;
+    f.client.connectToSignalingServer = async () => {
+      if (++attempts < 5) throw new Error('temporary transport failure');
+    };
+    await f.client.connectToSignalingServerWithRetry();
+    assert.equal(attempts, 5);
+    assert.deepEqual(delays, [1000, 2000, 4000, 6000]);
+  } finally { globalThis.setTimeout = original; await f.dispose(); }
 });
 
 test('a manual voice reconnect does not tear down a peer when signaling is unavailable', async () => {

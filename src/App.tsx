@@ -713,8 +713,18 @@ function App() {
         } catch (error) {
           console.error('❌ WebRTC 初始化失败:', error);
           if (lobbySessionCoordinator.isCurrent(sessionTicket) && !useAppStore.getState().versionError) {
+            let detail = error instanceof Error ? error.message : String(error);
+            // EasyTier starts before WebSocket registration. A failed registration
+            // must release that session, not just the browser's WebRTC resources.
+            try {
+              await invoke('leave_lobby');
+            } catch (cleanupError) {
+              console.error('注册失败后清理组网会话失败:', cleanupError);
+              detail += tl('；组网会话清理失败，请退出大厅后重试', '; Network cleanup failed; leave the lobby and retry');
+            }
+            if (!lobbySessionCoordinator.isCurrent(sessionTicket)) return;
             useAppStore.getState().setSignalingStatus('failed', sanitizeUntrustedText(
-              error instanceof Error ? error.message : String(error), 1024
+              detail, 1024
             ));
           }
         }

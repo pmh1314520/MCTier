@@ -43,13 +43,36 @@ for (const failed of [false, true]) {
       updatePlayerStatus() {}, setPlayerSpeaking() {}, addChatMessage() {},
       speakingDetector: { setCallback() {} },
       fileShareService: { async startServer() { complete(); } },
+      async invoke(command) { events.push(['invoke', command]); },
       console: { log() {}, error() {} },
       Error,
       tl: text => text, sanitizeUntrustedText: text => text,
     });
     await finished;
     assert.deepEqual(events, failed
-      ? [['status', 'failed', 'virtual adapter unavailable']]
+      ? [['invoke', 'leave_lobby'], ['status', 'failed', 'virtual adapter unavailable']]
       : [['host', 'local'], ['player', 'remote'], ['status', 'connected', undefined]]);
   });
 }
+
+test('a superseded registration failure does not stop the replacement network session', async () => {
+  const events = [];
+  let current = true;
+  const store = { currentPlayerId: 'local', config: { playerName: 'Local' }, versionError: null,
+    setSignalingStatus() { events.push('status'); } };
+  vm.runInNewContext(compiled, {
+    appState: 'in-lobby', lobby: { name: 'Test', password: '', virtualIp: '10.126.126.1' },
+    lobbySessionCoordinator: { current: () => ({}), isCurrent: () => current },
+    useAppStore: { getState: () => store },
+    webrtcClient: new Proxy({}, { get: (_, name) => name === 'initialize'
+      ? async () => { current = false; throw new Error('old registration failed'); }
+      : () => {} }),
+    speakingDetector: { setCallback() {} },
+    async invoke(command) { events.push(command); },
+    console: { log() {}, error() {} }, Error,
+    tl: text => text, sanitizeUntrustedText: text => text,
+  });
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  assert.equal(current, false, 'the old initialization must reach its failure');
+  assert.deepEqual(events, []);
+});

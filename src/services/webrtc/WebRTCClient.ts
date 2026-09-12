@@ -6,6 +6,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { prepareAudioAnswer, sendingAudioTransceiver } from './audioTransceiver';
 import { invoke } from '@tauri-apps/api/core';
+import { RegistrationError, REGISTRATION_ATTEMPTS, REGISTRATION_BUDGET_MS, registrationRetryDelay, registrationRejection, registrationPhaseLabel, waitForRegistrationRetry, type RegistrationPhase } from '../signaling/registrationRecovery';
 import { invalidateSignalingSocket, isSignalingSocketRegistered, markSignalingSocketRegistered, type SignalingConnectionStatus } from '../signaling/registeredSocket';
 import { fileShareService } from '../fileShare/FileShareService';
 import { fileTransferService } from '../fileShare/FileTransferService';
@@ -174,6 +175,7 @@ export class WebRTCClient {
   private lobbySessionTicket: LobbySessionTicket | null = null;
   private serverSessionGeneration: string = '';
   private cancelPendingRegistration: (() => void) | null = null;
+  private initialization: { signal: AbortSignal; promise: Promise<void> } | null = null;
   private registrationFailure: Error | null = null;
   private peerSessionGenerations: Map<string, string> = new Map();
   // 记录每个玩家的虚拟域名（playerId -> virtualDomain），
@@ -261,6 +263,25 @@ export class WebRTCClient {
    * 初始化 WebRTC 客户端
    */
   async initialize(
+    ...args: Parameters<WebRTCClient['initializeSession']>
+  ): Promise<void> {
+    const ticket = args[7] ?? lobbySessionCoordinator.current() ?? lobbySessionCoordinator.begin();
+    args[7] = ticket;
+    lobbySessionCoordinator.assertCurrent(ticket);
+    if (this.initialization?.signal === ticket.signal) return this.initialization.promise;
+    const previous = this.initialization?.promise;
+    const promise = (async () => {
+      if (previous) await previous.catch(() => {});
+      lobbySessionCoordinator.assertCurrent(ticket);
+      await this.initializeSession(...args);
+    })();
+    this.initialization = { signal: ticket.signal, promise };
+    try { await promise; } finally {
+      if (this.initialization?.promise === promise) this.initialization = null;
+    }
+  }
+
+  private async initializeSession(
     playerId: string,
     playerName: string,
     lobbyName: string,
@@ -270,9 +291,9 @@ export class WebRTCClient {
     signalingServer?: string,
     sessionTicket?: LobbySessionTicket
   ): Promise<void> {
+    const activeTicket =
+      sessionTicket ?? lobbySessionCoordinator.current() ?? lobbySessionCoordinator.begin();
     try {
-      const activeTicket =
-        sessionTicket ?? lobbySessionCoordinator.current() ?? lobbySessionCoordinator.begin();
       lobbySessionCoordinator.assertCurrent(activeTicket);
       this.lobbySessionTicket = activeTicket;
       const safePlayerId = CLIENT_ID_PATTERN.test(playerId) ? playerId : '';
@@ -435,19 +456,20 @@ export class WebRTCClient {
     } catch (error) {
       console.error('❌ WebRTC 初始化失败:', error);
       // 清理已创建的资源
-      await this.cleanup();
+      if (lobbySessionCoordinator.isCurrent(activeTicket)) await this.cleanup();
+      const detail = error instanceof Error ? error.message : String(error);
       throw new Error(
-        tl(`无法连接大厅: ${error}`, `Failed to connect to the lobby: ${error}`)
+        tl(`无法连接大厅: ${detail}`, `Failed to connect to the lobby: ${detail}`)
       );
     }
   }
 
   /**
    * 连接信令服务器（带重试）
-   * 二次加入大厅时，虚拟网卡的 Magic DNS 可能短暂影响公网域名解析，
-   * 导致信令域名出现 ERR_NAME_NOT_RESOLVED，这里做有限次重试以自愈。
+   * Retry temporary transport failures within a bounded, cancellable budget.
+   * Explicit authentication/protocol rejections must not be retried blindly.
    */
-  private async connectToSignalingServerWithRetry(maxAttempts = 3): Promise<void> {
+  private async connectToSignalingServerWithRetry(maxAttempts = REGISTRATION_ATTEMPTS): Promise<void> {
     // The signing key must exist before the socket opens: `register` carries the
     // public half, and that message is what binds the key to this player id.
     // Failing here is deliberate - joining without a key would leave this member
@@ -455,17 +477,21 @@ export class WebRTCClient {
     const ticket = this.lobbySessionTicket;
     if (!ticket) throw new Error('大厅会话未就绪');
     let lastErr: unknown;
+    const deadline = Date.now() + REGISTRATION_BUDGET_MS;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         lobbySessionCoordinator.assertCurrent(ticket);
         await this.ensureChatSigningKey();
         lobbySessionCoordinator.assertCurrent(ticket);
-        await this.connectToSignalingServer();
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await this.connectToSignalingServer(Math.min(15_000, remaining));
         lobbySessionCoordinator.assertCurrent(ticket);
         return;
       } catch (e) {
         lastErr = e;
-        if (this.isIntentionalDisconnect) throw e;
+        lobbySessionCoordinator.assertCurrent(ticket);
+        if (this.isIntentionalDisconnect || (e instanceof RegistrationError && !e.retryable)) throw e;
         console.warn(`⚠️ 第 ${attempt}/${maxAttempts} 次连接信令服务器失败:`, e);
         // 清理失败的连接，避免句柄残留
         try {
@@ -480,8 +506,11 @@ export class WebRTCClient {
         } catch {
           /* ignore */
         }
+        this.stopWebSocketHeartbeat();
         if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 1200));
+          const delay = registrationRetryDelay(attempt);
+          if (Date.now() + delay >= deadline) break;
+          await waitForRegistrationRetry(delay, ticket.signal);
           lobbySessionCoordinator.assertCurrent(ticket);
         }
       }
@@ -508,7 +537,7 @@ export class WebRTCClient {
   /**
    * 连接到WebSocket信令服务器
    */
-  private async connectToSignalingServer(): Promise<void> {
+  private async connectToSignalingServer(timeoutMs = 15_000): Promise<void> {
     this.cancelPendingRegistration?.();
     invalidateSignalingSocket(this.websocket);
     this.serverSessionGeneration = '';
@@ -524,6 +553,8 @@ export class WebRTCClient {
         let settled = false;
         let challengeHandled = false;
         let challengeTimeout: number | null = null;
+        let phase: RegistrationPhase = 'transport';
+        const signal = this.lobbySessionTicket?.signal;
         this.websocket = socket;
 
         const clearChallengeTimeout = () => {
@@ -531,6 +562,7 @@ export class WebRTCClient {
             clearTimeout(challengeTimeout);
             challengeTimeout = null;
           }
+          signal?.removeEventListener('abort', cancel);
         };
         const failRegistration = (error: Error) => {
           if (settled) return;
@@ -538,18 +570,20 @@ export class WebRTCClient {
           clearChallengeTimeout();
           if (this.cancelPendingRegistration === cancel) this.cancelPendingRegistration = null;
           invalidateSignalingSocket(socket);
-          socket.close();
-          reject(this.registrationFailure ?? error);
+          try { socket.close(); } finally { reject(this.registrationFailure ?? error); }
         };
-        const cancel = () => failRegistration(new Error('信令注册已取消'));
+        const cancel = () => failRegistration(new RegistrationError('信令注册已取消', false));
         this.cancelPendingRegistration = cancel;
         // Bound the entire handshake, including challenge signing and local auth setup.
         challengeTimeout = window.setTimeout(() => {
-          failRegistration(new Error('信令注册未在 15 秒内完成'));
-        }, 15_000);
+          failRegistration(new RegistrationError(`信令注册超时（${registrationPhaseLabel(phase)}）`));
+        }, timeoutMs);
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) { cancel(); return; }
 
         this.websocket.onopen = () => {
           if (this.websocket !== socket) return;
+          phase = 'challenge';
           console.log('✅ 已连接到信令服务器');
 
           // 启动 WebSocket 心跳保活
@@ -565,6 +599,11 @@ export class WebRTCClient {
             }
             const frameBytes = event.data.length;
             const message = JSON.parse(event.data);
+            // Preserve an explicit rejection before a following error/close event.
+            if (message?.type === 'register-error') {
+              failRegistration(registrationRejection(sanitizeUntrustedText(message.message, 512)));
+              return;
+            }
             if (message?.type === 'server-challenge') {
               if (
                 challengeHandled ||
@@ -572,16 +611,18 @@ export class WebRTCClient {
                 !isServerChallenge(message.challenge)
               ) {
                 socket.close(4008, 'invalid-server-challenge');
-                failRegistration(new Error('信令服务器返回了无效的协议 v3 challenge'));
+                failRegistration(new RegistrationError('信令服务器返回了无效的协议 v3 challenge', false));
                 return;
               }
               challengeHandled = true;
+              phase = 'signing';
               void this.sendV3Registration(socket, message.challenge)
                 .then(() => {
                   registrationSent = true;
+                  phase = 'response';
                 })
                 .catch((error) => {
-                  failRegistration(error instanceof Error ? error : new Error('信令注册签名失败'));
+                  failRegistration(new RegistrationError(`信令注册签名失败: ${error instanceof Error ? error.message : String(error)}`));
                 });
               return;
             }
@@ -601,9 +642,10 @@ export class WebRTCClient {
                   failRegistration(new Error('信令服务器在注册请求之前返回成功'));
                   return;
                 }
+                if (message.type === 'register-success') phase = 'local-auth';
                 await this.handleWebSocketMessage(message, socket);
                 if (message.type === 'register-error' || message.type === 'version-too-old') {
-                  failRegistration(new Error(sanitizeUntrustedText(message.message, 512) || '信令注册被拒绝'));
+                  failRegistration(new RegistrationError(sanitizeUntrustedText(message.message, 512) || '信令注册被拒绝', false));
                 } else if (message.type === 'register-success' && !settled) {
                   if (!isSignalingSocketRegistered(socket) || this.websocket !== socket) {
                     failRegistration(new Error('信令注册响应或本地认证配置无效'));
@@ -621,7 +663,12 @@ export class WebRTCClient {
                   resolve();
                 }
               })
-              .catch((error) => console.error('WebSocket message processing failed:', error))
+              .catch((error) => {
+                console.error('WebSocket message processing failed:', error);
+                if (!registrationAccepted) failRegistration(new RegistrationError(
+                  `处理信令响应失败: ${error instanceof Error ? error.message : String(error)}`
+                ));
+              })
               .finally(() => {
                 this.queuedWebSocketFrames = Math.max(0, this.queuedWebSocketFrames - 1);
                 this.queuedWebSocketBytes = Math.max(0, this.queuedWebSocketBytes - frameBytes);
@@ -634,7 +681,11 @@ export class WebRTCClient {
         this.websocket.onerror = (error) => {
           if (this.websocket !== socket) return;
           console.error('❌ WebSocket连接错误:', error);
-          if (!registrationAccepted) failRegistration(new Error('无法完成信令服务器注册'));
+          if (!registrationAccepted) failRegistration(new RegistrationError(
+            phase === 'transport'
+              ? '无法建立信令连接：可能是网络、代理、安全软件或服务器连接限额。浏览器未提供 HTTP 状态码、DNS 或 TLS 的具体错误'
+              : `信令连接中断（${registrationPhaseLabel(phase)}）`
+          ));
         };
 
         this.websocket.onclose = (event) => {
@@ -655,7 +706,8 @@ export class WebRTCClient {
           this.stopWebSocketHeartbeat();
 
           if (!registrationAccepted) {
-            failRegistration(new Error('信令服务器在注册完成前断开'));
+            const reason = sanitizeUntrustedText(event?.reason || '', 160);
+            failRegistration(new RegistrationError(`信令服务器在注册完成前断开（${registrationPhaseLabel(phase)}，关闭码 ${event?.code ?? '未知'}）${reason ? ': ' + reason : ''}`));
             return;
           }
 
@@ -776,6 +828,12 @@ export class WebRTCClient {
       console.log('✅ WebSocket重连成功');
     } catch (error) {
       console.error('❌ WebSocket重连失败:', error);
+
+      if (error instanceof RegistrationError && !error.retryable) {
+        this.isIntentionalDisconnect = true;
+        this.onSignalingStatusCallback?.('failed');
+        return;
+      }
 
       // 如果还没达到最大重连次数，继续尝试
       if (!this.isIntentionalDisconnect) {
