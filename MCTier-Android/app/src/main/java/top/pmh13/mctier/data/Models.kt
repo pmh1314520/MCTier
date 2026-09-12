@@ -13,7 +13,7 @@ const val ChatTokenHexLength = 64
 const val ChatMaxHistoryMessages = 1000
 const val ChatMaxHistoryBytes = 4 * 1024 * 1024
 const val ChatMaxHttpBodyBytes = 2 * 1024 * 1024
-const val AppClientVersion = "3.2.0"
+const val AppClientVersion = "3.2.1"
 
 enum class AppConnectionState { Idle, Connecting, InLobby, Error }
 

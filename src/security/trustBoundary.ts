@@ -141,10 +141,16 @@ export function isSafeServerNode(value: unknown): value is string {
   const trimmed = value.trim();
   if (trimmed === 'custom') return true;
   if (!hasSafeEndpointCharacters(trimmed)) return false;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed);
+  if (!scheme || !SERVER_NODE_PROTOCOLS.has(`${scheme[1].toLowerCase()}:`)) return false;
+  const remainder = trimmed.slice(scheme[0].length);
+  // Older WebView2 treats tcp/udp/txt URLs as opaque paths (hostname is empty).
+  // Parse the same authority with a standard scheme; never change the actual
+  // EasyTier address. Reject HTTP's slash/backslash repair before parsing.
+  if (!remainder || /^[/?#]/.test(remainder) || remainder.includes('\\')) return false;
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(`http://${remainder}`);
     return (
-      SERVER_NODE_PROTOCOLS.has(parsed.protocol) &&
       parsed.hostname.length > 0 &&
       !parsed.username &&
       !parsed.password &&

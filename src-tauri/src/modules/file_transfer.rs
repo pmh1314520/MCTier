@@ -536,20 +536,23 @@ async fn is_share_access_allowed(
         }
         !attempts.is_empty()
     });
-    if !failures.contains_key(&key) && failures.len() >= MAX_PASSWORD_FAILURE_KEYS {
+    if failures.get(&key).is_some_and(|attempts| attempts.len() >= MAX_PASSWORD_FAILURES) {
         return false;
-    }
-    {
-        let attempts = failures.entry(key.clone()).or_default();
-        if attempts.len() >= MAX_PASSWORD_FAILURES {
-            return false;
-        }
     }
 
     let valid = ct_eq(provided_password.as_bytes(), expected_password.as_bytes());
     if valid {
         failures.remove(&key);
     } else {
+        // Capacity limits bookkeeping, never authorization for unrelated peers.
+        if !failures.contains_key(&key) && failures.len() >= MAX_PASSWORD_FAILURE_KEYS {
+            let oldest = failures.iter()
+                .min_by_key(|(_, attempts)| attempts.back().copied())
+                .map(|(key, _)| key.clone());
+            if let Some(oldest) = oldest {
+                failures.remove(&oldest);
+            }
+        }
         failures.entry(key).or_default().push_back(now);
     }
     valid
@@ -813,6 +816,77 @@ mod share_list_response_tests {
             created_at: 1_800_000_000,
             expiry_token: Uuid::nil(),
         }
+    }
+
+    fn state() -> super::AppState {
+        super::AppState {
+            shared_folders: Default::default(),
+            batch_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            password_failures: Default::default(),
+            lobby_token: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn full_failure_table_allows_valid_new_peer_and_evicts_oldest_failure() {
+        use super::*;
+        let state = state();
+        let share = protected_share();
+        let peer: SocketAddr = "10.126.126.2:1234".parse().unwrap();
+        let now = Instant::now();
+        {
+            let mut failures = state.password_failures.lock().await;
+            for index in 0..MAX_PASSWORD_FAILURE_KEYS {
+                let recorded = now - Duration::from_millis((MAX_PASSWORD_FAILURE_KEYS - index) as u64);
+                failures.insert((format!("share-{index}"), peer.ip()), VecDeque::from([recorded]));
+            }
+        }
+        assert!(is_share_access_allowed(&state, "new-share", &share, peer, "secret-password").await);
+        assert_eq!(state.password_failures.lock().await.len(), MAX_PASSWORD_FAILURE_KEYS);
+        assert!(!is_share_access_allowed(&state, "new-share", &share, peer, "wrong").await);
+        let failures = state.password_failures.lock().await;
+        assert_eq!(failures.len(), MAX_PASSWORD_FAILURE_KEYS);
+        assert!(!failures.contains_key(&("share-0".to_owned(), peer.ip())));
+        assert_eq!(failures[&("new-share".to_owned(), peer.ip())].len(), 1);
+    }
+
+    #[tokio::test]
+    async fn password_lockout_expires_and_success_clears_only_its_own_failures() {
+        use super::*;
+        let state = state();
+        let share = protected_share();
+        let peer: SocketAddr = "10.126.126.2:1234".parse().unwrap();
+        for _ in 0..MAX_PASSWORD_FAILURES {
+            assert!(!is_share_access_allowed(&state, &share.id, &share, peer, "wrong").await);
+        }
+        assert!(!is_share_access_allowed(&state, &share.id, &share, peer, "secret-password").await);
+        assert!(is_share_access_allowed(&state, &share.id, &share, "10.126.126.3:1234".parse().unwrap(), "secret-password").await);
+        let key = (share.id.clone(), peer.ip());
+        state.password_failures.lock().await.insert(key.clone(), VecDeque::from([
+            Instant::now() - PASSWORD_FAILURE_WINDOW - Duration::from_secs(1)
+        ]));
+        assert!(is_share_access_allowed(&state, &share.id, &share, peer, "secret-password").await);
+        assert!(!state.password_failures.lock().await.contains_key(&key));
+        assert!(!is_share_access_allowed(&state, &share.id, &share, peer, "wrong").await);
+        assert!(is_share_access_allowed(&state, &share.id, &share, peer, "secret-password").await);
+        assert!(state.password_failures.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unauthorized_or_unknown_share_requests_never_allocate_password_failures() {
+        use super::*;
+        let state = state();
+        *state.lobby_token.write() = Some("lobby-token".into());
+        let peer = "10.126.126.2:1234".parse().unwrap();
+        let result = list_files(State(state.clone()), ConnectInfo(peer), AxumPath("missing".into()),
+            Query(HashMap::new()), HeaderMap::new()).await;
+        assert_eq!(result.err(), Some(StatusCode::UNAUTHORIZED));
+        let mut headers = HeaderMap::new();
+        headers.insert(LOBBY_TOKEN_HEADER, "lobby-token".parse().unwrap());
+        let result = list_files(State(state.clone()), ConnectInfo(peer), AxumPath("missing".into()),
+            Query(HashMap::new()), headers).await;
+        assert_eq!(result.err(), Some(StatusCode::NOT_FOUND));
+        assert!(state.password_failures.lock().await.is_empty());
     }
 
     #[test]

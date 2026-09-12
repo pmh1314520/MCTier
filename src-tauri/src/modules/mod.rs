@@ -20,6 +20,7 @@ pub mod lobby_manager;
 pub mod hosts_manager;
 pub mod hosts_security;
 pub mod helper_handshake;
+pub mod firewall_policy;
 pub mod virtual_network;
 #[cfg(unix)]
 pub mod unix_hosts_helper;

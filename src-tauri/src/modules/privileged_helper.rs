@@ -25,7 +25,6 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex as AsyncMutex;
 
 const HELPER_SWITCH: &str = "--mctier-privileged-helper";
-const HANDSHAKE_PREFIX: &str = "MCTIER_PRIVILEGED_HELPER/1";
 const MAX_PROTOCOL_LINE: usize = 8 * 1024 * 1024;
 const MAX_HOSTS_BYTES: usize = 1024 * 1024;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -99,12 +98,11 @@ pub async fn start_easytier(
         .local_addr()
         .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
         .port();
-    let token = uuid::Uuid::new_v4().to_string();
-    launch_elevated_helper(port, &token)?;
-
-    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
+    let elevated = launch_elevated_helper(port)?;
     let stream = tokio::task::spawn_blocking(move || {
-        super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))
+        let result = super::helper_handshake::accept_authenticated(listener, elevated.pid, Duration::from_secs(10));
+        drop(elevated);
+        result
     }).await.map_err(|e| e.to_string())??;
     stream.set_nonblocking(true).map_err(|e| e.to_string())?;
     let stream = tokio::net::TcpStream::from_std(stream).map_err(|e| e.to_string())?;
@@ -155,11 +153,9 @@ pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
         .local_addr()
         .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
         .port();
-    let token = uuid::Uuid::new_v4().to_string();
-    launch_elevated_helper(port, &token)?;
-
-    let expected = format!("{} {}", HANDSHAKE_PREFIX, token);
-    let stream = super::helper_handshake::accept_authenticated(listener, &expected, Duration::from_secs(10))?;
+    let elevated = launch_elevated_helper(port)?;
+    let stream = super::helper_handshake::accept_authenticated(listener, elevated.pid, Duration::from_secs(10))?;
+    drop(elevated);
     stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
     stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
@@ -215,11 +211,24 @@ fn write_json<W: Write>(writer: &mut W, request: &HelperRequest) -> Result<(), S
         .map_err(|e| format!("刷新 helper 请求失败: {}", e))
 }
 
-fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
+// Retain the process object until authentication finishes, preventing PID reuse.
+struct ElevatedProcess {
+    handle: isize,
+    pid: u32,
+}
+
+impl Drop for ElevatedProcess {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(
+            windows::Win32::Foundation::HANDLE(self.handle as *mut _)) };
+    }
+}
+
+fn launch_elevated_helper(port: u16) -> Result<ElevatedProcess, String> {
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::process::CommandExt;
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::GetProcessId;
     use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
     use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
@@ -230,7 +239,7 @@ fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let parameters = format!("{} {} {}", HELPER_SWITCH, port, token);
+    let parameters = format!("{} {} {}", HELPER_SWITCH, port, std::process::id());
     let parameters_wide: Vec<u16> = parameters
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -247,10 +256,15 @@ fn launch_elevated_helper(port: u16, token: &str) -> Result<(), String> {
 
     unsafe { ShellExecuteExW(&mut info) }
         .map_err(|e| format!("请求 UAC 启动特权 helper 失败: {}", e))?;
-    if !info.hProcess.0.is_null() {
-        let _ = unsafe { CloseHandle(info.hProcess) };
+    if info.hProcess.0.is_null() {
+        return Err("未取得特权 helper 进程句柄".into());
     }
-    Ok(())
+    let pid = unsafe { GetProcessId(info.hProcess) };
+    if pid == 0 {
+        let _ = unsafe { CloseHandle(info.hProcess) };
+        return Err("无法读取特权 helper 进程 ID".into());
+    }
+    Ok(ElevatedProcess { handle: info.hProcess.0 as isize, pid })
 }
 
 pub fn run_if_requested() -> bool {
@@ -263,11 +277,12 @@ pub fn run_if_requested() -> bool {
         Some(port) if port != 0 => port,
         _ => std::process::exit(2),
     };
-    let token = match args.next() {
-        Some(token) if token.len() >= 16 && token.len() <= 128 => token,
+    let parent_pid = match args.next().and_then(|value| value.parse::<u32>().ok()) {
+        Some(pid) if pid != 0 => pid,
         _ => std::process::exit(2),
     };
-    let result = helper_main(port, token);
+    if args.next().is_some() { std::process::exit(2); }
+    let result = helper_main(port, parent_pid);
     if let Err(error) = result {
         eprintln!("MCTier privileged helper failed: {}", error);
         std::process::exit(1);
@@ -275,7 +290,7 @@ pub fn run_if_requested() -> bool {
     std::process::exit(0)
 }
 
-fn helper_main(port: u16, token: String) -> Result<(), String> {
+fn helper_main(port: u16, parent_pid: u32) -> Result<(), String> {
     if !is_elevated() {
         return Err("特权 helper 未获得管理员令牌".to_string());
     }
@@ -285,7 +300,8 @@ fn helper_main(port: u16, token: String) -> Result<(), String> {
     stream
         .set_nodelay(true)
         .map_err(|e| format!("配置特权 helper 客户端失败: {}", e))?;
-    writeln!(stream, "{} {}", HANDSHAKE_PREFIX, token)
+    super::helper_handshake::verify_parent(&stream, parent_pid)?;
+    writeln!(stream, "{}", super::helper_handshake::HANDSHAKE_PREFIX)
         .map_err(|e| format!("发送特权 helper 握手失败: {}", e))?;
 
     let reader_stream = stream
@@ -746,104 +762,58 @@ fn validate_easy_path(path: &Path) -> Result<(), String> {
 }
 
 fn add_firewall_rules(easytier_path: &str) -> Result<String, String> {
+    use super::firewall_policy;
     let app = std::env::current_exe().map_err(|e| format!("无法获取 MCTier 路径: {}", e))?;
     ensure_regular_file(&app)?;
     let easytier = PathBuf::from(easytier_path);
     validate_easy_path(&easytier)?;
     let netsh = windows_paths::system_command("netsh.exe");
-    let programs = [("MCTier", app), ("MCTier-EasyTier", easytier)];
-    let mut added = 0;
-    let mut last_error = String::new();
-    for (base_name, program) in programs {
-        for (suffix, direction) in [("-in", "in"), ("-out", "out")] {
-            let rule_name = format!("{}{}", base_name, suffix);
-            let _ = Command::new(&netsh)
-                .args(["advfirewall", "firewall", "delete", "rule"])
-                .arg(format!("name={}", rule_name))
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
-            let output = Command::new(&netsh)
-                .args(["advfirewall", "firewall", "add", "rule"])
-                .arg(format!("name={}", rule_name))
-                .arg(format!("dir={}", direction))
-                .arg("action=allow")
-                .arg(format!("program={}", program.display()))
-                .args(["enable=yes", "profile=any"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .map_err(|e| format!("执行防火墙配置失败: {}", e))?;
-            if output.status.success() {
-                added += 1;
-            } else {
-                last_error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            }
-        }
-    }
-    // Program rules alone are not sufficient on Windows when the virtual
-    // adapter is recreated: Windows may retain a stale interface/profile
-    // binding from an earlier adapter GUID.  Keep explicit overlay rules that
-    // are independent of the adapter GUID and apply to every firewall profile.
-    for (name, direction, protocol, localport, icmp_type) in [
-        ("MCTier-Overlay-TCP-In", "in", "TCP", Some("14539,14540"), None),
-        ("MCTier-Overlay-ICMP-In", "in", "icmpv4", None, Some("8")),
-    ] {
+    for rule in firewall_policy::rules(&app, &easytier) {
         let _ = Command::new(&netsh)
             .args(["advfirewall", "firewall", "delete", "rule"])
-            .arg(format!("name={}", name))
+            .arg(format!("name={}", rule.name))
             .creation_flags(CREATE_NO_WINDOW)
             .output();
-        let mut command = Command::new(&netsh);
-        command
+        let output = Command::new(&netsh)
             .args(["advfirewall", "firewall", "add", "rule"])
-            .arg(format!("name={}", name))
-            .arg(format!("dir={}", direction))
-            .arg("action=allow")
-            .arg(format!("protocol={}", protocol))
-            .args(["enable=yes", "profile=any"]);
-        if let Some(port) = localport {
-            command.arg(format!("localport={}", port));
-        }
-        if let Some(ty) = icmp_type {
-            command.arg(format!("icmpv4:type={}", ty));
-        }
-        let output = command
+            .arg(format!("name={}", rule.name))
+            .args(rule.arguments)
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("执行防火墙配置失败: {}", e))?;
-        if output.status.success() {
-            added += 1;
-        } else {
-            last_error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !output.status.success() {
+            return Err(format!("防火墙规则 {} 配置失败: {} {}", rule.name,
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()));
         }
     }
-    if added >= 6 {
-        Ok(format!("已添加 {} 条防火墙放行规则", added))
-    } else {
-        Err(if last_error.is_empty() {
-            "防火墙规则配置失败".to_string()
-        } else {
-            last_error
-        })
+    // Retain the old rules until every replacement is installed successfully.
+    for name in firewall_policy::LEGACY_RULES {
+        let _ = Command::new(&netsh)
+            .args(["advfirewall", "firewall", "delete", "rule"])
+            .arg(format!("name={name}"))
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
     }
+    if !check_firewall_rules()? {
+        return Err("防火墙规则更新未完成，请重新运行网络诊断中的防火墙修复".into());
+    }
+    Ok(format!("已添加 {} 条防火墙放行规则", firewall_policy::RULE_NAMES.len()))
 }
 
 fn check_firewall_rules() -> Result<bool, String> {
+    use super::firewall_policy;
     let netsh = windows_paths::system_command("netsh.exe");
-    for rule in [
-        "MCTier-in",
-        "MCTier-out",
-        "MCTier-EasyTier-in",
-        "MCTier-EasyTier-out",
-        "MCTier-Overlay-TCP-In",
-        "MCTier-Overlay-ICMP-In",
-    ] {
+    for (rule, should_exist) in firewall_policy::RULE_NAMES.into_iter().map(|rule| (rule, true))
+        .chain(firewall_policy::LEGACY_RULES.into_iter().map(|rule| (rule, false)))
+    {
         let output = Command::new(&netsh)
             .args(["advfirewall", "firewall", "show", "rule"])
-            .arg(format!("name={}", rule))
+            .arg(format!("name={rule}"))
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("检查防火墙规则失败: {}", e))?;
-        if !output.status.success() {
+        if output.status.success() != should_exist {
             return Ok(false);
         }
     }

@@ -72,10 +72,7 @@ const ServerNodeSelect: React.FC<ServerNodeSelectProps> = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxId = React.useId();
-  const selectedIndex = Math.max(
-    0,
-    options.findIndex((option) => option.value === value)
-  );
+  const selectedIndex = options.findIndex((option) => option.value === value);
   const selectedOption = options[selectedIndex];
 
   useEffect(() => {
@@ -106,7 +103,7 @@ const ServerNodeSelect: React.FC<ServerNodeSelectProps> = ({
       const spaceAbove = triggerRect.top - cardRect.top;
       setPlacement(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom');
     }
-    setActiveIndex(selectedIndex);
+    setActiveIndex(Math.max(0, selectedIndex));
     setOpen(true);
   };
 
@@ -910,7 +907,6 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
     try {
       setSubmitError(null);
       setLoading(true);
-      setAppState('connecting');
 
       // 验证输入
       if (!values.lobbyName?.trim()) {
@@ -978,18 +974,26 @@ export const LobbyForm: React.FC<LobbyFormProps> = ({ mode, onClose }) => {
         console.log('========================================');
       }
 
-      if (
-        !isSafeServerNode(serverNode) ||
-        serverNode === 'custom' ||
-        !isSafeSignalingServer(signalingServer)
-      ) {
-        message.error(
-          tl('服务器地址无效，请检查后重试', 'Invalid server address. Check it and retry.')
-        );
+      const invalidNode = !isSafeServerNode(serverNode) || serverNode === 'custom';
+      const invalidSignaling = !isSafeSignalingServer(signalingServer);
+      if (invalidNode || invalidSignaling) {
+        const detail = invalidNode
+          ? tl('EasyTier 节点地址无效，请重新选择节点或检查自定义节点地址', 'Invalid EasyTier node address. Select a node or check the custom address.')
+          : tl('信令服务器地址无效，请检查私有服务器或邀请中的 ws://、wss:// 地址', 'Invalid signaling address. Check the ws:// or wss:// address in private settings or the invitation.');
+        setSubmitError(detail);
+        message.error(detail);
+        // Diagnose configuration/engine differences without recording endpoints,
+        // which can contain private hostnames or query-string credentials.
+        console.warn('大厅地址校验失败', {
+          invalidNode, invalidSignaling,
+          source: overrideNode ? 'retry' : usingImportedEndpoint ? 'invitation'
+            : privateServerConfig.usePrivateServer ? 'private' : values.serverNode === 'custom' ? 'custom' : 'selected',
+        });
         return;
       }
 
       const commandName = mode === 'create' ? 'create_lobby' : 'join_lobby';
+      setAppState('connecting');
       sessionTicket = lobbySessionCoordinator.begin();
 
       // 记录本次实际使用的节点地址，供公开广场发布时同步给加入者
