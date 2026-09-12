@@ -17,8 +17,8 @@ android {
         applicationId = "top.pmh13.mctier"
         minSdk = 26
         targetSdk = 36
-        versionCode = 56
-        versionName = "3.2.1-android"
+        versionCode = 57
+        versionName = "3.3.0-android"
         ndk {
             // The bundled LocalVQE engine is currently built for the primary
             // Android ABI; unsupported ABIs retain the WebRTC hardware AEC/NS path.

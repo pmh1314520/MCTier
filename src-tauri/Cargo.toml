@@ -1,6 +1,6 @@
 [package]
 name = "mctier"
-version = "3.2.1"
+version = "3.3.0"
 description = "MCTier - Minecraft 虚拟局域网联机工具"
 authors = ["MCTier Team"]
 edition = "2021"
