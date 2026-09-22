@@ -2,6 +2,8 @@ package top.pmh13.mctier.network
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.util.Log
@@ -100,16 +102,27 @@ class AndroidRtcController(private val context: Context) {
     private val _speakingPlayers = MutableStateFlow<Set<String>>(emptySet())
     val speakingPlayers: StateFlow<Set<String>> = _speakingPlayers
     private var statsJob: Job? = null
-    private var audioModeJob: Job? = null
+    private var audioRouteJob: Job? = null
+    private var audioDeviceCallback: AudioDeviceCallback? = null
     private val lastAudioStatsLogAt = ConcurrentHashMap<String, Long>()
 
-    private fun startAudioModeGuard() {
-        if (audioModeJob != null) return
-        audioModeJob = rtcScope.launch {
-            while (isActive) {
-                delay(1500)
-                resetAudioRouting()
-            }
+    private fun registerAudioDeviceCallback() {
+        if (audioDeviceCallback != null) return
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = scheduleAudioRouting()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = scheduleAudioRouting()
+        }
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.registerAudioDeviceCallback(callback, null)
+        audioDeviceCallback = callback
+    }
+
+    private fun scheduleAudioRouting() {
+        audioRouteJob?.cancel()
+        audioRouteJob = rtcScope.launch {
+            // 蓝牙在 A2DP 与 SCO 间切换时会连续上报移除/新增，等待设备列表稳定后再选路由。
+            delay(600)
+            routeAudio()
         }
     }
 
@@ -199,6 +212,7 @@ class AndroidRtcController(private val context: Context) {
 
     private var speakerphoneOn = true
     private var legacyBluetoothScoRequested = false
+    private var communicationDeviceRequested = false
 
     /**
      * 通话音频路由：保持通话模式（回声消除需要），优先沿用已连接的蓝牙、
@@ -207,8 +221,12 @@ class AndroidRtcController(private val context: Context) {
     private fun routeAudio() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            // 幂等设置：仅当当前模式/设备与目标不一致时才改动，避免 1.5s 守护循环反复重设
-            // 造成周期性音频中断（部分机型对重复 setMode/setCommunicationDevice 很敏感）。
+            if (!_micEnabled.value) {
+                restoreMediaAudio(am)
+                return@runCatching
+            }
+            // 只有真正开麦时才进入通话模式。未开麦时保持 A2DP 媒体路由，避免组网后
+            // 抢占用户正在播放的音乐、视频和系统提示音。
             if (am.mode != AudioManager.MODE_IN_COMMUNICATION) am.mode = AudioManager.MODE_IN_COMMUNICATION
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 val devices = am.availableCommunicationDevices
@@ -221,6 +239,8 @@ class AndroidRtcController(private val context: Context) {
                     devices.firstOrNull { it.type == targetType }?.let { device ->
                         if (!am.setCommunicationDevice(device)) {
                             Log.w(TAG, "无法切换通信音频设备 type=$targetType")
+                        } else {
+                            communicationDeviceRequested = true
                         }
                     }
                 }
@@ -232,6 +252,12 @@ class AndroidRtcController(private val context: Context) {
 
     @Suppress("DEPRECATION")
     private fun routeLegacyAudio(am: AudioManager) {
+        // 部分厂商系统在 A2DP 切到 SCO 后会暂时从 getDevices() 隐藏蓝牙设备。
+        // 已建立的 SCO 应保持不动，否则设备回调会造成 start/stop 循环和周期性静音。
+        if (legacyBluetoothScoRequested && am.isBluetoothScoOn) {
+            if (am.isSpeakerphoneOn) am.isSpeakerphoneOn = false
+            return
+        }
         val outputTypes = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).mapTo(mutableSetOf()) { it.type }
         val targetType = AudioRoutePolicy.preferredDeviceType(outputTypes, null, speakerphoneOn)
         val useBluetooth = targetType != null && AudioRoutePolicy.isBluetooth(targetType)
@@ -258,27 +284,35 @@ class AndroidRtcController(private val context: Context) {
         legacyBluetoothScoRequested = false
     }
 
-    private fun applyAudioRouting() = routeAudio()
+    @Suppress("DEPRECATION")
+    private fun restoreMediaAudio(am: AudioManager) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            if (communicationDeviceRequested) runCatching { am.clearCommunicationDevice() }
+            communicationDeviceRequested = false
+        } else {
+            stopLegacyBluetoothSco(am)
+            if (am.isSpeakerphoneOn) am.isSpeakerphoneOn = false
+        }
+        if (am.mode != AudioManager.MODE_NORMAL) am.mode = AudioManager.MODE_NORMAL
+    }
 
     /** 切换扬声器外放 / 听筒 */
     fun setSpeakerphone(on: Boolean) {
         speakerphoneOn = on
-        routeAudio()
+        resetAudioRouting()
     }
 
-    private fun resetAudioRouting() = routeAudio()
+    private fun resetAudioRouting() {
+        routeAudio()
+        // WebRTC 音轨启动会异步初始化 AudioTrack；只在状态变化后补一次校正，不能周期轮询。
+        scheduleAudioRouting()
+    }
 
     /** 离开大厅/结束通话时恢复普通音频模式，避免长期占用通话模式影响系统其它音频 */
     fun restoreNormalAudio() {
         runCatching {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                runCatching { am.clearCommunicationDevice() }
-            } else {
-                stopLegacyBluetoothSco(am)
-                @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = false }
-            }
-            am.mode = AudioManager.MODE_NORMAL
+            restoreMediaAudio(am)
         }
     }
 
@@ -336,10 +370,9 @@ class AndroidRtcController(private val context: Context) {
                 .createPeerConnectionFactory()
             adm.setMicrophoneMute(false)
         }
-        // 语音大厅期间持续保持通话模式：这是硬件回声消除/降噪生效的前提，
-        // 否则会出现严重声学回声与底噪（媒体提示音音量略降是可接受的代价）。
+        // 未开麦时保持系统媒体路由；开麦后才进入通话模式以启用硬件回声消除/降噪。
         startStatsLoop()
-        startAudioModeGuard()
+        registerAudioDeviceCallback()
         // 始终创建本地音频轨（默认禁用），保证连接含音频 m-line，可双向收发
         if (localAudioTrack == null) {
             val source = factory?.createAudioSource(MediaConstraints())
@@ -620,8 +653,13 @@ class AndroidRtcController(private val context: Context) {
         resetPeers()
         statsJob?.cancel()
         statsJob = null
-        audioModeJob?.cancel()
-        audioModeJob = null
+        audioRouteJob?.cancel()
+        audioRouteJob = null
+        audioDeviceCallback?.let { callback ->
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            runCatching { am.unregisterAudioDeviceCallback(callback) }
+        }
+        audioDeviceCallback = null
         playerVolumes.clear()
         localAudioTrack?.dispose()
         audioSource?.dispose()
