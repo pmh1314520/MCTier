@@ -149,7 +149,6 @@ val jvmSecurityHardeningTest by tasks.registering(JavaExec::class) {
     args("top.pmh13.mctier.ui.ThemeContrastTest")
     args("top.pmh13.mctier.network.PeerPreferencesTest")
     args("top.pmh13.mctier.network.VoiceHealthTest")
-    args("top.pmh13.mctier.network.AudioRoutePolicyTest")
     args("top.pmh13.mctier.network.MessagePreviewTest")
     args("top.pmh13.mctier.ui.SpeechModelTest")
     args("top.pmh13.mctier.network.SecurityHardeningTest", "top.pmh13.mctier.network.ChatOrderTest", "top.pmh13.mctier.network.ChatUnreadTest", "top.pmh13.mctier.network.EncryptedChatTest", "top.pmh13.mctier.network.ImageFormatTest", "top.pmh13.mctier.network.BuiltinEmojiCacheTest", "top.pmh13.mctier.network.EmojiManagementTest", "top.pmh13.mctier.network.ChatAttachmentTest", "top.pmh13.mctier.ui.ChatLinkTest")
