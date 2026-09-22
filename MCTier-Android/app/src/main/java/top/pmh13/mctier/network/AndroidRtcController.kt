@@ -198,10 +198,11 @@ class AndroidRtcController(private val context: Context) {
     }
 
     private var speakerphoneOn = true
+    private var legacyBluetoothScoRequested = false
 
     /**
-     * 通话音频路由：保持通话模式(回声消除需要)，同时把输出强制路由到"内置扬声器"，
-     * 避免默认走听筒/单个通话扬声器导致只有一个扬声器响、对方听到的声音很小。
+     * 通话音频路由：保持通话模式（回声消除需要），优先沿用已连接的蓝牙、
+     * 有线或 USB 音频设备；只有没有外接设备时才使用扬声器/听筒偏好。
      */
     private fun routeAudio() {
         runCatching {
@@ -210,20 +211,51 @@ class AndroidRtcController(private val context: Context) {
             // 造成周期性音频中断（部分机型对重复 setMode/setCommunicationDevice 很敏感）。
             if (am.mode != AudioManager.MODE_IN_COMMUNICATION) am.mode = AudioManager.MODE_IN_COMMUNICATION
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val targetType = if (speakerphoneOn)
-                    android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                else
-                    android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-                if (am.communicationDevice?.type != targetType) {
-                    val dev = am.availableCommunicationDevices.firstOrNull { it.type == targetType }
-                    if (dev != null) am.setCommunicationDevice(dev)
-                    else @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = speakerphoneOn }
+                val devices = am.availableCommunicationDevices
+                val targetType = AudioRoutePolicy.preferredDeviceType(
+                    devices.mapTo(mutableSetOf()) { it.type },
+                    am.communicationDevice?.type,
+                    speakerphoneOn,
+                )
+                if (targetType != null && am.communicationDevice?.type != targetType) {
+                    devices.firstOrNull { it.type == targetType }?.let { device ->
+                        if (!am.setCommunicationDevice(device)) {
+                            Log.w(TAG, "无法切换通信音频设备 type=$targetType")
+                        }
+                    }
                 }
             } else {
-                @Suppress("DEPRECATION")
-                if (am.isSpeakerphoneOn != speakerphoneOn) am.isSpeakerphoneOn = speakerphoneOn
+                routeLegacyAudio(am)
             }
+        }.onFailure { Log.w(TAG, "更新通信音频路由失败", it) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun routeLegacyAudio(am: AudioManager) {
+        val outputTypes = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).mapTo(mutableSetOf()) { it.type }
+        val targetType = AudioRoutePolicy.preferredDeviceType(outputTypes, null, speakerphoneOn)
+        val useBluetooth = targetType != null && AudioRoutePolicy.isBluetooth(targetType)
+        if (useBluetooth) {
+            if (!legacyBluetoothScoRequested) {
+                am.startBluetoothSco()
+                legacyBluetoothScoRequested = true
+            }
+            if (!am.isBluetoothScoOn) am.isBluetoothScoOn = true
+            if (am.isSpeakerphoneOn) am.isSpeakerphoneOn = false
+            return
         }
+        stopLegacyBluetoothSco(am)
+        val useExternalDevice = targetType != null && AudioRoutePolicy.isExternal(targetType)
+        val routeToSpeaker = !useExternalDevice && speakerphoneOn
+        if (am.isSpeakerphoneOn != routeToSpeaker) am.isSpeakerphoneOn = routeToSpeaker
+    }
+
+    @Suppress("DEPRECATION")
+    private fun stopLegacyBluetoothSco(am: AudioManager) {
+        if (!legacyBluetoothScoRequested) return
+        runCatching { am.stopBluetoothSco() }
+        if (am.isBluetoothScoOn) am.isBluetoothScoOn = false
+        legacyBluetoothScoRequested = false
     }
 
     private fun applyAudioRouting() = routeAudio()
@@ -243,6 +275,7 @@ class AndroidRtcController(private val context: Context) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 runCatching { am.clearCommunicationDevice() }
             } else {
+                stopLegacyBluetoothSco(am)
                 @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = false }
             }
             am.mode = AudioManager.MODE_NORMAL
