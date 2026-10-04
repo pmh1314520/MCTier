@@ -266,6 +266,30 @@ npm run tauri build -- --bundles nsis --ci
 
 桌面端的发布构建只生成 NSIS 安装包，避免同时生成 MSI 时重复处理离线 WebView2 安装器。仓库中的一键版本更新工具会自动准备固定 Node，并使用相同的 NSIS 参数。
 
+### 质量检查
+
+提交前可以先运行与 GitHub Actions `Quality` 工作流相同的前端检查：
+
+```bash
+npm ci
+npm run lint
+npx tsc --noEmit
+npm test
+```
+
+`npm run lint` 当前会报告历史遗留的规则债务，工作流会保留完整报告但暂不因为这部分基线失败；新改动应避免增加错误。类型检查和测试仍然是阻塞项。
+
+Rust 检查需要在 `src-tauri` 目录运行：
+
+```bash
+cd src-tauri
+cargo fmt --all -- --check
+cargo check --lib --tests
+cargo test --lib
+```
+
+`cargo check` 与 `cargo test` 会编译内嵌 EasyTier 和语音模型相关代码。由于这些第三方制品未纳入仓库，完整桌面构建前仍需按上面的步骤准备二进制；质量工作流只为编译和单元测试放置可识别的占位文件，并跳过会实际执行 EasyTier 的测试，不会产出可发布安装包。
+
 Android 端源码位于：
 
 ```text

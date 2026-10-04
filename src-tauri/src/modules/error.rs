@@ -1,3 +1,5 @@
+use serde::ser::Serializer;
+use serde::Serialize;
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
@@ -46,6 +48,35 @@ pub enum AppError {
     Unknown(String),
 }
 
+/// Stable machine-readable error identifiers exposed to future Tauri commands.
+///
+/// Existing commands still return their legacy string errors for compatibility,
+/// while new commands can return `AppError` directly without forcing the
+/// frontend to parse human-readable text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppErrorCode {
+    Validation,
+    Network,
+    Audio,
+    Voice,
+    Config,
+    Process,
+    Io,
+    File,
+    Serialization,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AppErrorPayload {
+    pub code: AppErrorCode,
+    pub message: String,
+    pub retryable: bool,
+}
+
+pub type AppResult<T> = Result<T, AppError>;
+
 /// 从 std::io::Error 转换
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
@@ -77,6 +108,50 @@ impl AppError {
             | AppError::SerializationError(s)
             | AppError::Unknown(s) => s.clone(),
         }
+    }
+
+    pub fn code(&self) -> AppErrorCode {
+        match self {
+            AppError::ValidationError(_) => AppErrorCode::Validation,
+            AppError::NetworkError(_) => AppErrorCode::Network,
+            AppError::AudioError(_) => AppErrorCode::Audio,
+            AppError::VoiceError(_) => AppErrorCode::Voice,
+            AppError::ConfigError(_) => AppErrorCode::Config,
+            AppError::ProcessError(_) => AppErrorCode::Process,
+            AppError::IoError(_) => AppErrorCode::Io,
+            AppError::FileError(_) => AppErrorCode::File,
+            AppError::SerializationError(_) => AppErrorCode::Serialization,
+            AppError::Unknown(_) => AppErrorCode::Unknown,
+        }
+    }
+
+    /// Whether retrying the same operation may succeed without changing input.
+    pub fn retryable(&self) -> bool {
+        matches!(
+            self,
+            AppError::NetworkError(_)
+                | AppError::AudioError(_)
+                | AppError::VoiceError(_)
+                | AppError::ProcessError(_)
+                | AppError::IoError(_)
+        )
+    }
+
+    pub fn payload(&self) -> AppErrorPayload {
+        AppErrorPayload {
+            code: self.code(),
+            message: self.inner_message(),
+            retryable: self.retryable(),
+        }
+    }
+}
+
+impl Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.payload().serialize(serializer)
     }
 }
 
@@ -221,6 +296,36 @@ mod tests {
     fn test_error_display() {
         let err = AppError::ValidationError("测试错误".to_string());
         assert_eq!(err.to_string(), "输入验证失败: 测试错误");
+    }
+
+    #[test]
+    fn structured_payload_has_stable_code_and_retryability() {
+        let payload = AppError::NetworkError("暂时无法连接".to_string()).payload();
+
+        assert_eq!(payload.code, AppErrorCode::Network);
+        assert!(payload.retryable);
+        assert_eq!(
+            serde_json::to_value(payload).unwrap(),
+            serde_json::json!({
+                "code": "network",
+                "message": "暂时无法连接",
+                "retryable": true
+            })
+        );
+    }
+
+    #[test]
+    fn app_error_serializes_as_payload() {
+        let error = AppError::ValidationError("名称不能为空".to_string());
+
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({
+                "code": "validation",
+                "message": "名称不能为空",
+                "retryable": false
+            })
+        );
     }
 
     #[test]

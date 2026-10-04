@@ -73,8 +73,12 @@ VOICE_DEBUG_GUIDE.md
 # Editor directories and files
 # Keep all dot-prefixed directories local at every depth.
 **/.*/
+!/.github/
+!/.github/workflows/
+!/.github/workflows/quality.yml
 .idea
 .DS_Store
+.external/
 *.suo
 *.ntvs*
 *.njsproj
