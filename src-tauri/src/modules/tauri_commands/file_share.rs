@@ -425,8 +425,7 @@ pub(crate) fn validate_download_file_name(file_name: &str) -> Result<&str, Strin
 /// 获取文件夹共享的有效下载目录。目录不存在时会自动创建。
 #[tauri::command]
 pub async fn get_file_share_download_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
     let directory = prepare_file_share_download_dir(cfg_mgr.get_config())?;
     directory
@@ -453,8 +452,7 @@ pub async fn set_file_share_download_dir(
         })
         .transpose()?;
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
     cfg_mgr
         .update_config(|config| {
@@ -470,8 +468,7 @@ pub async fn get_file_share_download_path(
     file_name: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
     let safe_name = validate_download_file_name(&file_name)?;
     let directory = prepare_file_share_download_dir(cfg_mgr.get_config())?;
@@ -740,8 +737,7 @@ pub async fn start_file_server(
 ) -> Result<(), String> {
     log::info!("启动HTTP文件服务器: {}", virtual_ip);
 
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     // 先尝试停止旧的服务器（如果存在）
@@ -772,8 +768,7 @@ pub async fn start_file_server(
 pub async fn stop_file_server(state: State<'_, AppState>) -> Result<(), String> {
     log::info!("停止HTTP文件服务器");
 
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     ft_service.stop_server().await;
@@ -784,8 +779,7 @@ pub async fn stop_file_server(state: State<'_, AppState>) -> Result<(), String> 
 /// 检查HTTP文件服务器状态
 #[tauri::command]
 pub async fn check_file_server_status(state: State<'_, AppState>) -> Result<bool, String> {
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     // 检查服务器句柄是否存在
@@ -811,8 +805,7 @@ pub async fn add_shared_folder(
         .ok_or_else(|| "无法转换共享目录路径".to_string())?
         .to_string();
 
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     // 检查HTTP服务器是否已启动
@@ -847,8 +840,7 @@ pub async fn remove_shared_folder(
 ) -> Result<(), String> {
     log::debug!("删除共享文件夹: {}", share_id);
 
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     ft_service.remove_share(&share_id)
@@ -857,8 +849,7 @@ pub async fn remove_shared_folder(
 /// 获取本地共享列表
 #[tauri::command]
 pub async fn get_local_shares(state: State<'_, AppState>) -> Result<Vec<SharedFolder>, String> {
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     Ok(ft_service.get_shares())
@@ -869,8 +860,7 @@ pub async fn get_local_shares(state: State<'_, AppState>) -> Result<Vec<SharedFo
 pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), String> {
     log::debug!("清理过期共享");
 
-    let core = state.core.lock().await;
-    let file_transfer = core.get_file_transfer();
+    let file_transfer = state.file_transfer().await;
     let ft_service = file_transfer.lock().await;
 
     ft_service.cleanup_expired_shares();

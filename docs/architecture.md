@@ -13,6 +13,7 @@ to place, review, and test.
 | `src/stores`                        | Durable UI/session state                                                | Zustand stores                   |
 | `src/security`                      | Input and trust-boundary validation                                     | `trustBoundary.ts`               |
 | `src-tauri/src/modules`             | Rust domain services and platform adapters                              | domain modules                   |
+| `src-tauri/src/modules/tauri_commands/shared.rs` | IPC state and short-lived service handle access              | `AppState`                       |
 | `src-tauri/src/modules/logs.rs`     | Bounded, UI-independent log reading                                     | `read_recent_log()`              |
 | `src-tauri/src/command_registry.rs` | Tauri IPC command registration                                          | `handler()`                      |
 | `src-tauri/src/lib.rs`              | Process startup, plugin setup, tray and lifecycle wiring                | `run()`                          |
@@ -40,13 +41,42 @@ platform types and validation logic are not yet generated from this file.
 
 In the separate signaling server repository, `config.rs` owns process
 configuration and limits, `transport.rs` owns bounded delivery and session
-metadata, and `connection.rs` owns connection lifecycle and message dispatch.
+metadata, `registration.rs` owns signed admission and ordered membership events,
+and `moderation.rs` owns authorized host actions. `connection.rs` retains
+connection lifecycle, authentication, cleanup, and dispatch of remaining
+message domains.
 The repositories remain independently buildable and releasable.
 
-Remaining work includes reducing cross-service locking in `AppCore`, migrating
-additional command domains, splitting registration and moderation dispatch,
-and introducing payload-schema generation with cross-platform fixtures. UI
-feature directory migration is also still pending.
+Ordinary configuration, file-share, P2P signaling, voice heartbeat, and player
+domain commands now clone a service handle through `AppState`, then release the
+core lock before taking the service lock. The outer `AppCore` mutex remains a
+lifecycle gate for entry and cleanup, not a replacement for service locks.
+
+Remaining work includes auditing other cross-service operations, migrating
+additional command domains, splitting the remaining signaling dispatch, and
+introducing payload-schema generation with cross-platform fixtures. UI feature
+directory migration is also still pending.
+
+## Concurrency And Tests
+
+- Use `AppState` service accessors for ordinary commands. Do not hold
+  `state.core` while waiting for a service mutex or performing service I/O.
+- Keep the explicit core guard around create/join state checks and transitions,
+  exit, and forced network-stop plus lobby cleanup. Removing it can let an old
+  cleanup operation erase a newly created lobby.
+- Lobby transitions acquire **lobby before network**. Shutdown uses the same
+  order through `leave_lobby_for_shutdown()`; no path may acquire those two
+  services in the reverse order.
+- Read/modify/write must remain in one service guard. This includes microphone
+  toggles, hosts-manager creation/publication, and file-server stop/restart.
+  Shortening the core guard does not justify shortening these service guards.
+- AppCore concurrency tests use an isolated configuration fixture. They queue
+  lock waiters deterministically and verify the production shutdown helper,
+  microphone toggle, and service accessor without stopping external processes.
+- The full `test_app_core_shutdown` remains an ignored integration test: it
+  modifies system hosts/config and can stop a real EasyTier process. Run it only
+  on an isolated integration host with verified native resources, never on a
+  developer's active game session or with compile-only placeholders.
 
 ## Boundary Rules
 
@@ -57,9 +87,9 @@ feature directory migration is also still pending.
 3. `command_registry.rs` is the only place where the application command list
    is maintained. Adding a command means adding it there and adding a focused
    test in its owning module.
-4. Cross-domain Rust operations should not hold one service lock while awaiting
-   another service. Copy the required value, release the first lock, then
-   continue.
+4. Prefer copying values and releasing a service lock before awaiting another
+   service. For atomic lobby lifecycle operations that must hold both services,
+   acquire lobby before network and preserve the lifecycle gate.
 5. Signaling messages are protocol data, not ad-hoc UI state. Changes require
    updating the desktop client, Android client, signaling server, and a
    compatibility test or fixture.

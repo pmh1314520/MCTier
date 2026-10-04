@@ -17,8 +17,7 @@ pub async fn send_signaling_message(
 ) -> Result<(), String> {
     log::info!("收到信令消息: {:?}", message);
 
-    let core = state.core.lock().await;
-    let p2p_signaling = core.get_p2p_signaling();
+    let p2p_signaling = state.p2p_signaling().await;
     let p2p_svc = p2p_signaling.lock().await;
 
     // 解析信令消息
@@ -94,8 +93,7 @@ pub async fn broadcast_status_update(
 ) -> Result<(), String> {
     log::info!("广播状态更新: player={}, mic={}", player_id, mic_enabled);
 
-    let core = state.core.lock().await;
-    let p2p_signaling = core.get_p2p_signaling();
+    let p2p_signaling = state.p2p_signaling().await;
     let p2p_svc = p2p_signaling.lock().await;
 
     // 创建状态更新消息
@@ -131,8 +129,7 @@ pub async fn send_heartbeat(
 ) -> Result<(), String> {
     log::debug!("收到心跳: player={}, timestamp={}", player_id, timestamp);
 
-    let core = state.core.lock().await;
-    let voice_service = core.get_voice_service();
+    let voice_service = state.voice_service().await;
     let voice_svc = voice_service.lock().await;
 
     voice_svc
@@ -558,9 +555,8 @@ pub async fn add_player_domain(
         .map_err(|error| format!("身份域名派生失败: {}", error))?;
     log::info!("收到添加玩家身份域名映射命令: {} -> {}", player_id, ip);
 
-    let core = state.core.lock().await;
-    let lobby_manager = core.get_lobby_manager();
-    let manager = lobby_manager.lock().await;
+    let lobby_manager = state.lobby_manager().await;
+    let mut manager = lobby_manager.lock().await;
 
     // 获取当前大厅信息
     let lobby_name = if let Some(lobby) = manager.get_current_lobby() {
@@ -581,15 +577,12 @@ pub async fn add_player_domain(
     } else {
         // 不存在，动态创建
         log::info!("📝 HostsManager不存在，动态创建...");
-        drop(manager); // 释放锁，以便调用set_hosts_manager
-
         let new_hosts_manager = crate::modules::hosts_manager::HostsManager::new(&lobby_name);
         new_hosts_manager
             .add_entry(&domain, &ip)
             .map_err(|e| format!("添加域名映射失败: {}", e))?;
 
-        // 重新获取锁并设置HostsManager
-        let mut manager = lobby_manager.lock().await;
+        // Keep the same lobby guard from validation through publication.
         manager.set_hosts_manager(Some(new_hosts_manager));
 
         log::info!(
@@ -621,8 +614,7 @@ pub async fn remove_player_domain(
         .map_err(|error| format!("身份域名派生失败: {}", error))?;
     log::info!("收到删除玩家身份域名映射命令: {}", player_id);
 
-    let core = state.core.lock().await;
-    let lobby_manager = core.get_lobby_manager();
+    let lobby_manager = state.lobby_manager().await;
     let manager = lobby_manager.lock().await;
 
     // 获取HostsManager

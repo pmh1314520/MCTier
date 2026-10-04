@@ -494,6 +494,40 @@ pub struct AppState {
     pub core: Arc<Mutex<AppCore>>,
 }
 
+impl AppState {
+    /// Clone service handles without retaining the core lifecycle gate across
+    /// service locks or I/O. Entry and shutdown keep their explicit core guard.
+    pub(crate) async fn config_manager(
+        &self,
+    ) -> Arc<Mutex<crate::modules::config_manager::ConfigManager>> {
+        self.core.lock().await.get_config_manager()
+    }
+
+    pub(crate) async fn file_transfer(
+        &self,
+    ) -> Arc<Mutex<crate::modules::file_transfer::FileTransferService>> {
+        self.core.lock().await.get_file_transfer()
+    }
+
+    pub(crate) async fn p2p_signaling(
+        &self,
+    ) -> Arc<Mutex<crate::modules::p2p_signaling::P2PSignalingService>> {
+        self.core.lock().await.get_p2p_signaling()
+    }
+
+    pub(crate) async fn voice_service(
+        &self,
+    ) -> Arc<Mutex<crate::modules::voice_service::VoiceService>> {
+        self.core.lock().await.get_voice_service()
+    }
+
+    pub(crate) async fn lobby_manager(
+        &self,
+    ) -> Arc<Mutex<crate::modules::lobby_manager::LobbyManager>> {
+        self.core.lock().await.get_lobby_manager()
+    }
+}
+
 // ==================== Rust高性能文件传输命令 ====================
 
 // 注意：由于Rust文件传输模块的复杂性，暂时保留JavaScript实现

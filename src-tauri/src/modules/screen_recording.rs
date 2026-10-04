@@ -24,8 +24,7 @@ fn default_directory() -> Result<PathBuf, String> {
 }
 
 async fn configured_directory(state: &State<'_, AppState>) -> Result<PathBuf, String> {
-    let core = state.core.lock().await;
-    let manager = core.get_config_manager();
+    let manager = state.config_manager().await;
     let cfg = manager.lock().await;
     let directory = cfg.get_config().recording_directory.as_deref().map(PathBuf::from).map(Ok).unwrap_or_else(default_directory)?;
     std::fs::create_dir_all(&directory).map_err(|e| format!("无法创建录制目录: {e}"))?;
@@ -44,8 +43,7 @@ pub async fn recording_choose_directory(window: WebviewWindow, state: State<'_, 
     let Some(chosen) = rfd::AsyncFileDialog::new().set_title("选择录制保存文件夹").pick_folder().await else { return Ok(None) };
     let path = chosen.path().to_path_buf();
     let text = path.to_str().ok_or("无法转换录制目录路径")?.to_owned();
-    let core = state.core.lock().await;
-    let manager = core.get_config_manager();
+    let manager = state.config_manager().await;
     let mut cfg = manager.lock().await;
     cfg.update_config(|config| config.recording_directory = Some(text.clone())).await.map_err(|e| format!("保存录制目录失败: {e}"))?;
     Ok(Some(text))
@@ -56,8 +54,7 @@ pub async fn recording_reset_directory(window: WebviewWindow, state: State<'_, A
     authorize(&window)?;
     let directory = default_directory()?;
     std::fs::create_dir_all(&directory).map_err(|e| format!("无法创建默认录制目录: {e}"))?;
-    let core = state.core.lock().await;
-    let manager = core.get_config_manager();
+    let manager = state.config_manager().await;
     let mut cfg = manager.lock().await;
     cfg.update_config(|config| config.recording_directory = None).await.map_err(|e| format!("恢复录制目录失败: {e}"))?;
 

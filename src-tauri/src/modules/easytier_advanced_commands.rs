@@ -29,8 +29,7 @@ pub async fn save_global_easytier_advanced_config(
     let config: EasyTierAdvancedConfig =
         serde_json::from_value(config_json).map_err(|e| format!("解析配置失败: {}", e))?;
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -55,8 +54,7 @@ pub async fn get_global_easytier_advanced_config(
 ) -> Result<serde_json::Value, String> {
     log::info!("获取全局 EasyTier 高级配置");
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
     let config = cfg_mgr.get_config();
 
@@ -101,8 +99,7 @@ pub async fn save_lobby_easytier_advanced_config(
     log::info!("  - no_tun: {}", config.no_tun);
     log::info!("  - dhcp: {}", config.dhcp);
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -137,8 +134,7 @@ pub async fn get_lobby_easytier_advanced_config(
 ) -> Result<serde_json::Value, String> {
     log::info!("获取大厅 EasyTier 高级配置");
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
     let config = cfg_mgr.get_config();
 
@@ -163,8 +159,7 @@ pub async fn clear_lobby_easytier_advanced_config(
     log::info!("========================================");
     log::info!("清除大厅 EasyTier 高级配置");
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr

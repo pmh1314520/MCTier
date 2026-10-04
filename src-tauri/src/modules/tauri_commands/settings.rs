@@ -60,8 +60,7 @@ pub async fn save_settings(
         auto_startup, auto_lobby_enabled, use_private_server, always_on_top, remember_window_position, voice_volume, enable_gpu_rendering, mic_hotkey, global_mute_hotkey, push_to_talk_hotkey, enable_exit_node, subnet_proxy_cidrs, virtual_domain);
 
     let legacy_config_password = {
-        let core = state.core.lock().await;
-        let config_manager = core.get_config_manager();
+        let config_manager = state.config_manager().await;
         let cfg_mgr = config_manager.lock().await;
         cfg_mgr
             .get_config()
@@ -78,8 +77,7 @@ pub async fn save_settings(
 
     // 1. 保存配置到文件
     {
-        let core = state.core.lock().await;
-        let config_manager = core.get_config_manager();
+        let config_manager = state.config_manager().await;
         let mut cfg_mgr = config_manager.lock().await;
         cfg_mgr
             .update_config(|config| {
@@ -288,8 +286,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
     log::info!("开始读取设置配置");
 
     let config = {
-        let core = state.core.lock().await;
-        let config_manager = core.get_config_manager();
+        let config_manager = state.config_manager().await;
         let cfg_mgr = config_manager.lock().await;
         cfg_mgr.get_config().clone()
     };
@@ -308,8 +305,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<serde_json::Valu
             lobby_password = Some(legacy_password);
         }
 
-        let core = state.core.lock().await;
-        let config_manager = core.get_config_manager();
+        let config_manager = state.config_manager().await;
         let mut cfg_mgr = config_manager.lock().await;
         cfg_mgr
             .update_config(|config| {
@@ -429,8 +425,7 @@ pub async fn set_avatar_data(
             return Err("头像格式或大小无效".to_string());
         }
     }
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
     cfg_mgr
         .update_config(|config| {
@@ -464,8 +459,7 @@ pub async fn clear_avatar_cache() -> Result<(), String> {
 pub async fn save_voice_volume(volume: f64, state: State<'_, AppState>) -> Result<(), String> {
     log::info!("保存语音音量: {}", volume);
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -488,8 +482,7 @@ pub async fn save_voice_volume(volume: f64, state: State<'_, AppState>) -> Resul
 pub async fn reset_config_to_default(state: State<'_, AppState>) -> Result<(), String> {
     log::info!("收到重置配置命令");
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     match cfg_mgr.reset_to_default().await {
@@ -528,8 +521,7 @@ pub async fn export_config(export_path: String, state: State<'_, AppState>) -> R
         return Err("配置导出路径必须使用 .json 扩展名".to_string());
     }
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -563,8 +555,7 @@ pub async fn import_config(import_path: String, state: State<'_, AppState>) -> R
         return Err("配置导入路径必须使用 .json 扩展名".to_string());
     }
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -692,8 +683,7 @@ pub async fn save_exit_node_advanced_config(
     log::info!("  - enable_quic_proxy: {:?}", enable_quic_proxy);
     log::info!("  - latency_first: {:?}", latency_first);
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let mut cfg_mgr = config_manager.lock().await;
 
     cfg_mgr
@@ -784,8 +774,7 @@ pub async fn get_exit_node_advanced_config(
 ) -> Result<serde_json::Value, String> {
     log::info!("获取出口节点高级配置");
 
-    let core = state.core.lock().await;
-    let config_manager = core.get_config_manager();
+    let config_manager = state.config_manager().await;
     let cfg_mgr = config_manager.lock().await;
     let config = cfg_mgr.get_config();
 
@@ -809,8 +798,7 @@ pub async fn get_exit_node_advanced_config(
 
 #[tauri::command]
 pub async fn get_compliance_consent(state: State<'_, AppState>) -> Result<bool, String> {
-    let core = state.core.lock().await;
-    let manager = core.get_config_manager();
+    let manager = state.config_manager().await;
     let cfg = manager.lock().await;
     Ok(cfg.get_config().compliance_accepted == Some(true))
 }
@@ -819,8 +807,7 @@ pub async fn accept_compliance(window: tauri::WebviewWindow, state: State<'_, Ap
     if window.label() != "main" || !crate::modules::media_permission::trusted(window.url().map_err(|e| e.to_string())?.as_str()) {
         return Err("Only the main window can accept the agreement".into());
     }
-    let core = state.core.lock().await;
-    let manager = core.get_config_manager();
+    let manager = state.config_manager().await;
     let mut cfg = manager.lock().await;
     cfg.update_config(|config| config.compliance_accepted = Some(true)).await.map_err(|e| e.to_string())
 }

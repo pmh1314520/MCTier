@@ -9,7 +9,7 @@ use super::chat_service::ChatService;
 use super::config_manager::ConfigManager;
 use super::error::AppError;
 use super::file_transfer::FileTransferService;
-use super::lobby_manager::LobbyManager;
+use super::lobby_manager::{LobbyError, LobbyManager};
 use super::network_service::{NetworkConfig, NetworkService};
 use super::p2p_signaling::P2PSignalingService;
 use super::voice_service::VoiceService;
@@ -89,6 +89,10 @@ impl AppCore {
             }
         };
 
+        Ok(Self::with_config_manager(config_manager))
+    }
+
+    fn with_config_manager(config_manager: Arc<Mutex<ConfigManager>>) -> Self {
         // 初始化网络服务
         let network_config = NetworkConfig::default();
         let network_service = Arc::new(Mutex::new(NetworkService::new(network_config)));
@@ -123,7 +127,7 @@ impl AppCore {
 
         info!("应用核心初始化完成");
 
-        Ok(AppCore {
+        AppCore {
             lobby_manager,
             network_service,
             voice_service,
@@ -133,7 +137,7 @@ impl AppCore {
             chat_service,
             config_manager,
             state,
-        })
+        }
     }
 
     /// 启动应用
@@ -193,32 +197,27 @@ impl AppCore {
         }
 
         // 停止WebSocket信令服务器（如果正在运行）
-        if let Some(ws_server) = self.websocket_signaling.lock().await.as_ref() {
-            match ws_server.stop().await {
-                Ok(_) => info!("WebSocket信令服务器已停止"),
-                Err(e) => warn!("停止WebSocket信令服务器时发生错误: {}", e),
+        {
+            let mut signaling = self.websocket_signaling.lock().await;
+            if let Some(ws_server) = signaling.as_ref() {
+                match ws_server.stop().await {
+                    Ok(_) => info!("WebSocket信令服务器已停止"),
+                    Err(e) => warn!("停止WebSocket信令服务器时发生错误: {}", e),
+                }
             }
+            *signaling = None;
         }
-        *self.websocket_signaling.lock().await = None;
 
         // 退出大厅（如果在大厅中）
-        let network_service_ref = self.network_service.lock().await;
-        match self
-            .lobby_manager
-            .lock()
-            .await
-            .leave_lobby(&*network_service_ref)
-            .await
-        {
+        match self.leave_lobby_for_shutdown().await {
             Ok(_) => info!("已退出大厅"),
             Err(e) => {
                 // 如果不在大厅中，这是正常的
-                if !matches!(e, super::lobby_manager::LobbyError::NotInLobby) {
+                if !matches!(e, LobbyError::NotInLobby) {
                     warn!("退出大厅时发生错误: {}", e);
                 }
             }
         }
-        drop(network_service_ref);
 
         // 额外的hosts清理：确保清理所有可能的MCTier hosts记录
         // 这是一个保险措施，防止因为异常退出导致hosts文件残留
@@ -242,6 +241,13 @@ impl AppCore {
 
         info!("应用关闭完成");
         Ok(())
+    }
+
+    async fn leave_lobby_for_shutdown(&self) -> Result<(), LobbyError> {
+        // Lobby transitions always acquire lobby before network, including exit.
+        let mut lobby = self.lobby_manager.lock().await;
+        let network = self.network_service.lock().await;
+        lobby.leave_lobby(&network).await
     }
 
     /// 设置 Tauri 应用句柄
@@ -359,11 +365,12 @@ impl AppCore {
     pub async fn stop_websocket_signaling(&self) -> Result<(), AppError> {
         info!("停止WebSocket信令服务器");
 
-        if let Some(ws_server) = self.websocket_signaling.lock().await.as_ref() {
+        let mut signaling = self.websocket_signaling.lock().await;
+        if let Some(ws_server) = signaling.as_ref() {
             ws_server.stop().await?;
         }
 
-        *self.websocket_signaling.lock().await = None;
+        *signaling = None;
 
         info!("✅ WebSocket信令服务器已停止");
         Ok(())
@@ -383,15 +390,8 @@ impl AppCore {
         let current_state = voice_service.is_mic_enabled();
         let new_state = !current_state;
 
-        // 切换状态
-        drop(voice_service);
-        match self
-            .voice_service
-            .lock()
-            .await
-            .set_mic_enabled(new_state)
-            .await
-        {
+        // Keep read/modify/write in one service guard, even without a core guard.
+        match voice_service.set_mic_enabled(new_state).await {
             Ok(state) => {
                 info!("麦克风状态已切换: {} -> {}", current_state, state);
                 Ok(state)
@@ -416,6 +416,95 @@ impl Drop for AppCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::{poll_fn, Future};
+    use std::task::Poll;
+    use std::time::Duration;
+
+    fn isolated_core() -> AppCore {
+        AppCore::with_config_manager(Arc::new(Mutex::new(ConfigManager::default())))
+    }
+
+    #[tokio::test]
+    async fn shutdown_waits_for_lobby_without_holding_network() {
+        let core = isolated_core();
+        let lobby = core.get_lobby_manager();
+        let network = core.get_network_service();
+        let lobby_guard = lobby.lock().await;
+        let mut leaving = Box::pin(core.leave_lobby_for_shutdown());
+
+        poll_fn(|cx| {
+            assert!(leaving.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+
+        assert!(
+            network.try_lock().is_ok(),
+            "shutdown must not lock network while waiting for lobby"
+        );
+        drop(lobby_guard);
+        let result = tokio::time::timeout(Duration::from_secs(1), leaving)
+            .await
+            .expect("lobby shutdown helper must finish after the lobby lock is released");
+        assert!(matches!(result, Err(LobbyError::NotInLobby)));
+    }
+
+    #[tokio::test]
+    async fn queued_microphone_toggles_do_not_lose_updates() {
+        let core = isolated_core();
+        let voice = core.get_voice_service();
+        let voice_guard = voice.lock().await;
+        voice_guard.initialize().await.unwrap();
+        let mut toggles = (0..20)
+            .map(|_| Box::pin(core.toggle_mic()))
+            .collect::<Vec<_>>();
+
+        // Queue every toggle before releasing the service, so read/relock code
+        // would allow all requests to observe the same initial value.
+        for toggle in &mut toggles {
+            poll_fn(|cx| {
+                assert!(toggle.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+        }
+        drop(voice_guard);
+
+        let results = futures_util::future::join_all(toggles).await;
+        let enabled = results
+            .into_iter()
+            .map(Result::unwrap)
+            .filter(|value| *value)
+            .count();
+        assert_eq!(enabled, 10);
+        assert!(!voice.lock().await.is_mic_enabled());
+    }
+
+    #[tokio::test]
+    async fn ordinary_service_waits_do_not_hold_the_core_gate() {
+        let state = crate::modules::tauri_commands::AppState {
+            core: Arc::new(Mutex::new(isolated_core())),
+        };
+        let config = state.config_manager().await;
+        let config_guard = config.lock().await;
+        let mut waiting = Box::pin(async {
+            let config = state.config_manager().await;
+            let _guard = config.lock().await;
+        });
+
+        poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+
+        assert!(
+            state.core.try_lock().is_ok(),
+            "waiting for configuration must not retain the core lifecycle gate"
+        );
+        drop(waiting);
+        drop(config_guard);
+    }
 
     #[tokio::test]
     async fn test_app_core_initialization() {
@@ -437,6 +526,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an isolated host: stops EasyTier and updates system hosts/config"]
     async fn test_app_core_shutdown() {
         // 测试应用关闭
         let app_core = AppCore::new().await.unwrap();

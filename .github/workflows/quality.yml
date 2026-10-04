@@ -109,11 +109,13 @@ jobs:
 
       - name: Check refactored module formatting
         working-directory: src-tauri
-        run: rustfmt --edition 2021 --check src/command_registry.rs src/modules/error.rs src/modules/logs.rs src/modules/tauri_commands/logging.rs
+        run: rustfmt --edition 2021 --check src/command_registry.rs src/modules/app_core.rs src/modules/error.rs src/modules/logs.rs src/modules/tauri_commands/logging.rs
 
       - name: Run unit tests
         working-directory: src-tauri
         # This test executes the real EasyTier binary. It is intentionally
         # excluded here because quality CI stages placeholders; release
-        # validation must run it after fetching the verified binaries.
+        # validation must run it after fetching the verified binaries. Full
+        # AppCore shutdown is separately ignored because it changes system
+        # hosts/config and stops processes; it needs an isolated integration host.
         run: cargo test --locked --lib -- --skip test_private_mode_arguments_accepted_by_bundled_easytier
