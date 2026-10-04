@@ -4,6 +4,7 @@
 // 错误处理模块
 pub mod error;
 pub mod app_paths;
+pub mod logs;
 
 // 配置管理模块
 pub mod config_manager;

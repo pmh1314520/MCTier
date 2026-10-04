@@ -130,7 +130,7 @@ test('real desktop signal dispatcher accepts Android screen join/offer/answer/IC
   };
   const result = await build({ entryPoints: [entry], bundle: true, format: 'esm', write: false, drop: ['console'], plugins: [{ name: 'isolate-dispatcher', setup(b) {
     b.onResolve({ filter: /.*/ }, args => {
-      if (args.kind === 'entry-point' || args.path.endsWith('signalingTrustBoundary') || args.path.endsWith('/trustBoundary') || args.path === './audioTransceiver') return;
+      if (args.kind === 'entry-point' || args.path.endsWith('/signaling-protocol.json') || args.path.endsWith('signalingTrustBoundary') || args.path.endsWith('/trustBoundary') || args.path === './audioTransceiver') return;
       return { path: args.path, namespace: 'test-dependency' };
     });
     b.onLoad({ filter: /.*/, namespace: 'test-dependency' }, args => ({ loader: 'js', contents:

@@ -64,7 +64,7 @@ jobs:
         with:
           components: rustfmt
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
 
@@ -105,11 +105,15 @@ jobs:
 
       - name: Compile library and tests
         working-directory: src-tauri
-        run: cargo check --lib --tests
+        run: cargo check --locked --lib --tests
+
+      - name: Check refactored module formatting
+        working-directory: src-tauri
+        run: rustfmt --edition 2021 --check src/command_registry.rs src/modules/error.rs src/modules/logs.rs src/modules/tauri_commands/logging.rs
 
       - name: Run unit tests
         working-directory: src-tauri
         # This test executes the real EasyTier binary. It is intentionally
         # excluded here because quality CI stages placeholders; release
         # validation must run it after fetching the verified binaries.
-        run: cargo test --lib -- --skip test_private_mode_arguments_accepted_by_bundled_easytier
+        run: cargo test --locked --lib -- --skip test_private_mode_arguments_accepted_by_bundled_easytier

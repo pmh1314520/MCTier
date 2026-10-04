@@ -1,4 +1,72 @@
 use super::shared::*;
+use crate::modules::error::{AppError, AppResult};
+use std::path::{Path, PathBuf};
+
+fn legacy_result<T>(result: AppResult<T>) -> Result<T, String> {
+    // Keep the legacy IPC error text stable while the implementation adopts
+    // typed errors internally. New commands can return AppError directly.
+    result.map_err(|error| error.inner_message())
+}
+
+fn log_data_root() -> AppResult<PathBuf> {
+    crate::modules::app_paths::data_root().map_err(|error| AppError::ConfigError(error.to_string()))
+}
+
+fn log_file_path() -> AppResult<PathBuf> {
+    crate::modules::app_paths::log_path().map_err(|error| AppError::ConfigError(error.to_string()))
+}
+
+fn require_existing_path(path: &Path, missing_message: &str) -> AppResult<()> {
+    if path.exists() {
+        Ok(())
+    } else {
+        Err(AppError::FileError(missing_message.to_string()))
+    }
+}
+
+fn open_log_folder_impl() -> AppResult<()> {
+    let log_path = log_data_root()?;
+    log::info!("日志文件夹路径: {:?}", log_path);
+    require_existing_path(&log_path, "日志文件夹不存在")?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        Command::new(windows_system_command("explorer.exe"))
+            .arg(&log_path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| AppError::ProcessError(format!("打开日志文件夹失败: {error}")))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = log_path;
+        Err(AppError::ProcessError("当前平台不支持此功能".to_string()))
+    }
+}
+
+fn open_log_file_impl() -> AppResult<()> {
+    let log_path = log_file_path()?;
+    log::info!("日志文件路径: {:?}", log_path);
+    require_existing_path(&log_path, "日志文件不存在")?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        Command::new(windows_system_command("notepad.exe"))
+            .arg(&log_path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| AppError::ProcessError(format!("打开日志文件失败: {error}")))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = log_path;
+        Err(AppError::ProcessError("当前平台不支持此功能".to_string()))
+    }
+}
 
 /// 打开日志文件所在的文件夹
 ///
@@ -8,40 +76,13 @@ use super::shared::*;
 #[tauri::command]
 pub async fn open_log_folder() -> Result<(), String> {
     log::info!("打开日志文件夹");
-
-    // 获取日志文件路径
-    let log_path = crate::modules::app_paths::data_root().map_err(|e| e.to_string())?;
-
-    log::info!("日志文件夹路径: {:?}", log_path);
-
-    // 确保目录存在
-    if !log_path.exists() {
-        return Err("日志文件夹不存在".to_string());
+    let result = open_log_folder_impl();
+    if let Err(error) = &result {
+        log::error!("❌ 打开日志文件夹失败: {}", error);
+    } else {
+        log::info!("✅ 成功打开日志文件夹");
     }
-
-    // 打开文件夹
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        match Command::new(windows_system_command("explorer.exe"))
-            .arg(&log_path)
-            .spawn()
-        {
-            Ok(_) => {
-                log::info!("✅ 成功打开日志文件夹");
-                Ok(())
-            }
-            Err(e) => {
-                log::error!("❌ 打开日志文件夹失败: {}", e);
-                Err(format!("打开日志文件夹失败: {}", e))
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("当前平台不支持此功能".to_string())
-    }
+    legacy_result(result)
 }
 
 /// 打开日志文件（使用默认文本编辑器）
@@ -52,41 +93,13 @@ pub async fn open_log_folder() -> Result<(), String> {
 #[tauri::command]
 pub async fn open_log_file() -> Result<(), String> {
     log::info!("打开日志文件");
-
-    // 获取日志文件路径
-    let log_path = crate::modules::app_paths::log_path().map_err(|e| e.to_string())?;
-
-    log::info!("日志文件路径: {:?}", log_path);
-
-    // 确保文件存在
-    if !log_path.exists() {
-        return Err("日志文件不存在".to_string());
+    let result = open_log_file_impl();
+    if let Err(error) = &result {
+        log::error!("❌ 打开日志文件失败: {}", error);
+    } else {
+        log::info!("✅ 成功打开日志文件");
     }
-
-    // 打开文件
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        // 使用notepad打开日志文件
-        match Command::new(windows_system_command("notepad.exe"))
-            .arg(&log_path)
-            .spawn()
-        {
-            Ok(_) => {
-                log::info!("✅ 成功打开日志文件");
-                Ok(())
-            }
-            Err(e) => {
-                log::error!("❌ 打开日志文件失败: {}", e);
-                Err(format!("打开日志文件失败: {}", e))
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("当前平台不支持此功能".to_string())
-    }
+    legacy_result(result)
 }
 
 /// 获取日志文件路径
@@ -96,24 +109,50 @@ pub async fn open_log_file() -> Result<(), String> {
 /// * `Err(String)` - 错误信息
 #[tauri::command]
 pub async fn get_log_file_path() -> Result<String, String> {
-    let log_path = crate::modules::app_paths::log_path().map_err(|e| e.to_string())?;
-
-    Ok(log_path.to_string_lossy().to_string())
+    legacy_result(log_file_path().map(|path| path.to_string_lossy().into_owned()))
 }
 
 /// 读取最近的运行日志，供设置页内查看。仅返回末尾内容，避免日志过大阻塞界面。
 #[tauri::command]
 pub async fn read_log_file() -> Result<String, String> {
-    let log_path = crate::modules::app_paths::log_path().map_err(|e| e.to_string())?;
-
-    let bytes = tokio::fs::read(&log_path)
-        .await
-        .map_err(|e| format!("读取日志失败: {}", e))?;
-    const MAX_BYTES: usize = 512 * 1024;
-    let start = bytes.len().saturating_sub(MAX_BYTES);
-    let mut content = String::from_utf8_lossy(&bytes[start..]).into_owned();
-    if start > 0 {
-        content = format!("[仅显示最近 512 KB 日志]\n{}", content);
+    let result = async {
+        let log_path = log_file_path()?;
+        tokio::task::spawn_blocking(move || crate::modules::logs::read_recent_log(&log_path))
+            .await
+            .map_err(|error| AppError::ProcessError(format!("读取日志失败: {error}")))?
+            .map_err(|error| AppError::FileError(format!("读取日志失败: {error}")))
     }
-    Ok(content)
+    .await;
+    legacy_result(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_adapter_preserves_human_readable_errors() {
+        let result: Result<(), String> =
+            legacy_result(Err(AppError::FileError("日志文件不存在".to_string())));
+
+        assert_eq!(result.unwrap_err(), "日志文件不存在");
+    }
+
+    #[test]
+    fn missing_log_path_has_a_structured_file_error() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(require_existing_path(directory.path(), "日志文件夹不存在").is_ok());
+
+        let error = require_existing_path(&directory.path().join("missing.log"), "日志文件不存在")
+            .unwrap_err();
+
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({
+                "code": "file",
+                "message": "日志文件不存在",
+                "retryable": false
+            })
+        );
+    }
 }

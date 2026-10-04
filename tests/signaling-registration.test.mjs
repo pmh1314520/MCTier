@@ -15,7 +15,7 @@ for (const stmt of ast.statements) {
 }
 const bundle = await build({ entryPoints: [entry], bundle: true, format: 'esm', write: false, drop: ['console'], plugins: [{ name: 'registration-fixture', setup(b) {
   b.onResolve({ filter: /.*/ }, args => {
-    if (args.kind === 'entry-point' || /(?:signalingTrustBoundary|trustBoundary)$|registeredSocket$|registrationRecovery$|audioTransceiver$/.test(args.path)) return;
+    if (args.kind === 'entry-point' || args.path.endsWith('/signaling-protocol.json') || /(?:signalingTrustBoundary|trustBoundary)$|registeredSocket$|registrationRecovery$|audioTransceiver$/.test(args.path)) return;
     return { path: args.path, namespace: 'fixture' };
   });
   b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ loader: 'js', contents:

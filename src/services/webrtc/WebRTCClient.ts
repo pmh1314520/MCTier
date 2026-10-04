@@ -50,6 +50,7 @@ import {
   parseViewerCount,
   validateOutboundSignalingMessage,
 } from './signalingTrustBoundary';
+import signalingProtocol from '../../../shared/signaling-protocol.json';
 
 export interface SignalingMessage {
   type:
@@ -93,7 +94,7 @@ export interface PeerConnection {
   lastAudioDiagnosticAt?: number;
 }
 
-const SIGNALING_PROTOCOL_VERSION = 3;
+const SIGNALING_PROTOCOL_VERSION = signalingProtocol.protocolVersion;
 const MAX_QUEUED_WS_FRAMES = 64;
 const MAX_QUEUED_WS_BYTES = 1024 * 1024;
 const MAX_SIGNALING_FRAME_BYTES = 256 * 1024;
