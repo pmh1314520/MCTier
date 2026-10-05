@@ -47,10 +47,14 @@ connection lifecycle, authentication, cleanup, and dispatch of remaining
 message domains.
 The repositories remain independently buildable and releasable.
 
-Ordinary configuration, file-share, P2P signaling, voice heartbeat, and player
+Ordinary configuration, file-share reads, P2P signaling, voice heartbeat, and player
 domain commands now clone a service handle through `AppState`, then release the
-core lock before taking the service lock. The outer `AppCore` mutex remains a
-lifecycle gate for entry and cleanup, not a replacement for service locks.
+core lock before taking the service lock. File-server and share mutations retain
+their existing serialization with core-gated operations. Create/join hold the
+core guard while claiming the transition, then release it before service work;
+leave also releases it before cleanup. The core mutex therefore does not make
+the entire lobby lifecycle atomic. These commands still require service guards,
+and stronger session-scoped cancellation remains a separate audit.
 
 Remaining work includes auditing other cross-service operations, migrating
 additional command domains, splitting the remaining signaling dispatch, and
@@ -61,9 +65,9 @@ directory migration is also still pending.
 
 - Use `AppState` service accessors for ordinary commands. Do not hold
   `state.core` while waiting for a service mutex or performing service I/O.
-- Keep the explicit core guard around create/join state checks and transitions,
-  exit, and forced network-stop plus lobby cleanup. Removing it can let an old
-  cleanup operation erase a newly created lobby.
+- Preserve existing core guards around create/join state claims, exit, and
+  forced network-stop operations. Do not assume every cleanup retains this
+  guard: normal leave drops it before service cleanup.
 - Lobby transitions acquire **lobby before network**. Shutdown uses the same
   order through `leave_lobby_for_shutdown()`; no path may acquire those two
   services in the reverse order.
@@ -89,7 +93,7 @@ directory migration is also still pending.
    test in its owning module.
 4. Prefer copying values and releasing a service lock before awaiting another
    service. For atomic lobby lifecycle operations that must hold both services,
-   acquire lobby before network and preserve the lifecycle gate.
+   acquire lobby before network and preserve existing synchronization.
 5. Signaling messages are protocol data, not ad-hoc UI state. Changes require
    updating the desktop client, Android client, signaling server, and a
    compatibility test or fixture.

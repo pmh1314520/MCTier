@@ -737,7 +737,9 @@ pub async fn start_file_server(
 ) -> Result<(), String> {
     log::info!("启动HTTP文件服务器: {}", virtual_ip);
 
-    let file_transfer = state.file_transfer().await;
+    // Preserve existing serialization with core-gated lifecycle operations.
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
 
     // 先尝试停止旧的服务器（如果存在）
@@ -768,7 +770,9 @@ pub async fn start_file_server(
 pub async fn stop_file_server(state: State<'_, AppState>) -> Result<(), String> {
     log::info!("停止HTTP文件服务器");
 
-    let file_transfer = state.file_transfer().await;
+    // Preserve existing serialization with core-gated lifecycle operations.
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
 
     ft_service.stop_server().await;
@@ -805,7 +809,9 @@ pub async fn add_shared_folder(
         .ok_or_else(|| "无法转换共享目录路径".to_string())?
         .to_string();
 
-    let file_transfer = state.file_transfer().await;
+    // Preserve existing serialization with core-gated lifecycle operations.
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
 
     // 检查HTTP服务器是否已启动
@@ -840,7 +846,9 @@ pub async fn remove_shared_folder(
 ) -> Result<(), String> {
     log::debug!("删除共享文件夹: {}", share_id);
 
-    let file_transfer = state.file_transfer().await;
+    // Preserve existing serialization with core-gated lifecycle operations.
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
 
     ft_service.remove_share(&share_id)
@@ -860,7 +868,9 @@ pub async fn get_local_shares(state: State<'_, AppState>) -> Result<Vec<SharedFo
 pub async fn cleanup_expired_shares(state: State<'_, AppState>) -> Result<(), String> {
     log::debug!("清理过期共享");
 
-    let file_transfer = state.file_transfer().await;
+    // Preserve existing serialization with core-gated lifecycle operations.
+    let core = state.core.lock().await;
+    let file_transfer = core.get_file_transfer();
     let ft_service = file_transfer.lock().await;
 
     ft_service.cleanup_expired_shares();
