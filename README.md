@@ -270,7 +270,7 @@ npm run tauri build -- --bundles nsis --ci
 
 GitHub Actions 自动执行前端构建与回归测试、指定 Rust 模块格式检查、Android 构建文件存在性检查、许可证文件检查和 Rust 依赖审计。历史 lint 和依赖审计暂不阻断，需单独查看结果；真实媒体测试仍需本地验证。
 
-Build 工作流（`.github/workflows/build.yml`）在每次 PR、push 到 master/main 时自动编译全平台产物：Windows x64 NSIS 安装包、Linux x64 deb + AppImage、macOS aarch64/x86_64 DMG、Android arm64-v8a APK，产物以 workflow artifact 形式提供。推送 `v*` 标签会把全部产物与 SHA-256 校验和汇总为草稿 Release。CI 构建不签名：Windows 代码签名、macOS Developer ID 签名与公证、Android 正式签名仍按各平台文档在本地执行。
+Build 工作流（`.github/workflows/build.yml`）在每次 PR、push 到 master/main 时自动编译全平台产物：Windows x64 NSIS 安装包、Linux x64 deb + AppImage、macOS aarch64/x86_64 DMG、Android arm64-v8a APK，产物以 workflow artifact 形式提供（保留期后自动清理）。CI 构建不签名：Windows 代码签名、macOS Developer ID 签名与公证、Android 正式签名仍按各平台文档在本地执行。
 
 `.github` 中经审核的 Issue/PR 模板、Dependabot 和 CI 配置允许提交；其他点开头的目录、缓存、密钥和构建产物仍排除。Dependabot 每月分组检查小版本更新，需要人工审查后合并。
 
