@@ -1,0 +1,142 @@
+[package]
+name = "mctier"
+version = "3.10.0"
+description = "MCTier - Minecraft 虚拟局域网联机工具"
+authors = ["MCTier Team"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "mctier_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+embed-resource = "3"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "macos-private-api"] }
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+reqwest = { version = "0.12", features = ["blocking", "stream", "json", "cookies"] }
+cookie_store = "0.22"
+rfd = "0.15"
+urlencoding = "2.1"
+base64 = "0.22"
+# 聊天鉴权：每个成员一对 P-256 密钥，消息由私钥签名、接收方用信令下发的
+# 公钥验签。选 P-256 而非 Ed25519 是为了与 Android 端互通——Android 的
+# `KeyPairGenerator("Ed25519")` 要 API 33+，而本项目 minSdk 为 26，
+# secp256r1 + SHA256withECDSA 则在所有支持的系统版本上都可用。
+p256 = { version = "0.13", features = ["ecdh"] }
+hkdf = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
+# 高性能文件传输
+bytes = "1"
+dashmap = "6"
+parking_lot = "0.12"
+# HTTP 文件服务器
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+async-stream = "0.3"
+# ZIP 压缩
+zip = "2"
+calamine = "0.31"
+sherpa-onnx = "=1.13.8"
+flate2 = "1"
+hound = "3.5"
+mctier-image-optimizer = { path = "../shared/image-optimizer" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Linux 专用：WebKitGTK 的 MediaStream/WebRTC 开关默认关闭，且 wry 未处理
+# permission-request 信号，必须直接操作底层 WebView 才能拿到麦克风/摄像头能力。
+# 版本需与 tauri 2.x 依赖的 wry 所用 webkit2gtk 保持一致（2.x → webkit2gtk-4.1）。
+[target.'cfg(target_os = "linux")'.dependencies]
+# 特性与 tauri 自身对 webkit2gtk 的声明保持一致（v2_40 链式包含 v2_4）。
+# 不能省：set_enable_media_stream / set_enable_mediasource 由 v2_4 门控，
+# 若只依赖 cargo 的特性合并，将来 tauri 调整特性就会突然编译失败。
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = { version = "0.25", features = ["highsierra"] }
+# 屏幕采集枚举窗口用 CFArray/CFString；版本跟随 core-graphics 自身的 core-foundation。
+core-foundation = "0.10"
+# 系统声音采集（ScreenCaptureKit，macOS 13+）：对应 Windows 的 WASAPI loopback。
+# 版本与 objc2 生成家族保持同一代（0.3.x / 0.6），升级时需整组同步。
+objc2 = "0.6.4"
+block2 = "0.6"
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSError", "NSString", "NSProcessInfo"] }
+objc2-screen-capture-kit = { version = "0.3.2", features = ["SCShareableContent", "SCStream", "block2", "dispatch2"] }
+objc2-core-media = { version = "0.3.2", features = ["CMSampleBuffer", "CMBlockBuffer", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3.2", features = ["CoreAudioBaseTypes"] }
+# 麦克风 TCC 授权：原生 AUHAL 输入单元不会自己触发系统授权弹窗，未授权时它会
+# “成功”启动却只吐静音采样。必须先通过 AVCaptureDevice 查询/请求麦克风权限。
+objc2-av-foundation = { version = "0.3.2", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38.2"
+windows-core-webview = { package = "windows-core", version = "0.61" }
+wasapi = "0.23"
+windows = { version = "0.58", features = [
+    "Win32_Media_Audio",
+    "Foundation",
+    "Graphics_Capture",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_Com",
+    "Win32_System_TaskScheduler",
+    "Win32_Security_Authorization",
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_System_Threading",
+    "Win32_System_Performance",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Win32_System_LibraryLoader",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+] }
+
+# 发布构建：剥离符号，避免二进制中残留调试信息与开发机绝对路径（见 issue #17 第 11 条）
+[profile.release]
+strip = true
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
+# 仅测试需要：tower 的 util 特性提供 ServiceExt::oneshot，用于直接驱动 axum Router 断言 CORS 响应头
+tower = { version = "0.4", features = ["util"] }

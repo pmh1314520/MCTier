@@ -1,0 +1,24 @@
+.record-panel { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 12px; }
+.record-heading { display: flex; align-items: flex-start; gap: 12px; }
+.record-heading > .anticon { font-size: 24px; color: var(--primary-color, #4caa65); padding-top: 3px; }
+.record-heading strong { font-size: 16px; }
+.record-heading p { margin: 4px 0 0; opacity: .65; font-size: 12px; line-height: 1.7; }
+.record-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.record-field { position: relative; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.record-audio { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid rgba(128,128,128,.18); }
+.record-audio small { display: block; font-size: 12px; opacity: .6; margin-top: 4px; }
+.record-status { display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: 12px; background: rgba(128,128,128,.1); }
+.record-status strong { margin-left: auto; font-size: 24px; font-variant-numeric: tabular-nums; }
+.record-dot { width: 8px; height: 8px; background: #eb5757; border-radius: 50%; }
+.record-actions { display: flex; gap: 8px; justify-content: flex-end; width: 100%; }
+.record-actions-start > .ant-btn { width: 100%; justify-content: center; }
+@media(max-width: 420px) { .record-fields { grid-template-columns: 1fr; } }
+
+.record-panel-hint { font-size: 11px; white-space: nowrap; }
+.record-location { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--mctier-border, rgba(128,128,128,.25)); border-radius: 10px; }
+.record-location-path { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.record-location { flex-wrap:wrap; }
+@media(max-width: 360px) { .record-panel-hint { white-space: normal; } }
+
+.record-saved { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--mctier-border, rgba(128,128,128,.25)); border-radius: 10px; flex-wrap: wrap; }
+.record-saved > .ant-typography { min-width: 0; flex: 1; }

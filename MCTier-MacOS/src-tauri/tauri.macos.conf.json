@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "MCTier",
+        "width": 420,
+        "height": 680,
+        "minWidth": 360,
+        "minHeight": 480,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 14
+        },
+        "alwaysOnTop": false,
+        "visible": true,
+        "fullscreen": false,
+        "maximizable": true,
+        "zoomHotkeysEnabled": true,
+        "devtools": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+// MCTier 后端模块
+// 本文件作为后端模块的入口点，用于组织和导出各个子模块
+
+// 错误处理模块
+pub mod error;
+pub mod app_paths;
+pub mod logs;
+
+// 配置管理模块
+pub mod config_manager;
+
+// 资源管理模块
+pub mod resource_manager;
+
+// 网络服务模块
+pub mod network_service;
+
+// 大厅管理模块
+pub mod lobby_address;
+pub mod lobby_manager;
+
+// Hosts文件管理模块（Magic DNS）
+pub mod helper_handshake;
+pub mod hosts_manager;
+pub mod hosts_security;
+#[cfg(unix)]
+pub mod unix_hosts_helper;
+pub mod virtual_network;
+
+// 语音服务模块
+#[cfg(windows)]
+pub mod privileged_helper;
+// macOS：utun 必须由 root 创建，EasyTier 通过系统授权窗口提权运行
+#[cfg(target_os = "macos")]
+pub mod macos_privilege;
+
+pub mod voice_service;
+#[cfg(windows)]
+pub mod windows_paths;
+
+// P2P信令服务模块
+pub mod p2p_signaling;
+
+// WebSocket信令服务模块
+pub mod websocket_signaling;
+
+// 应用核心模块
+pub mod app_core;
+
+// Tauri 命令接口模块
+pub mod tauri_commands;
+
+// EasyTier 高级配置命令模块
+pub mod easytier_advanced_commands;
+
+// Tauri 事件推送模块
+pub mod tauri_events;
+
+// 局域网 HTTP 服务的 CORS 策略（文件共享 / P2P 聊天共用）
+pub mod http_cors;
+
+// 高性能文件传输模块
+pub mod file_transfer;
+
+// P2P聊天服务模块
+pub mod chat_service;
+
+// 聊天鉴权：每成员密钥对 + 请求签名（消除虚拟IP伪造空间）
+pub mod builtin_emoji;
+pub mod chat_auth;
+pub mod secret_store;
+
+// Minecraft 局域网世界自动发现模块
+pub mod minecraft_discovery;
+
+// Minecraft 局域网中继桥（让虚拟网内的 MC 世界出现在本机 Minecraft 局域网列表）
+pub mod mc_lan_bridge;
+
+// 远程控制（输入注入）模块
+pub mod remote_control;
+pub mod speech_transcription;
+pub mod media_permission;
+pub mod native_capture;
+pub mod native_microphone;
+pub mod voice_ice;
+pub mod quark_support;
+pub mod quark_background;
+#[cfg(windows)]
+mod quark_scheduler;
+#[cfg(all(test, windows))]
+mod quark_webview_test;
+
+
+// Linux 平台支撑（TUN 文件能力 / 网卡检测 / 防火墙 / XDG 自启动）
+#[cfg(target_os = "linux")]
+pub mod linux_platform;
+
+// macOS 平台支撑（网卡检测 / LaunchAgent 自启动）
+#[cfg(target_os = "macos")]
+pub mod macos_platform;
+
+// macOS 应用菜单栏（关于 / 设置 / 编辑 / 窗口 / 帮助）。文案组装可在非 macOS
+// 上编译测试，真正装到 AppKit 的函数只在 macOS 生效。
+pub mod macos_menu;
+
+// macOS 防休眠断言（录制/通话期间阻止系统休眠，区别于 App Nap 豁免）。
+#[cfg(target_os = "macos")]
+pub mod macos_power;
+
+pub mod screen_recording;

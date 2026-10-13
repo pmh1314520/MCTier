@@ -1,0 +1,49 @@
+.error-boundary-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+}
+
+.error-details {
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: left;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.error-stack {
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.error-stack::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.error-stack::-webkit-scrollbar-track {
+  background: #e8e8e8;
+  border-radius: 4px;
+}
+
+.error-stack::-webkit-scrollbar-thumb {
+  background: #bbb;
+  border-radius: 4px;
+}
+
+.error-stack::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}

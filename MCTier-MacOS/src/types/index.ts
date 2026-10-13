@@ -1,0 +1,231 @@
+/**
+ * MCTier 应用程序类型定义
+ */
+
+/**
+ * 应用状态枚举
+ */
+export type AppState = 'idle' | 'connecting' | 'in-lobby' | 'error';
+
+/**
+ * 大厅信息
+ */
+export interface Lobby {
+  entryMode?: 'create' | 'join' | 'auto';
+  /** 大厅 ID */
+  id: string;
+  /** 大厅名称 */
+  name: string;
+  /** 大厅密码（用于复制分享） */
+  password?: string;
+  /** 创建时间 */
+  createdAt: string;
+  /** 虚拟 IP 地址（当前玩家的） */
+  virtualIp: string;
+  automaticVirtualIp?: boolean;
+  addressAttempt?: number;
+  addressRecoveryStartedAt?: number;
+  /** 创建者的虚拟 IP 地址（用于连接 WebSocket 信令服务器） */
+  creatorVirtualIp: string;
+  /** 虚拟域名（如果配置了） */
+  virtualDomain?: string;
+  /** 是否使用域名访问 */
+  useDomain?: boolean;
+  /** 信令服务器地址 */
+  signalingServer?: string;
+  /** 本次大厅实际使用的 EasyTier 节点 */
+  serverNode?: string;
+}
+
+/**
+ * 玩家信息
+ */
+export interface Player {
+  /** 玩家 ID */
+  id: string;
+  /** 玩家名称 */
+  name: string;
+  /** 用户自定义头像数据（压缩后的 data URL） */
+  avatarData?: string;
+  /** 虚拟IP */
+  virtualIp?: string;
+  /** 虚拟域名 */
+  virtualDomain?: string;
+  /** 是否使用域名访问 */
+  useDomain?: boolean;
+  /** 麦克风是否开启 */
+  micEnabled: boolean;
+  /** 是否被静音 */
+  isMuted: boolean;
+  /** 加入时间 */
+  joinedAt: string;
+}
+
+/**
+ * 窗口位置信息
+ */
+export interface WindowPosition {
+  /** X 坐标 */
+  x: number;
+  /** Y 坐标 */
+  y: number;
+  /** 宽度 */
+  width?: number;
+  /** 高度 */
+  height?: number;
+}
+
+/**
+ * 自动创建大厅配置
+ */
+export interface AutoLobbyConfig {
+  /** 是否启用自动创建/加入大厅 */
+  enabled: boolean;
+  /** 大厅名称 */
+  lobbyName?: string;
+  /** 大厅密码 */
+  lobbyPassword?: string;
+  /** 玩家名称 */
+  playerName?: string;
+  /** 是否使用虚拟域名 */
+  useDomain?: boolean;
+}
+
+/**
+ * 出口节点配置
+ */
+export interface ExitNodeConfig {
+  /** 是否启用出口节点功能 */
+  enableExitNode?: boolean;
+  /** 本机作为出口节点（对应 --enable-exit-node） */
+  enableAsExitNode?: boolean;
+  /** 出口网段列表（对应 --proxy-networks），如 ["0.0.0.0/0"] */
+  proxyCidrs?: string[];
+  /** 客户端出口节点列表（对应 --exit-nodes），填写虚拟 IPv4 */
+  exitNodes?: string[];
+}
+
+/**
+ * 用户配置
+ */
+export interface UserConfig {
+  /** 界面语言偏好，system 表示跟随操作系统 */
+  language?: 'system' | 'zh' | 'en';
+  /** 玩家名称 */
+  playerName?: string;
+  /** 用户自定义头像数据（压缩后的 data URL） */
+  avatarData?: string;
+  /** 首选服务器节点 */
+  preferredServer?: string;
+  /** 麦克风快捷键 */
+  micHotkey?: string;
+  /** 全局听筒快捷键 */
+  globalMuteHotkey?: string;
+  /** F2临时开麦快捷键 */
+  pushToTalkHotkey?: string;
+  /** 窗口位置 */
+  windowPosition?: WindowPosition;
+  /** 音频设备 ID */
+  audioDeviceId?: string;
+  /** 窗口透明度 (0.0-1.0)，默认 0.95 */
+  opacity?: number;
+  /** 语音音量 (0.0-1.0)，默认 1.0 */
+  voiceVolume?: number;
+  /** 是否启用 GPU 渲染，默认 true */
+  enableGpuRendering?: boolean;
+  /** 高级网络配置 */
+  advancedNetwork?: AdvancedNetworkConfig;
+  /** 是否开机自启 */
+  autoStartup?: boolean;
+  /** 自动创建大厅配置 */
+  autoLobby?: AutoLobbyConfig;
+  /** 出口节点配置 */
+  exitNodeConfig?: ExitNodeConfig;
+}
+
+/**
+ * 音频设备信息
+ */
+export interface AudioDevice {
+  /** 设备 ID */
+  id: string;
+  /** 设备名称 */
+  name: string;
+  /** 设备类型 */
+  deviceType: 'microphone' | 'speaker';
+}
+
+/**
+ * 连接状态
+ */
+export type ConnectionStatus =
+  | { type: 'connected'; virtualIp: string }
+  | { type: 'disconnected' }
+  | { type: 'connecting' }
+  | { type: 'error'; message: string };
+
+/**
+ * 聊天消息
+ */
+export interface ChatMessage {
+  /** Local-only send state; never sent over the network. */
+  delivery?: 'sending' | 'failed';
+  /** 消息ID */
+  id: string;
+  /** 发送者玩家ID */
+  playerId: string;
+  /** 发送者玩家名称 */
+  playerName: string;
+  /** 消息内容 */
+  content: string;
+  /** 发送时间戳 */
+  timestamp: number;
+  /** 消息类型 */
+  type?: 'text' | 'image' | 'voice' | 'file';
+  /** 图片数据（Base64） */
+  imageData?: string;
+  /** 按需从发送端获取的文件附件元数据，文件字节不进入聊天历史。 */
+  attachment?: import('../services/chat/fileAttachment').ChatAttachment;
+  /** 消息是否已由原发送者撤回 */
+  recalled?: boolean;
+  recipientId?: string;
+}
+
+/**
+ * 高级网络配置
+ */
+export interface AdvancedNetworkConfig {
+  /** 虚拟域名 */
+  virtualDomain?: string;
+}
+
+// 导出文件共享相关类型
+export * from './fileShare';
+
+/**
+ * 屏幕共享信息
+ */
+export interface ScreenShare {
+  /** 共享ID */
+  id: string;
+  /** 共享者玩家ID */
+  playerId: string;
+  /** 共享者玩家名称 */
+  playerName: string;
+  /** 共享者虚拟IP */
+  virtualIp: string;
+  /** 是否需要密码 */
+  requirePassword: boolean;
+  /** 密码（如果需要） */
+  password?: string;
+  /** 共享开始时间 */
+  startTime: number;
+  /** 共享状态 */
+  status: 'active' | 'paused' | 'stopped';
+  /** 中继链首位观看者ID（兼容旧版状态展示） */
+  viewerId?: string;
+  /** 中继链首位观看者名称（兼容旧版状态展示） */
+  viewerName?: string;
+  /** 当前观看人数（链式中继，不代表共享者的直连数） */
+  viewerCount?: number;
+}

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- tauri-build 会把与 tauri.conf.json 同目录的 Info.plist 合并进打包产物。
+         没有这条 usage description 时，macOS 不会为原生 CoreAudio 采集和
+         WKWebView 的 getUserMedia 弹出麦克风授权框，语音直接静默失败。 -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>MCTier 需要访问麦克风来进行大厅语音通话与录制。</string>
+
+    <!-- 屏幕录制：原生 CoreGraphics 采集与 ScreenCaptureKit 系统声音录制都受
+         TCC 门控。macOS 15+ 会在授权说明里显示这条文案；缺失时系统弹窗只给出
+         通用措辞，用户不易判断授权对象。 -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>MCTier 需要屏幕录制权限来共享屏幕、录制画面并支持被远程协助。</string>
+
+    <!-- 辅助功能：被远程控制时需要通过 CoreGraphics 注入键鼠事件，该能力受
+         辅助功能 TCC 保护。此权限无法由应用发起系统弹窗，但声明用途可让系统
+         授权列表与「隐私与安全性」面板显示正确说明。 -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>MCTier 在你同意被远程协助时，需要辅助功能权限来代为操作键盘和鼠标。</string>
+
+    <!-- Apple Events：后台运行提示通过系统通知中心发送（osascript display
+         notification），首次会触发 Apple Events 的 TCC 授权。声明用途避免系统
+         弹出无说明的授权框。 -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MCTier 需要发送系统通知来提示你它仍在菜单栏后台运行。</string>
+
+    <!-- 本地网络：虚拟局域网联机与局域网内文件共享/聊天会在本地网络上发现与
+         连接其它设备，macOS 14+ 对本地网络访问有独立的 TCC 授权。 -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>MCTier 需要访问本地网络来组建虚拟局域网、发现局域网内的游戏世界并共享文件。</string>
+  </dict>
+</plist>

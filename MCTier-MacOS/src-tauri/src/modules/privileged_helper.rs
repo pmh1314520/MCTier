@@ -1,0 +1,837 @@
+//! Narrow Windows privilege broker.
+//!
+//! The normal Tauri process is `asInvoker`.  When a privileged operation is
+//! needed it starts this same executable with the `runas` verb and exchanges
+//! one-time, typed requests over a loopback connection.  The broker never
+//! accepts an executable name or a shell command from the renderer.
+
+#![cfg(windows)]
+
+use crate::modules::resource_manager::ResourceManager;
+use crate::modules::windows_paths;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::Mutex as AsyncMutex;
+
+const HELPER_SWITCH: &str = "--mctier-privileged-helper";
+const MAX_PROTOCOL_LINE: usize = 8 * 1024 * 1024;
+const MAX_HOSTS_BYTES: usize = 1024 * 1024;
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x00200000;
+const ONE_SHOT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(45);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum HelperRequest {
+    StartEasyTier {
+        executable: String,
+        working_dir: String,
+        config_dir: String,
+        args: Vec<String>,
+    },
+    StopEasyTier,
+    WriteHosts {
+        expected_sha256: String,
+        content: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum HelperEvent {
+    Started,
+    Stdout {
+        line: String,
+    },
+    Stderr {
+        line: String,
+    },
+    Exited {
+        code: Option<i32>,
+    },
+    Response {
+        ok: bool,
+        value: Option<String>,
+        error: Option<String>,
+    },
+}
+
+#[derive(Clone)]
+pub struct HelperSession {
+    writer: Arc<AsyncMutex<OwnedWriteHalf>>,
+}
+
+impl HelperSession {
+    pub async fn stop(&self) -> Result<(), String> {
+        let mut writer = self.writer.lock().await;
+        write_async_json(&mut *writer, &HelperRequest::StopEasyTier).await
+    }
+}
+
+/// Start a long-lived elevated helper and return its event stream.
+pub async fn start_easytier(
+    executable: PathBuf,
+    working_dir: PathBuf,
+    config_dir: PathBuf,
+    args: Vec<String>,
+) -> Result<(HelperSession, OwnedReadHalf), String> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .map_err(|e| format!("无法创建特权 helper 通道: {}", e))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("无法配置特权 helper 通道: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
+        .port();
+    let elevated = launch_elevated_helper(port)?;
+    let stream = tokio::task::spawn_blocking(move || {
+        let result = super::helper_handshake::accept_authenticated(
+            listener,
+            elevated.pid,
+            Duration::from_secs(10),
+        );
+        drop(elevated);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let stream = tokio::net::TcpStream::from_std(stream).map_err(|e| e.to_string())?;
+
+    let (read_half, mut write_half) = stream.into_split();
+    write_async_json(
+        &mut write_half,
+        &HelperRequest::StartEasyTier {
+            executable: executable.to_string_lossy().into_owned(),
+            working_dir: working_dir.to_string_lossy().into_owned(),
+            config_dir: config_dir.to_string_lossy().into_owned(),
+            args,
+        },
+    )
+    .await?;
+
+    let mut first_reader = AsyncBufReader::new(read_half);
+    let mut first_line = String::new();
+    first_reader
+        .read_line(&mut first_line)
+        .await
+        .map_err(|e| format!("读取 EasyTier 启动结果失败: {}", e))?;
+    let first: HelperEvent = serde_json::from_str(first_line.trim())
+        .map_err(|e| format!("解析 EasyTier 启动结果失败: {}", e))?;
+    match first {
+        HelperEvent::Started => Ok((
+            HelperSession {
+                writer: Arc::new(AsyncMutex::new(write_half)),
+            },
+            first_reader.into_inner(),
+        )),
+        HelperEvent::Response { error, .. } => {
+            Err(error.unwrap_or_else(|| "特权 helper 拒绝启动 EasyTier".to_string()))
+        }
+        _ => Err("特权 helper 返回了无效的启动结果".to_string()),
+    }
+}
+
+/// Run a single fixed privileged operation, normally used for hosts updates
+/// before an EasyTier session exists.
+pub fn run_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
+    // When MCTier itself is already elevated, starting a second copy through
+    // ShellExecute can stall behind UAC/security software. The request is still
+    // a closed enum and receives the same path validation as the helper path.
+    if is_elevated() {
+        return execute_one_shot(request);
+    }
+
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .map_err(|e| format!("无法创建特权 helper 通道: {}", e))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("无法配置特权 helper 通道: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("无法读取特权 helper 端口: {}", e))?
+        .port();
+    let elevated = launch_elevated_helper(port)?;
+    let stream = super::helper_handshake::accept_authenticated(
+        listener,
+        elevated.pid,
+        Duration::from_secs(10),
+    )?;
+    drop(elevated);
+    stream
+        .set_read_timeout(Some(ONE_SHOT_RESPONSE_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(10)))
+        .map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+
+    let mut writer = BufWriter::new(stream);
+    write_json(&mut writer, &request)?;
+    loop {
+        let mut line = String::new();
+        if reader
+            .read_line(&mut line)
+            .map_err(|e| format!("读取特权 helper 响应失败: {}", e))?
+            == 0
+        {
+            return Err("特权 helper 意外断开连接".to_string());
+        }
+        let event: HelperEvent = serde_json::from_str(line.trim())
+            .map_err(|e| format!("解析特权 helper 响应失败: {}", e))?;
+        if let HelperEvent::Response { ok, value, error } = event {
+            return if ok {
+                Ok(value)
+            } else {
+                Err(error.unwrap_or_else(|| "特权 helper 操作失败".to_string()))
+            };
+        }
+    }
+}
+
+fn execute_one_shot(request: HelperRequest) -> Result<Option<String>, String> {
+    match request {
+        HelperRequest::StopEasyTier => {
+            stop_existing_easytier()?;
+            cleanup_mctier_devices();
+            Ok(None)
+        }
+        HelperRequest::WriteHosts {
+            expected_sha256,
+            content,
+        } => {
+            write_hosts(&expected_sha256, &content)?;
+            Ok(None)
+        }
+        HelperRequest::StartEasyTier { .. } => Err("一次性特权操作不支持启动 EasyTier".to_string()),
+    }
+}
+
+async fn write_async_json(
+    writer: &mut OwnedWriteHalf,
+    request: &HelperRequest,
+) -> Result<(), String> {
+    let mut line =
+        serde_json::to_vec(request).map_err(|e| format!("序列化 helper 请求失败: {}", e))?;
+    line.push(b'\n');
+    writer
+        .write_all(&line)
+        .await
+        .map_err(|e| format!("发送 helper 请求失败: {}", e))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("刷新 helper 请求失败: {}", e))
+}
+
+fn write_json<W: Write>(writer: &mut W, request: &HelperRequest) -> Result<(), String> {
+    serde_json::to_writer(&mut *writer, request)
+        .map_err(|e| format!("序列化 helper 请求失败: {}", e))?;
+    writer
+        .write_all(b"\n")
+        .map_err(|e| format!("发送 helper 请求失败: {}", e))?;
+    writer
+        .flush()
+        .map_err(|e| format!("刷新 helper 请求失败: {}", e))
+}
+
+// Retain the process object until authentication finishes, preventing PID reuse.
+struct ElevatedProcess {
+    handle: isize,
+    pid: u32,
+}
+
+impl Drop for ElevatedProcess {
+    fn drop(&mut self) {
+        let _ = unsafe {
+            windows::Win32::Foundation::CloseHandle(windows::Win32::Foundation::HANDLE(
+                self.handle as *mut _,
+            ))
+        };
+    }
+}
+
+fn launch_elevated_helper(port: u16) -> Result<ElevatedProcess, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::GetProcessId;
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    let executable =
+        std::env::current_exe().map_err(|e| format!("无法获取 MCTier 可执行文件路径: {}", e))?;
+    let executable_wide: Vec<u16> = executable
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let parameters = format!("{} {} {}", HELPER_SWITCH, port, std::process::id());
+    let parameters_wide: Vec<u16> = parameters
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: w!("runas"),
+        lpFile: PCWSTR(executable_wide.as_ptr()),
+        lpParameters: PCWSTR(parameters_wide.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+
+    unsafe { ShellExecuteExW(&mut info) }
+        .map_err(|e| format!("请求 UAC 启动特权 helper 失败: {}", e))?;
+    if info.hProcess.0.is_null() {
+        return Err("未取得特权 helper 进程句柄".into());
+    }
+    let pid = unsafe { GetProcessId(info.hProcess) };
+    if pid == 0 {
+        let _ = unsafe { CloseHandle(info.hProcess) };
+        return Err("无法读取特权 helper 进程 ID".into());
+    }
+    Ok(ElevatedProcess {
+        handle: info.hProcess.0 as isize,
+        pid,
+    })
+}
+
+pub fn run_if_requested() -> bool {
+    let mut args = std::env::args();
+    let _ = args.next();
+    if args.next().as_deref() != Some(HELPER_SWITCH) {
+        return false;
+    }
+    let port = match args.next().and_then(|value| value.parse::<u16>().ok()) {
+        Some(port) if port != 0 => port,
+        _ => std::process::exit(2),
+    };
+    let parent_pid = match args.next().and_then(|value| value.parse::<u32>().ok()) {
+        Some(pid) if pid != 0 => pid,
+        _ => std::process::exit(2),
+    };
+    if args.next().is_some() {
+        std::process::exit(2);
+    }
+    let result = helper_main(port, parent_pid);
+    if let Err(error) = result {
+        eprintln!("MCTier privileged helper failed: {}", error);
+        std::process::exit(1);
+    }
+    std::process::exit(0)
+}
+
+fn helper_main(port: u16, parent_pid: u32) -> Result<(), String> {
+    if !is_elevated() {
+        return Err("特权 helper 未获得管理员令牌".to_string());
+    }
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))
+        .map_err(|e| format!("连接特权 helper 客户端失败: {}", e))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|e| format!("配置特权 helper 客户端失败: {}", e))?;
+    super::helper_handshake::verify_parent(&stream, parent_pid)?;
+    writeln!(stream, "{}", super::helper_handshake::HANDSHAKE_PREFIX)
+        .map_err(|e| format!("发送特权 helper 握手失败: {}", e))?;
+
+    let reader_stream = stream
+        .try_clone()
+        .map_err(|e| format!("复制特权 helper 通道失败: {}", e))?;
+    let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
+    let (request_tx, request_rx) = mpsc::channel::<HelperRequest>();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader_stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            if line.len() <= MAX_PROTOCOL_LINE {
+                if let Ok(request) = serde_json::from_str::<HelperRequest>(line.trim()) {
+                    if request_tx.send(request).is_err() {
+                        break;
+                    }
+                }
+            }
+            line.clear();
+        }
+    });
+
+    let mut child: Option<Child> = None;
+    let mut current_config_dir: Option<PathBuf> = None;
+    loop {
+        if let Some(current) = child.as_mut() {
+            if let Some(status) = current
+                .try_wait()
+                .map_err(|e| format!("检查 EasyTier 进程状态失败: {}", e))?
+            {
+                send_event(
+                    &writer,
+                    &HelperEvent::Exited {
+                        code: status.code(),
+                    },
+                )?;
+                child = None;
+                break;
+            }
+        }
+
+        match request_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(HelperRequest::StartEasyTier {
+                executable,
+                working_dir,
+                config_dir,
+                args,
+            }) => {
+                if child.is_some() {
+                    send_response(&writer, false, None, Some("EasyTier 已在运行".to_string()))?;
+                    continue;
+                }
+                match start_easytier_child(&executable, &working_dir, &config_dir, &args, &writer) {
+                    Ok(started) => {
+                        child = Some(started);
+                        current_config_dir = Some(PathBuf::from(config_dir));
+                        send_event(&writer, &HelperEvent::Started)?;
+                    }
+                    Err(error) => send_response(&writer, false, None, Some(error))?,
+                }
+            }
+            Ok(HelperRequest::StopEasyTier) => {
+                let exit_code = if let Some(mut current) = child.take() {
+                    let _ = current.kill();
+                    let status = current.wait().ok();
+                    status.and_then(|value| value.code())
+                } else {
+                    stop_existing_easytier()?;
+                    None
+                };
+                cleanup_mctier_devices();
+                if let Some(config_dir) = current_config_dir.take() {
+                    let _ = fs::remove_dir_all(config_dir);
+                }
+                send_response(&writer, true, None, None)?;
+                send_event(&writer, &HelperEvent::Exited { code: exit_code })?;
+                break;
+            }
+            Ok(HelperRequest::WriteHosts {
+                expected_sha256,
+                content,
+            }) => {
+                let result = write_hosts(&expected_sha256, &content);
+                match result {
+                    Ok(()) => send_response(&writer, true, None, None)?,
+                    Err(error) => send_response(&writer, false, None, Some(error))?,
+                }
+                if child.is_none() {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Some(mut current) = child.take() {
+                    let _ = current.kill();
+                    let _ = current.wait();
+                }
+                if let Some(config_dir) = current_config_dir.take() {
+                    let _ = fs::remove_dir_all(config_dir);
+                }
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn start_easytier_child(
+    executable: &str,
+    working_dir: &str,
+    config_dir: &str,
+    args: &[String],
+    writer: &Arc<Mutex<BufWriter<TcpStream>>>,
+) -> Result<Child, String> {
+    let executable = PathBuf::from(executable);
+    let working_dir = PathBuf::from(working_dir);
+    let config_dir = PathBuf::from(config_dir);
+    validate_easytier_layout(&executable, &working_dir, &config_dir)?;
+    validate_start_args(args, &config_dir)?;
+
+    stop_existing_easytier()?;
+    cleanup_mctier_devices();
+
+    let mut command = Command::new(&executable);
+    command
+        .args(args)
+        .current_dir(&working_dir)
+        .env(
+            "PATH",
+            format!(
+                "{};{}",
+                working_dir.display(),
+                windows_paths::system_directory().display()
+            ),
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("启动 EasyTier 失败: {}", e))?;
+    if let Some(stdout) = child.stdout.take() {
+        spawn_output_reader(stdout, writer.clone(), false);
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_output_reader(stderr, writer.clone(), true);
+    }
+    Ok(child)
+}
+
+fn validate_runtime_location(executable_dir: &Path, working_dir: &Path) -> Result<(), String> {
+    // Canonicalize existing parents, not the runtime itself: on first launch
+    // the elevated helper has not materialized the embedded files yet.
+    ensure_no_reparse_components(executable_dir)?;
+    let parent = working_dir.parent().ok_or("runtime 目录缺少父目录")?;
+    ensure_no_reparse_components(parent)?;
+    let install = fs::canonicalize(executable_dir).map_err(|e| e.to_string())?;
+    let runtime = fs::canonicalize(parent)
+        .map_err(|e| e.to_string())?
+        .join(working_dir.file_name().ok_or("runtime 目录名称无效")?);
+    if runtime != install.join("runtime") && runtime != install.join("resources").join("runtime") {
+        return Err("EasyTier 运行路径不在受控 runtime 目录中".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod runtime_path_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_normal_and_verbatim_paths_before_runtime_exists() {
+        let install = tempfile::tempdir().unwrap();
+        let canonical = fs::canonicalize(install.path()).unwrap();
+        assert!(validate_runtime_location(install.path(), &canonical.join("runtime")).is_ok());
+        assert!(validate_runtime_location(&canonical, &install.path().join("runtime")).is_ok());
+        fs::create_dir(install.path().join("resources")).unwrap();
+        assert!(
+            validate_runtime_location(install.path(), &canonical.join("resources/runtime")).is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_siblings_and_external_runtime() {
+        let install = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        assert!(
+            validate_runtime_location(install.path(), &outside.path().join("runtime")).is_err()
+        );
+        assert!(
+            validate_runtime_location(install.path(), &install.path().join("runtime-other"))
+                .is_err()
+        );
+        assert!(
+            validate_runtime_location(install.path(), &install.path().join("../runtime")).is_err()
+        );
+    }
+
+    #[test]
+    fn allows_passwordless_network_but_rejects_other_empty_arguments() {
+        let config = Path::new(r"C:\MCTier\runtime\config_mctier-test");
+        let mut args = vec![
+            "--network-secret".into(),
+            String::new(),
+            "--config-dir".into(),
+            config.to_string_lossy().into_owned(),
+        ];
+        assert!(validate_start_args(&args, config).is_ok());
+        args[0] = "--network-name".into();
+        assert!(validate_start_args(&args, config).is_err());
+        args[0] = "--network-secret".into();
+        args[1] = "invalid\0secret".into();
+        assert!(validate_start_args(&args, config).is_err());
+    }
+}
+
+fn validate_easytier_layout(
+    executable: &Path,
+    working_dir: &Path,
+    config_dir: &Path,
+) -> Result<(), String> {
+    let executable_dir = std::env::current_exe()
+        .map_err(|e| format!("无法获取 MCTier 安装目录: {}", e))?
+        .parent()
+        .ok_or_else(|| "MCTier 可执行文件缺少安装目录".to_string())?
+        .to_path_buf();
+    validate_runtime_location(&executable_dir, working_dir)?;
+    if executable != &working_dir.join("easytier-core.exe") {
+        return Err("EasyTier 运行路径不在受控 runtime 目录中".to_string());
+    }
+    if !config_dir.starts_with(working_dir)
+        || config_dir.parent() != Some(working_dir)
+        || !config_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("config_mctier-"))
+    {
+        return Err("EasyTier 配置目录不在受控 runtime 子目录中".to_string());
+    }
+    if !working_dir.exists() {
+        fs::create_dir_all(working_dir)
+            .map_err(|e| format!("创建 EasyTier runtime 目录失败: {}", e))?;
+    }
+    ensure_no_reparse_components(working_dir)?;
+    if let Some(parent) = config_dir.parent() {
+        ensure_no_reparse_components(parent)?;
+    }
+    fs::create_dir_all(config_dir).map_err(|e| format!("创建 EasyTier 配置目录失败: {}", e))?;
+    ensure_no_reparse_components(config_dir)?;
+
+    ResourceManager::ensure_embedded_file_at(executable, "easytier-core.exe")
+        .map_err(|e| e.to_string())?;
+    ResourceManager::ensure_embedded_file_at(
+        &working_dir.join("easytier-cli.exe"),
+        "easytier-cli.exe",
+    )
+    .map_err(|e| e.to_string())?;
+    ResourceManager::ensure_embedded_file_at(&working_dir.join("wintun.dll"), "wintun.dll")
+        .map_err(|e| e.to_string())?;
+    ResourceManager::ensure_embedded_file_at(
+        &working_dir.join("WinDivert64.sys"),
+        "WinDivert64.sys",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn validate_start_args(args: &[String], config_dir: &Path) -> Result<(), String> {
+    if args.is_empty() || args.len() > 256 {
+        return Err("EasyTier 参数数量异常".to_string());
+    }
+    if args.iter().enumerate().any(|(index, arg)| {
+        let empty_secret = index > 0 && args[index - 1] == "--network-secret";
+        (arg.is_empty() && !empty_secret) || arg.len() > 64 * 1024 || arg.contains('\0')
+    }) {
+        return Err("EasyTier 参数包含非法内容".to_string());
+    }
+    let mut config_arg = None;
+    for (index, arg) in args.iter().enumerate() {
+        if arg == "--config-dir" {
+            config_arg = args.get(index + 1);
+            break;
+        }
+    }
+    if config_arg.map(PathBuf::from).as_deref() != Some(config_dir) {
+        return Err("EasyTier 配置目录参数不匹配".to_string());
+    }
+    Ok(())
+}
+
+fn spawn_output_reader<R: Read + Send + 'static>(
+    reader: R,
+    writer: Arc<Mutex<BufWriter<TcpStream>>>,
+    stderr: bool,
+) {
+    thread::spawn(move || {
+        let mut lines = BufReader::new(reader).lines();
+        while let Some(Ok(line)) = lines.next() {
+            let event = if stderr {
+                HelperEvent::Stderr { line }
+            } else {
+                HelperEvent::Stdout { line }
+            };
+            let _ = send_event(&writer, &event);
+        }
+    });
+}
+
+fn send_event(
+    writer: &Arc<Mutex<BufWriter<TcpStream>>>,
+    event: &HelperEvent,
+) -> Result<(), String> {
+    let mut guard = writer
+        .lock()
+        .map_err(|_| "特权 helper 输出锁失败".to_string())?;
+    serde_json::to_writer(&mut *guard, event)
+        .map_err(|e| format!("序列化 helper 事件失败: {}", e))?;
+    guard
+        .write_all(b"\n")
+        .map_err(|e| format!("发送 helper 事件失败: {}", e))?;
+    guard
+        .flush()
+        .map_err(|e| format!("刷新 helper 事件失败: {}", e))
+}
+
+fn send_response(
+    writer: &Arc<Mutex<BufWriter<TcpStream>>>,
+    ok: bool,
+    value: Option<String>,
+    error: Option<String>,
+) -> Result<(), String> {
+    send_event(writer, &HelperEvent::Response { ok, value, error })
+}
+
+fn ensure_no_reparse_components(path: &Path) -> Result<(), String> {
+    let mut current = path.to_path_buf();
+    loop {
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|e| format!("检查受控路径失败 {}: {}", current.display(), e))?;
+        if is_link_or_reparse(&metadata) {
+            return Err(format!(
+                "拒绝经过 symlink/reparse point: {}",
+                current.display()
+            ));
+        }
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        if parent == current {
+            break;
+        }
+        current = parent.to_path_buf();
+    }
+    Ok(())
+}
+
+fn ensure_regular_file(path: &Path) -> Result<(), String> {
+    ensure_no_reparse_components(path)?;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| format!("检查文件失败 {}: {}", path.display(), e))?;
+    if is_link_or_reparse(&metadata) || !metadata.is_file() {
+        return Err(format!("路径不是普通文件: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{:02x}", byte)).collect()
+}
+
+fn write_hosts(expected_sha256: &str, content: &str) -> Result<(), String> {
+    if content.len() > MAX_HOSTS_BYTES {
+        return Err("hosts 文件内容超过限制".to_string());
+    }
+    let path = windows_paths::hosts_path();
+    ensure_regular_file(&path)?;
+    let old = fs::read_to_string(&path).map_err(|e| format!("读取 hosts 文件失败: {}", e))?;
+    if sha256_hex(old.as_bytes()) != expected_sha256 {
+        return Err("hosts 文件在检查后发生变化，请重试".to_string());
+    }
+    validate_hosts_update(&old, content)?;
+
+    let mut options = OpenOptions::new();
+    options.write(true).truncate(true);
+    use std::os::windows::fs::OpenOptionsExt;
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let mut file = options
+        .open(&path)
+        .map_err(|e| format!("打开 hosts 文件失败: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("写入 hosts 文件失败: {}", e))?;
+    file.sync_all()
+        .map_err(|e| format!("同步 hosts 文件失败: {}", e))?;
+    ensure_regular_file(&path)?;
+
+    let flush = Command::new(windows_paths::system_command("ipconfig.exe"))
+        .arg("/flushdns")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("刷新 DNS 缓存失败: {}", e))?;
+    if !flush.status.success() {
+        return Err("刷新 DNS 缓存失败".to_string());
+    }
+    Ok(())
+}
+
+use super::hosts_security::validate_hosts_update;
+
+fn stop_existing_easytier() -> Result<(), String> {
+    let output = Command::new(windows_paths::system_command("taskkill.exe"))
+        .args(["/F", "/IM", "easytier-core.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("停止 EasyTier 失败: {}", e))?;
+    // taskkill returns non-zero when no matching process exists, which is the
+    // expected result during a normal first start.
+    if output.status.success() || output.status.code() == Some(128) {
+        Ok(())
+    } else {
+        Err("停止残留 EasyTier 进程失败".to_string())
+    }
+}
+
+fn cleanup_mctier_devices() {
+    let Ok(output) = Command::new(windows_paths::system_command("pnputil.exe"))
+        .args(["/enum-devices", "/class", "Net"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut current_id = String::new();
+    let mut target = false;
+    for line in text.lines() {
+        if line.contains("Instance ID:") || line.contains("实例 ID:") {
+            current_id = line
+                .split_once(':')
+                .map(|(_, value)| value.trim().to_string())
+                .unwrap_or_default();
+            target = false;
+        }
+        if line.contains("MCTier_") && !current_id.is_empty() {
+            target = true;
+        }
+        if target && !current_id.is_empty() {
+            let _ = Command::new(windows_paths::system_command("pnputil.exe"))
+                .args(["/remove-device", &current_id])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+            current_id.clear();
+            target = false;
+        }
+    }
+}
+
+fn is_elevated() -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut length = 0u32;
+        let elevated = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut length,
+        )
+        .is_ok()
+            && elevation.TokenIsElevated != 0;
+        let _ = CloseHandle(token);
+        elevated
+    }
+}

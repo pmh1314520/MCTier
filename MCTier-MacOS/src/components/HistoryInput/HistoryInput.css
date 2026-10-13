@@ -1,0 +1,120 @@
+.history-input-container {
+  position: relative;
+  width: 100%;
+}
+
+.history-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  border: 1px solid rgba(90, 148, 40, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8);
+  z-index: 9999;
+  overflow: hidden;
+}
+
+/* 真实的不透明背景层 */
+.history-dropdown-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #1e2332;
+  z-index: 0;
+}
+
+/* 使用伪元素创建完全不透明的背景层 */
+.history-dropdown::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #1e2332;
+  z-index: -1;
+  opacity: 1;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #282d3c;
+  border-bottom: 1px solid rgba(90, 148, 40, 0.2);
+  position: relative;
+  z-index: 1;
+}
+
+.history-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+}
+
+.history-clear-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 100, 100, 0.8);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.history-clear-btn:hover {
+  background: rgba(255, 100, 100, 0.1);
+  color: rgba(255, 100, 100, 1);
+}
+
+.history-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background: #1e2332;
+  position: relative;
+  z-index: 1;
+}
+
+.history-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  transition: all 0.2s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: #1e2332;
+  position: relative;
+  z-index: 1;
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item:hover {
+  background: #323746;
+  color: rgba(255, 255, 255, 1);
+}
+
+/* 自定义滚动条 */
+.history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: rgba(90, 148, 40, 0.4);
+  border-radius: 3px;
+}
+
+.history-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(90, 148, 40, 0.6);
+}

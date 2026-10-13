@@ -1,0 +1,71 @@
+/* 弹幕覆盖窗口：完全透明。穿透由 Rust set_ignore_cursor_events 动态控制：
+   鼠标悬停在弹幕上或有弹幕被定住时关闭穿透以便点击，否则开启穿透不挡操作。 */
+.danmaku-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.danmaku-bullet {
+  position: absolute;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 800;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 4px rgba(0, 0, 0, 0.7);
+  will-change: transform;
+  transform: translateX(100vw);
+  animation-name: danmaku-move;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+  cursor: pointer;
+}
+
+/* 被定住的弹幕：高亮描边，提示可操作 */
+.danmaku-pinned {
+  z-index: 10;
+  filter: drop-shadow(0 0 6px rgba(124, 207, 0, 0.9));
+}
+
+.danmaku-name {
+  margin-right: 8px;
+}
+
+.danmaku-img {
+  display: block;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.danmaku-visual { position: relative; display: inline-flex; }
+.danmaku-video-mark { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #fff; filter: drop-shadow(0 1px 3px #000); }
+.danmaku-media-card { display: inline-flex; align-items: center; gap: .5em; padding: .12em .5em; border: 1px solid #a9e57b80; border-radius: .35em; background: #17251ded; color: #fff; font-size: .85em; }
+.danmaku-media-card > span:not(.anticon) { max-width: 22em; overflow: hidden; text-overflow: ellipsis; }
+.danmaku-media-card small { display: block; color: #d0dfc9; font-size: .6em; }
+.danmaku-wave { color: #95ec69; letter-spacing: .08em; }
+
+/* 操作结果轻提示 */
+.danmaku-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 100;
+}
+
+@keyframes danmaku-move {
+  from { transform: translateX(100vw); }
+  to { transform: translateX(-110%); }
+}

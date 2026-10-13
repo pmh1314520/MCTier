@@ -1,0 +1,35 @@
+.hotkey-input-wrapper {
+  width: 100%;
+}
+
+.hotkey-input {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.hotkey-input.recording {
+  border-color: rgba(126, 211, 33, 0.8);
+  box-shadow: 0 0 0 2px rgba(126, 211, 33, 0.2);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.hotkey-clear {
+  font-size: 14px;
+  padding: 0 4px;
+  transition: color 0.2s ease;
+}
+
+.hotkey-clear:hover {
+  color: #ff4d4f !important;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(126, 211, 33, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(126, 211, 33, 0.3);
+  }
+}

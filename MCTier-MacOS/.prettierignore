@@ -1,0 +1,18 @@
+# 依赖
+node_modules
+dist
+build
+
+# Tauri
+src-tauri/target
+src-tauri/gen
+
+# 配置文件
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# 其他
+.git
+.vscode
+*.log

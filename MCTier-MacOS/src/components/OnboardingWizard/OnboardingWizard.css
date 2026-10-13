@@ -1,0 +1,69 @@
+/* 新手引导弹窗样式 - 紧凑、美观 */
+
+.onboarding-modal .ant-modal-body {
+  padding-top: 8px;
+}
+
+.onboarding-step {
+  padding: 4px 2px;
+}
+
+.onboarding-text {
+  color: var(--mct-text-secondary, #bec4ce);
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 10px !important;
+}
+
+.onboarding-list {
+  color: var(--mct-text-secondary, #bec4ce);
+  font-size: 13px;
+  line-height: 1.65;
+  padding-left: 18px;
+  margin: 0 0 10px 0;
+}
+
+.onboarding-list li {
+  margin-bottom: 4px;
+}
+
+/* 底部按钮区：左右分布，确保单行不换行 */
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.onboarding-footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.onboarding-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.onboarding-security-notice.ant-alert {
+  border: 2px solid #d89614;
+  border-radius: 10px;
+  padding: 16px;
+  background: rgba(250, 173, 20, 0.12);
+}
+
+.onboarding-security-notice .ant-alert-message {
+  color: var(--text-color);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.onboarding-security-notice .ant-alert-description {
+  color: var(--text-color);
+  font-size: 13px;
+  line-height: 1.8;
+}

@@ -1,0 +1,215 @@
+.global-advanced-config-panel {
+  padding: 20px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.global-advanced-config-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.global-advanced-config-header {
+  margin-bottom: 20px;
+}
+
+.global-advanced-config-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.global-advanced-config-header p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+.global-virtual-ip-setting { margin-bottom: 20px; padding: 14px 16px 10px; border: 1px solid rgba(126, 211, 33, 0.28); border-radius: 8px; background: rgba(126, 211, 33, 0.06); }
+.global-virtual-ip-setting .ant-form-item { margin-bottom: 6px; }
+.global-virtual-ip-setting .ant-form-item-label > label { color: rgba(255, 255, 255, 0.9); font-size: 13px; font-weight: 600; }
+.global-virtual-ip-setting .ant-input-number { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.15); }
+.global-virtual-ip-setting .ant-input-number-input { color: rgba(255, 255, 255, 0.9); }
+.global-virtual-ip-hint { color: rgba(255, 255, 255, 0.58); font-size: 12px; line-height: 1.5; }
+
+.advanced-config-collapse {
+  background: transparent;
+  border: none;
+}
+
+.advanced-config-collapse .ant-collapse-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.advanced-config-collapse .ant-collapse-header {
+  padding: 12px 16px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.advanced-config-collapse .ant-collapse-content {
+  background: transparent;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.advanced-config-collapse .ant-collapse-content-box {
+  padding: 16px;
+}
+
+.advanced-config-collapse .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.advanced-config-collapse .ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+}
+
+.advanced-config-collapse .ant-input,
+.advanced-config-collapse .ant-input-number {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.advanced-config-collapse .ant-input:hover,
+.advanced-config-collapse .ant-input-number:hover {
+  border-color: rgba(126, 211, 33, 0.5);
+}
+
+.advanced-config-collapse .ant-input:focus,
+.advanced-config-collapse .ant-input-number:focus,
+.advanced-config-collapse .ant-input-number-focused {
+  border-color: rgba(126, 211, 33, 0.8);
+  box-shadow: 0 0 0 2px rgba(126, 211, 33, 0.1);
+}
+
+.advanced-config-collapse .ant-input::placeholder,
+.advanced-config-collapse .ant-input-number input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.advanced-config-collapse .ant-switch {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.advanced-config-collapse .ant-switch-checked {
+  background: rgba(126, 211, 33, 0.8);
+}
+
+.global-advanced-config-footer {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.global-advanced-config-save-btn {
+  padding: 8px 24px;
+  background: linear-gradient(135deg, rgba(126, 211, 33, 0.9), rgba(106, 191, 13, 0.9));
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.global-advanced-config-save-btn:hover {
+  background: linear-gradient(135deg, rgba(126, 211, 33, 1), rgba(106, 191, 13, 1));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(126, 211, 33, 0.3);
+}
+
+.global-advanced-config-save-btn:active {
+  transform: translateY(0);
+}
+
+.global-advanced-config-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 滚动条样式 */
+.global-advanced-config-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.global-advanced-config-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.global-advanced-config-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.global-advanced-config-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Light theme: keep this dense configuration surface neutral and readable. */
+html[data-theme='light'] .global-advanced-config-panel {
+  color: #18202b;
+}
+html[data-theme='light'] .global-advanced-config-header h3 {
+  color: #18202b !important;
+}
+html[data-theme='light'] .global-advanced-config-header p,
+html[data-theme='light'] .global-advanced-config-panel [style*='color: rgba(255'] {
+  color: #596574 !important;
+}
+html[data-theme='light'] .global-virtual-ip-setting { border-color: rgba(76, 145, 32, 0.28); background: rgba(126, 211, 33, 0.08); }
+html[data-theme='light'] .global-virtual-ip-setting .ant-form-item-label > label,
+html[data-theme='light'] .global-virtual-ip-setting .ant-input-number-input { color: #18202b !important; }
+html[data-theme='light'] .global-virtual-ip-setting .ant-input-number { background: #ffffff; border-color: rgba(24, 32, 43, 0.18); }
+html[data-theme='light'] .global-virtual-ip-hint { color: #596574; }
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-item {
+  background: #ffffff;
+  border-color: rgba(24, 32, 43, 0.14);
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-header {
+  color: #18202b !important;
+  background: #f4f6f8;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-content {
+  background: #ffffff;
+  border-top-color: rgba(24, 32, 43, 0.1);
+}
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-label > label,
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-control,
+html[data-theme='light'] .advanced-config-collapse .ant-form-item-control-input {
+  color: #364151 !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-input,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number-input,
+html[data-theme='light'] .advanced-config-collapse textarea.ant-input {
+  color: #18202b !important;
+  background: #ffffff !important;
+  border-color: rgba(24, 32, 43, 0.18) !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-input::placeholder,
+html[data-theme='light'] .advanced-config-collapse .ant-input-number input::placeholder {
+  color: #85909d !important;
+}
+html[data-theme='light'] .advanced-config-collapse .ant-collapse-arrow,
+html[data-theme='light'] .advanced-config-collapse .anticon {
+  color: #596574 !important;
+}
+html[data-theme='light'] .global-advanced-config-panel .global-advanced-config-footer {
+  border-top-color: rgba(24, 32, 43, 0.12);
+}

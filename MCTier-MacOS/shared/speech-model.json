@@ -1,0 +1,9 @@
+{
+  "id": "zipformer-ctc-zh-int8-2025-04-01",
+  "baseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/resolve/a5f60fe00dcfbaf68fcc1c6b5cf53061e144d6da/",
+  "maxBundledBytes": 20100000,
+  "files": [
+    { "name": "model.int8.onnx", "size": 26342340, "sha256": "68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a", "compression": "gzip" },
+    { "name": "tokens.txt", "size": 13366, "sha256": "6fed8c6c248516f38e7faa19404b57413e8ce259f1cbc1fa4aebc86eac32fdfd" }
+  ]
+}

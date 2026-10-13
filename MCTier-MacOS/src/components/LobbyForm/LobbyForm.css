@@ -1,0 +1,735 @@
+@media (min-width: 760px) {
+  :root[data-platform='macos'] .lobby-form-container {
+    min-height: 0;
+    height: 100%;
+    padding: 72px clamp(32px, 6vw, 96px) 48px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    align-items: flex-start;
+  }
+
+  :root[data-platform='macos'] .lobby-form-card {
+    width: min(100%, 760px);
+    max-width: 760px;
+    min-width: 0;
+    margin: auto;
+    padding: 36px 44px 44px;
+  }
+}
+
+.lobby-form-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 滚动区域必须显式 no-drag。
+   .lobby-form-container 带 data-tauri-drag-region，而 Chromium 的 app-region 按几何矩形
+   命中：父级为 drag 时，子元素的默认值不会自动“打洞”，未显式声明 no-drag 的区域会吞掉
+   鼠标事件（含滚轮）。这会导致光标停在卡片空白处或“重要提示”框上时滚轮失效（issue #41）。
+   窗口拖拽仍由容器上未被卡片覆盖的边缘区域提供。 */
+.lobby-form-card,
+.lobby-form-card * {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 确保交互元素不受拖拽影响 */
+.lobby-form-container button,
+.lobby-form-container input,
+.lobby-form-container select,
+.lobby-form-container textarea,
+.lobby-form-container a,
+.lobby-form-container .ant-input,
+.lobby-form-container .ant-select,
+.lobby-form-container .ant-radio,
+.lobby-form-container .ant-checkbox,
+.lobby-form-container .ant-switch,
+.lobby-form-container .history-dropdown,
+.lobby-form-container .ant-form-item {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 动态背景粒子效果 */
+.lobby-form-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
+  animation: none;
+}
+
+@keyframes particleFloat {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(20px, 20px);
+    opacity: 0.8;
+  }
+}
+
+.lobby-form-card {
+  padding: 28px 24px;
+  min-width: 300px;
+  max-width: 320px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  max-height: 85vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 滚动提示 - 悬浮在底部 */
+.scroll-hint-floating {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  margin-left: -24px; /* 圆形宽度的一半，确保完全居中 */
+  z-index: 1000;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(90, 148, 40, 0.95) 0%, rgba(74, 122, 32, 0.95) 100%);
+  border-radius: 50%;
+  box-shadow: 0 6px 20px rgba(90, 148, 40, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+  animation: none;
+  color: rgba(255, 255, 255, 1);
+}
+
+@keyframes floatingPulse {
+  0%, 100% {
+    box-shadow: 0 6px 20px rgba(90, 148, 40, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 8px 28px rgba(90, 148, 40, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  }
+}
+
+.lobby-form-title {
+  text-align: center;
+  margin-bottom: 20px !important;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800 !important;
+  font-size: 22px !important;
+}
+
+/* 隐藏滚动条但保留滚动功能 */
+.lobby-form-card::-webkit-scrollbar {
+  display: none;
+}
+
+.lobby-form-card {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.lobby-form {
+  margin-bottom: 0;
+}
+
+.lobby-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.lobby-form .ant-form-item:first-of-type {
+  margin-top: 0;
+}
+
+.lobby-form .ant-form-item-label {
+  padding-bottom: 8px;
+}
+
+.lobby-form .ant-form-item-label > label {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  height: auto;
+}
+
+.lobby-form .ant-input {
+  border-radius: 8px !important;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  height: 40px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #ffffff !important;
+}
+
+.mct-node-select {
+  position: relative;
+  width: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.server-node-form-item {
+  position: relative;
+}
+
+.server-node-form-item:focus-within {
+  z-index: 80;
+}
+
+.mct-node-select.is-open {
+  z-index: 40;
+}
+
+.mct-node-select-trigger {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.mct-node-select-trigger:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mct-node-select-trigger:focus-visible,
+.mct-node-select.is-open .mct-node-select-trigger {
+  outline: none;
+  border-color: rgba(90, 148, 40, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15);
+}
+
+.mct-node-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.mct-node-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mct-node-select-chevron {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.mct-node-select-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: 276px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(26, 26, 42, 0.98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: mct-node-menu-in 0.12s ease-out;
+}
+
+.mct-node-select-menu.is-bottom {
+  top: calc(100% + 6px);
+  transform-origin: top center;
+}
+
+.mct-node-select-menu.is-top {
+  bottom: calc(100% + 6px);
+  transform-origin: bottom center;
+}
+
+@keyframes mct-node-menu-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.mct-node-select-option {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mct-node-select-option > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mct-node-select-option.is-active,
+.mct-node-select-option:hover {
+  background: rgba(126, 211, 33, 0.11);
+  color: #ffffff;
+}
+
+.mct-node-select-option.is-selected {
+  background: rgba(126, 211, 33, 0.17);
+  color: #b9ed88;
+}
+
+.mct-node-select-option.is-selected.is-active,
+.mct-node-select-option.is-selected:hover {
+  background: rgba(126, 211, 33, 0.23);
+}
+
+.mct-node-select-check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8ed64d;
+}
+
+/* 密码输入框容器 */
+.lobby-form .ant-input-password {
+  border-radius: 8px !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  height: 40px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* 密码输入框内层 input */
+.lobby-form .ant-input-password input {
+  border: none !important;
+  background: transparent !important;
+  color: #ffffff !important;
+  padding: 4px 11px !important;
+  height: 100% !important;
+  box-shadow: none !important;
+}
+
+/* 密码输入框的眼睛图标 */
+.lobby-form .ant-input-password .ant-input-suffix {
+  margin-right: 8px;
+}
+
+.lobby-form .ant-input-password .ant-input-password-icon {
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.3s;
+}
+
+.lobby-form .ant-input-password .ant-input-password-icon:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.lobby-form .ant-input::placeholder,
+.lobby-form .ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.lobby-form .ant-input:focus,
+.lobby-form .ant-input-focused {
+  border-color: rgba(90, 148, 40, 0.6) !important;
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15) !important;
+  transform: translateY(-1px);
+}
+
+/* 密码输入框聚焦状态 */
+.lobby-form .ant-input-password-focused,
+.lobby-form .ant-input-password:focus-within {
+  border-color: rgba(90, 148, 40, 0.6) !important;
+  box-shadow: 0 0 0 4px rgba(90, 148, 40, 0.15) !important;
+  transform: translateY(-1px);
+}
+
+.lobby-form .ant-input:hover {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 密码输入框悬停状态 */
+.lobby-form .ant-input-password:hover {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.lobby-submit-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.07);
+  color: #fca5a5;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.lobby-submit-error > span:last-child { min-width: 0; }
+.lobby-submit-error-icon { display: flex; flex: 0 0 16px; margin-top: 1px; }
+.lobby-submit-error + .lobby-form-actions { margin-top: 12px; }
+html[data-theme='light'] .lobby-submit-error {
+  background: rgba(220, 38, 38, 0.05);
+  border-color: rgba(220, 38, 38, 0.18);
+  color: #b42318;
+}
+
+.lobby-form-actions {
+  margin-top: 20px;
+  margin-bottom: 0 !important;
+}
+
+.lobby-form-actions .ant-btn {
+  height: 42px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 7px;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+.lobby-form-actions .ant-btn::before {
+  display: none;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-actions .ant-btn:hover::before {
+  left: 100%;
+}
+
+.lobby-form-actions .ant-btn-primary {
+  background: linear-gradient(135deg, #5a9428 0%, #4a7a20 100%);
+  border: none;
+  box-shadow: 0 4px 15px rgba(90, 148, 40, 0.3);
+}
+
+.lobby-form-actions .ant-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6aa438 0%, #5a8a30 100%);
+  transform: none;
+  box-shadow: 0 3px 10px rgba(90, 148, 40, 0.35);
+}
+
+.lobby-form-actions .ant-btn-primary:active:not(:disabled) {
+  transform: translateY(-1px) scale(0.98);
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-actions .ant-btn-default:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.lobby-form-actions .ant-btn:not(.ant-btn-primary) {
+  border: 2px solid rgba(139, 111, 71, 0.5);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(139, 111, 71, 0.2);
+}
+
+/* 连接中"强制停止"按钮：与取消按钮同样的半透明风格，仅颜色换成红色 */
+.lobby-form-actions .ant-btn.force-stop-btn,
+.lobby-form-actions .ant-btn.force-stop-btn:not(.ant-btn-primary) {
+  background: rgba(255, 77, 79, 0.2) !important;
+  border: 2px solid rgba(255, 77, 79, 0.5) !important;
+  color: #ffffff !important;
+}
+.lobby-form-actions .ant-btn.force-stop-btn:hover:not(:disabled) {
+  background: rgba(255, 77, 79, 0.3) !important;
+  border-color: rgba(255, 77, 79, 0.8) !important;
+  color: #ffffff !important;
+}
+
+.lobby-form-actions .ant-btn:not(.ant-btn-primary):hover:not(:disabled) {  border-color: rgba(139, 111, 71, 0.8);
+  color: #ffffff;
+  background: rgba(139, 111, 71, 0.3);
+}
+
+/* 网络环境提示 */
+.lobby-form-network-tip {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lobby-form-network-tip:hover {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.4);
+  transform: translateY(-1px);
+}
+
+.network-tip-icon {
+  flex-shrink: 0;
+  color: rgba(255, 193, 7, 1);
+  animation: none;
+  margin-top: 2px;
+}
+
+@keyframes tipPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(255, 193, 7, 0.5));
+  }
+  50% {
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 6px rgba(255, 193, 7, 0.8));
+  }
+}
+
+.network-tip-content {
+  flex: 1;
+}
+
+.network-tip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 193, 7, 1);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.network-tip-text {
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.lobby-form-tip {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.lobby-form-tip p {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 网络警告提示样式 */
+.lobby-form-tip.network-warning {
+  background: rgba(255, 200, 100, 0.1);
+  border: 1px solid rgba(255, 200, 100, 0.3);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  animation: none;
+}
+
+.lobby-form-tip.network-warning .tip-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+  animation: none;
+}
+
+.lobby-form-tip.network-warning .tip-content {
+  flex: 1;
+}
+
+@keyframes warningPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 200, 100, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 200, 100, 0);
+  }
+}
+
+@keyframes warningShake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: rotate(-5deg);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: rotate(5deg);
+  }
+}
+
+/* 移除滚动条样式 */
+
+/* 加载状态动画 */
+.lobby-form .ant-btn-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.lobby-form .ant-btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  to {
+    left: 100%;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .lobby-form-card {
+    min-width: 280px;
+    padding: 24px 20px;
+  }
+
+  .lobby-form-title {
+    font-size: 20px !important;
+  }
+
+  .lobby-form-actions .ant-btn {
+    height: 40px;
+    font-size: 13px;
+  }
+}
+
+/* 大厅表单顶部功能按钮组 - 现代化设计 */
+.lobby-action-bar {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.lobby-action-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.lobby-action-btn:hover {
+  background: rgba(126, 211, 33, 0.12);
+  border-color: rgba(126, 211, 33, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.lobby-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lobby-action-label {
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.5px;
+}
+
+.lobby-action-btn:hover .lobby-action-label {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* 已启用私有服务器信息块（#7） */
+.private-server-info {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(82, 196, 26, 0.3);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.1) 0%, rgba(82, 196, 26, 0.04) 100%);
+}
+
+.private-server-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7ed957;
+  margin-bottom: 8px;
+}
+
+.private-server-info-row {
+  display: flex;
+  font-size: 13px;
+  line-height: 1.9;
+  word-break: break-all;
+}
+
+.private-server-info-label {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.private-server-info-value {
+  color: rgba(255, 255, 255, 0.92);
+}

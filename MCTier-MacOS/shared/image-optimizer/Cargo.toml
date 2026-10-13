@@ -1,0 +1,25 @@
+[package]
+name = "mctier-image-optimizer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+image = { version = "=0.25.9", default-features = false, features = ["png"] }
+oxipng = { version = "=10.2.1", default-features = false }
+turbojpeg = { version = "=1.5.1", default-features = false, features = ["cmake"] }
+webp = { version = "=0.3.1", default-features = false }
+weezl = "=0.2.1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[dev-dependencies]
+gif = "0.13"
+png = "0.18"
+
+[profile.release]
+strip = true

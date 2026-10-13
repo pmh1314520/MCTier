@@ -1,0 +1,1755 @@
+// MCTier 后端模块
+pub mod modules;
+mod command_registry;
+
+use log::{error, info, warn};
+use modules::app_core::AppCore;
+use modules::tauri_commands::AppState;
+use std::sync::Arc;
+use tauri::Emitter;
+use tauri::Manager;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tokio::sync::Mutex;
+static TRAY_NOTIFICATION_TEXT: std::sync::OnceLock<std::sync::RwLock<(String, String)>> =
+    std::sync::OnceLock::new();
+static TRAY_SUMMON_HOTKEY: std::sync::OnceLock<std::sync::RwLock<String>> =
+    std::sync::OnceLock::new();
+static TRAY_NOTIFICATION_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+static TRAY_NOTIFICATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static RESTORE_ALWAYS_ON_TOP_AFTER_TRAY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 优雅退出进行中标志。
+///
+/// macOS 的 `Cmd+Q`、系统关机、`app.exit()` 都会发 `RunEvent::ExitRequested`。
+/// 我们要在真正退出前跑一次网络/录制清理（否则会留下 root 权限的孤儿 easytier-core
+/// 或没落盘的录像），但清理结束后自己调用的 `app.exit(0)` 会再发一次事件——
+/// 用这个标志区分「首次用户请求」与「清理完成后的自我退出」，避免无限循环。
+static SHUTDOWN_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 优雅退出：先停录制/采集与网络会话，再真正退出进程。
+///
+/// 托盘「退出」与其它主动退出入口共用它，确保不会出现「直接 exit() 把 root
+/// 权限的 easytier-core 丢成孤儿、或录像没落盘」的情况。幂等：清理期间重复点击
+/// 不会叠加多次关闭流程。
+fn graceful_exit(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    // 录制未结束时先让前端收尾录像；它会在落盘后触发退出。
+    if crate::modules::screen_recording::finish_before_exit(app) {
+        return;
+    }
+    if SHUTDOWN_IN_PROGRESS.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let ah = app.clone();
+    if let Some(state) = ah.try_state::<AppState>() {
+        let core = Arc::clone(&state.core);
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = core.lock().await.shutdown().await {
+                error!("退出前清理失败: {error}");
+            }
+            crate::modules::native_capture::stop_all();
+            crate::modules::native_microphone::stop_all();
+            #[cfg(target_os = "macos")]
+            crate::modules::macos_privilege::request_stop_for_all_sessions();
+            info!("清理完成，正式退出 MCTier");
+            ah.exit(0);
+        });
+    } else {
+        crate::modules::native_capture::stop_all();
+        crate::modules::native_microphone::stop_all();
+        ah.exit(0);
+    }
+}
+
+/// 在应用启动时应用 GPU 设置
+fn apply_gpu_settings_on_startup() {
+    // 尝试加载配置文件
+    let Ok(config_path) = modules::app_paths::config_path() else {
+        return;
+    };
+
+    if !config_path.exists() {
+        println!("配置文件不存在，使用默认GPU设置（启用）");
+        return;
+    }
+
+    // 读取配置文件
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        println!("无法读取配置文件，使用默认GPU设置（启用）");
+        return;
+    };
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return;
+    };
+    // 检查 GPU 渲染设置（配置文件使用 snake_case）
+    let enable_gpu = config
+        .get("enable_gpu_rendering")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    // `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 只对 Windows 的 WebView2 生效。
+    // macOS 用的是 WKWebView、Linux 用 WebKitGTK，这个环境变量对它们是**完全空操作**——
+    // 以前无条件设置它，让用户以为“关掉 GPU 渲染”在 Mac 上有效，实际毫无作用，
+    // 徒增困惑。这里按平台编译：只在 Windows 下写该变量。
+    #[cfg(target_os = "windows")]
+    {
+        if !enable_gpu {
+            std::env::set_var(
+                "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing --disable-gpu-process-crash-limit --in-process-gpu",
+            );
+            println!("✅ GPU 渲染已完全禁用（包括GPU进程）");
+        } else {
+            std::env::set_var(
+                "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist",
+            );
+            println!("✅ GPU 渲染已启用（通过环境变量）");
+        }
+    }
+    // 非 Windows：环境变量无效。GPU 由系统 WebView 自行管理，这里只按配置切换前端的
+    // 装饰性动画/光晕（前端读取同一份 enable_gpu_rendering，给 body 挂 class），
+    // 真正影响 Mac 卡顿的是那些 CSS 效果而非浏览器 GPU 开关。
+    #[cfg(not(target_os = "windows"))]
+    {
+        if enable_gpu {
+            println!("ℹ️ 非 Windows 平台：GPU 由系统 WebView 管理，仅按配置切换前端装饰动画");
+        } else {
+            println!("ℹ️ 已按配置关闭前端装饰动画（非 Windows 平台不改系统 WebView GPU）");
+        }
+    }
+}
+
+fn reset_microphone_permission_cache_on_startup() {
+    if !std::env::args().any(|arg| arg == "--reset-microphone-permission") {
+        return;
+    }
+
+    let Ok(data_root) = modules::app_paths::data_root() else {
+        return;
+    };
+    let webview_dir = data_root.join("EBWebView");
+
+    // The previous process may hold WebView2 files briefly after spawning us.
+    for attempt in 0..40 {
+        if !webview_dir.exists() {
+            break;
+        }
+        match std::fs::remove_dir_all(&webview_dir) {
+            Ok(()) => break,
+            Err(_) if attempt < 39 => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Err(error) => eprintln!("failed to clear WebView2 permission cache: {}", error),
+        }
+    }
+}
+
+#[tauri::command]
+fn greet(name: &str) -> String {
+    info!("Greeting user: {}", name);
+    format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+fn open_devtools(_app: tauri::AppHandle) {
+    #[cfg(debug_assertions)]
+    {
+        info!("打开开发者工具");
+        if let Some(webview) = _app.get_webview_window("main") {
+            webview.open_devtools();
+        } else {
+            error!("无法找到主窗口");
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        log::warn!("开发者工具仅在 debug 模式下可用");
+    }
+}
+
+/// 【#1】确保窗口在可视范围内：若窗口已完全移出所有显示器，则自动居中。
+/// 仅在窗口与所有显示器都没有任何重叠（完全丢失）时触发，避免拖拽贴边时误触发。
+fn ensure_window_visible(window: &tauri::Window) {
+    if window.is_minimized().unwrap_or(false) || !window.is_visible().unwrap_or(true) {
+        return;
+    }
+    let pos = match window.outer_position() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let size = match window.outer_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let win_left = pos.x;
+    let win_top = pos.y;
+    let win_right = pos.x + size.width as i32;
+    let win_bottom = pos.y + size.height as i32;
+
+    let monitors = match window.available_monitors() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    if monitors.is_empty() {
+        return;
+    }
+
+    // 计算窗口与任一显示器的最大可见重叠面积
+    let mut max_overlap: i64 = 0;
+    for monitor in &monitors {
+        let mp = monitor.position();
+        let ms = monitor.size();
+        let mon_left = mp.x;
+        let mon_top = mp.y;
+        let mon_right = mp.x + ms.width as i32;
+        let mon_bottom = mp.y + ms.height as i32;
+
+        let ox = (win_right.min(mon_right) - win_left.max(mon_left)).max(0) as i64;
+        let oy = (win_bottom.min(mon_bottom) - win_top.max(mon_top)).max(0) as i64;
+        let overlap = ox * oy;
+        if overlap > max_overlap {
+            max_overlap = overlap;
+        }
+    }
+
+    // 完全没有任何重叠 => 窗口已丢失到屏幕外，居中找回
+    if max_overlap == 0 {
+        log::warn!("检测到窗口移出可视范围，自动居中找回");
+        let _ = window.center();
+    }
+}
+
+/// 处理应用菜单（目前仅 macOS 安装）的自定义菜单项。
+///
+/// 预置项（撤销/剪切/隐藏/缩放/退出等）由 AppKit 直接执行，不会进入这里；
+/// 这里只分派我们自定义的那几项：
+/// - 设置 / 关于：交给前端打开对应浮层（设置是 WebView 内面板而非独立窗口）；
+/// - 关闭时隐藏到菜单栏 / 开机启动：直接改配置并保持菜单勾选、设置页同步；
+/// - 官网 / 日志：复用既有命令，避免再写一套打开逻辑。
+fn handle_app_menu_event(app: &tauri::AppHandle, id: &str) {
+    use tauri::Emitter;
+    match id {
+        crate::modules::macos_menu::ID_SETTINGS => {
+            restore_main_window(app);
+            let _ = app.emit("menu-open-settings", ());
+        }
+        crate::modules::macos_menu::ID_ABOUT => {
+            restore_main_window(app);
+            let _ = app.emit("menu-open-about", ());
+        }
+        crate::modules::macos_menu::ID_CLOSE_TO_MENU_BAR => {
+            toggle_close_to_tray_from_menu(app);
+        }
+        crate::modules::macos_menu::ID_AUTO_START => {
+            toggle_auto_start_from_menu(app);
+        }
+        "app-help-website" => {
+            // 官网域名与关于页一致；直接走系统默认浏览器。
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app;
+                let _ = std::process::Command::new("/usr/bin/open")
+                    .arg("https://mctier.pmhs.top")
+                    .spawn();
+            }
+        }
+        "app-help-logs" => {
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = crate::modules::tauri_commands::open_log_folder().await {
+                    log::warn!("从菜单打开日志文件夹失败: {error}");
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// 菜单里切换「关闭时隐藏到菜单栏」：改配置 → 回写菜单勾选 → 通知前端刷新设置页。
+fn toggle_close_to_tray_from_menu(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let core = Arc::clone(&state.core);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let new_value = {
+            let cl = core.lock().await;
+            let cfg_mgr = cl.get_config_manager();
+            let mut mgr = cfg_mgr.lock().await;
+            let current = {
+                use crate::modules::config_manager::default_close_to_tray;
+                mgr.get_config()
+                    .close_to_tray
+                    .unwrap_or_else(default_close_to_tray)
+            };
+            let next = !current;
+            if let Err(error) = mgr.set_close_to_tray(next).await {
+                error!("菜单切换关闭到托盘失败: {error}");
+                return;
+            }
+            next
+        };
+        crate::modules::macos_menu::set_close_to_menu_bar_checked(new_value);
+        let _ = app.emit("menu-config-changed", ());
+    });
+}
+
+/// 菜单里切换「开机启动」：改配置 + 调用平台自启实现 → 回写菜单勾选 → 通知前端。
+fn toggle_auto_start_from_menu(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let core = Arc::clone(&state.core);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let new_value = {
+            let cl = core.lock().await;
+            let cfg_mgr = cl.get_config_manager();
+            let mut mgr = cfg_mgr.lock().await;
+            let current = mgr.get_config().auto_startup.unwrap_or(false);
+            let next = !current;
+            // 先落实平台自启（写 LaunchAgent），失败则不改配置，保持两者一致。
+            #[cfg(target_os = "macos")]
+            if let Err(error) = crate::modules::macos_platform::set_auto_start(next) {
+                error!("菜单切换开机自启失败: {error}");
+                return;
+            }
+            if let Err(error) = mgr
+                .update_config(|config| config.auto_startup = Some(next))
+                .await
+            {
+                error!("菜单切换开机自启写配置失败: {error}");
+                return;
+            }
+            next
+        };
+        crate::modules::macos_menu::set_auto_start_checked(new_value);
+        let _ = app.emit("menu-config-changed", ());
+    });
+}
+
+/// 健壮地将主窗口唤回到前台。
+///
+/// 解决无边框 + 透明窗口（WS_POPUP 风格）在 Win+D「显示桌面」或任务栏最小化后
+/// 无法再唤出的问题：
+/// 1. 同时处理「被隐藏」与「被最小化」两种状态（先 show 再 unminimize/SW_RESTORE）；
+/// 2. 用 AttachThreadInput + SetForegroundWindow + BringWindowToTop 绕过 Windows
+///    前台锁定，确保真正置于最前并获得焦点；
+/// 3. 恢复后校正位置，避免窗口被还原到屏幕外不可见区域。
+fn restore_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    TRAY_NOTIFICATION_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    if let Some(window) = app.get_webview_window("main") {
+        // 先确保不再是隐藏 / 最小化状态
+        let _ = window.unminimize();
+        let _ = window.show();
+
+        #[cfg(target_os = "windows")]
+        if let Ok(hwnd) = window.hwnd() {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                BringWindowToTop, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+            };
+            let h = HWND(hwnd.0 as *mut _);
+            unsafe {
+                let _ = ShowWindow(h, SW_SHOW);
+                if IsIconic(h).as_bool() {
+                    let _ = ShowWindow(h, SW_RESTORE);
+                }
+                // 抢占前台并置顶，确保从隐藏/最小化恢复后真正显示在最前
+                let _ = BringWindowToTop(h);
+                let _ = SetForegroundWindow(h);
+            }
+        }
+
+        let _ = window.set_focus();
+        if RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            let _ = window.set_always_on_top(true);
+        }
+        let host_window = window.as_ref().window();
+        ensure_window_visible(&host_window);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn release_windows_foreground_after_hide(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetShellWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        SetWindowPos, HWND_NOTOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = HWND(hwnd.0 as *mut _);
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+
+            let foreground = GetForegroundWindow();
+            let mut foreground_process_id = 0;
+            GetWindowThreadProcessId(foreground, Some(&mut foreground_process_id));
+            if foreground_process_id == std::process::id() {
+                let shell = GetShellWindow();
+                if !shell.0.is_null() {
+                    let _ = SetForegroundWindow(shell);
+                }
+            }
+        }
+    }
+}
+
+fn show_tray_background_notification(app: &tauri::AppHandle, generation: u64) {
+    if TRAY_NOTIFICATION_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation {
+        info!("跳过过期的托盘后台运行通知任务：generation={}", generation);
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(true) {
+        info!(
+            "窗口已恢复，跳过托盘后台运行通知任务：generation={}",
+            generation
+        );
+        return;
+    }
+    let _notification_lock = match TRAY_NOTIFICATION_LOCK.lock() {
+        Ok(lock) => lock,
+        Err(error) => error.into_inner(),
+    };
+    if TRAY_NOTIFICATION_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation {
+        info!(
+            "跳过已被新托盘状态取代的通知任务：generation={}",
+            generation
+        );
+        return;
+    }
+
+    let (title, body_template) = TRAY_NOTIFICATION_TEXT
+        .get_or_init(|| {
+            std::sync::RwLock::new((
+                "MCTier 正在后台运行".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。"
+                    .to_string(),
+            ))
+        })
+        .read()
+        .map(|text| text.clone())
+        .unwrap_or_else(|_| {
+            (
+                "MCTier 正在后台运行".to_string(),
+                "MCTier 已最小化到系统托盘。点击右下角托盘图标或按 {shortcut} 可恢复窗口。"
+                    .to_string(),
+            )
+        });
+    let summon_hotkey = TRAY_SUMMON_HOTKEY
+        .get_or_init(|| std::sync::RwLock::new("Ctrl+Alt+M".to_string()))
+        .read()
+        .map(|hotkey| hotkey.clone())
+        .unwrap_or_else(|_| "Ctrl+Alt+M".to_string());
+    let body = if summon_hotkey.is_empty() {
+        body_template
+            .replace("或按 {shortcut} ", "")
+            .replace("or press {shortcut} ", "")
+    } else {
+        body_template.replace("{shortcut}", &summon_hotkey)
+    };
+    let notification_body = body;
+
+    // 托盘气泡通知走的是 Windows 的 Shell_NotifyIcon。macOS 用系统通知中心
+    // （osascript display notification）实现同等提示；其余桌面环境行为不一，
+    // 不自造一套桌面通知，只记一条日志，同时显式消费上面算好的文案。
+    #[cfg(target_os = "macos")]
+    {
+        let escape = |text: &str| {
+            text.replace('\\', "\\\\").replace('"', "\\\"")
+        };
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            escape(&notification_body),
+            escape(&title)
+        );
+        match std::process::Command::new("/usr/bin/osascript").arg("-e").arg(&script).spawn() {
+            Ok(_) => info!("已发送 macOS 后台运行通知"),
+            Err(error) => log::warn!("发送 macOS 后台运行通知失败: {error}"),
+        }
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        log::info!(
+            "托盘后台运行提示（当前平台无气泡通知）: {} - {}",
+            title,
+            notification_body
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::{w, PCWSTR};
+        use windows::Win32::Foundation::{GetLastError, HWND};
+        use windows::Win32::UI::Shell::{
+            Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIIF_INFO,
+            NIIF_LARGE_ICON, NIIF_USER, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+            NOTIFYICONIDENTIFIER,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DestroyIcon, FindWindowExW, GetWindowThreadProcessId, LoadImageW, HICON, IMAGE_ICON,
+            LR_LOADFROMFILE,
+        };
+
+        fn write_wide<const N: usize>(target: &mut [u16; N], value: &str) {
+            for (slot, character) in target
+                .iter_mut()
+                .zip(value.encode_utf16().chain(std::iter::once(0)))
+            {
+                *slot = character;
+            }
+        }
+
+        fn load_notification_icon() -> Option<HICON> {
+            let icon_dir = modules::app_paths::data_root().ok()?;
+            let icon_path = icon_dir.join("notification-logo.ico");
+            let icon_bytes = include_bytes!("../icons/icon.ico");
+            let icon_ready = std::fs::create_dir_all(&icon_dir)
+                .and_then(|_| {
+                    if std::fs::read(&icon_path).ok().as_deref() != Some(icon_bytes.as_slice()) {
+                        std::fs::write(&icon_path, icon_bytes)?;
+                    }
+                    Ok(())
+                })
+                .is_ok();
+            if !icon_ready {
+                return None;
+            }
+
+            let icon_wide: Vec<u16> = icon_path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            unsafe {
+                LoadImageW(
+                    None,
+                    PCWSTR(icon_wide.as_ptr()),
+                    IMAGE_ICON,
+                    32,
+                    32,
+                    LR_LOADFROMFILE,
+                )
+                .ok()
+                .map(|icon| HICON(icon.0))
+            }
+        }
+
+        let current_process_id = std::process::id();
+        let mut previous = HWND::default();
+        let mut tray_window = None;
+        loop {
+            let Ok(candidate) =
+                (unsafe { FindWindowExW(HWND::default(), previous, w!("tray_icon_app"), None) })
+            else {
+                break;
+            };
+            if candidate.0.is_null() {
+                break;
+            }
+            let mut process_id = 0;
+            unsafe { GetWindowThreadProcessId(candidate, Some(&mut process_id)) };
+            if process_id == current_process_id {
+                tray_window = Some(candidate);
+                break;
+            }
+            previous = candidate;
+        }
+
+        if let Some(tray_window) = tray_window {
+            let tray_id = (1..=64).find(|candidate_id| {
+                let identifier = NOTIFYICONIDENTIFIER {
+                    cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
+                    hWnd: tray_window,
+                    uID: *candidate_id,
+                    ..Default::default()
+                };
+                unsafe { Shell_NotifyIconGetRect(&identifier).is_ok() }
+            });
+
+            let Some(tray_id) = tray_id else {
+                log::warn!("MCTier tray icon ID was not found for balloon notification");
+                return;
+            };
+
+            // Clear the previous balloon first. Windows otherwise coalesces
+            // identical tray notifications and reports success without showing
+            // the next one, which is especially visible after entering a lobby.
+            let mut clear_data = NOTIFYICONDATAW::default();
+            clear_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            clear_data.hWnd = tray_window;
+            clear_data.uID = tray_id;
+            clear_data.uFlags = NIF_INFO;
+            let cleared = unsafe { Shell_NotifyIconW(NIM_MODIFY, &clear_data).as_bool() };
+            let clear_error = if cleared {
+                0
+            } else {
+                unsafe { GetLastError().0 }
+            };
+            if cleared {
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+
+            let mut data = NOTIFYICONDATAW::default();
+            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            data.hWnd = tray_window;
+            data.uID = tray_id;
+            data.uFlags = NIF_INFO;
+            let notification_icon = load_notification_icon();
+            if let Some(icon) = notification_icon {
+                data.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
+                data.hBalloonIcon = icon;
+            } else {
+                data.dwInfoFlags = NIIF_INFO;
+            }
+            data.Anonymous.uTimeout = 7000;
+            write_wide(&mut data.szInfoTitle, &title);
+            write_wide(&mut data.szInfo, &notification_body);
+            let shown = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() };
+            let show_error = if shown {
+                0
+            } else {
+                unsafe { GetLastError().0 }
+            };
+            log::info!(
+                "Windows tray balloon on MCTier tray icon: hwnd={:?}, pid={}, id={}, cb_size={}, cleared={} error={}, shown={} error={}",
+                tray_window.0,
+                current_process_id,
+                tray_id,
+                data.cbSize,
+                cleared,
+                clear_error,
+                shown,
+                show_error
+            );
+            if shown {
+                if let Some(icon) = notification_icon {
+                    let icon_value = icon.0 as usize;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        unsafe {
+                            let _ = DestroyIcon(HICON(icon_value as *mut _));
+                        }
+                    });
+                }
+                return;
+            }
+            if let Some(icon) = notification_icon {
+                unsafe {
+                    let _ = DestroyIcon(icon);
+                }
+            }
+
+            let fallback_icon = load_notification_icon();
+            let fallback_id = 0x4D43_0001;
+            if let Some(fallback_icon) = fallback_icon {
+                let mut add_data = NOTIFYICONDATAW::default();
+                add_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                add_data.hWnd = tray_window;
+                add_data.uID = fallback_id;
+                add_data.uFlags = NIF_ICON;
+                add_data.hIcon = fallback_icon;
+                let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &add_data) };
+                let added = unsafe { Shell_NotifyIconW(NIM_ADD, &add_data).as_bool() };
+                let add_error = if added {
+                    0
+                } else {
+                    unsafe { GetLastError().0 }
+                };
+                if added {
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                    let mut fallback_data = NOTIFYICONDATAW::default();
+                    fallback_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                    fallback_data.hWnd = tray_window;
+                    fallback_data.uID = fallback_id;
+                    fallback_data.uFlags = NIF_INFO;
+                    fallback_data.dwInfoFlags = NIIF_INFO;
+                    fallback_data.Anonymous.uTimeout = 7000;
+                    write_wide(&mut fallback_data.szInfoTitle, &title);
+                    write_wide(&mut fallback_data.szInfo, &notification_body);
+                    let fallback_shown =
+                        unsafe { Shell_NotifyIconW(NIM_MODIFY, &fallback_data).as_bool() };
+                    let fallback_error = if fallback_shown {
+                        0
+                    } else {
+                        unsafe { GetLastError().0 }
+                    };
+                    log::info!(
+                        "Windows tray balloon fallback: id={}, added={} error={}, shown={} error={}",
+                        fallback_id,
+                        added,
+                        add_error,
+                        fallback_shown,
+                        fallback_error
+                    );
+                    let cleanup_app = app.clone();
+                    let tray_window_value = tray_window.0 as usize;
+                    let fallback_icon_value = fallback_icon.0 as usize;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        let _ = cleanup_app.run_on_main_thread(move || {
+                            let mut delete_data = NOTIFYICONDATAW::default();
+                            delete_data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+                            delete_data.hWnd = HWND(tray_window_value as *mut _);
+                            delete_data.uID = fallback_id;
+                            delete_data.uFlags = NIF_ICON;
+                            unsafe {
+                                let _ = Shell_NotifyIconW(NIM_DELETE, &delete_data);
+                                let _ = DestroyIcon(HICON(fallback_icon_value as *mut _));
+                            }
+                        });
+                    });
+                    if fallback_shown {
+                        return;
+                    }
+                } else {
+                    unsafe {
+                        let _ = DestroyIcon(fallback_icon);
+                    }
+                }
+            }
+        } else {
+            log::warn!("MCTier tray window was not found for balloon notification");
+        }
+    }
+}
+
+/// Hide the main window without closing its WebView and tell the user where it went.
+/// Keeping every tray transition on this path prevents Win+D, the close button and
+/// start-minimized behavior from drifting apart again.
+fn hide_main_window_to_tray(app: &tauri::AppHandle, source: &str) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let was_visible = window.is_visible().unwrap_or(false);
+    if !was_visible && source != "关闭按钮" {
+        info!(
+            "{}：MCTier 已经处于系统托盘，不重复发送后台运行通知",
+            source
+        );
+        return;
+    }
+
+    // Clear the minimized state before hiding so restore does not inherit a
+    // stale taskbar/Win+D state from the previous transition.
+    let _ = window.unminimize();
+    let was_always_on_top = window.is_always_on_top().unwrap_or(false);
+    RESTORE_ALWAYS_ON_TOP_AFTER_TRAY.store(was_always_on_top, std::sync::atomic::Ordering::Release);
+    if was_always_on_top {
+        let _ = window.set_always_on_top(false);
+    }
+    if let Err(e) = window.hide() {
+        error!("{} 隐藏主窗口到托盘失败: {}", source, e);
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    release_windows_foreground_after_hide(&window);
+
+    info!(
+        "{}：MCTier 已最小化到系统托盘，准备发送后台运行通知",
+        source
+    );
+    let generation =
+        TRAY_NOTIFICATION_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+    let notification_app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let main_thread_app = notification_app.clone();
+        let _ = notification_app.run_on_main_thread(move || {
+            show_tray_background_notification(&main_thread_app, generation);
+        });
+    });
+}
+
+/// Toggle the main window from the native process so this keeps working while
+/// the WebView is hidden in the system tray.
+fn toggle_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let visible = window.is_visible().unwrap_or(false);
+    let minimized = window.is_minimized().unwrap_or(false);
+    if visible && !minimized {
+        hide_main_window_to_tray(app, "Ctrl+Alt+M");
+    } else {
+        restore_main_window(app);
+    }
+}
+
+#[tauri::command]
+fn minimize_main_window_to_tray(app: tauri::AppHandle) {
+    hide_main_window_to_tray(&app, "窗口按钮");
+}
+
+#[cfg(target_os = "windows")]
+static SUMMON_FALLBACK_TX: std::sync::OnceLock<std::sync::mpsc::SyncSender<()>> =
+    std::sync::OnceLock::new();
+#[cfg(target_os = "windows")]
+static SUMMON_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+fn start_summon_fallback_listener(app: &tauri::AppHandle) {
+    SUMMON_FALLBACK_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    if SUMMON_FALLBACK_TX.get().is_some() {
+        return;
+    }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(2);
+    if SUMMON_FALLBACK_TX.set(tx).is_err() {
+        return;
+    }
+    let action_app = app.clone();
+    std::thread::spawn(move || {
+        while rx.recv().is_ok() {
+            toggle_main_window(&action_app);
+        }
+    });
+    std::thread::spawn(move || {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            GetAsyncKeyState, VK_CONTROL, VK_M, VK_MENU,
+        };
+
+        let mut triggered = false;
+        loop {
+            let pressed = if SUMMON_FALLBACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+                unsafe {
+                    GetAsyncKeyState(VK_CONTROL.0 as i32) < 0
+                        && GetAsyncKeyState(VK_MENU.0 as i32) < 0
+                        && GetAsyncKeyState(VK_M.0 as i32) < 0
+                }
+            } else {
+                false
+            };
+
+            if pressed && !triggered {
+                info!("检测到 Ctrl+Alt+M，切换主窗口可见状态");
+                if let Some(tx) = SUMMON_FALLBACK_TX.get() {
+                    let _ = tx.try_send(());
+                }
+            }
+            triggered = pressed;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    });
+    info!("Ctrl+Alt+M 已启用 Windows 原生按键状态监听");
+}
+
+/// 由前端按当前界面语言更新系统托盘菜单文本（显示/退出）。
+/// 保持菜单项 id 不变（show_main / exit_app），故已注册的 on_menu_event 仍生效。
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn window_subclass_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        ShowWindow, SC_MINIMIZE, SW_HIDE, WM_SYSCOMMAND,
+    };
+
+    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+        return LRESULT(0);
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn install_minimize_to_hide(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::SetWindowSubclass;
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = HWND(hwnd.0 as *mut _);
+        unsafe {
+            let _ = SetWindowSubclass(hwnd, Some(window_subclass_proc), 1, 0);
+        }
+    }
+}
+
+#[tauri::command]
+fn set_tray_menu_texts(
+    app: tauri::AppHandle,
+    show_text: String,
+    exit_text: String,
+    notification_title: String,
+    notification_body: String,
+) -> Result<(), String> {
+    use tauri::menu::{MenuBuilder, MenuItem};
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let show_item = MenuItem::with_id(&app, "show_main", show_text, true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let exit_item = MenuItem::with_id(&app, "exit_app", exit_text, true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let menu = MenuBuilder::new(&app)
+            .item(&show_item)
+            .separator()
+            .item(&exit_item)
+            .build()
+            .map_err(|e| e.to_string())?;
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    if let Ok(mut text) = TRAY_NOTIFICATION_TEXT
+        .get_or_init(|| std::sync::RwLock::new((String::new(), String::new())))
+        .write()
+    {
+        *text = (notification_title, notification_body);
+    }
+    Ok(())
+}
+
+/// 用户可自定义的全局快捷键绑定
+#[derive(Clone, Debug)]
+pub struct HotkeyBindings {
+    /// 麦克风开关
+    pub mic: String,
+    /// 全局听筒（静音所有人）
+    pub global_mute: String,
+    /// 临时开麦（按住说话）
+    pub push_to_talk: String,
+    /// 唤出主窗口
+    pub summon: String,
+}
+
+impl Default for HotkeyBindings {
+    fn default() -> Self {
+        Self {
+            mic: "Ctrl+M".to_string(),
+            global_mute: "Ctrl+T".to_string(),
+            push_to_talk: "F2".to_string(),
+            summon: "Ctrl+Alt+M".to_string(),
+        }
+    }
+}
+
+/// 将界面录制的键位归一化为 Tauri 全局快捷键可识别的格式。
+///
+/// 前端 HotkeyInput 录制出的是 `Ctrl+Alt+M` / `F2` / `Shift+F1` 这类字符串，
+/// 而 Tauri 的 global_shortcut 需要 `CommandOrControl+Alt+M` 这种写法（跨平台修饰键）。
+/// 这里做统一转换，避免两套格式不一致导致注册失败。
+fn normalize_hotkey(raw: &str) -> String {
+    raw.split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .map(|part| {
+            let lower = part.to_lowercase();
+            match lower.as_str() {
+                // 物理 Ctrl：macOS 上映射到真正的 Control，使其与 Command 可区分，
+                // 且全局快捷键落在 Mac 很少占用的 Control 上，不与应用自身的 Cmd 快捷键冲突。
+                "ctrl" | "control" => {
+                    #[cfg(target_os = "macos")]
+                    {
+                        "Control".to_string()
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        "CommandOrControl".to_string()
+                    }
+                }
+                // 显式的"跨平台主修饰键"记号保持原语义（Mac=Cmd，其它=Ctrl）。
+                "commandorcontrol" | "cmdorctrl" => "CommandOrControl".to_string(),
+                "alt" | "option" => "Alt".to_string(),
+                "shift" => "Shift".to_string(),
+                // Command/Meta/Super：统一用 Super（macOS 上即 Command 键），与 Control 区分。
+                "meta" | "cmd" | "command" | "super" | "win" => "Super".to_string(),
+                // 其余为主键：单字符统一大写，功能键（F1/F2…）与命名键保持原样
+                _ => {
+                    if part.chars().count() == 1 {
+                        part.to_uppercase()
+                    } else {
+                        part.to_string()
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// 注册（或重新注册）全部全局快捷键。
+///
+/// 可重复调用：内部会先注销此前注册的全部快捷键，因此用户在设置中改完键位后
+/// 无需重启应用即可立即生效。任一快捷键注册失败只记录日志，不影响其它快捷键。
+/// 一条快捷键注册失败的描述，回传给前端提示用户。
+#[derive(Clone, serde::Serialize)]
+pub struct HotkeyRegistrationFailure {
+    /// 功能名（麦克风开关 / 全局听筒 / 临时开麦 / 唤出窗口），已本地化由前端决定。
+    pub action: String,
+    /// 规范化后的键位字符串。
+    pub hotkey: String,
+    /// 失败原因（通常是键位被系统占用或格式不被支持）。
+    pub error: String,
+}
+
+/// 注册（或重新注册）全部全局快捷键。
+///
+/// 返回注册失败的条目：以前失败只写日志，用户在设置里改了一个被系统占用的键会
+/// 看到"已保存"却毫无作用，无从排查。现在把失败逐条交回调用方提示。
+fn register_global_hotkeys(
+    app: &tauri::AppHandle,
+    core: Arc<Mutex<modules::app_core::AppCore>>,
+    bindings: &HotkeyBindings,
+) -> Vec<HotkeyRegistrationFailure> {
+    let mut failures: Vec<HotkeyRegistrationFailure> = Vec::new();
+    // 先清空旧注册，实现"改完即生效"
+    if let Err(e) = app.global_shortcut().unregister_all() {
+        log::warn!("注销旧全局快捷键失败（忽略）: {}", e);
+    }
+
+    let mic_hotkey = normalize_hotkey(&bindings.mic);
+    let global_mute_hotkey = normalize_hotkey(&bindings.global_mute);
+    let push_to_talk_hotkey = normalize_hotkey(&bindings.push_to_talk);
+    let summon_hotkey = normalize_hotkey(&bindings.summon);
+    if let Ok(mut current) = TRAY_SUMMON_HOTKEY
+        .get_or_init(|| std::sync::RwLock::new(String::new()))
+        .write()
+    {
+        *current = bindings.summon.trim().to_string();
+    }
+
+    info!(
+        "注册全局快捷键: 麦克风={}, 全局听筒={}, 临时开麦={}, 唤出窗口={}",
+        mic_hotkey, global_mute_hotkey, push_to_talk_hotkey, summon_hotkey
+    );
+
+    // ===== 唤出主窗口 =====
+    let use_default_summon_fallback =
+        cfg!(target_os = "windows") && summon_hotkey.eq_ignore_ascii_case("CommandOrControl+Alt+M");
+    #[cfg(target_os = "windows")]
+    if use_default_summon_fallback {
+        start_summon_fallback_listener(app);
+    } else {
+        SUMMON_FALLBACK_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    if !summon_hotkey.is_empty() && !use_default_summon_fallback {
+        let hs = app.clone();
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(summon_hotkey.as_str(), move |_, _, ev| {
+                    if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                        return;
+                    }
+                    toggle_main_window(&hs);
+                })
+        {
+            error!("唤出窗口快捷键 {} 注册失败: {}", summon_hotkey, e);
+            failures.push(HotkeyRegistrationFailure {
+                action: "summon".to_string(),
+                hotkey: summon_hotkey.clone(),
+                error: e.to_string(),
+            });
+        }
+    }
+
+    let ltm = Arc::new(Mutex::new(
+        std::time::Instant::now() - std::time::Duration::from_millis(500),
+    ));
+    let ltt = Arc::new(Mutex::new(
+        std::time::Instant::now() - std::time::Duration::from_millis(500),
+    ));
+    let ltf = Arc::new(Mutex::new((false, false))); // (is_pressed, original_mic_state)
+
+    // ===== 麦克风开关 =====
+    if !mic_hotkey.is_empty() {
+        let cm = Arc::clone(&core);
+        let hm = app.clone();
+        let lm = Arc::clone(&ltm);
+        if let Err(e) = app
+            .global_shortcut()
+            .on_shortcut(mic_hotkey.as_str(), move |_, _, ev| {
+                if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                    return;
+                }
+                let mut lt = match lm.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                let now = std::time::Instant::now();
+                if now.duration_since(*lt) < std::time::Duration::from_millis(200) {
+                    return;
+                }
+                *lt = now;
+                drop(lt);
+                let c = Arc::clone(&cm);
+                let h = hm.clone();
+                tauri::async_runtime::spawn(async move {
+                    match c.lock().await.toggle_mic().await {
+                        Ok(s) => {
+                            let _ = h.emit("mic-toggled", s);
+                        }
+                        Err(e) => {
+                            error!("切换麦克风失败: {}", e);
+                        }
+                    }
+                });
+            })
+        {
+            error!("麦克风快捷键 {} 注册失败: {}", mic_hotkey, e);
+            failures.push(HotkeyRegistrationFailure {
+                action: "mic".to_string(),
+                hotkey: mic_hotkey.clone(),
+                error: e.to_string(),
+            });
+        }
+    }
+
+    // ===== 全局听筒 =====
+    if !global_mute_hotkey.is_empty() {
+        let ct = Arc::clone(&core);
+        let ht = app.clone();
+        let lt2 = Arc::clone(&ltt);
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(global_mute_hotkey.as_str(), move |_, _, ev| {
+                    if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released {
+                        return;
+                    }
+                    let mut lt = match lt2.try_lock() {
+                        Ok(g) => g,
+                        Err(_) => return,
+                    };
+                    let now = std::time::Instant::now();
+                    if now.duration_since(*lt) < std::time::Duration::from_millis(200) {
+                        return;
+                    }
+                    *lt = now;
+                    drop(lt);
+                    let c = Arc::clone(&ct);
+                    let h = ht.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let vs = c.lock().await.get_voice_service();
+                        let v = vs.lock().await;
+                        let ns = !v.is_global_muted();
+                        match v.mute_all(ns).await {
+                            Ok(_) => {
+                                let _ = h.emit("global-mute-toggled", ns);
+                            }
+                            Err(e) => {
+                                error!("切换静音失败: {}", e);
+                            }
+                        }
+                    });
+                })
+        {
+            error!("全局听筒快捷键 {} 注册失败: {}", global_mute_hotkey, e);
+            failures.push(HotkeyRegistrationFailure {
+                action: "global_mute".to_string(),
+                hotkey: global_mute_hotkey.clone(),
+                error: e.to_string(),
+            });
+        }
+    }
+
+    // ===== 临时开麦（按住说话）=====
+    if !push_to_talk_hotkey.is_empty() {
+        let cf = Arc::clone(&core);
+        let hf = app.clone();
+        let ltf2 = Arc::clone(&ltf);
+        if let Err(e) =
+            app.global_shortcut()
+                .on_shortcut(push_to_talk_hotkey.as_str(), move |_, _, ev| {
+                    let c = Arc::clone(&cf);
+                    let h = hf.clone();
+                    let lf = Arc::clone(&ltf2);
+                    tauri::async_runtime::spawn(async move {
+                        let mut state = match lf.try_lock() {
+                            Ok(g) => g,
+                            Err(_) => return,
+                        };
+
+                        if ev.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                            if state.0 {
+                                return;
+                            } // 已按下，防重复触发
+                            state.0 = true;
+                            let current_mic_state = c
+                                .lock()
+                                .await
+                                .get_voice_service()
+                                .lock()
+                                .await
+                                .is_mic_enabled();
+                            state.1 = current_mic_state;
+                            drop(state);
+                            if !current_mic_state {
+                                info!("临时开麦：开启麦克风");
+                                match c.lock().await.toggle_mic().await {
+                                    Ok(s) => {
+                                        let _ = h.emit("mic-toggled", s);
+                                    }
+                                    Err(e) => {
+                                        error!("临时开麦开启失败: {}", e);
+                                    }
+                                }
+                            }
+                        } else if ev.state == tauri_plugin_global_shortcut::ShortcutState::Released
+                        {
+                            if !state.0 {
+                                return;
+                            }
+                            let original_state = state.1;
+                            state.0 = false;
+                            drop(state);
+                            if !original_state {
+                                info!("临时开麦：恢复麦克风状态");
+                                match c.lock().await.toggle_mic().await {
+                                    Ok(s) => {
+                                        let _ = h.emit("mic-toggled", s);
+                                    }
+                                    Err(e) => {
+                                        error!("临时开麦恢复失败: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    });
+                })
+        {
+            error!("临时开麦快捷键 {} 注册失败: {}", push_to_talk_hotkey, e);
+            failures.push(HotkeyRegistrationFailure {
+                action: "push_to_talk".to_string(),
+                hotkey: push_to_talk_hotkey.clone(),
+                error: e.to_string(),
+            });
+        }
+    }
+
+    failures
+}
+
+/// 应用最新的快捷键设置（供前端在设置中改完键位后调用，立即生效、无需重启）
+#[tauri::command]
+async fn apply_hotkeys(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let core = Arc::clone(&state.core);
+    let bindings = {
+        let cl = core.lock().await;
+        let cfg_mgr = cl.get_config_manager();
+        let mgr = cfg_mgr.lock().await;
+        let cfg = mgr.get_config();
+        let d = HotkeyBindings::default();
+        HotkeyBindings {
+            mic: cfg.mic_hotkey.clone().unwrap_or(d.mic),
+            global_mute: cfg.global_mute_hotkey.clone().unwrap_or(d.global_mute),
+            push_to_talk: cfg.push_to_talk_hotkey.clone().unwrap_or(d.push_to_talk),
+            summon: cfg.summon_hotkey.clone().unwrap_or(d.summon),
+        }
+    };
+    let failures = register_global_hotkeys(&app, core, &bindings);
+    // 把注册失败逐条推给前端：被系统占用的键位会导致“设置里显示已保存、按下却无效”，
+    // 以前只写日志，用户无从得知。前端据此弹提示并引导换一个键位。
+    if !failures.is_empty() {
+        if let Err(error) = app.emit("hotkey-registration-failed", &failures) {
+            log::warn!("推送快捷键注册失败事件出错: {error}");
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(windows)]
+    if modules::quark_background::run_if_requested() {
+        return;
+    }
+    #[cfg(unix)]
+    if modules::unix_hosts_helper::run_if_requested() {
+        return;
+    }
+    #[cfg(windows)]
+    if modules::privileged_helper::run_if_requested() {
+        return;
+    }
+
+    if let Err(error) = modules::app_paths::migrate_legacy_data() {
+        let message = format!("迁移 MCTier 用户数据失败，旧文件已保留: {error}");
+        if let Ok(root) = modules::app_paths::data_root() {
+            let _ = std::fs::write(root.join("migration-error.log"), &message);
+        }
+        eprintln!("{message}");
+        rfd::MessageDialog::new()
+            .set_title("MCTier 数据迁移失败")
+            .set_description(format!("{message}\n请关闭其他 MCTier 实例后重试。详细信息见 Local/com.mctier.app/migration-error.log。"))
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        return;
+    }
+    reset_microphone_permission_cache_on_startup();
+    // 在应用启动时检查并应用 GPU 设置
+    apply_gpu_settings_on_startup();
+    use std::fs::OpenOptions;
+    let log_path = modules::app_paths::log_path().expect("无法定位日志文件");
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("无法创建日志文件");
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .format_timestamp_millis()
+        .target(env_logger::Target::Pipe(Box::new(log_file)))
+        .init();
+    info!("MCTier 应用程序启动中...");
+    info!("日志文件位置: {:?}", log_path);
+
+    let runtime = tokio::runtime::Runtime::new().expect("无法创建 Tokio 运行时");
+    let app_core = runtime.block_on(async {
+        match AppCore::new().await {
+            Ok(core) => {
+                info!("应用核心初始化成功");
+                if let Err(e) = core.start().await {
+                    error!("应用启动失败: {}", e);
+                }
+                core
+            }
+            Err(e) => {
+                error!("应用核心初始化失败: {}", e);
+                panic!("无法初始化应用核心: {}", e);
+            }
+        }
+    });
+
+    let app_state = AppState {
+        core: Arc::new(Mutex::new(app_core)),
+    };
+
+    let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 应用已在运行：第二个实例通常由点击 deep link 触发，argv 含 mctier:// URL
+            use tauri::Emitter;
+            if let Some(url) = argv.iter().find(|a| a.starts_with("mctier://")) {
+                let _ = app.emit("deep-link-join", url.clone());
+            }
+            restore_main_window(app);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(app_state)
+        .on_menu_event(|app, event| {
+            // 应用菜单（目前仅 macOS 装）产生的事件。自定义项按 ID 分派；
+            // 预置项（撤销/剪切/隐藏/退出等）由系统直接处理，不会走到这里。
+            handle_app_menu_event(app, event.id().as_ref());
+        })
+        .invoke_handler(command_registry::handler())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::modules::screen_recording::close_output(); crate::modules::native_capture::stop_all();
+                crate::modules::native_microphone::stop_all();
+                crate::modules::voice_ice::stop();
+            }
+            #[cfg(windows)]
+            crate::modules::media_permission::configure_browser_ui(webview);
+        })
+        .setup(|app| {
+            info!("Tauri 应用设置完成");
+            println!("🚀 [Setup] Tauri 应用设置开始");
+            let app_handle = app.handle().clone();
+            crate::modules::quark_support::start();
+
+            // Linux：必须显式打开 WebKitGTK 的 MediaStream 开关，否则页面里的
+            // RTCPeerConnection 是 undefined，语音/屏幕共享/远程控制全部无法启动。
+            #[cfg(target_os = "linux")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                crate::modules::linux_platform::enable_webview_media(&main_window);
+            }
+
+            #[cfg(target_os = "windows")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                install_minimize_to_hide(&main_window);
+                if let Err(error) = crate::modules::media_permission::install(&main_window) {
+                    log::warn!("安装浏览器媒体权限拦截失败: {error}");
+                }
+            }
+
+            {
+                use tauri::menu::{MenuBuilder, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                let show_item =
+                    MenuItem::with_id(app, "show_main", "显示 MCTier", true, None::<&str>)?;
+                let exit_item =
+                    MenuItem::with_id(app, "exit_app", "退出 MCTier", true, None::<&str>)?;
+                let tray_menu = MenuBuilder::new(app)
+                    .item(&show_item)
+                    .separator()
+                    .item(&exit_item)
+                    .build()?;
+                let tray_builder = TrayIconBuilder::with_id("main-tray")
+                    .tooltip("MCTier")
+                    .icon(app.default_window_icon().cloned().unwrap());
+                // macOS 菜单栏图标按 template image 渲染：系统据此在深浅色菜单栏里
+                // 自动着色，否则图标在浅色菜单栏上会是一团糊的彩色块。
+                #[cfg(target_os = "macos")]
+                let tray_builder = tray_builder.icon_as_template(true);
+                tray_builder
+                    .menu(&tray_menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "show_main" => restore_main_window(app),
+                        "exit_app" => graceful_exit(app),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                        | TrayIconEvent::DoubleClick {
+                            button: MouseButton::Left,
+                            ..
+                        } = event
+                        {
+                            restore_main_window(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            // 邀请 deep link：注册运行时 scheme 并监听冷启动/运行时打开的链接
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                {
+                    let _ = app.deep_link().register_all();
+                }
+                let dh = app_handle.clone();
+                app.deep_link().on_open_url(move |event| {
+                    use tauri::Emitter;
+                    if let Some(url) = event.urls().first() {
+                        let _ = dh.emit("deep-link-join", url.to_string());
+                    }
+                });
+            }
+
+            println!("🔍 [Setup] 尝试获取 AppState...");
+            if let Some(state) = app.try_state::<AppState>() {
+                println!("✅ [Setup] 成功获取 AppState");
+                let core_hk = Arc::clone(&state.core);
+
+                // 从用户配置读取自定义快捷键（缺省回落到默认键位），并完成注册。
+                // 用户在设置中修改后，前端会调用 apply_hotkeys 命令重新注册，无需重启。
+                // 顺便读出菜单栏需要的语言与两个勾选项的初始状态，避免再锁一次配置。
+                let (bindings, menu_language, menu_close_to_tray, menu_auto_start) =
+                    tauri::async_runtime::block_on(async {
+                        let cl = core_hk.lock().await;
+                        let cfg_mgr = cl.get_config_manager();
+                        let mgr = cfg_mgr.lock().await;
+                        let cfg = mgr.get_config();
+                        let d = HotkeyBindings::default();
+                        let bindings = HotkeyBindings {
+                            mic: cfg.mic_hotkey.clone().unwrap_or(d.mic),
+                            global_mute: cfg.global_mute_hotkey.clone().unwrap_or(d.global_mute),
+                            push_to_talk: cfg.push_to_talk_hotkey.clone().unwrap_or(d.push_to_talk),
+                            summon: cfg.summon_hotkey.clone().unwrap_or(d.summon),
+                        };
+                        let language = cfg.language.clone().unwrap_or_else(|| "zh".to_string());
+                        let close_to_tray = cfg.close_to_tray.unwrap_or_else(
+                            crate::modules::config_manager::default_close_to_tray,
+                        );
+                        let auto_start = cfg.auto_startup.unwrap_or(false);
+                        (bindings, language, close_to_tray, auto_start)
+                    });
+                // 启动期的注册失败也要让前端知道。前端监听器可能还没就绪，用一个短暂
+                // 延迟后再发事件，避免启动早期事件丢失（纯日志仍会立即记录）。
+                let startup_failures =
+                    register_global_hotkeys(&app_handle, Arc::clone(&core_hk), &bindings);
+                if !startup_failures.is_empty() {
+                    let fail_handle = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        if let Err(error) =
+                            fail_handle.emit("hotkey-registration-failed", &startup_failures)
+                        {
+                            log::warn!("推送启动期快捷键注册失败事件出错: {error}");
+                        }
+                    });
+                }
+
+                // macOS 应用菜单栏：关于 / 设置 / 编辑 / 窗口 / 帮助。其他平台为空实现。
+                #[cfg(target_os = "macos")]
+                if let Err(error) = crate::modules::macos_menu::install(
+                    &app_handle,
+                    &menu_language,
+                    menu_close_to_tray,
+                    menu_auto_start,
+                ) {
+                    log::warn!("安装 macOS 应用菜单失败: {error}");
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = (&menu_language, menu_close_to_tray, menu_auto_start);
+                }
+            } else {
+                println!("❌ [Setup] 无法获取 AppState，快捷键注册失败");
+                error!("无法获取 AppState，快捷键注册失败");
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                {
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::Graphics::Dwm::{
+                        DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    };
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_APPWINDOW,
+                        WS_EX_TOOLWINDOW,
+                    };
+                    if let Ok(hwnd) = window.hwnd() {
+                        let hwnd = HWND(hwnd.0 as *mut _);
+                        unsafe {
+                            let dm: i32 = 1;
+                            let _ = DwmSetWindowAttribute(
+                                hwnd,
+                                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                &dm as *const _ as *const _,
+                                std::mem::size_of::<i32>() as u32,
+                            );
+                            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                            let fixed_ex =
+                                (ex | WS_EX_APPWINDOW.0 as i32) & !(WS_EX_TOOLWINDOW.0 as i32);
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, fixed_ex);
+                        }
+                    }
+                }
+
+                // 应用窗口配置
+                if let Some(state) = app.try_state::<AppState>() {
+                    let core = Arc::clone(&state.core);
+                    let win = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let config_manager = core.lock().await.get_config_manager();
+                        let cfg_mgr = config_manager.lock().await;
+                        let config = cfg_mgr.get_config();
+
+                        // 应用窗口置顶设置
+                        let always_on_top = config.always_on_top.unwrap_or(true);
+                        if let Err(e) = win.set_always_on_top(always_on_top) {
+                            error!("设置窗口置顶失败: {}", e);
+                        } else {
+                            info!("窗口置顶设置成功: {}", always_on_top);
+                        }
+
+                        // 应用窗口位置设置
+                        let remember_position = config.remember_window_position.unwrap_or(false);
+                        if remember_position {
+                            if let Some(pos) = &config.window_position {
+                                use tauri::PhysicalPosition;
+                                if let Err(e) =
+                                    win.set_position(PhysicalPosition::new(pos.x, pos.y))
+                                {
+                                    error!("设置窗口位置失败: {}", e);
+                                } else {
+                                    info!("窗口位置已恢复: x={}, y={}", pos.x, pos.y);
+                                }
+                            }
+                        }
+
+                        // 启动后自动隐藏到系统托盘（后台运行）
+                        let start_minimized = config.start_minimized.unwrap_or(false);
+                        if start_minimized {
+                            hide_main_window_to_tray(win.app_handle(), "启动配置");
+                        }
+                    });
+                }
+            }
+            let ah2 = app.handle().clone();
+            if let Some(state) = app.try_state::<AppState>() {
+                let core = Arc::clone(&state.core);
+                tauri::async_runtime::block_on(async move {
+                    core.lock().await.set_app_handle(ah2).await;
+                    info!("应用句柄已设置到 AppCore");
+                });
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 【#1】窗口越界自动回中：当窗口被拖到所有显示器可视范围之外时，自动居中找回
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label().to_string();
+                // 仅主窗口关闭时才退出应用；辅助窗口(弹幕覆盖层/屏幕查看等)正常关闭，
+                // 不得连带退出整个程序（修复：预览弹幕后弹幕窗关闭把主程序也带退了）
+                if label != "main" {
+                    return;
+                }
+                // 始终先阻止默认关闭，之后根据配置决定：隐藏到托盘 或 退出程序
+                api.prevent_close();
+                // 先立即隐藏窗口，再在后台判断是保留托盘运行还是清理退出，避免
+                // 网络与虚拟网卡清理耗时让用户感觉关闭按钮没有响应。
+                let _ = window.hide();
+                let ah = window.app_handle().clone();
+                if let Some(state) = ah.try_state::<AppState>() {
+                    let core = Arc::clone(&state.core);
+                    tauri::async_runtime::spawn(async move {
+                        // 读取「关闭时最小化到托盘」配置。缺省值由平台决定
+                        // （macOS 隐藏到菜单栏，Windows 退出），与设置页显示保持一致。
+                        let close_to_tray = {
+                            use crate::modules::config_manager::default_close_to_tray;
+                            let cl = core.lock().await;
+                            let cfg_mgr = cl.get_config_manager();
+                            let mgr = cfg_mgr.lock().await;
+                            let cfg = mgr.get_config();
+                            cfg.close_to_tray.unwrap_or_else(default_close_to_tray)
+                        };
+
+                        if close_to_tray {
+                            hide_main_window_to_tray(&ah, "关闭按钮");
+                            return;
+                        }
+
+                        // 正常退出流程
+                        if crate::modules::screen_recording::finish_before_exit(&ah) { return; }
+                        if let Err(e) = core.lock().await.shutdown().await {
+                            error!("关闭错误: {}", e);
+                        }
+                        #[cfg(target_os = "macos")]
+                        crate::modules::macos_privilege::request_stop_for_all_sessions();
+                        if let Some(w) = ah.get_webview_window("main") {
+                            let _ = w.close();
+                        }
+                        ah.exit(0);
+                    });
+                } else {
+                    let _ = window.close();
+                    window.app_handle().exit(0);
+                }
+            }
+        })
+        .build(tauri::generate_context!());
+    let app = match result {
+        Ok(app) => app,
+        Err(e) => {
+            error!("运行错误: {}", e);
+            panic!("error: {}", e);
+        }
+    };
+    app.run(|app_handle, event| {
+        // macOS：窗口被隐藏或最小化到 Dock 之后，点 Dock 图标 / 重新打开应用
+        // 系统只会发 Reopen 事件。不处理的话主窗口就再也唤不回来，看起来像「卡死」。
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            info!("收到 macOS Reopen 事件，恢复主窗口 (has_visible_windows={has_visible_windows})");
+            // 句柄缺失时 restore_main_window 只能静默返回，点图标会「毫无反应」。
+            // 留下日志，让这类报告有据可查。
+            if app_handle.get_webview_window("main").is_none() {
+                warn!("Reopen 事件找不到 main 窗口句柄，无法唤回窗口");
+            }
+            restore_main_window(app_handle);
+        }
+
+        // 统一退出清理：Cmd+Q（macOS 菜单的预置「退出」）、系统关机、以及任何
+        // 直接触发的退出都走这里。首次请求时先拦下，异步跑完网络/录制清理再真正退出；
+        // 清理完成后自己调用的 app.exit() 会带着标志再次进来，这次放行。
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+            // 程序化退出（code 为 Some，例如重启/自我退出）不拦截，直接放行。
+            if code.is_none()
+                && !SHUTDOWN_IN_PROGRESS.swap(true, std::sync::atomic::Ordering::AcqRel)
+            {
+                api.prevent_exit();
+                info!("收到退出请求，开始优雅清理网络与录制资源");
+                let ah = app_handle.clone();
+                // 录制未结束时先让前端把录像落盘，收到回执后再退出。
+                if crate::modules::screen_recording::finish_before_exit(&ah) {
+                    // finish_before_exit 已请求前端收尾；清理交给前端触发的后续退出，
+                    // 这里仅重置标志让下一次退出请求能继续走完整流程。
+                    SHUTDOWN_IN_PROGRESS.store(false, std::sync::atomic::Ordering::Release);
+                } else if let Some(state) = ah.try_state::<AppState>() {
+                    let core = Arc::clone(&state.core);
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = core.lock().await.shutdown().await {
+                            error!("退出前清理失败: {error}");
+                        }
+                        crate::modules::native_capture::stop_all();
+                        crate::modules::native_microphone::stop_all();
+                        #[cfg(target_os = "macos")]
+                        crate::modules::macos_privilege::request_stop_for_all_sessions();
+                        info!("清理完成，正式退出 MCTier");
+                        ah.exit(0);
+                    });
+                } else {
+                    ah.exit(0);
+                }
+            }
+        }
+    });
+    info!("MCTier 应用程序已关闭");
+}
+
+#[cfg(test)]
+mod hotkey_tests {
+    use super::normalize_hotkey;
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    /// normalize_hotkey 的产物必须能被 global-shortcut 的解析器接受，否则注册会失败，
+    /// 表现就是"设置里改了键、按下毫无反应"。这里把默认键位和常见组合都过一遍解析器。
+    #[test]
+    fn normalized_hotkeys_parse_for_the_shortcut_backend() {
+        for raw in [
+            "Ctrl+M",        // 麦克风开关默认键
+            "Ctrl+T",        // 全局听筒默认键
+            "F2",            // 临时开麦默认键
+            "Ctrl+Alt+M",    // 唤出窗口默认键
+            "Option+A",      // Mac 上 Option 等价 Alt
+            "Command+Shift+K",
+            "Shift+F1",
+        ] {
+            let normalized = normalize_hotkey(raw);
+            assert!(
+                Shortcut::from_str(&normalized).is_ok(),
+                "归一化结果 `{normalized}`（来自 `{raw}`）无法被 global-shortcut 解析，注册必然失败"
+            );
+        }
+    }
+
+    /// macOS 上物理 Ctrl 必须落到真正的 Control 而非 Super(Command)，否则会和应用自身的
+    /// Cmd 快捷键抢按键；功能键与单字母键的大小写也要规范，避免解析失败。
+    #[test]
+    fn modifier_mapping_is_stable() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(normalize_hotkey("ctrl+m"), "Control+M");
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(normalize_hotkey("ctrl+m"), "CommandOrControl+M");
+
+        assert_eq!(normalize_hotkey("option+a"), "Alt+A");
+        assert_eq!(normalize_hotkey("cmd+shift+k"), "Super+Shift+K");
+        // 功能键保持用户输入的原样（多字符键不改大小写）；解析器大小写不敏感，仍可注册。
+        assert_eq!(normalize_hotkey("F2"), "F2");
+        assert_eq!(normalize_hotkey("f2"), "f2");
+        // 空白与多余加号不应产生空 token（空 token 会让解析器报错）。
+        assert_eq!(normalize_hotkey(" ctrl + m "), {
+            #[cfg(target_os = "macos")] { "Control+M".to_string() }
+            #[cfg(not(target_os = "macos"))] { "CommandOrControl+M".to_string() }
+        });
+    }
+}

@@ -1,0 +1,7 @@
+.desktop-compliance-gate { min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:28px; background:var(--mctier-page-bg,#11131c); }
+.desktop-compliance-card { width:min(620px,100%); max-height:calc(100vh - 56px); overflow:auto; border-radius:18px; }
+.desktop-compliance-document { border:1px solid rgba(128,128,128,.25); border-radius:10px; margin:8px 0; overflow:hidden; }
+.desktop-compliance-document button { display:flex; align-items:center; justify-content:space-between; color:inherit; }
+.desktop-compliance-chevron { display:block; flex-shrink:0; }
+/* Keep the document scrollable while its title and acknowledgement stay visible. */
+.desktop-compliance-reader .desktop-compliance-body { height:min(62vh,560px); max-height:calc(100dvh - 190px); overflow-y:auto; overflow-wrap:anywhere; white-space:pre-line; line-height:1.85; padding:4px 12px 4px 0; margin:0; }

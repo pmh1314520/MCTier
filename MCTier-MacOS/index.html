@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCTier - Minecraft 虚拟局域网联机工具</title>
+    <style>
+      /* 确保窗口背景完全透明 */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent !important;
+        overflow: hidden;
+      }
+      #root {
+        background: transparent !important;
+      }
+      
+      /* 隐藏浏览器窗口大小改变时的分辨率提示 */
+      /* 这是WebView在窗口大小改变时显示的提示 */
+      body::after,
+      html::after,
+      body::before,
+      html::before {
+        content: none !important;
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+      
+      /* 隐藏所有可能的分辨率提示元素 */
+      [class*="resize-indicator"],
+      [class*="dimension-indicator"],
+      [id*="resize-indicator"],
+      [id*="dimension-indicator"],
+      [data-resize],
+      [data-dimension] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
+      
+      /* 隐藏WebView的内置提示 */
+      ::-webkit-resizer {
+        display: none !important;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

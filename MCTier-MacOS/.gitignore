@@ -1,0 +1,178 @@
+# Logs
+build-logs/
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+dist-ssr
+*.local
+/release-artifacts/
+/binaries/
+
+# Android / Gradle
+MCTier-Android.apk
+*.apk
+MCTier-Android/.gradle/
+MCTier-Android/.kotlin/
+MCTier-Android/build/
+MCTier-Android/app/build/
+MCTier-Android/local.properties
+MCTier-Android/.idea/
+MCTier-Android/.cxx/
+MCTier-Android/.externalNativeBuild/
+MCTier-Android/captures/
+MCTier-Android/*.apk
+MCTier-Android/*.aab
+MCTier-Android/*.ap_
+MCTier-Android/*.dex
+MCTier-Android/ui_now.xml
+MCTier-Android/screen_now.png
+MCTier-Android/color_sample.txt
+
+# Tauri / Rust
+src-tauri/target
+src-tauri/WixTools
+
+# Compiled executables
+*.exe
+*.dll
+*.lib
+*.sys
+# Linux 侧的 EasyTier 二进制没有扩展名，*.exe 之类的规则挡不住，需要显式忽略。
+# 与 Windows 二进制同理：第三方产物、体积大，构建前用
+# MCTier-Linux/scripts/fetch-binaries.sh 获取并校验 SHA-256。
+src-tauri/resources/binaries/linux/
+# macOS EasyTier binaries are reproducible third-party build outputs; keep only
+# the architecture directories and .gitkeep files in the repository.
+src-tauri/resources/binaries/macos/*/easytier-core
+src-tauri/resources/binaries/macos/*/easytier-cli
+src-tauri/resources/binaries/macos/*/target/
+MCTier-macOS/build-logs/
+MCTier-macOS/*.log
+MCTier-macOS/*.dmg
+
+# Config directories
+config_mctier-*
+
+# Test files and reports
+# tests/ 不再整体忽略，否则 npm test 没有任何可跑的用例（见 issue #17）。
+tests/**/__snapshots__/
+# 早期回归实验的遗留用例：相对路径已失效且与顶层同名用例重复，不纳入版本库。
+tests/reverted-ui/
+*_TEST_REPORT.md
+*_DEBUG_GUIDE.md
+*_GUIDE.md
+
+# Documentation (if generated)
+DEVELOPER_GUIDE.md
+FAQ.md
+PERFORMANCE_TEST_REPORT.md
+STORE_TEST_REPORT.md
+VOICE_DEBUG_GUIDE.md
+
+# Editor directories and files
+# Keep dot-prefixed directories local except the reviewed allowlist below.
+**/.*/
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# 一次性脚本 / 构建日志 / 过期的更新元数据（见 issue #17）
+/0
+/buildout.txt
+/latest.json
+/public/file-preview/
+/MCTier-Android/app/src/main/assets/file-preview/
+/shared/generated/
+/shared/image-optimizer/target/
+/.emoji-build/
+
+# Local exports, scratch files and credentials are not source code.
+/*.zip
+/*.7z
+/*.rar
+*.bak
+*.tmp
+*.partial
+*.part
+*.part.rejected-*
+*.invalid-*
+sherpa-onnx-prebuilt/
+*.pdb
+*.tsbuildinfo
+__pycache__/
+*.pyc
+/coverage/
+/playwright-report/
+/test-results/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+build-paths.local.json
+
+# Local credentials and machine-specific configuration. Never commit these.
+.envrc
+.mise.local.toml
+*.secret
+*.secrets
+*.credentials
+*.credential
+*credentials*.json
+*secrets*.json
+*apikey*.json
+*api-key*.json
+*token*.json
+*private-key*.json
+
+# macOS local release outputs and logs.
+MCTier-macOS/build-logs/
+MCTier-macOS/**/*.dmg
+MCTier-macOS/**/*.app/
+
+signing.local.json
+/public/pdfjs/
+
+# Local verification output and unused source duplicates.
+/docs/verification-*/
+/public/tauri.svg
+/MCTier-Android/wx.png
+/MCTier-Android/zfb.jpg
+
+
+# Reviewed GitHub configuration is the only dot-directory exception.
+!/.github/
+/.github/*
+!/.github/ISSUE_TEMPLATE/
+/.github/ISSUE_TEMPLATE/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/dependabot.yml
+!/.github/pull_request_template.md
+!/.github/ISSUE_TEMPLATE/bug_report.yml
+!/.github/ISSUE_TEMPLATE/compliance_audit.yml
+!/.github/ISSUE_TEMPLATE/config.yml
+!/.github/ISSUE_TEMPLATE/feature_request.yml
+!/.github/workflows/ci.yml

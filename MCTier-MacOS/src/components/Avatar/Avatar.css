@@ -1,0 +1,49 @@
+.mct-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--mct-avatar-bg, #354052);
+  color: var(--mct-avatar-fg, #fff);
+  font: inherit;
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+
+.mct-avatar-editable {
+  cursor: pointer;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #48c774) 48%, transparent);
+}
+
+.mct-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mct-avatar > span:first-child {
+  font-size: max(13px, calc(var(--avatar-size, 44px) * 0.38));
+  font-weight: 700;
+}
+
+.mct-avatar input {
+  display: none;
+}
+
+html[data-theme='light'] .mct-avatar:not(.has-image) {
+  --mct-avatar-bg: #ffffff;
+  --mct-avatar-fg: #111827;
+  border: 1px solid rgba(24, 32, 43, 0.18);
+}
+
+.mct-avatar-editable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color, #48c774) 72%, transparent);
+  outline-offset: 3px;
+}

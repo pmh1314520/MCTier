@@ -1,0 +1,620 @@
+.main-window.macos-desktop-window {
+  min-height: 100%;
+  height: 100%;
+  padding: 72px clamp(32px, 6vw, 96px) 48px;
+  justify-content: flex-start;
+  overflow: auto;
+  /* 与竖屏共用同一渐变背景：此前横排是更深的实色 #151722，
+     拖宽窗口时背景会突然变深，两种形态看起来像两个应用。 */
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.main-window.macos-desktop-window .main-window-drag-area {
+  height: 52px;
+  /* macOS 下 WKWebView 不认 -webkit-app-region，拖拽依赖 data-tauri-drag-region
+     的 JS mousedown，必须能接收指针事件；pointer-events:none 会让顶栏无法拖动。 */
+  pointer-events: auto;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* 标题字体栈写的是 Segoe UI / Microsoft YaHei（Windows 字体），macOS 上逐级
+   落空到通用 sans-serif；这里显式给系统栈，CJK 走 PingFang，避免回退不一致。 */
+:root[data-platform='macos'] .main-window-title {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+}
+
+/* macOS 的交通灯固定在左上角（trafficLightPosition 16,14），Quark 入口按默认的
+   left:14px 会压在上面，这里右移让开三个按钮的宽度。竖屏 / 横排都要让。 */
+:root[data-platform='macos'] .quark-entry {
+  left: 92px;
+}
+
+/* macOS 竖屏（默认形态）：沿用紧凑竖窗布局，只补上原生交通灯需要的安全区。
+   与横排一样顶对齐 + 可滚动，窗口压到最小高度时底部按钮不会被 overflow 裁掉。
+   拖拽区必须能接收指针事件——macOS 下 WKWebView 不认 -webkit-app-region。 */
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) {
+  height: 100%;
+  min-height: 100%;
+  padding: 64px 24px 40px;
+  justify-content: flex-start;
+  overflow: auto;
+}
+
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) .main-window-drag-area {
+  height: 52px;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) .main-window-content {
+  width: min(100%, 420px);
+  max-width: 420px;
+}
+
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) button,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) input,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) select,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) textarea,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) a,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) .ant-select,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) .ant-input,
+:root[data-platform='macos'] .main-window:not(.macos-desktop-window) .ant-form-item {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.main-window.macos-desktop-window .main-window-content {
+  width: min(100%, 1040px);
+  max-width: 1040px;
+  min-width: 0;
+  margin: auto;
+  padding: 28px clamp(20px, 4vw, 64px) 40px;
+}
+
+.main-window.macos-desktop-window .main-window-logo {
+  width: 104px;
+  height: 104px;
+  margin-bottom: 24px;
+}
+
+.main-window.macos-desktop-window .main-window-title {
+  font-size: clamp(36px, 4vw, 52px) !important;
+}
+
+.main-window.macos-desktop-window .main-window-actions {
+  width: min(100%, 760px);
+  margin-bottom: 32px;
+}
+
+.main-window.macos-desktop-window .main-window-actions .ant-space-vertical {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.main-window.macos-desktop-window .main-window-actions .ant-space-item {
+  min-width: 0;
+  margin: 0 !important;
+}
+
+.main-window.macos-desktop-window .main-window-actions .ant-space-item > div,
+.main-window.macos-desktop-window .main-window-actions .ant-space-item > div > .main-window-button {
+  width: 100%;
+}
+
+.main-window.macos-desktop-window :focus-visible {
+  outline: 2px solid rgba(126, 211, 33, 0.9);
+  outline-offset: 3px;
+}
+
+
+.main-window.macos-desktop-window .main-window-content > :nth-child(4) {
+  width: min(100%, 760px);
+}
+
+.main-window.macos-desktop-window .main-window-content > :nth-child(4) > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .main-window.macos-desktop-window .main-window-actions .ant-space-vertical {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.main-window.macos-desktop-window .main-window-hint {
+  position: static;
+  transform: none;
+  margin-top: 12px;
+}
+
+.main-window.macos-desktop-window .main-window-version {
+  margin-top: 28px;
+}
+
+.main-window.macos-desktop-window button,
+.main-window.macos-desktop-window input,
+.main-window.macos-desktop-window select,
+.main-window.macos-desktop-window textarea,
+.main-window.macos-desktop-window a,
+.main-window.macos-desktop-window .ant-select,
+.main-window.macos-desktop-window .ant-input,
+.main-window.macos-desktop-window .ant-form-item {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+@media (max-height: 620px) {
+  .main-window.macos-desktop-window {
+    padding-top: 56px;
+    padding-bottom: 24px;
+  }
+
+  .main-window.macos-desktop-window .main-window-logo {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 12px;
+  }
+}
+
+.main-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 顶部拖拽区域 */
+.main-window-drag-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 10;
+  -webkit-app-region: drag;
+  app-region: drag;
+  pointer-events: auto;
+}
+
+/* 拖拽区域样式 */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 确保按钮等交互元素不受拖拽影响 */
+button,
+input,
+select,
+textarea,
+a,
+.ant-select,
+.ant-input,
+.ant-form-item {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 动态背景效果 - 可通过 .gpu-rendering-disabled 类禁用 */
+.main-window::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.02) 0%, transparent 50%);
+  animation: none;
+  will-change: auto;
+}
+
+/* 禁用 GPU 渲染时停止背景动画 */
+.main-window.gpu-rendering-disabled::before {
+  animation: none;
+  opacity: 0.5;
+}
+
+@keyframes particleFloat {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(15px, 15px);
+    opacity: 0.6;
+  }
+}
+
+.main-window-content {
+  padding: 40px 32px;
+  min-width: 300px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+
+.main-window-logo {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* 图标背后的渐变光晕效果 - 可通过 .gpu-rendering-disabled 类禁用 */
+.main-window-logo::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(
+    circle,
+    rgba(106, 164, 56, 0.3) 0%,
+    rgba(139, 111, 71, 0.2) 40%,
+    rgba(90, 148, 40, 0.15) 60%,
+    transparent 80%
+  );
+  filter: blur(12px);
+  opacity: 0.34;
+  animation: none;
+  z-index: -1;
+  will-change: auto;
+}
+
+/* 禁用 GPU 渲染时停止光晕动画 */
+.main-window.gpu-rendering-disabled .main-window-logo::before {
+  animation: none;
+  opacity: 0.3;
+}
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+.main-window-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 8px rgba(106, 164, 56, 0.3));
+}
+
+.main-window-title {
+  margin: 0 0 8px 0 !important;
+  font-size: 36px !important;
+  font-weight: 900 !important;
+  font-style: italic !important;
+  letter-spacing: 3px;
+  position: relative;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  /* 整体渐变从绿到棕 */
+  background: linear-gradient(135deg, 
+    #7ed321 0%, 
+    #9ee84a 20%, 
+    #b8f569 35%,
+    #d4a574 65%,
+    #c89a5e 80%,
+    #b88a4a 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* 简化阴影效果 */
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  animation: none;
+  will-change: auto;
+}
+
+/* 禁用 GPU 渲染时停止标题动画 */
+.main-window.gpu-rendering-disabled .main-window-title {
+  animation: none;
+  filter: drop-shadow(0 0 12px rgba(126, 211, 33, 0.5))
+          drop-shadow(0 0 20px rgba(212, 165, 116, 0.3))
+          drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+@keyframes titleShine {
+  0%, 100% {
+    filter: drop-shadow(0 0 12px rgba(126, 211, 33, 0.5))
+            drop-shadow(0 0 20px rgba(212, 165, 116, 0.3))
+            drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(126, 211, 33, 0.7))
+            drop-shadow(0 0 28px rgba(212, 165, 116, 0.5))
+            drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+  }
+}
+
+/* MC 部分 - 不再需要单独设置，使用整体渐变 */
+.title-mc {
+  /* 保留用于兼容性，但样式由父元素控制 */
+}
+
+/* Tier 部分 - 不再需要单独设置，使用整体渐变 */
+.title-tier {
+  /* 保留用于兼容性，但样式由父元素控制 */
+}
+
+/* 为标题添加像素化边框效果，体现 Minecraft 风格 */
+.main-window-title::before {
+  display: none;
+  content: 'MCTier';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, rgba(106, 164, 56, 0.25) 0%, rgba(139, 111, 71, 0.25) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: blur(6px);
+  z-index: -1;
+  animation: titleGlow 5s ease-in-out infinite;
+  will-change: auto;
+}
+
+/* 禁用 GPU 渲染时停止标题光晕动画 */
+.main-window.gpu-rendering-disabled .main-window-title::before {
+  animation: none;
+  opacity: 0.4;
+  filter: blur(6px);
+}
+
+@keyframes titleGlow {
+  0%,
+  100% {
+    opacity: 0.4;
+    filter: blur(6px);
+  }
+  50% {
+    opacity: 0.7;
+    filter: blur(10px);
+  }
+}
+
+.main-window-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 16px !important;
+  font-weight: 500;
+}
+
+.main-window-button {
+  height: 48px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  border-radius: 7px !important;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease !important;
+  border: none !important;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+  will-change: auto;
+}
+
+.main-window-button::before {
+  display: none;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0);
+  transition: background 0.08s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.main-window-button:hover {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.15),
+    0 2px 4px rgba(0, 0, 0, 0.1);
+  filter: none;
+}
+
+.main-window-button:hover::before {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.main-window-button:active {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.03s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  filter: brightness(0.92);
+}
+
+.main-window-button:active::before {
+  background: rgba(0, 0, 0, 0.08);
+  transition: background 0.03s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.create-button {
+  background: #52c41a !important;
+  color: white !important;
+  box-shadow: 0 2px 10px rgba(82, 196, 26, 0.3);
+}
+
+.create-button:hover {
+  background: #49b117 !important;
+  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.3);
+}
+
+.create-button:active {
+  background: linear-gradient(135deg, #52c41a 0%, #3c9a12 100%) !important;
+  box-shadow: 0 1px 4px rgba(82, 196, 26, 0.25);
+}
+
+.join-button {
+  background: rgba(82, 196, 26, 0.12) !important;
+  color: rgba(150, 220, 100, 0.95) !important;
+  border: 1.5px solid rgba(82, 196, 26, 0.3) !important;
+  backdrop-filter: blur(10px);
+}
+
+.join-button:hover {
+  background: rgba(82, 196, 26, 0.18) !important;
+  border-color: rgba(82, 196, 26, 0.45) !important;
+  color: rgba(170, 230, 120, 1) !important;
+}
+
+.join-button:active {
+  background: rgba(82, 196, 26, 0.24) !important;
+  border-color: rgba(82, 196, 26, 0.55) !important;
+}
+
+.settings-entry-button,
+.about-button {
+  background: rgba(139, 111, 71, 0.12) !important;
+  color: rgba(200, 170, 130, 0.95) !important;
+  border: 1.5px solid rgba(139, 111, 71, 0.3) !important;
+  height: 48px !important;
+  font-size: 15px !important;
+  backdrop-filter: blur(10px);
+}
+
+.settings-entry-button:hover,
+.about-button:hover {
+  background: rgba(139, 111, 71, 0.16) !important;
+  border-color: rgba(139, 111, 71, 0.4) !important;
+  color: rgba(220, 190, 150, 1) !important;
+}
+
+.settings-entry-button:active,
+.about-button:active {
+  background: rgba(139, 111, 71, 0.22) !important;
+  border-color: rgba(139, 111, 71, 0.5) !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .main-window-content {
+    min-width: 280px;
+    padding: 32px 24px;
+  }
+
+  .main-window-title {
+    font-size: 28px !important;
+  }
+
+  .main-window-subtitle {
+    font-size: 12px;
+  }
+
+  .main-window-button {
+    height: 44px !important;
+    font-size: 14px !important;
+  }
+}
+
+.main-window-version {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  user-select: none;
+}
+
+.main-window-hint {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  user-select: none;
+}
+
+/* 设置界面遮罩层 - 覆盖在主界面上，避免透明闪烁 */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+/* 主窗口控制区 */
+.main-window-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.main-window-control-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.68);
+  transition: background-color 0.14s ease, color 0.14s ease;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.main-window-control-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.main-window-control-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.main-window-close-btn:hover {
+  color: #ffffff;
+  background: #d9363e;
+  border-color: #d9363e;
+}

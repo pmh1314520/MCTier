@@ -1,0 +1,80 @@
+{
+  "name": "MCTier signaling protocol",
+  "description": "Inventory of SignalingMessage wire types in MCTier-Signaling-Server/src/protocol.rs. Payload validation and permissions remain in each implementation.",
+  "protocolVersion": 3,
+  "transport": "websocket",
+  "legacyRegistrationType": "register",
+  "messageTypes": {
+    "registration": [
+      "register-v3",
+      "register",
+      "register-success",
+      "register-error",
+      "version-too-old",
+      "chat-token-rotated",
+      "ping",
+      "pong"
+    ],
+    "challenge": ["server-challenge"],
+    "lobby": [
+      "players-list-request",
+      "players-list",
+      "player-joined",
+      "player-left",
+      "host-changed",
+      "player-mute-changed",
+      "lobby-options-changed",
+      "kicked",
+      "kick-player",
+      "mute-player",
+      "transfer-host",
+      "set-lobby-options",
+      "leave",
+      "public-lobby-list-request",
+      "public-lobby-list-response"
+    ],
+    "webrtc": [
+      "offer",
+      "answer",
+      "ice-candidate",
+      "voice-reconnect",
+      "status-update",
+      "chat-message"
+    ],
+    "screen": [
+      "screen-share-list-request",
+      "screen-share-list-response",
+      "screen-share-start",
+      "screen-share-stop",
+      "screen-share-offer",
+      "screen-share-answer",
+      "screen-share-ice-candidate",
+      "screen-share-error",
+      "screen-share-relay",
+      "screen-share-update",
+      "screen-share-viewer-left"
+    ],
+    "file": [
+      "file-share-list-request",
+      "file-share-list-response",
+      "file-share-added",
+      "file-share-removed",
+      "share-updated"
+    ],
+    "remoteControl": [
+      "remote-control-request",
+      "remote-control-accept",
+      "remote-control-reject",
+      "remote-control-offer",
+      "remote-control-answer",
+      "remote-control-ice",
+      "remote-control-stop"
+    ],
+    "communityNodes": [
+      "community-node-list-request",
+      "community-node-list-response",
+      "community-node-submit",
+      "community-node-submit-result"
+    ]
+  }
+}

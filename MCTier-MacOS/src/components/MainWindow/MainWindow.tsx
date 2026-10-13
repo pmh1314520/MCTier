@@ -1,0 +1,413 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Button, Space, Typography, Modal } from 'antd';
+import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { open } from '@tauri-apps/plugin-shell';
+import { useAppStore } from '../../stores';
+import { LobbyForm } from '../LobbyForm/LobbyForm';
+import { AboutWindow } from '../AboutWindow/AboutWindow';
+import { QuarkSupportEntry } from '../QuarkSupport/QuarkSupport';
+import { OPEN_QUARK_SUPPORT } from '../QuarkSupport/QuarkStartupPrompt';
+import { SettingsWindow } from '../SettingsWindow';
+import { OnboardingWizard, isOnboardingDone } from '../OnboardingWizard/OnboardingWizard';
+import { CloseIcon } from '../icons';
+import { useEscapeKey, useWindowLayout } from '../../hooks';
+import { useTranslation } from 'react-i18next';
+import { tl } from '../../i18n';
+import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
+import { isMacOSPlatform } from '../../utils/platform';
+import './MainWindow.css';
+
+const { Title, Paragraph } = Typography;
+
+/**
+ * 主窗口组件
+ * 显示创建/加入大厅的入口
+ */
+export const MainWindow: React.FC<{ startupReady?: boolean }> = ({ startupReady = true }) => {
+  const { t } = useTranslation();
+  // 竖屏（默认）/ 横排跟随窗口宽度自动切换，横排时套用桌面双栏布局
+  const layout = useWindowLayout();
+  const desktopLayout = isMacOSPlatform && layout === 'landscape';
+  const [showForm, setShowForm] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'join'>('create');
+  const [showAbout, setShowAbout] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [enableGpuRendering, setEnableGpuRendering] = useState(true);
+  const [appVersion, setAppVersion] = useState('');
+  
+  const versionError = useAppStore((state) => state.versionError);
+  const setVersionError = useAppStore((state) => state.setVersionError);
+
+  const handleMinimizeToTray = () => {
+    void invoke('minimize_main_window_to_tray');
+  };
+
+  const handleCloseMainWindow = async () => {
+    const currentWindow = getCurrentWindow();
+    try {
+      await currentWindow.hide();
+    } finally {
+      void currentWindow.close();
+    }
+  };
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch((error) => {
+      console.warn('读取应用版本失败:', error);
+    });
+  }, []);
+
+  // 监听 GPU 渲染设置变化的全局事件
+  useEffect(() => {
+    const handleGpuRenderingChange = (event: CustomEvent) => {
+      console.log('GPU 渲染设置已更改:', event.detail.enabled);
+      setEnableGpuRendering(event.detail.enabled);
+    };
+
+    window.addEventListener('gpuRenderingChanged', handleGpuRenderingChange as EventListener);
+
+    return () => {
+      window.removeEventListener('gpuRenderingChanged', handleGpuRenderingChange as EventListener);
+    };
+  }, []);
+
+  // 首次启动弹出新手引导
+  useEffect(() => {
+    if (startupReady && !isOnboardingDone()) {
+      const timer = setTimeout(() => setShowOnboarding(true), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [startupReady]);
+
+  // 邀请 deep link：收到后切到加入模式并打开表单（LobbyForm 自行读取预填）
+  useEffect(() => {
+    const onDeepLink = () => {
+      (window as any).__autoLobbyTriggered = true;
+      delete (window as any).__autoLobbyConfig;
+      setFormMode('join');
+      setShowForm(true);
+      // 再次派发，确保已挂载的 LobbyForm 也能立即读取
+      setTimeout(() => window.dispatchEvent(new CustomEvent('mctier-deep-link')), 50);
+    };
+    window.addEventListener('mctier-open-join', onDeepLink as EventListener);
+    return () => window.removeEventListener('mctier-open-join', onDeepLink as EventListener);
+  }, []);
+
+  // macOS 应用菜单栏的「设置…」(Cmd+,) 与「关于 MCTier」通过后端事件触发；
+  // App.tsx 收到 Tauri 事件后转成这两个 window 事件，这里打开对应浮层。
+  useEffect(() => {
+    const openSettings = () => {
+      if (useAppStore.getState().appState === 'connecting') return;
+      setShowForm(false);
+      setShowAbout(false);
+      handleShowSettings();
+    };
+    const openAbout = () => {
+      setShowForm(false);
+      setShowSettings(false);
+      setShowAbout(true);
+    };
+    window.addEventListener('mctier-menu-settings', openSettings as EventListener);
+    window.addEventListener('mctier-menu-about', openAbout as EventListener);
+    return () => {
+      window.removeEventListener('mctier-menu-settings', openSettings as EventListener);
+      window.removeEventListener('mctier-menu-about', openAbout as EventListener);
+    };
+  }, []);
+
+  // ESC键返回 - 在表单或关于页面时返回主界面
+  useEscapeKey(() => {
+    if (showForm) {
+      if (useAppStore.getState().appState !== 'connecting') handleCloseForm();
+    } else if (showAbout) {
+      handleCloseAbout();
+    } else if (showSettings) {
+      handleCloseSettings();
+    }
+  }, showForm || showAbout || showSettings);
+
+  // 组件加载时主动拉取自动大厅配置，仅应用启动后首次触发一次
+  useEffect(() => {
+    // 用全局标志确保整个应用生命周期内只触发一次，避免从大厅返回主界面时重复触发
+    if (!startupReady || (window as any).__autoLobbyTriggered) return;
+    let disposed = false;
+    const checkAutoLobby = async () => {
+      try {
+        const settings = await invoke<any>('get_settings');
+        if (disposed || (window as any).__autoLobbyTriggered) return;
+        
+        // 加载 GPU 渲染设置
+        const gpuEnabled = settings.enableGpuRendering ?? true;
+        setEnableGpuRendering(gpuEnabled);
+        console.log('GPU 渲染设置:', gpuEnabled);
+        
+        if (settings.autoLobbyEnabled && settings.lobbyName && settings.playerName) {
+          console.log('检测到自动大厅配置，自动进入大厅:', settings.lobbyName);
+          (window as any).__autoLobbyTriggered = true;
+          setFormMode('join');
+          (window as any).__autoLobbyConfig = {
+            lobbyName: settings.lobbyName,
+            lobbyPassword: settings.lobbyPassword,
+            playerName: settings.playerName,
+            useDomain: settings.useDomain || false,
+          };
+          setShowForm(true);
+        } else {
+          // 未触发也标记，避免反复查询
+          (window as any).__autoLobbyTriggered = true;
+        }
+      } catch (e) {
+        console.error('检查自动大厅配置失败:', e);
+      }
+    };
+    // 延迟500ms等待窗口完全渲染
+    const timer = setTimeout(checkAutoLobby, 500);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [startupReady]);
+
+  // 监听版本错误并显示弹窗
+  useEffect(() => {
+    if (versionError) {
+      console.log('MainWindow检测到版本错误，显示弹窗');
+      
+      const dialog = Modal.warning({
+        title: tl('版本过低', 'Version Too Low'),
+        content: (
+          <div style={{ lineHeight: '1.8' }}>
+            <p style={{ marginBottom: '12px' }}>
+              {tl('您的 MCTier 版本过低，无法连接到大厅。', 'Your MCTier version is too low to connect to the lobby.')}
+            </p>
+            <p style={{ marginBottom: '8px', color: 'rgba(255,255,255,0.8)' }}>
+              {tl('当前版本', 'Current version')}: {versionError.currentVersion}
+            </p>
+            <p style={{ marginBottom: '12px', color: 'rgba(255,255,255,0.8)' }}>
+              {tl('最低要求', 'Minimum required')}: {versionError.minimumVersion}
+            </p>
+            <p style={{ color: 'rgba(255,255,255,0.6)' }}>
+              {tl('请前往官网下载最新版本', 'Please download the latest version from the official website')}
+            </p>
+          </div>
+        ),
+        okText: tl('前往官网', 'Go to Website'),
+        centered: true,
+        zIndex: 1200,
+        keyboard: false,
+        maskClosable: false,
+        onOk: async () => {
+          console.log('用户点击了"前往官网"按钮');
+          try {
+            await open(DOWNLOAD_WEBSITE);
+          } catch (error) {
+            console.error('打开官网失败:', error);
+          }
+          setVersionError(null);
+        },
+        onCancel: () => {
+          console.log('用户关闭了版本错误弹窗');
+          setVersionError(null);
+        },
+      });
+      return () => dialog.destroy();
+    }
+  }, [versionError, setVersionError]);
+
+  const handleCreateLobby = () => {
+    (window as any).__autoLobbyTriggered = true;
+    delete (window as any).__autoLobbyConfig;
+    setFormMode('create');
+    setShowForm(true);
+  };
+
+  const handleJoinLobby = () => {
+    (window as any).__autoLobbyTriggered = true;
+    delete (window as any).__autoLobbyConfig;
+    setFormMode('join');
+    setShowForm(true);
+  };
+
+  const handleCloseForm = () => {
+    setShowForm(false);
+  };
+
+  const handleShowAbout = () => {
+    setShowAbout(true);
+  };
+
+  const handleCloseAbout = () => {
+    setShowAbout(false);
+  };
+
+  const handleShowSettings = () => {
+    (window as any).__autoLobbyTriggered = true;
+    delete (window as any).__autoLobbyConfig;
+    setShowSettings(true);
+  };
+
+  const handleCloseSettings = () => {
+    setShowSettings(false);
+  };
+
+  if (showAbout) {
+    return (
+      <AboutWindow onClose={handleCloseAbout} />
+    );
+  }
+
+  if (showForm) {
+    return (
+      <LobbyForm mode={formMode} onClose={handleCloseForm} />
+    );
+  }
+
+  return (
+    <div className={`main-window ${desktopLayout ? 'macos-desktop-window' : ''} ${!enableGpuRendering ? 'gpu-rendering-disabled' : ''}`}>
+      {/* 拖拽区域 - macOS 原生标题栏已包含交通灯；其他平台保留自绘控制区 */}
+      <div className="main-window-drag-area" data-tauri-drag-region>
+        <QuarkSupportEntry onClick={() => window.dispatchEvent(new Event(OPEN_QUARK_SUPPORT))} />
+        {!isMacOSPlatform && <div className="main-window-controls">
+          <button className="main-window-control-btn" onClick={handleMinimizeToTray} title={tl('最小化到系统托盘', 'Minimize to system tray')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button className="main-window-control-btn main-window-close-btn" onClick={handleCloseMainWindow} title={tl('关闭 MCTier', 'Close MCTier')}>
+            <CloseIcon size={16} />
+          </button>
+        </div>}
+      </div>
+      
+      <motion.div
+        className="main-window-content"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+      >
+        <motion.div
+          className="main-window-logo"
+          initial={{ scale: 0.8, opacity: 0, rotate: -10 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={{ delay: 0.1, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+        >
+          <img src="/MCTierIcon.png" alt="MCTier Logo" />
+        </motion.div>
+
+        <motion.div
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.2, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+        >
+          <Title level={1} className="main-window-title">
+            MCTier
+          </Title>
+        </motion.div>
+
+        <motion.div
+          initial={{ y: -15, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.3, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+        >
+          <Paragraph className="main-window-subtitle">
+            {tl('虚拟局域网通用联机工具', 'Universal virtual LAN networking tool')}
+          </Paragraph>
+        </motion.div>
+
+        <motion.div
+          className="main-window-actions"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.4 }}
+          style={{ marginBottom: '32px' }}
+        >
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <div>
+              <Button
+                type="primary"
+                size="large"
+                block
+                onClick={handleCreateLobby}
+                className="main-window-button create-button"
+              >
+                {t('lobby.create')}
+              </Button>
+            </div>
+
+            <div>
+              <Button
+                size="large"
+                block
+                onClick={handleJoinLobby}
+                className="main-window-button join-button"
+              >
+                {t('lobby.join')}
+              </Button>
+            </div>
+
+            <div>
+              <Button
+                size="large"
+                block
+                onClick={handleShowSettings}
+                className="main-window-button settings-entry-button"
+              >
+                {tl('软件设置', 'Settings')}
+              </Button>
+            </div>
+
+            <div>
+              <Button
+                size="large"
+                block
+                onClick={handleShowAbout}
+                className="main-window-button about-button"
+              >
+                {t('lobby.about')}
+              </Button>
+            </div>
+          </Space>
+        </motion.div>
+
+        <motion.div
+          className="main-window-version"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6, duration: 0.4 }}
+        >
+          {appVersion ? `v${appVersion}` : ''}
+        </motion.div>
+
+        <motion.div
+          className="main-window-hint"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.7, duration: 0.4 }}
+        >
+          {tl('按 ESC 可快速返回上一页', 'Press ESC to go back')}
+        </motion.div>
+      </motion.div>
+
+
+      {/* 新手引导向导 */}
+      <OnboardingWizard visible={showOnboarding && startupReady} onClose={() => setShowOnboarding(false)} />
+
+      {/* 设置界面 - 作为overlay覆盖在主界面上，避免透明闪烁 */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            key="settings-overlay"
+            className="settings-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <SettingsWindow onClose={handleCloseSettings} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};

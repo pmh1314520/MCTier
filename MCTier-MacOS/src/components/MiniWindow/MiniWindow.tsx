@@ -1,0 +1,2906 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
+import { Modal, Spin, Tooltip, App as AntdApp } from 'antd';
+import { open } from '@tauri-apps/plugin-shell';
+import QRCodeLib from 'qrcode';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useAppStore } from '../../stores';
+import { notificationUnreadCount } from '../../services/chat/peerPreferences';
+import { webrtcClient } from '../../services';
+import { audioService } from '../../services';
+import { p2pChatService } from '../../services/chat/P2PChatService';
+import { speakingDetector } from '../../services/voice/SpeakingDetector';
+import { playerVolumeMemory } from '../../services/voice/playerVolumeMemory';
+import { recentService } from '../../services/recent/recentService';
+import { statsService } from '../../services/stats/statsService';
+import { useTranslation } from 'react-i18next';
+import { getLanguage, tl } from '../../i18n';
+import { listen, emitTo } from '@tauri-apps/api/event';
+import type { ChatMessage } from '../../types';
+import {
+  MicIcon,
+  SpeakerIcon,
+  CloseCircleIcon,
+  CollapseIcon,
+  CloseIcon,
+  WarningTriangleIcon,
+  InfoIcon,
+  ScreenShareIcon,
+  CrownIcon,
+} from '../icons';
+import { ChatRoom } from '../ChatRoom/ChatRoom';
+import { Avatar } from '../Avatar/Avatar';
+import { saveAvatarData } from '../../services/avatar/avatarService';
+import { FileShareManagerNew } from '../FileShareManager/FileShareManagerNew';
+import { ScreenShareManager } from '../ScreenShareManager/ScreenShareManager';
+import { LobbySettingsModal } from '../LobbySettingsModal/LobbySettingsModal';
+import { MinecraftWorldsModal } from '../MinecraftWorlds/MinecraftWorldsModal';
+import { GameQuickConnectModal } from '../GameQuickConnect/GameQuickConnectModal';
+import { ConnectionDiagnosticModal } from '../ConnectionDiagnostic/ConnectionDiagnosticModal';
+import { RoomTools } from '../RoomTools/RoomTools';
+import { HostPanel } from '../HostPanel/HostPanel';
+import { RemoteControl } from '../RemoteControl/RemoteControl';
+import { remoteControlService } from '../../services/remoteControl/RemoteControlService';
+import { danmakuService } from '../../services/danmaku/danmakuService';
+import { gameHudService } from '../../services/gamehud/gameHudService';
+import { DOWNLOAD_WEBSITE } from '../../services/version/versionPolicy';
+import {
+  buildLobbyInviteLink,
+  formatLobbyInviteText,
+  type LobbyInvite,
+} from '../../services/lobby/lobbyInvite';
+import { useWindowLayout } from '../../hooks';
+import { collapsedWindowSize, expandedWindowSize } from '../../utils/windowLayout';
+import './MiniWindow.css';
+import { AnnouncementBar } from './AnnouncementBar';
+
+/**
+ * 迷你窗口组件
+ * 显示精简的大厅信息和语音控制
+ */
+// ==================== 二维码工具 ====================
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** 在画布上绘制二维码 + 中心圆角 Logo（高纠错，确保可扫） */
+async function drawQrWithLogo(
+  canvas: HTMLCanvasElement,
+  text: string,
+  size: number,
+  displaySize = size
+): Promise<void> {
+  await QRCodeLib.toCanvas(canvas, text, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width: size,
+    color: { dark: '#000000', light: '#ffffff' },
+  });
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  try {
+    const logo = await loadImg('/MCTierIcon.png');
+    const ls = Math.round(size * 0.2);
+    const cx = size / 2,
+      cy = size / 2;
+    const pad = Math.round(ls * 0.06);
+    const r = ls / 2 + pad;
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    roundRectPath(ctx, cx - r, cy - r, r * 2, r * 2, Math.round(r * 0.36));
+    ctx.fill();
+    roundRectPath(ctx, cx - ls / 2, cy - ls / 2, ls, ls, Math.round(ls * 0.24));
+    ctx.clip();
+    ctx.drawImage(logo, cx - ls / 2, cy - ls / 2, ls, ls);
+    ctx.restore();
+  } catch {
+    /* Logo 加载失败则仅二维码 */
+  }
+  canvas.style.width = `${displaySize}px`;
+  canvas.style.height = `${displaySize}px`;
+}
+
+/** 合成 MCTier 主题邀请图（名片比例的竖向长方形，绿色主题） */
+async function buildInvitePoster(invite: LobbyInvite): Promise<HTMLCanvasElement> {
+  const W = 600,
+    H = 880;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  // 背景渐变
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#16361b');
+  g.addColorStop(0.5, '#13131f');
+  g.addColorStop(1, '#0e0e16');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const M = 44; // 外边距
+  // 内层卡片
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  roundRectPath(ctx, M, M, W - M * 2, H - M * 2, 28);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(82,196,26,0.35)';
+  ctx.lineWidth = 1.5;
+  roundRectPath(ctx, M, M, W - M * 2, H - M * 2, 28);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  // 顶部品牌
+  ctx.fillStyle = '#52C41A';
+  ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
+  ctx.fillText('MCTier', W / 2, 132);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
+  ctx.fillText(tl('组网邀请', 'Network Invite'), W / 2, 174);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '17px "Microsoft YaHei", sans-serif';
+  ctx.fillText(
+    tl('用手机 MCTier 扫一扫，立即加入大厅', 'Scan with MCTier on your phone to join the lobby'),
+    W / 2,
+    210
+  );
+
+  // 二维码白卡（带柔和阴影）
+  const qrSize = 360,
+    qx = (W - qrSize) / 2,
+    qy = 250;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = '#ffffff';
+  roundRectPath(ctx, qx - 24, qy - 24, qrSize + 48, qrSize + 48, 22);
+  ctx.fill();
+  ctx.restore();
+  const qc = document.createElement('canvas');
+  await drawQrWithLogo(qc, await buildLobbyInviteLink(invite), qrSize);
+  ctx.drawImage(qc, qx, qy);
+
+  // 大厅名
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 34px "Microsoft YaHei", sans-serif';
+  ctx.fillText(invite.name, W / 2, qy + qrSize + 96);
+
+  // 密码药丸
+  const pwdText = invite.password
+    ? tl('加密邀请', 'Encrypted invitation')
+    : tl('无密码大厅', 'Passwordless lobby');
+  ctx.font = '22px "Microsoft YaHei", sans-serif';
+  const pw = ctx.measureText(pwdText).width + 56;
+  const px = (W - pw) / 2,
+    py = qy + qrSize + 120;
+  ctx.fillStyle = 'rgba(82,196,26,0.16)';
+  roundRectPath(ctx, px, py, pw, 46, 23);
+  ctx.fill();
+  ctx.fillStyle = '#7ee23f';
+  ctx.fillText(pwdText, W / 2, py + 31);
+
+  // 分隔线
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(M + 40, H - 96);
+  ctx.lineTo(W - M - 40, H - 96);
+  ctx.stroke();
+  // 底部站点
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = '18px "Microsoft YaHei", sans-serif';
+  ctx.fillText('https://mctier.pmhs.top', W / 2, H - 60);
+  return cv;
+}
+
+export const MiniWindow: React.FC = () => {
+  useTranslation(); // 订阅语言切换，配合 tl 双语取词在切换时重渲染
+  const {
+    lobby,
+    players,
+    micEnabled,
+    globalMuted,
+    mutedPlayers,
+    speakingPlayers,
+    toggleGlobalMute,
+    togglePlayerMute,
+    config,
+    versionError,
+    chatMessages,
+    currentPlayerId,
+    addChatMessage,
+    setPlayerVolume,
+    getPlayerVolume,
+    hostId,
+    hostMutedPlayers,
+    maxPlayers,
+    announcement,
+    myVoiceGroup,
+    playerVoiceGroups,
+    signalingStatus,
+    signalingError,
+  } = useAppStore();
+
+  const isHost = !!currentPlayerId && hostId === currentPlayerId;
+  const isSameVoiceGroup = (playerId: string) =>
+    (playerVoiceGroups.get(playerId) ?? 0) === myVoiceGroup;
+
+  // 新玩家加入时，房主补发公告、各成员补发自己的语音小队、房主补发待办清单，确保新人状态一致
+  const prevPlayerCountRef = React.useRef(0);
+  useEffect(() => {
+    const count = players.length;
+    if (count > prevPlayerCountRef.current && prevPlayerCountRef.current > 0) {
+      const t = setTimeout(() => {
+        if (isHost && announcement)
+          void p2pChatService.sendControlMessage('announce', announcement);
+        if (myVoiceGroup !== 0)
+          void p2pChatService.sendControlMessage('voicegroup', String(myVoiceGroup));
+        // 房主补发当前待办清单，让新加入者立即看到已有的协同待办
+        const currentTodos = useAppStore.getState().todos;
+        if (isHost && currentTodos.length > 0) {
+          void p2pChatService
+            .sendControlMessage('todo', JSON.stringify(currentTodos))
+            .catch(() => {});
+        }
+      }, 1600);
+      prevPlayerCountRef.current = count;
+      return () => clearTimeout(t);
+    }
+    prevPlayerCountRef.current = count;
+  }, [players.length, isHost, announcement, myVoiceGroup]);
+
+  const { message, modal } = AntdApp.useApp();
+
+  const [collapsed, setCollapsed] = useState(false);
+  // 竖屏（默认）/ 横排跟随窗口宽度自动切换
+  const layout = useWindowLayout();
+  // 收起后窗口只剩标题栏、宽度也变窄，此时读到的形态不是用户选定的形态。
+  // 记住收起前的形态，展开时按它还原窗口尺寸，避免横排窗口展开后缩成竖屏。
+  const expandedLayoutRef = useRef(layout);
+  useEffect(() => {
+    if (!collapsed) expandedLayoutRef.current = layout;
+  }, [layout, collapsed]);
+  const [opacity, setOpacity] = useState(config.opacity ?? 0.95);
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [showConnectionHelp, setShowConnectionHelp] = useState(false);
+  const [currentView, setCurrentView] = useState<'lobby' | 'chat' | 'fileShare' | 'screenShare'>(
+    'lobby'
+  );
+  const [chatOpenedWhenCollapsed, setChatOpenedWhenCollapsed] = useState(false); // 记录打开聊天室时窗口是否处于收起状态
+  const [showLobbySettings, setShowLobbySettings] = useState(false); // 控制动态设置弹窗显示
+  const [showMcWorlds, setShowMcWorlds] = useState(false); // 局域网世界发现弹窗
+  const [showGameConnect, setShowGameConnect] = useState(false); // 游戏快连弹窗
+  const [hudOn, setHudOn] = useState<boolean>(
+    () => localStorage.getItem('mctier_game_hud') === '1'
+  ); // 游戏内HUD浮层
+  const [showDiagnostic, setShowDiagnostic] = useState(false); // 连接诊断弹窗
+
+  // 游戏内 HUD：开启时打开浮层窗。说话/静音状态高频推送（实时绿点），
+  // 延迟/连接类型/速率开销大，单独低频测量并缓存，避免拖慢说话状态的实时性。
+  useEffect(() => {
+    if (!hudOn) {
+      void invoke('close_game_hud_window').catch(() => {});
+      return;
+    }
+    void invoke('open_game_hud_window').catch(() => {});
+    let stopped = false;
+    let measuring = false;
+    const prevBytes = new Map<string, { rx: number; tx: number; t: number }>();
+    // 缓存：低频测量写入，高频推送读取
+    let latMap: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+    let connMap: Record<
+      string,
+      { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }
+    > = {};
+    const rateMap = new Map<string, { down: number; up: number }>();
+
+    // 低频（每 4s）测量延迟/连接类型/速率，写入缓存
+    const measure = async () => {
+      if (measuring) return;
+      measuring = true;
+      try {
+        const st = useAppStore.getState();
+        const selfId = st.currentPlayerId;
+        const peerIps = st.players
+          .filter((p) => p.virtualIp && p.id !== selfId)
+          .map((p) => p.virtualIp as string);
+        const nextLat: Record<string, { latencyMs: number | null; lossRate: number }> = {};
+        const nextConn: Record<
+          string,
+          { latencyMs?: number | null; rxBytes?: number; txBytes?: number; lossRate?: number }
+        > = {};
+        const tasks: Promise<void>[] = [];
+        if (peerIps.length > 0) {
+          tasks.push(
+            invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>(
+              'measure_peers_latency',
+              { peerIps }
+            )
+              .then((lat) => {
+                lat.forEach((l) => {
+                  nextLat[l.ip] = { latencyMs: l.latencyMs, lossRate: l.lossRate };
+                });
+              })
+              .catch(() => {})
+          );
+        }
+        tasks.push(
+          invoke<
+            {
+              ip: string;
+              connType: string;
+              latencyMs?: number | null;
+              rxBytes?: number;
+              txBytes?: number;
+              lossRate?: number;
+            }[]
+          >('get_peer_connection_types')
+            .then((cs) => {
+              cs.forEach((c) => {
+                nextConn[c.ip] = c;
+              });
+            })
+            .catch(() => {})
+        );
+        await Promise.all(tasks);
+        latMap = nextLat;
+        connMap = nextConn;
+        // 上下行速率（KB/s）：用 EasyTier 累计字节做差分
+        const now = Date.now();
+        Object.entries(connMap).forEach(([ip, c]) => {
+          if (typeof c.rxBytes === 'number' || typeof c.txBytes === 'number') {
+            const prev = prevBytes.get(ip);
+            if (prev && now > prev.t) {
+              const dt = (now - prev.t) / 1000;
+              const down = Math.max(0, Math.round(((c.rxBytes || 0) - prev.rx) / dt / 1024));
+              const up = Math.max(0, Math.round(((c.txBytes || 0) - prev.tx) / dt / 1024));
+              rateMap.set(ip, { down, up });
+            }
+            prevBytes.set(ip, { rx: c.rxBytes || 0, tx: c.txBytes || 0, t: now });
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+      measuring = false;
+    };
+
+    // 高频（每 400ms）组装并推送：实时说话/静音 + 缓存的延迟/速率
+    const push = async () => {
+      const st = useAppStore.getState();
+      const selfId = st.currentPlayerId;
+      const speaking = st.speakingPlayers;
+      const muted = st.mutedPlayers;
+      const peers = st.players.map((p) => {
+        const self = p.id === selfId;
+        const ip = p.virtualIp || '';
+        const c = connMap[ip];
+        const m = latMap[ip];
+        const rate = rateMap.get(ip);
+        const ping = self ? null : (c?.latencyMs ?? m?.latencyMs ?? null);
+        const loss = self ? 0 : (c?.lossRate ?? m?.lossRate ?? 0);
+        return {
+          playerId: p.id,
+          name: p.name,
+          self,
+          speaking: speaking.has(p.id),
+          muted: muted.has(p.id),
+          ping,
+          loss,
+          down: self ? 0 : rate?.down || 0,
+          up: self ? 0 : rate?.up || 0,
+        };
+      });
+      // 自己排在最前
+      peers.sort((a, b) => (a.self === b.self ? 0 : a.self ? -1 : 1));
+      if (!stopped)
+        await emitTo('gamehud', 'hud-update', {
+          peers,
+          opacity: gameHudService.getOpacity(),
+          scale: gameHudService.getScale(),
+        }).catch(() => {});
+    };
+
+    void measure();
+    void push();
+    const measureTimer = window.setInterval(() => {
+      void measure();
+    }, 4000);
+    const pushTimer = window.setInterval(() => {
+      void push();
+    }, 400);
+    return () => {
+      stopped = true;
+      window.clearInterval(measureTimer);
+      window.clearInterval(pushTimer);
+    };
+  }, [hudOn]);
+
+  // 监听 HUD 浮层发来的操作（静音/调音量），应用到语音
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    void listen<{ action: string; playerId: string }>('hud-action', (e) => {
+      const action = typeof e.payload?.action === 'string' ? e.payload.action : '';
+      const playerId = typeof e.payload?.playerId === 'string' ? e.payload.playerId.trim() : '';
+      if (!playerId || !['toggle-mute', 'vol-up', 'vol-down'].includes(action)) return;
+      const st = useAppStore.getState();
+      if (!st.players.some((player) => player.id === playerId)) return;
+      if (action === 'toggle-mute') {
+        st.togglePlayerMute(playerId);
+      } else if (action === 'vol-up') {
+        st.setPlayerVolume(playerId, Math.min(1, (st.getPlayerVolume(playerId) ?? 1) + 0.1));
+      } else if (action === 'vol-down') {
+        st.setPlayerVolume(playerId, Math.max(0, (st.getPlayerVolume(playerId) ?? 1) - 0.1));
+      }
+    }).then((fn) => {
+      un = fn;
+    });
+    return () => {
+      if (un) un();
+    };
+  }, []);
+  const [showRoomTools, setShowRoomTools] = useState(false); // 房间小工具弹窗
+  const [showQrModal, setShowQrModal] = useState(false); // 大厅二维码弹窗(供手机扫码加入)
+  const [showHostPanel, setShowHostPanel] = useState(false); // 房主管理面板
+  const [peerLatencies, setPeerLatencies] = useState<
+    Record<
+      string,
+      { latencyMs: number | null; lossRate: number; status: 'online' | 'checking' | 'unreachable' }
+    >
+  >({});
+  const [peerConnTypes, setPeerConnTypes] = useState<Record<string, string>>({}); // 虚拟IP -> p2p/relay // 各玩家虚拟IP->延迟ms
+  const [isRejoining, setIsRejoining] = useState(false); // 控制重新加入大厅的加载提示
+  const [favPlayers, setFavPlayers] = useState<string[]>(() => recentService.getFavoritePlayers()); // 收藏队友
+  // 语音按钮提示中显示的快捷键：读取用户自定义键位，保证提示与实际配置一致
+  const [micHotkeyLabel, setMicHotkeyLabel] = useState('Ctrl+M');
+  const [muteHotkeyLabel, setMuteHotkeyLabel] = useState('Ctrl+T');
+  const qrCanvasRef = React.useRef<HTMLCanvasElement>(null); // 弹窗内二维码画布
+  const lobbyInvite: LobbyInvite | undefined = lobby
+    ? {
+        name: lobby.name,
+        password: lobby.password || '',
+        serverNode: lobby.serverNode || localStorage.getItem('mctier_current_node') || undefined,
+        signalingServer:
+          lobby.signalingServer ||
+          localStorage.getItem('mctier_current_signaling_server') ||
+          undefined,
+      }
+    : undefined;
+
+  // 弹窗打开时把二维码（含圆角 Logo）渲染到画布
+  useEffect(() => {
+    if (showQrModal && lobbyInvite && qrCanvasRef.current) {
+      const canvas = qrCanvasRef.current;
+      void buildLobbyInviteLink(lobbyInvite)
+        .then((link) => drawQrWithLogo(canvas, link, 240, 180))
+        .catch(() => message.error(tl('生成邀请失败', 'Failed to generate invite')));
+    }
+  }, [
+    showQrModal,
+    lobbyInvite?.name,
+    lobbyInvite?.password,
+    lobbyInvite?.serverNode,
+    lobbyInvite?.signalingServer,
+  ]);
+
+  useEffect(() => {
+    setShowQrModal(false);
+  }, [lobby?.name, lobby?.password]);
+
+  useEffect(() => {
+    if (signalingStatus !== 'connected') setShowQrModal(false);
+  }, [signalingStatus]);
+
+  // 下载二维码：合成 MCTier 主题邀请图，弹出系统保存对话框让用户选择位置
+  const downloadQrPoster = async () => {
+    if (!lobby || !lobbyInvite) return;
+    try {
+      const cv = await buildInvitePoster(lobbyInvite);
+      const dataUrl = cv.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+      const path = await invoke<string | null>('select_save_location', {
+        defaultName: tl(`MCTier-邀请-${lobby.name}.png`, `MCTier-Invite-${lobby.name}.png`),
+      });
+      if (!path) return;
+      await invoke('save_file', { path, data: Array.from(bytes) });
+      message.success(tl('二维码已保存', 'QR code saved'));
+    } catch (e) {
+      console.error('保存二维码失败:', e);
+      message.error(tl('保存失败，请重试', 'Save failed, please retry'));
+    }
+  };
+
+  // 跟踪上次查看聊天室时的消息数量（只计算其他人的消息）
+  const [lastViewedOthersMessageCount, setLastViewedOthersMessageCount] = useState(0);
+
+  // 计算其他人发送的消息数量
+  const othersMessages = chatMessages.filter((msg) => msg.playerId !== currentPlayerId);
+  const othersMessageCount = othersMessages.length;
+
+  // 计算未读消息数量（只计算其他人的消息）
+  const unreadCount = useAppStore((state) =>
+    notificationUnreadCount(
+      state.unreadChatMessages,
+      state.peerPreferences,
+      state.players.map((p) => p.id)
+    )
+  );
+
+  // 调试日志 - 详细打印未读消息统计
+  useEffect(() => {
+    console.log('📊 [MiniWindow] 未读消息统计:', {
+      currentPlayerId,
+      totalMessages: chatMessages.length,
+      othersMessageCount,
+      lastViewedOthersMessageCount,
+      unreadCount,
+      hasUnreadMessages: unreadCount > 0,
+      currentView,
+      collapsed,
+    });
+
+    // 打印最近的几条消息
+    if (chatMessages.length > 0) {
+      console.log(
+        '📝 [MiniWindow] 最近的消息:',
+        chatMessages.slice(-3).map((m) => ({
+          id: m.id,
+          playerId: m.playerId,
+          playerName: m.playerName,
+          content: m.content.substring(0, 20),
+          timestamp: new Date(m.timestamp).toLocaleTimeString(),
+        }))
+      );
+    }
+  }, [chatMessages.length, unreadCount, currentView, collapsed]);
+
+  // 监听版本错误（不自动跳转，保持在大厅界面显示错误提示）
+  useEffect(() => {
+    if (versionError) {
+      console.log('检测到版本错误，显示更新提示界面');
+    }
+  }, [versionError]);
+
+  // 组件加载时从配置中读取透明度并设置（进入大厅）
+  // 组件卸载时恢复完全不透明（退出大厅）
+  useEffect(() => {
+    const setupOpacity = async () => {
+      try {
+        // 从配置中获取透明度，如果没有则使用默认值0.95
+        const initialOpacity = config.opacity ?? 0.95;
+        setOpacity(initialOpacity);
+
+        // 设置窗口透明度
+        await invoke('set_window_opacity', { opacity: initialOpacity });
+        console.log('进入大厅，透明度已设置为:', initialOpacity);
+      } catch (error) {
+        console.error('设置透明度失败:', error);
+      }
+    };
+
+    setupOpacity();
+
+    // 组件卸载时恢复完全不透明
+    return () => {
+      const restoreOpacity = async () => {
+        try {
+          await invoke('set_window_opacity', { opacity: 1.0 });
+          console.log('退出大厅，透明度已恢复为完全不透明');
+        } catch (error) {
+          console.error('恢复透明度失败:', error);
+        }
+      };
+      restoreOpacity();
+    };
+  }, [config.opacity]);
+
+  // 进入大厅时取消全局静音（听筒默认开启）
+  useEffect(() => {
+    if (globalMuted) {
+      console.log('进入大厅，自动开启听筒');
+      toggleGlobalMute();
+    }
+  }, []); // 只在组件挂载时执行一次
+
+  // 进入大厅：按配置开启弹幕覆盖窗；离开大厅：关闭弹幕窗
+  // 读取用户自定义的语音快捷键，用于按钮提示文案
+  useEffect(() => {
+    const loadHotkeyLabels = async () => {
+      try {
+        const settings = await invoke<{ micHotkey?: string; globalMuteHotkey?: string }>(
+          'get_settings'
+        );
+        if (settings?.micHotkey) setMicHotkeyLabel(settings.micHotkey);
+        if (settings?.globalMuteHotkey) setMuteHotkeyLabel(settings.globalMuteHotkey);
+      } catch (e) {
+        console.warn('读取快捷键提示失败（使用默认值）:', e);
+      }
+    };
+    void loadHotkeyLabels();
+  }, []);
+
+  useEffect(() => {
+    void danmakuService.syncWindowForLobby(true);
+    return () => {
+      void danmakuService.closeWindow();
+    };
+  }, []);
+
+  // 初始化P2P聊天服务 - 在大厅界面就启动，不需要打开聊天室
+  // 【修复】移除players依赖，避免玩家列表更新时重复初始化
+  useEffect(() => {
+    if (!lobby || !currentPlayerId) {
+      console.log('⚠️ 大厅或玩家ID未就绪，跳过P2P聊天服务初始化');
+      return;
+    }
+
+    console.log('🚀 [MiniWindow] 初始化P2P聊天服务（仅初始化一次）');
+    console.log('  - 已准备本机聊天连接');
+
+    // 设置消息接收回调（只设置一次）
+    p2pChatService.onMessage((message) => {
+      console.log('📨 [MiniWindow] 收到P2P消息');
+
+      // 查找发送者名称
+      let senderName = tl('未知玩家', 'Unknown player');
+      if (message.playerId === currentPlayerId) {
+        senderName = config.playerName || tl('我', 'Me');
+      } else {
+        // 从当前的players列表中查找
+        const currentPlayers = useAppStore.getState().players;
+        const sender = currentPlayers.find((p) => p.id === message.playerId);
+        senderName = sender?.name || tl('未知玩家', 'Unknown player');
+      }
+
+      // 添加到消息列表
+      const chatMessage: ChatMessage = {
+        id: message.id,
+        playerId: message.playerId,
+        playerName: senderName,
+        content: message.content,
+        timestamp: message.timestamp,
+        type: message.type,
+        imageData: message.imageData,
+        recipientId: message.recipientId,
+        attachment: message.attachment,
+        recalled: message.recalled,
+      };
+
+      addChatMessage(chatMessage);
+      const privateMuted =
+        !!message.recipientId && !!useAppStore.getState().peerPreferences[message.playerId]?.muted;
+
+      // 弹幕：把他人发来的消息以弹幕形式飘过屏幕（自己发的不飘）。
+      // 仅当(在聊天室界面 且 主窗口处于前台)时才不弹幕——此时能直接看到消息；
+      // 若挂后台(如玩游戏，窗口失焦)则即使开着聊天室也照常弹幕
+      const isUnread = useAppStore.getState().unreadChatMessages[message.id] !== undefined;
+      const inChatAndFocused = !isUnread && document.hasFocus();
+      if (message.playerId !== currentPlayerId && !inChatAndFocused && !privateMuted) {
+        const sessionLobby = useAppStore.getState().lobby;
+        void danmakuService.pushMessage(senderName, chatMessage, () => {
+          const state = useAppStore.getState();
+          return (
+            state.lobby === sessionLobby &&
+            state.chatMessages.some((item) => item.id === chatMessage.id && !item.recalled) &&
+            !(chatMessage.recipientId && state.peerPreferences[chatMessage.playerId]?.muted)
+          );
+        });
+      }
+
+      // 消息提示音逻辑（支持 @ 提及）：
+      // - 自己发的消息：不响
+      // - 消息中没有 @ 任何人：所有人都响（不在聊天室时）
+      // - 消息 @ 了人：仅被 @ 的人（或 @所有人/@全体）响，其他人收到但不响
+      if (message.playerId !== currentPlayerId) {
+        const content = message.content || '';
+        const myName = (config.playerName || '').trim();
+        const mentionRegex = /@([^\s@]{1,20})/g;
+        const mentioned: string[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = mentionRegex.exec(content)) !== null) {
+          mentioned.push(m[1]);
+        }
+        const hasMention = mentioned.length > 0;
+        const mentionsEveryone = mentioned.some(
+          (n) => n === '所有人' || n === '全体' || n.toLowerCase() === 'all'
+        );
+        const mentionsMe = !!myName && mentioned.some((n) => n === myName);
+        // 是否应当触发提示音
+        const shouldNotify = !!message.recipientId || !hasMention || mentionsEveryone || mentionsMe;
+
+        if (shouldNotify && isUnread && !privateMuted) {
+          console.log('🔔 [MiniWindow] 触发新消息提示音', {
+            hasMention,
+            mentionsMe,
+            mentionsEveryone,
+          });
+          audioService.play('newMessage').catch((err) => {
+            console.error('播放新消息提示音失败:', err);
+          });
+        } else {
+          console.log('🔕 [MiniWindow] 不触发提示音（未被@或在聊天室）', {
+            hasMention,
+            mentionsMe,
+            mentionsEveryone,
+          });
+        }
+      }
+    });
+    p2pChatService.onAvatar((playerId, avatarData) => {
+      useAppStore.getState().updatePlayerStatus(playerId, { avatarData });
+    });
+
+    // 连接生命周期由玩家名册 effect 管理。这里仅更新回调，避免大厅对象
+    // 或配置对象重新创建时误停掉正在工作的 SSE 接收流。
+    return undefined;
+  }, [lobby, currentPlayerId, config.playerName, addChatMessage]);
+
+  // 玩家名册指纹：虚拟 IP 是异步补齐的，不能只以人数作为依赖。
+  const playerRosterKey = players
+    .map((p) => p.id + ':' + (p.virtualIp ?? ''))
+    .sort()
+    .join(',');
+
+  // 玩家列表变化时更新本窗口的聊天目标和相关 UI 状态。
+  useEffect(() => {
+    if (!lobby || !currentPlayerId || players.length === 0) {
+      return;
+    }
+
+    // 获取所有玩家的虚拟IP（不包括自己）
+    const playerIPs = players.map((p) => p.virtualIp).filter(Boolean) as string[];
+
+    console.log('🔄 [MiniWindow] 玩家列表变化，更新P2P聊天连接');
+    console.log('  - 其他玩家IPs:', playerIPs);
+
+    // 后端身份表与聊天/文件 token 由 WebRTCClient 从已认证信令快照统一配置。
+    p2pChatService.initialize(playerIPs, currentPlayerId, lobby.virtualIp);
+    void p2pChatService.sendAvatar(config.avatarData).catch((error) => {
+      console.warn('发送大厅头像同步消息失败:', error);
+    });
+
+    // 开始轮询消息
+    p2pChatService.startPolling();
+    // 记录一起联机过的玩家（最近玩家列表）
+    try {
+      recentService.recordPlayers(players.map((p) => p.name).filter(Boolean));
+    } catch (e) {
+      console.warn('记录最近玩家失败（忽略）:', e);
+    }
+
+    // 恢复按玩家名记忆的音量（仅当 store 尚无该玩家音量设置时）
+    try {
+      const currentVolumes = useAppStore.getState().playerVolumes;
+      players.forEach((p) => {
+        if (!p.name || p.id === currentPlayerId) return;
+        if (currentVolumes.has(p.id)) return;
+        const remembered = playerVolumeMemory.get(p.name);
+        if (typeof remembered === 'number' && remembered !== 1.0) {
+          setPlayerVolume(p.id, remembered);
+        }
+      });
+    } catch (e) {
+      console.warn('恢复记忆音量失败（忽略）:', e);
+    }
+    console.log('✅ [MiniWindow] P2P聊天服务已更新连接');
+    return () => {
+      p2pChatService.stopPolling();
+      console.log('✅ [MiniWindow] 已停止P2P聊天服务轮询');
+    };
+  }, [playerRosterKey, lobby?.virtualIp, currentPlayerId]);
+
+  // 【新增】周期性测量到各玩家的延迟，用于连接质量显示（每5秒一次）
+  useEffect(() => {
+    if (!lobby || players.length === 0) {
+      setPeerLatencies({});
+      return;
+    }
+    let cancelled = false;
+    const failedRounds = new Map<string, number>();
+    const measure = async () => {
+      const ips = players.map((p) => p.virtualIp).filter(Boolean) as string[];
+      if (ips.length === 0) return;
+      try {
+        const results = await invoke<{ ip: string; latencyMs: number | null; lossRate: number }[]>(
+          'measure_peers_latency',
+          { peerIps: ips }
+        );
+        if (cancelled) return;
+        const map: Record<
+          string,
+          {
+            latencyMs: number | null;
+            lossRate: number;
+            status: 'online' | 'checking' | 'unreachable';
+          }
+        > = {};
+        results.forEach((r) => {
+          if (r.latencyMs !== null) {
+            failedRounds.set(r.ip, 0);
+            map[r.ip] = { latencyMs: r.latencyMs, lossRate: r.lossRate ?? 0, status: 'online' };
+            return;
+          }
+          const failures = (failedRounds.get(r.ip) ?? 0) + 1;
+          failedRounds.set(r.ip, failures);
+          map[r.ip] = {
+            latencyMs: null,
+            lossRate: r.lossRate ?? 0,
+            status: failures >= 3 ? 'unreachable' : 'checking',
+          };
+        });
+        setPeerLatencies(map);
+        // 连接类型(P2P/中继)：通过 easytier-cli 查询 RPC 路由
+        try {
+          const conns = await invoke<{ ip: string; connType: string }[]>(
+            'get_peer_connection_types'
+          );
+          if (cancelled) return;
+          const cmap: Record<string, string> = {};
+          conns.forEach((c) => {
+            cmap[c.ip] = c.connType;
+          });
+          setPeerConnTypes(cmap);
+        } catch {
+          /* 忽略：连接类型为可选信息 */
+        }
+      } catch (error) {
+        console.warn('测量延迟失败（忽略）:', error);
+      }
+    };
+    void measure();
+    const timer = window.setInterval(() => void measure(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [players.length, lobby?.virtualIp]);
+
+  // 监听ESC键返回大厅
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (currentView === 'chat') {
+          setCurrentView('lobby');
+          // 标记所有其他人的消息为已读
+          setLastViewedOthersMessageCount(othersMessageCount);
+        } else if (currentView === 'fileShare') {
+          setCurrentView('lobby');
+        } else if (currentView === 'screenShare') {
+          setCurrentView('lobby');
+        }
+      }
+    };
+
+    // 监听来自ChatRoom的标记已读事件
+    const handleMarkAsRead = () => {
+      setLastViewedOthersMessageCount(othersMessageCount);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('markChatMessagesAsRead', handleMarkAsRead);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('markChatMessagesAsRead', handleMarkAsRead);
+    };
+  }, [currentView, othersMessageCount]);
+
+  const handleToggleMic = async () => {
+    try {
+      // 若已被房主禁言，禁止开启麦克风（关闭则允许）
+      if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && !micEnabled) {
+        message.warning(
+          tl(
+            '你已被房主禁言，无法开启麦克风',
+            'You have been muted by the host and cannot enable the microphone'
+          )
+        );
+        return;
+      }
+      // 调用后端的toggle_mic命令
+      await invoke<boolean>('toggle_mic');
+      // 后端会发送mic-toggled事件，前端会自动更新UI
+    } catch (error) {
+      console.error('切换麦克风失败:', error);
+    }
+  };
+
+  const handleToggleGlobalMute = async () => {
+    try {
+      console.log('切换全局静音状态...');
+      toggleGlobalMute();
+    } catch (error) {
+      console.error('切换全局静音失败:', error);
+    }
+  };
+
+  const handleMutePlayer = async (playerId: string) => {
+    try {
+      console.log('切换玩家静音状态:', playerId);
+      togglePlayerMute(playerId);
+    } catch (error) {
+      console.error('切换玩家静音失败:', error);
+    }
+  };
+
+  const handleLeaveLobby = async () => {
+    try {
+      console.log('🚪 开始退出大厅流程...');
+
+      // 退出大厅时自动关闭游戏内 HUD 浮层（并持久化为关闭，下次进大厅默认不显示）
+      try {
+        setHudOn(false);
+        localStorage.setItem('mctier_game_hud', '0');
+        await invoke('close_game_hud_window');
+      } catch {
+        /* ignore */
+      }
+
+      // 退出前确保停止任何远程控制会话
+      try {
+        remoteControlService.stopControl();
+      } catch {
+        /* ignore */
+      }
+
+      // 数据统计：结束本次会话并累加时长
+      try {
+        statsService.endSession();
+      } catch {
+        /* ignore */
+      }
+
+      // 显示退出中的提示
+      setIsLeaving(true);
+
+      // 清理说话状态检测
+      try {
+        speakingDetector.clear();
+      } catch {
+        /* ignore */
+      }
+
+      // 先恢复窗口大小（如果是收起状态）
+      if (collapsed) {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+        const appWindow = getCurrentWindow();
+        await appWindow.setSize(new LogicalSize(expandedWindowSize(expandedLayoutRef.current)));
+        console.log('窗口大小已恢复');
+      }
+
+      // 1. 先清理WebRTC客户端（关闭所有连接和WebSocket）
+      console.log('正在清理WebRTC客户端...');
+      await webrtcClient.cleanup();
+      console.log('✅ WebRTC客户端已清理');
+
+      // 2. 重置P2P聊天服务
+      console.log('正在重置P2P聊天服务...');
+      p2pChatService.reset();
+      console.log('✅ P2P聊天服务已重置');
+
+      // 等待一小段时间，确保WebSocket完全关闭
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // 2. 调用后端退出大厅（停止EasyTier和清理网络）
+      console.log('正在调用后端退出大厅...');
+      await invoke('leave_lobby');
+      console.log('✅ 后端退出大厅成功');
+
+      // 3. 停止HTTP文件服务器
+      try {
+        await invoke('stop_file_server');
+        console.log('✅ HTTP文件服务器已停止');
+      } catch (error) {
+        console.error('❌ 停止HTTP文件服务器失败:', error);
+        // 不中断流程
+      }
+
+      // 4. 更新前端状态返回主界面
+      const { setAppState, clearLobby } = useAppStore.getState();
+      clearLobby(); // 这会清理大厅、玩家列表和语音状态
+      setAppState('idle');
+      setIsLeaving(false);
+      console.log('✅ 前端状态已清理，返回主界面');
+    } catch (error) {
+      console.error('❌ 退出大厅失败:', error);
+      // 即使后端退出失败，也要清理前端状态并返回主界面
+      try {
+        await webrtcClient.cleanup();
+      } catch (cleanupError) {
+        console.error('❌ 清理WebRTC失败:', cleanupError);
+      }
+
+      const { setAppState, clearLobby } = useAppStore.getState();
+      clearLobby(); // 这会清理大厅、玩家列表和语音状态
+      setAppState('idle');
+      setIsLeaving(false);
+      console.log('⚠️ 已强制返回主界面');
+    }
+  };
+
+  // 监听被房主踢出事件：提示并自动退出大厅
+  useEffect(() => {
+    const onKicked = (e: Event) => {
+      const reason =
+        (e as CustomEvent)?.detail?.reason ||
+        tl('你已被房主移出大厅', 'You have been removed from the lobby by the host');
+      message.warning(reason);
+      void handleLeaveLobby();
+    };
+    window.addEventListener('mctier-kicked', onKicked as EventListener);
+    return () => window.removeEventListener('mctier-kicked', onKicked as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 本机被房主禁言时，自动关闭麦克风
+  useEffect(() => {
+    if (currentPlayerId && hostMutedPlayers.has(currentPlayerId) && micEnabled) {
+      try {
+        // 物理关闭后端麦克风（toggle_mic 当前为开 → 关），处理快捷键绕过的情况
+        invoke('toggle_mic').catch(() => {});
+        webrtcClient.setMicEnabled(false);
+        useAppStore.getState().setMicEnabled(false);
+        message.warning(
+          tl(
+            '你已被房主禁言，麦克风已关闭',
+            'You have been muted by the host; the microphone is now off'
+          )
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [hostMutedPlayers, currentPlayerId, micEnabled]);
+
+  const handleToggleCollapse = async () => {
+    try {
+      console.log('收起按钮被点击，当前状态:', collapsed);
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { LogicalSize } = await import('@tauri-apps/api/dpi');
+      const appWindow = getCurrentWindow();
+
+      if (!collapsed) {
+        // 收起：缩小窗口到只显示标题栏
+        console.log('正在收起窗口...');
+        await appWindow.setSize(new LogicalSize(collapsedWindowSize()));
+        console.log('窗口已收起');
+      } else {
+        // 展开：恢复窗口大小
+        console.log('正在展开窗口...');
+        await appWindow.setSize(new LogicalSize(expandedWindowSize(expandedLayoutRef.current)));
+        console.log('窗口已展开');
+      }
+
+      setCollapsed(!collapsed);
+    } catch (error) {
+      console.error('切换窗口大小失败:', error);
+      console.error('错误详情:', error);
+    }
+  };
+
+  const expandMiniWindow = async () => {
+    if (!collapsed) return;
+
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { LogicalSize } = await import('@tauri-apps/api/dpi');
+      const appWindow = getCurrentWindow();
+      await appWindow.setSize(new LogicalSize(expandedWindowSize(expandedLayoutRef.current)));
+      setCollapsed(false);
+      await new Promise((resolve) => window.setTimeout(resolve, 320));
+    } catch (error) {
+      console.error('展开迷你窗口失败:', error);
+      setCollapsed(false);
+      await new Promise((resolve) => window.setTimeout(resolve, 320));
+    }
+  };
+
+  const handleOpacityChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newOpacity = parseFloat(e.target.value);
+    setOpacity(newOpacity);
+
+    try {
+      // 调用后端设置真实的窗口透明度
+      await invoke('set_window_opacity', { opacity: newOpacity });
+      console.log('窗口透明度已更改为:', newOpacity);
+
+      // 保存透明度到配置文件
+      await invoke('save_opacity', { opacity: newOpacity });
+      console.log('透明度已保存到配置文件');
+
+      // 更新前端 store 中的配置
+      const { updateConfig } = useAppStore.getState();
+      updateConfig({ opacity: newOpacity });
+      console.log('前端 store 中的透明度已更新');
+    } catch (error) {
+      console.error('设置或保存窗口透明度失败:', error);
+    }
+  };
+
+  // 处理动态设置保存后重新加入大厅
+  const handleLobbySettingsSaved = async () => {
+    console.log('🎯 [MiniWindow] handleLobbySettingsSaved 被调用了！');
+    console.log('🎯 [MiniWindow] 当前大厅已就绪:', {
+      lobbyName: lobby?.name,
+      hasPassword: !!lobby?.password,
+      playerCount: players.length,
+    });
+    console.log('🎯 [MiniWindow] currentPlayerId:', currentPlayerId);
+
+    if (!lobby || !currentPlayerId) {
+      console.error('❌ [MiniWindow] 验证失败：lobby 或 currentPlayerId 无效');
+      message.error(tl('当前未在大厅中或玩家ID无效', 'Not in a lobby or invalid player ID'));
+      return;
+    }
+
+    console.log('📢 [MiniWindow] 大厅设置已保存，准备重新加入大厅...');
+
+    // 先关闭大厅设置弹窗
+    console.log('🚪 [MiniWindow] 正在关闭大厅设置弹窗...');
+    setShowLobbySettings(false);
+    console.log('✅ [MiniWindow] 大厅设置弹窗已关闭');
+
+    // 等待弹窗完全关闭
+    console.log('⏳ [MiniWindow] 等待弹窗完全关闭（200ms）...');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    console.log('✅ [MiniWindow] 等待完成');
+
+    // 显示重新加入大厅的加载提示（使用自定义遮罩层，和退出大厅一样）
+    console.log('🎨 [MiniWindow] 显示重新加入大厅的加载提示...');
+    setIsRejoining(true);
+    console.log('✅ [MiniWindow] 加载提示已显示');
+
+    try {
+      // 1. 先退出当前大厅（不清理前端状态）
+      console.log('🚪 [MiniWindow] 正在退出当前大厅...');
+      await invoke('leave_lobby');
+      console.log('✅ [MiniWindow] 已退出当前大厅');
+
+      // 等待足够的时间确保资源完全释放（包括进程退出、网卡清理等）
+      // stop_easytier 需要：3秒等待进程退出 + 0.5秒清理网卡 + 0.5秒清理配置 = 至少4秒
+      console.log('⏳ [MiniWindow] 等待资源完全释放（5秒）...');
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      console.log('✅ [MiniWindow] 资源释放等待完成');
+
+      // 2. 重新加载配置
+      console.log('📖 [MiniWindow] 正在重新加载配置...');
+      const settings = await invoke<any>('get_settings');
+      console.log('✅ [MiniWindow] 已重新加载配置');
+
+      // 3. 使用新配置重新加入大厅
+      console.log('🔌 [MiniWindow] 正在使用新配置重新加入大厅...');
+      const savedServerNode = settings.preferredServer || config.preferredServer;
+      const serverNode =
+        settings.usePrivateServer && settings.privateEasytierServer
+          ? settings.privateEasytierServer
+          : savedServerNode === 'wss://mctiers.pmhs.top' || !savedServerNode
+            ? 'tcp://easytier.weiai.org.cn:11010'
+            : savedServerNode;
+      const signalingServer =
+        settings.usePrivateServer && settings.privateSignalingServer
+          ? settings.privateSignalingServer
+          : 'wss://mctier.pmhs.top/signaling';
+
+      const useDomain = settings.useDomain || false;
+
+      const newLobby = await invoke<any>('join_lobby', {
+        name: lobby.name || '',
+        password: lobby.password || '',
+        playerName: config.playerName || tl('玩家', 'Player'),
+        playerId: currentPlayerId,
+        serverNode,
+        signalingServer,
+        useDomain: useDomain,
+      });
+
+      console.log('✅ [MiniWindow] 重新加入大厅成功:', {
+        hasLobby: !!newLobby,
+        lobbyName: newLobby?.name,
+        hasPassword: !!newLobby?.password,
+      });
+
+      // 4. 更新前端状态
+      const { setLobby } = useAppStore.getState();
+      setLobby({ ...newLobby, serverNode, signalingServer, entryMode: 'auto' });
+
+      // 5. 重新初始化WebRTC
+      console.log('🔄 [MiniWindow] 正在重新初始化WebRTC...');
+      await webrtcClient.initialize(
+        currentPlayerId,
+        config.playerName || tl('玩家', 'Player'),
+        lobby.name || '',
+        lobby.password || '',
+        undefined,
+        useDomain,
+        signalingServer,
+        undefined,
+        'auto'
+      );
+      console.log('✅ [MiniWindow] WebRTC重新初始化成功');
+
+      // 关闭加载提示
+      setIsRejoining(false);
+
+      // 显示成功提示
+      message.success(
+        tl('设置已应用，重新加入大厅成功', 'Settings applied, rejoined the lobby successfully')
+      );
+    } catch (error) {
+      console.error('❌ [MiniWindow] 重新加入大厅失败:', error);
+
+      // 关闭加载提示
+      setIsRejoining(false);
+
+      message.error(tl(`重新加入大厅失败: ${error}`, `Failed to rejoin the lobby: ${error}`));
+
+      // 如果失败，返回主界面
+      const { setAppState, clearLobby } = useAppStore.getState();
+      clearLobby();
+      setAppState('idle');
+    }
+  };
+
+  // 处理玩家音量变化
+  const handlePlayerVolumeChange = useCallback(
+    (playerId: string, volume: number) => {
+      setPlayerVolume(playerId, volume);
+      // 按玩家名记忆音量，下次联机自动恢复
+      const p = players.find((pl) => pl.id === playerId);
+      if (p?.name) {
+        playerVolumeMemory.set(p.name, volume);
+      }
+      console.log(`玩家 ${playerId} 音量已设置为: ${Math.round(volume * 100)}%`);
+    },
+    [players, setPlayerVolume]
+  );
+
+  // 打开聊天室（从聊天室按钮）
+  const handleOpenChatRoom = () => {
+    setCurrentView('chat');
+    // 记录打开聊天室时窗口是否处于收起状态
+    setChatOpenedWhenCollapsed(collapsed);
+    // 设置全局标志：当前在聊天室界面
+    (window as any).__isInChatRoom__ = true;
+    // 标记所有其他人的消息为已读
+    setLastViewedOthersMessageCount(othersMessageCount);
+    console.log(`✅ 打开聊天室，窗口${collapsed ? '收起' : '展开'}状态`);
+  };
+
+  // 关闭聊天室，返回大厅界面
+  const handleCloseChatRoom = async () => {
+    setCurrentView('lobby');
+    // 清除全局标志：离开聊天室界面
+    (window as any).__isInChatRoom__ = false;
+    // 标记所有其他人的消息为已读
+    setLastViewedOthersMessageCount(othersMessageCount);
+
+    // 如果打开聊天室时窗口是收起状态，关闭时自动收起
+    if (chatOpenedWhenCollapsed) {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+        const appWindow = getCurrentWindow();
+        await appWindow.setSize(new LogicalSize(collapsedWindowSize()));
+        setCollapsed(true);
+        console.log('✅ 聊天室关闭，窗口已自动收起');
+      } catch (error) {
+        console.error('自动收起窗口失败:', error);
+      }
+      setChatOpenedWhenCollapsed(false); // 重置标记
+    } else {
+      console.log('✅ 聊天室关闭，窗口保持展开状态');
+    }
+  };
+
+  // 处理新消息按钮点击
+  const handleNewMessageClick = async () => {
+    try {
+      // 记录当前窗口是否处于收起状态
+      const wasCollapsed = collapsed;
+
+      // 如果窗口是收起状态，先展开窗口
+      if (collapsed) {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+        const appWindow = getCurrentWindow();
+        await appWindow.setSize(new LogicalSize(expandedWindowSize(expandedLayoutRef.current)));
+        setCollapsed(false);
+        console.log('窗口已展开');
+      }
+
+      // 切换到聊天室视图
+      setCurrentView('chat');
+      // 记录打开聊天室时窗口是否处于收起状态
+      setChatOpenedWhenCollapsed(wasCollapsed);
+      // 设置全局标志：当前在聊天室界面
+      (window as any).__isInChatRoom__ = true;
+      // 标记所有其他人的消息为已读
+      setLastViewedOthersMessageCount(othersMessageCount);
+      console.log(`✅ 从${wasCollapsed ? '迷你窗口' : '大厅界面'}打开聊天室并标记消息为已读`);
+    } catch (error) {
+      console.error('打开聊天室失败:', error);
+    }
+  };
+
+  // 打开 mcwifipnp 模组页面
+  const handleOpenModPage = async () => {
+    try {
+      await open('https://www.mcmod.cn/class/4498.html');
+    } catch (error) {
+      console.error('打开模组页面失败:', error);
+    }
+  };
+
+  // 打开官网
+  const handleOpenWebsite = async () => {
+    if (!versionError) return;
+
+    try {
+      await open(DOWNLOAD_WEBSITE);
+      console.log('已打开官网:', DOWNLOAD_WEBSITE);
+      message.success(tl('已在浏览器中打开官网', 'Opened the website in your browser'));
+    } catch (error) {
+      console.error('打开官网失败:', error);
+      message.error(
+        tl(
+          '打开官网失败，请手动复制链接',
+          'Failed to open the website, please copy the link manually'
+        )
+      );
+    }
+  };
+
+  // 版本过低提示里的「返回主界面」：组网已在收到 version-too-old 时断开，
+  // 这里只清理前端状态。仍兜底调一次 leave_lobby，避免极端情况下后端仍持有会话。
+  const handleBackToHomeFromVersionError = async () => {
+    try {
+      await webrtcClient.cleanup();
+    } catch (error) {
+      console.warn('清理 WebRTC 客户端时出现警告:', error);
+    }
+    try {
+      await invoke('leave_lobby');
+    } catch {
+      /* 组网已停止时忽略 */
+    }
+    const { setAppState, clearLobby, setVersionError } = useAppStore.getState();
+    clearLobby();
+    setVersionError(null);
+    setAppState('idle');
+  };
+
+  // 复制官网链接
+  const handleCopyWebsiteUrl = async () => {
+    if (!versionError) return;
+
+    try {
+      await writeText(DOWNLOAD_WEBSITE);
+      message.success(tl('官网链接已复制到剪贴板', 'Website link copied to clipboard'));
+      console.log('已复制官网链接:', DOWNLOAD_WEBSITE);
+    } catch (error) {
+      console.error('复制链接失败:', error);
+      message.error(tl('复制失败，请手动复制', 'Copy failed, please copy manually'));
+    }
+  };
+
+  // 复制虚拟IP或虚拟域名
+  const handleCopyVirtualIp = async () => {
+    if (!lobby) return;
+
+    try {
+      // 根据useDomain决定复制IP还是域名
+      const textToCopy =
+        lobby.useDomain && lobby.virtualDomain ? lobby.virtualDomain : lobby.virtualIp;
+      if (!textToCopy) {
+        message.warning(tl('虚拟地址尚未获取', 'Virtual address not available yet'));
+        return;
+      }
+
+      await writeText(textToCopy);
+      const label =
+        lobby.useDomain && lobby.virtualDomain
+          ? tl('虚拟域名', 'Virtual domain')
+          : tl('虚拟IP', 'Virtual IP');
+      message.success(tl(`${label}已复制`, `${label} copied`));
+      console.log(`已复制${label}:`, textToCopy);
+    } catch (error) {
+      console.error('复制失败:', error);
+      message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
+    }
+  };
+
+  // 复制大厅信息
+  const handleCopyLobbyInfo = async () => {
+    if (!lobbyInvite) return;
+
+    try {
+      const lobbyInfo = await formatLobbyInviteText(
+        lobbyInvite,
+        getLanguage() === 'en' ? 'en' : 'zh'
+      );
+
+      await writeText(lobbyInfo);
+
+      // 显示提示信息（轻量级 toast 反馈）
+      message.success({
+        content: tl(
+          '大厅信息已复制，发送给好友粘贴打开「加入大厅」即可自动识别',
+          'Lobby info copied. Send it to a friend; pasting it in "Join Lobby" will auto-detect it'
+        ),
+        duration: 3,
+      });
+
+      console.log('已复制大厅信息');
+    } catch (error) {
+      console.error('复制大厅信息失败:', error);
+      message.error(tl('复制失败，请重试', 'Copy failed, please retry'));
+    }
+  };
+
+  return (
+    <>
+      {/* 版本错误全屏提示 - 完全覆盖大厅界面 */}
+      {versionError && (
+        <motion.div
+          className="version-error-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+        >
+          <motion.div
+            className="version-error-content"
+            initial={{ scale: 0.9, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+          >
+            {/* 警告图标 */}
+            <motion.div
+              className="version-error-icon-wrapper"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+            >
+              <WarningTriangleIcon size={80} className="version-error-icon" />
+            </motion.div>
+
+            {/* 标题 */}
+            <h2 className="version-error-title">
+              {tl('版本过低，无法连接', 'Version too low, cannot connect')}
+            </h2>
+
+            {/* 版本信息 */}
+            <div className="version-error-info">
+              <div className="version-info-row">
+                <span className="version-label">{tl('当前版本', 'Current version')}</span>
+                <span className="version-value current">{versionError.currentVersion}</span>
+              </div>
+              <div className="version-info-row">
+                <span className="version-label">{tl('最低要求', 'Minimum required')}</span>
+                <span className="version-value required">{versionError.minimumVersion}</span>
+              </div>
+            </div>
+
+            {/* 提示信息 */}
+            <div className="version-error-message">
+              <p>
+                {tl(
+                  '客户端版本过低，服务器已拒绝连接',
+                  'Client version too low; the server refused the connection'
+                )}
+              </p>
+              <p>
+                {tl(
+                  '请下载最新版本以继续使用 MCTier',
+                  'Please download the latest version to keep using MCTier'
+                )}
+              </p>
+            </div>
+
+            {/* 官网链接 */}
+            <div className="version-error-url">
+              <div className="url-label">{tl('官网下载地址', 'Official download URL')}</div>
+              <div className="url-box">
+                <span className="url-text">{DOWNLOAD_WEBSITE}</span>
+                <motion.button
+                  className="url-copy-btn"
+                  onClick={handleCopyWebsiteUrl}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title={tl('复制链接', 'Copy Link')}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </motion.button>
+              </div>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="version-error-actions">
+              <motion.button
+                className="version-error-btn primary"
+                onClick={handleOpenWebsite}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{ marginRight: '10px' }}
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <span>
+                  {tl('前往官网下载最新版', 'Download the latest version from the website')}
+                </span>
+              </motion.button>
+              {/*
+                版本被拒时已主动断开组网，这里必须给一条回到主界面的路，
+                否则用户被困在一个没有网络的大厅界面里，只能重启应用。
+              */}
+              <motion.button
+                className="version-error-btn secondary"
+                onClick={handleBackToHomeFromVersionError}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <span>{tl('返回主界面', 'Back to home')}</span>
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* 退出大厅加载提示 */}
+      <Modal
+        open={isLeaving}
+        footer={null}
+        closable={false}
+        centered
+        width={300}
+        styles={{
+          body: {
+            padding: '32px',
+            textAlign: 'center',
+          },
+        }}
+      >
+        <Spin size="large" />
+        <div style={{ marginTop: '16px', fontSize: '16px', color: 'rgba(255,255,255,0.9)' }}>
+          {tl('正在退出大厅...', 'Leaving lobby...')}
+        </div>
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+          {tl('正在清理网络连接和虚拟网卡', 'Cleaning up network connections and virtual adapter')}
+        </div>
+      </Modal>
+
+      {/* 重新加入大厅加载提示 */}
+      <Modal
+        open={isRejoining}
+        footer={null}
+        closable={false}
+        centered
+        width={400}
+        styles={{
+          body: {
+            padding: '40px',
+            textAlign: 'center',
+          },
+        }}
+      >
+        <Spin size="large" />
+        <div
+          style={{
+            marginTop: '20px',
+            fontSize: '18px',
+            color: 'rgba(255,255,255,0.95)',
+            fontWeight: 600,
+          }}
+        >
+          {tl('正在重载设置...', 'Reloading settings...')}
+        </div>
+        <div style={{ marginTop: '12px', fontSize: '14px', color: 'rgba(255,255,255,0.75)' }}>
+          {tl('正在重新配置并加入...', 'Reconfiguring and rejoining...')}
+        </div>
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+          {tl('请稍等，这可能需要几秒钟...', 'Please wait, this may take a few seconds...')}
+        </div>
+      </Modal>
+
+      {/* 联机帮助弹窗 */}
+      <Modal
+        title={tl('MC联机帮助', 'Minecraft Connection Help')}
+        open={showConnectionHelp}
+        onCancel={() => setShowConnectionHelp(false)}
+        footer={null}
+        width={500}
+      >
+        <div style={{ lineHeight: '1.8' }}>
+          <p style={{ marginBottom: '16px', fontWeight: 'bold', color: '#52c41a' }}>
+            {tl('联机方式说明：', 'How to connect:')}
+          </p>
+
+          <div style={{ marginBottom: '12px' }}>
+            <strong>{tl('1. 双方都是正版：', '1. Both have a licensed copy:')}</strong>
+            <br />
+            {tl(
+              '房主对局域网开放后，其他玩家在多人游戏中使用 ',
+              'After the host opens to LAN, others join in Multiplayer using '
+            )}
+            <code
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+              }}
+            >
+              {tl('房主虚拟IP:端口号', 'Host Virtual IP:Port')}
+            </code>
+            {tl(' 加入', '')}
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <strong>
+              {tl('2. 房主离线模式，加入者正版：', '2. Host offline mode, joiner licensed:')}
+            </strong>
+            <br />
+            {tl('加入者在多人游戏中使用 ', 'The joiner uses ')}
+            <code
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+              }}
+            >
+              {tl('房主虚拟IP:端口号', 'Host Virtual IP:Port')}
+            </code>
+            {tl(' 加入', ' in Multiplayer to join')}
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <strong>
+              {tl('3. 房主正版，加入者离线模式：', '3. Host licensed, joiner offline mode:')}
+            </strong>
+            <br />
+            {tl('房主需要安装 ', 'The host needs to install ')}
+            <a
+              onClick={handleOpenModPage}
+              style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              mcwifipnp
+            </a>
+            {tl(' 模组关闭正版验证', ' mod to disable license verification')}
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <strong>{tl('4. 双方都是离线模式：', '4. Both in offline mode:')}</strong>
+            <br />
+            {tl('房主需要安装 ', 'The host needs to install ')}
+            <a
+              onClick={handleOpenModPage}
+              style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              mcwifipnp
+            </a>
+            {tl(' 模组关闭正版验证', ' mod to disable license verification')}
+          </div>
+
+          <div
+            style={{
+              padding: '12px',
+              background: 'rgba(255, 193, 7, 0.1)',
+              borderRadius: '8px',
+              borderLeft: '3px solid #ffc107',
+            }}
+          >
+            <strong style={{ color: '#ffc107' }}>💡 {tl('提示：', 'Tip:')}</strong>
+            <br />
+            {tl(
+              '虚拟IP显示在大厅信息中，端口号由房主在游戏内对局域网开放时显示',
+              'The virtual IP is shown in lobby info; the port is shown when the host opens to LAN in-game'
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* 根据当前视图显示不同内容 */}
+      <AnimatePresence mode="wait">
+        {currentView === 'chat' ? (
+          <motion.div
+            key="chat"
+            className="chat-room-view"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0 }}
+          >
+            <div className="chat-room-header">
+              <h3 className="chat-room-title">{tl('聊天室', 'Chat Room')}</h3>
+              <button
+                className="back-button"
+                onClick={handleCloseChatRoom}
+                title={tl('关闭聊天室 (ESC)', 'Close chat (ESC)')}
+              >
+                <CloseIcon size={16} />
+              </button>
+            </div>
+            <ChatRoom />
+          </motion.div>
+        ) : currentView === 'fileShare' ? (
+          <motion.div
+            key="fileShare"
+            className="file-share-view"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0 }}
+          >
+            <div className="file-share-header">
+              <div className="file-share-title-wrapper">
+                <h3 className="file-share-title">{tl('文件夹共享', 'Folder Sharing')}</h3>
+                <Tooltip
+                  title={tl(
+                    '将您电脑中的任何文件夹共享到当前大厅中，提供给同大厅内的其他玩家访问并下载。',
+                    'Share any folder on your PC to the current lobby for other members to access and download.'
+                  )}
+                  placement="bottom"
+                >
+                  <div className="file-share-info-icon">
+                    <InfoIcon size={14} />
+                  </div>
+                </Tooltip>
+              </div>
+              <button
+                className="back-button"
+                onClick={() => setCurrentView('lobby')}
+                title={tl('返回大厅 (ESC)', 'Back to lobby (ESC)')}
+              >
+                <CloseIcon size={16} />
+              </button>
+            </div>
+            {(() => {
+              console.log(
+                '🎨 [MiniWindow] 正在渲染FileShareManagerNew组件，currentView:',
+                currentView
+              );
+              return <FileShareManagerNew />;
+            })()}
+          </motion.div>
+        ) : currentView === 'screenShare' ? (
+          <motion.div
+            key="screenShare"
+            className="screen-share-view"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0 }}
+          >
+            <div className="screen-share-header">
+              <div className="screen-share-title-wrapper">
+                <h3 className="screen-share-title">{tl('屏幕共享', 'Screen Sharing')}</h3>
+                <Tooltip
+                  title={tl(
+                    '将您的屏幕实时共享给大厅内的其他玩家查看，支持密码保护。',
+                    'Share your screen with lobby members in real time, with optional password protection.'
+                  )}
+                  placement="bottom"
+                >
+                  <div className="screen-share-info-icon">
+                    <InfoIcon size={14} />
+                  </div>
+                </Tooltip>
+              </div>
+              <div className="screen-share-controls">
+                <button className="back-button" onClick={() => setCurrentView('lobby')}>
+                  <Tooltip title={tl('返回大厅 (ESC)', 'Back to lobby (ESC)')} placement="bottom">
+                    <CloseIcon size={16} />
+                  </Tooltip>
+                </button>
+              </div>
+            </div>
+            <ScreenShareManager />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="lobby"
+            className={`mini-window ${collapsed ? 'collapsed' : ''}`}
+            style={{ '--mini-window-opacity': opacity } as React.CSSProperties}
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0 }}
+          >
+            <div className="mini-window-header">
+              <h3 className="mini-window-title">
+                {collapsed && lobby ? (
+                  <>
+                    {lobby.name.length > 5 ? `${lobby.name.substring(0, 5)}...` : lobby.name} (
+                    {players.length + 1}
+                    {maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
+                  </>
+                ) : (
+                  'MCTier'
+                )}
+              </h3>
+              <div className="mini-window-controls">
+                {/* 收起状态下显示麦克风和听筒按钮 */}
+                {collapsed && (
+                  <>
+                    <motion.button
+                      className={`mini-control-btn voice-btn ${micEnabled ? 'active' : 'muted'}`}
+                      onClick={handleToggleMic}
+                      title={`${micEnabled ? tl('关闭麦克风', 'Mute microphone') : tl('开启麦克风', 'Enable microphone')}${micHotkeyLabel ? ` (${micHotkeyLabel})` : ''}`}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <MicIcon enabled={micEnabled} size={14} />
+                    </motion.button>
+                    <motion.button
+                      className={`mini-control-btn voice-btn ${globalMuted ? 'muted' : 'active'}`}
+                      onClick={handleToggleGlobalMute}
+                      title={`${globalMuted ? tl('开启全局听筒', 'Enable speaker') : tl('关闭全局听筒', 'Mute speaker')}${muteHotkeyLabel ? ` (${muteHotkeyLabel})` : ''}`}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <SpeakerIcon muted={globalMuted} size={14} />
+                    </motion.button>
+                    {/* 新消息按钮 - 有新消息时显示并闪烁 */}
+                    {unreadCount > 0 && (
+                      <motion.button
+                        className="mini-control-btn new-message-btn"
+                        onClick={handleNewMessageClick}
+                        title={tl(`${unreadCount} 条新消息`, `${unreadCount} new message(s)`)}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        exit={{ scale: 0 }}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                      </motion.button>
+                    )}
+                  </>
+                )}
+                {/* 展开状态下显示：一键最小化到系统托盘（后台运行），位于第一个位置 */}
+                {!collapsed && (
+                  <motion.button
+                    className="mini-control-btn"
+                    onClick={async () => {
+                      try {
+                        console.info('[MiniWindow] requesting tray minimize', {
+                          view: currentView,
+                          collapsed,
+                          lobby: lobby?.name,
+                        });
+                        await invoke('minimize_main_window_to_tray');
+                        console.log('✅ 已最小化到系统托盘');
+                      } catch (error) {
+                        console.error('最小化到系统托盘失败:', error);
+                      }
+                    }}
+                    title={tl('最小化到系统托盘', 'Minimize to tray')}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <line x1="6" y1="12" x2="18" y2="12" />
+                    </svg>
+                  </motion.button>
+                )}
+                <motion.button
+                  className="mini-control-btn"
+                  onClick={handleToggleCollapse}
+                  title={collapsed ? tl('展开', 'Expand') : tl('收起', 'Collapse')}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <CollapseIcon collapsed={collapsed} size={16} />
+                </motion.button>
+                <motion.button
+                  className="mini-control-btn close-btn"
+                  onClick={async () => {
+                    await expandMiniWindow();
+                    modal.confirm({
+                      title: tl('退出大厅', 'Leave Lobby'),
+                      content: tl(
+                        '确定要退出当前大厅吗？退出后将断开与好友的组网。',
+                        'Are you sure you want to leave this lobby? You will be disconnected from your friends.'
+                      ),
+                      okText: tl('退出', 'Leave'),
+                      okType: 'danger',
+                      okButtonProps: { className: 'leave-lobby-confirm-btn' },
+                      cancelText: tl('取消', 'Cancel'),
+                      centered: true,
+                      onOk: () => {
+                        void handleLeaveLobby();
+                      },
+                    });
+                  }}
+                  title={tl('返回主界面', 'Back to home')}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <CloseCircleIcon size={16} />
+                </motion.button>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {!collapsed && (
+                <motion.div
+                  className="mini-window-content"
+                  initial={{ height: 0, opacity: 0, scale: 0.95 }}
+                  animate={{ height: 'auto', opacity: 1, scale: 1 }}
+                  exit={{ height: 0, opacity: 0, scale: 0.95 }}
+                  transition={{
+                    duration: 0.3,
+                    ease: [0.4, 0, 0.2, 1],
+                    opacity: { duration: 0.2 },
+                  }}
+                >
+                  {/* 大厅信息卡片 */}
+                  {lobby && (
+                    <motion.div
+                      className="mini-lobby-card"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1, duration: 0.3 }}
+                    >
+                      <div className="lobby-card-header">
+                        <h4 className="lobby-card-title">
+                          {lobby.name.length > 12
+                            ? `${lobby.name.substring(0, 12)}...`
+                            : lobby.name}
+                        </h4>
+                        <div className="lobby-card-actions">
+                          <motion.button
+                            className="copy-lobby-btn"
+                            onClick={handleCopyLobbyInfo}
+                            disabled={signalingStatus !== 'connected'}
+                            title={tl('复制大厅信息', 'Copy Lobby Info')}
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                          </motion.button>
+                          <motion.button
+                            className="copy-lobby-btn"
+                            onClick={() => setShowQrModal(true)}
+                            disabled={signalingStatus !== 'connected'}
+                            title={tl(
+                              '大厅二维码（手机 MCTier 扫码加入）',
+                              'Lobby QR (scan with MCTier)'
+                            )}
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                              <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                              <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                              <path d="M14 14h3v3h-3zM20 14v7M14 20h7"></path>
+                            </svg>
+                          </motion.button>
+                        </div>
+                      </div>
+                      <div className="lobby-card-info">
+                        <span className="lobby-info-label">
+                          {lobby.useDomain && lobby.virtualDomain
+                            ? tl('您的虚拟域名:', 'Your domain:')
+                            : tl('您的虚拟IP:', 'Your IP:')}
+                        </span>
+                        <motion.button
+                          className="virtual-ip-btn"
+                          onClick={handleCopyVirtualIp}
+                          title={
+                            lobby.useDomain && lobby.virtualDomain
+                              ? tl('点击复制虚拟域名', 'Click to copy virtual domain')
+                              : tl('点击复制虚拟IP', 'Click to copy virtual IP')
+                          }
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          {lobby.useDomain && lobby.virtualDomain
+                            ? lobby.virtualDomain
+                            : lobby.virtualIp || tl('获取中...', 'Loading...')}
+                        </motion.button>
+                        <motion.button
+                          className="connection-help-link"
+                          onClick={() => setShowConnectionHelp(true)}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          {tl('无法联机?', 'Cannot connect?')}
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* 大厅公告（只读跑马灯滚动展示；房主在“房主管理”中设置） */}
+                  {signalingStatus !== 'connected' && (
+                    <div
+                      className="mini-signaling-status"
+                      role="status"
+                      data-failed={signalingStatus === 'failed'}
+                    >
+                      <strong>
+                        {signalingStatus === 'failed'
+                          ? tl('大厅连接失败', 'Lobby connection failed')
+                          : signalingStatus === 'connecting'
+                            ? tl('正在连接大厅...', 'Connecting to lobby...')
+                            : tl(
+                                '大厅连接已断开，正在重连...',
+                                'Lobby disconnected. Reconnecting...'
+                              )}
+                      </strong>
+                      {signalingError && <span>{signalingError}</span>}
+                    </div>
+                  )}
+                  {announcement && <AnnouncementBar text={announcement} />}
+
+                  {/* 玩家列表 */}
+                  <motion.div
+                    className="mini-players-section"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15, duration: 0.3 }}
+                  >
+                    <h5 className="mini-section-title">
+                      {tl('玩家列表', 'Players')} ({players.length + 1}
+                      {maxPlayers && maxPlayers > 0 ? `/${maxPlayers}` : ''})
+                    </h5>
+                    <div className="mini-player-list">
+                      {/* 先显示当前玩家 */}
+                      <motion.div
+                        className="mini-player-item"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 500,
+                          damping: 30,
+                        }}
+                      >
+                        <div className="mini-player-info">
+                          <Avatar
+                            className={`player-avatar ${currentPlayerId && speakingPlayers.has(currentPlayerId) ? 'speaking' : ''}`}
+                            name={config.playerName || tl('我', 'Me')}
+                            avatarData={config.avatarData}
+                            size={28}
+                            editable
+                            onChange={(avatarData) => void saveAvatarData(avatarData)}
+                          />
+                          <div className="player-details">
+                            <span className="mini-player-name">
+                              {useAppStore.getState().config.playerName || tl('我', 'Me')} (
+                              {tl('我', 'Me')})
+                              {isHost && (
+                                <CrownIcon
+                                  size={13}
+                                  style={{ marginLeft: 4, verticalAlign: 'middle' }}
+                                />
+                              )}
+                              {currentPlayerId && hostMutedPlayers.has(currentPlayerId) && (
+                                <span style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}>
+                                  {tl('已禁言', 'Muted')}
+                                </span>
+                              )}
+                            </span>
+                            <motion.button
+                              className="player-virtual-ip-btn"
+                              onClick={handleCopyVirtualIp}
+                              title={
+                                lobby?.useDomain && lobby?.virtualDomain
+                                  ? tl('点击复制虚拟域名', 'Click to copy virtual domain')
+                                  : tl('点击复制虚拟IP', 'Click to copy virtual IP')
+                              }
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                            >
+                              {lobby?.useDomain && lobby?.virtualDomain
+                                ? tl(
+                                    `域名: ${lobby.virtualDomain}`,
+                                    `Domain: ${lobby.virtualDomain}`
+                                  )
+                                : `IP: ${lobby?.virtualIp || '10.126.126.1'}`}
+                            </motion.button>
+                          </div>
+                        </div>
+                      </motion.div>
+
+                      {/* 显示其他玩家 */}
+                      <AnimatePresence mode="popLayout">
+                        {players.map((player) => {
+                          // 判断该玩家是否被静音（考虑全局静音和单独静音）
+                          const isPlayerMuted = globalMuted || mutedPlayers.has(player.id);
+                          // 获取该玩家的音量设置
+                          const playerVolume = getPlayerVolume(player.id);
+
+                          return (
+                            <motion.div
+                              key={player.id}
+                              className={`mini-player-item ${isHost ? 'host-layout' : ''}`}
+                              layout
+                              initial={{ opacity: 0, x: -20, scale: 0.9 }}
+                              animate={{ opacity: 1, x: 0, scale: 1 }}
+                              exit={{ opacity: 0, x: 20, scale: 0.9 }}
+                              transition={{
+                                duration: 0.3,
+                                ease: [0.4, 0, 0.2, 1],
+                              }}
+                            >
+                              <div className="mini-player-info">
+                                <div className="mini-player-avatar-col">
+                                  <Avatar
+                                    className={`player-avatar ${speakingPlayers.has(player.id) && isSameVoiceGroup(player.id) ? 'speaking' : ''}`}
+                                    name={player.name}
+                                    avatarData={player.avatarData}
+                                    size={28}
+                                  />
+                                  {player.virtualIp && peerConnTypes[player.virtualIp] && (
+                                    <span
+                                      className="mini-conn-badge"
+                                      title={
+                                        peerConnTypes[player.virtualIp] === 'p2p'
+                                          ? tl('P2P 直连', 'P2P direct')
+                                          : tl('经中继转发', 'Relayed')
+                                      }
+                                      style={{
+                                        color:
+                                          peerConnTypes[player.virtualIp] === 'p2p'
+                                            ? '#52c41a'
+                                            : '#fa8c16',
+                                        background:
+                                          peerConnTypes[player.virtualIp] === 'p2p'
+                                            ? 'rgba(82,196,26,0.16)'
+                                            : 'rgba(250,140,22,0.18)',
+                                      }}
+                                    >
+                                      {peerConnTypes[player.virtualIp] === 'p2p'
+                                        ? 'P2P'
+                                        : tl('中继', 'Relay')}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="player-details">
+                                  <span className="mini-player-name">
+                                    {player.name}
+                                    {hostId === player.id && (
+                                      <CrownIcon
+                                        size={13}
+                                        style={{ marginLeft: 4, verticalAlign: 'middle' }}
+                                      />
+                                    )}
+                                    {hostMutedPlayers.has(player.id) && (
+                                      <span
+                                        style={{ color: '#ff7875', fontSize: 11, marginLeft: 6 }}
+                                      >
+                                        {tl('已禁言', 'Muted')}
+                                      </span>
+                                    )}
+                                    <span
+                                      className="fav-player-star"
+                                      title={
+                                        favPlayers.includes(player.name)
+                                          ? tl('取消收藏队友', 'Unfavorite teammate')
+                                          : tl('收藏队友', 'Favorite teammate')
+                                      }
+                                      onClick={() => {
+                                        const fav = recentService.toggleFavoritePlayer(player.name);
+                                        setFavPlayers(recentService.getFavoritePlayers());
+                                        message.success(
+                                          fav
+                                            ? tl(
+                                                `已收藏队友 ${player.name}`,
+                                                `Favorited teammate ${player.name}`
+                                              )
+                                            : tl(
+                                                `已取消收藏 ${player.name}`,
+                                                `Unfavorited ${player.name}`
+                                              )
+                                        );
+                                      }}
+                                      style={{
+                                        marginLeft: 6,
+                                        cursor: 'pointer',
+                                        color: favPlayers.includes(player.name)
+                                          ? '#FFD24A'
+                                          : 'rgba(255,255,255,0.35)',
+                                      }}
+                                    >
+                                      {favPlayers.includes(player.name) ? '★' : '☆'}
+                                    </span>
+                                  </span>
+                                  <div className="player-ip-row">
+                                    <motion.button
+                                      className="player-virtual-ip-btn"
+                                      onClick={async () => {
+                                        try {
+                                          // 根据玩家的useDomain决定显示和复制什么
+                                          const textToCopy =
+                                            player.useDomain && player.virtualDomain
+                                              ? player.virtualDomain
+                                              : player.virtualIp ||
+                                                lobby?.virtualIp ||
+                                                '10.126.126.1';
+                                          await writeText(textToCopy);
+                                          const label =
+                                            player.useDomain && player.virtualDomain
+                                              ? tl('虚拟域名', 'Virtual domain')
+                                              : tl('虚拟IP', 'Virtual IP');
+                                          message.success(tl(`${label}已复制`, `${label} copied`));
+                                        } catch (error) {
+                                          console.error('复制失败:', error);
+                                          message.error(
+                                            tl('复制失败，请重试', 'Copy failed, please retry')
+                                          );
+                                        }
+                                      }}
+                                      title={
+                                        player.useDomain && player.virtualDomain
+                                          ? tl('点击复制虚拟域名', 'Click to copy virtual domain')
+                                          : tl('点击复制虚拟IP', 'Click to copy virtual IP')
+                                      }
+                                      whileHover={{ scale: 1.02 }}
+                                      whileTap={{ scale: 0.98 }}
+                                    >
+                                      {player.useDomain && player.virtualDomain
+                                        ? tl(
+                                            `域名: ${player.virtualDomain}`,
+                                            `Domain: ${player.virtualDomain}`
+                                          )
+                                        : `IP: ${player.virtualIp || lobby?.virtualIp || '10.126.126.1'}`}
+                                    </motion.button>
+                                    {(() => {
+                                      const q = player.virtualIp
+                                        ? peerLatencies[player.virtualIp]
+                                        : undefined;
+                                      if (q === undefined) return null;
+                                      const lat = q.latencyMs;
+                                      if (q.status === 'checking') {
+                                        const checkingColor = '#faad14';
+                                        return (
+                                          <span
+                                            title={tl(
+                                              '正在确认连接状态',
+                                              'Checking connection status'
+                                            )}
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 3,
+                                              fontSize: 11,
+                                              color: checkingColor,
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            <span
+                                              style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: checkingColor,
+                                                display: 'inline-block',
+                                              }}
+                                            />
+                                            {tl('检测中', 'Checking')}
+                                          </span>
+                                        );
+                                      }
+                                      // 优先显示延迟（探测成功即说明可达）；仅当延迟探测超时(null)且有丢包时显示丢包
+                                      if (lat === null && q.lossRate > 0 && q.lossRate < 100) {
+                                        const lossColor = '#ff4d4f';
+                                        return (
+                                          <span
+                                            title={tl(
+                                              `丢包率 ${q.lossRate}%`,
+                                              `Packet loss ${q.lossRate}%`
+                                            )}
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 3,
+                                              fontSize: 11,
+                                              color: lossColor,
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            <span
+                                              style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: lossColor,
+                                                display: 'inline-block',
+                                              }}
+                                            />
+                                            {tl('丢包', 'Loss')}
+                                            {q.lossRate}%
+                                          </span>
+                                        );
+                                      }
+                                      const color =
+                                        lat === null
+                                          ? '#ff4d4f'
+                                          : lat < 80
+                                            ? '#52c41a'
+                                            : lat < 200
+                                              ? '#faad14'
+                                              : '#ff7a45';
+                                      const text =
+                                        lat === null ? tl('不可达', 'Unreachable') : `${lat}ms`;
+                                      return (
+                                        <span
+                                          title={
+                                            lat === null
+                                              ? tl(
+                                                  '虚拟IP上的聊天端口探测失败，不代表该成员已离开大厅',
+                                                  'The chat-port probe over the virtual IP failed; this does not mean the member left the lobby'
+                                                )
+                                              : tl(`延迟 ${lat}ms`, `Latency ${lat}ms`)
+                                          }
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            fontSize: 11,
+                                            color,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              width: 7,
+                                              height: 7,
+                                              borderRadius: '50%',
+                                              background: color,
+                                              display: 'inline-block',
+                                            }}
+                                          />
+                                          {text}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                  {/* 玩家独立音量控制 */}
+                                  <div className="player-volume-control">
+                                    <SpeakerIcon muted={isPlayerMuted} size={12} />
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="1"
+                                      step="0.05"
+                                      value={playerVolume}
+                                      onChange={(e) =>
+                                        handlePlayerVolumeChange(
+                                          player.id,
+                                          parseFloat(e.target.value)
+                                        )
+                                      }
+                                      className="player-volume-slider"
+                                      title={tl(
+                                        `音量: ${Math.round(playerVolume * 100)}%`,
+                                        `Volume: ${Math.round(playerVolume * 100)}%`
+                                      )}
+                                      disabled={isPlayerMuted}
+                                    />
+                                    <span className="player-volume-value">
+                                      {Math.round(playerVolume * 100)}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className={`mini-player-actions ${isHost ? 'host-grid' : ''}`}>
+                                {isHost && (
+                                  <motion.button
+                                    className="mini-action-btn"
+                                    onClick={() => {
+                                      modal.confirm({
+                                        title: tl('转让房主', 'Transfer Host'),
+                                        content: tl(
+                                          `确定把房主转让给 ${player.name} 吗？`,
+                                          `Transfer host privileges to ${player.name}?`
+                                        ),
+                                        okText: tl('转让', 'Transfer'),
+                                        cancelText: tl('取消', 'Cancel'),
+                                        centered: true,
+                                        onOk: () => {
+                                          webrtcClient.transferHost(player.id);
+                                        },
+                                      });
+                                    }}
+                                    title={tl('转让房主', 'Transfer host')}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                  >
+                                    <CrownIcon size={16} color="currentColor" />
+                                  </motion.button>
+                                )}
+                                {isHost && (
+                                  <motion.button
+                                    className="mini-action-btn kick-btn"
+                                    onClick={() => {
+                                      modal.confirm({
+                                        title: tl('踢出玩家', 'Kick Player'),
+                                        content: tl(
+                                          `确定把 ${player.name} 移出大厅吗？`,
+                                          `Remove ${player.name} from the lobby?`
+                                        ),
+                                        okText: tl('踢出', 'Kick'),
+                                        okButtonProps: { danger: true },
+                                        cancelText: tl('取消', 'Cancel'),
+                                        centered: true,
+                                        onOk: () => {
+                                          webrtcClient.kickPlayer(player.id);
+                                        },
+                                      });
+                                    }}
+                                    title={tl('踢出大厅', 'Kick from lobby')}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                  >
+                                    <svg
+                                      width="16"
+                                      height="16"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="#ff7875"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M18 6 6 18M6 6l12 12"></path>
+                                    </svg>
+                                  </motion.button>
+                                )}
+                                <motion.button
+                                  className={`mini-action-btn ${isPlayerMuted ? 'muted' : ''}`}
+                                  onClick={() => handleMutePlayer(player.id)}
+                                  title={
+                                    isPlayerMuted
+                                      ? tl('取消静音', 'Unmute')
+                                      : tl('静音此玩家', 'Mute this player')
+                                  }
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <SpeakerIcon muted={isPlayerMuted} size={16} />
+                                </motion.button>
+                                <motion.button
+                                  className="mini-action-btn"
+                                  onClick={() => {
+                                    try {
+                                      remoteControlService.requestControl(player.id, player.name);
+                                      window.dispatchEvent(new CustomEvent('rc-waiting'));
+                                    } catch (e) {
+                                      message.warning(
+                                        tl(
+                                          '已有进行中的远程控制会话',
+                                          'A remote control session is already active'
+                                        )
+                                      );
+                                    }
+                                  }}
+                                  title={tl(
+                                    '请求远程控制对方设备',
+                                    'Request remote control of this device'
+                                  )}
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                                    <path d="M8 21h8M12 17v4M7 8l3 2-3 2M13 12h4"></path>
+                                  </svg>
+                                </motion.button>
+                                {isHost && (
+                                  <motion.button
+                                    className={`mini-action-btn ${hostMutedPlayers.has(player.id) ? 'muted' : ''}`}
+                                    onClick={() => {
+                                      const muted = !hostMutedPlayers.has(player.id);
+                                      webrtcClient.setPlayerMuted(player.id, muted);
+                                    }}
+                                    title={
+                                      hostMutedPlayers.has(player.id)
+                                        ? tl('解除禁言', 'Unmute (host)')
+                                        : tl('禁言该玩家（房主）', 'Mute player (host)')
+                                    }
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                  >
+                                    <svg
+                                      width="16"
+                                      height="16"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                      <line x1="1" y1="1" x2="23" y2="23"></line>
+                                    </svg>
+                                  </motion.button>
+                                )}
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+                  </motion.div>
+
+                  {/* 透明度控制 */}
+                  <motion.div
+                    className="mini-opacity-control"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.3 }}
+                  >
+                    <div className="mini-opacity-control-wrapper">
+                      <label className="mini-opacity-label">{tl('透明度', 'Opacity')}</label>
+                      <input
+                        type="range"
+                        min="0.3"
+                        max="1"
+                        step="0.05"
+                        value={opacity}
+                        onChange={handleOpacityChange}
+                        className="mini-opacity-slider"
+                        style={
+                          {
+                            '--opacity-percent': `${((opacity - 0.3) / 0.7) * 100}%`,
+                          } as React.CSSProperties
+                        }
+                      />
+                    </div>
+                    <motion.button
+                      className="mini-lobby-settings-btn"
+                      onClick={() => setShowLobbySettings(true)}
+                      title={tl('大厅动态设置', 'Lobby Settings')}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.69.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.17.27-.46.13-.7l-2.2-3.81c-.13-.24-.41-.32-.65-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.09L14.05 2.1c-.04-.27-.28-.46-.55-.46h-3c-.28 0-.5.19-.55.46L9.5 4.86C8.82 5.14 8.2 5.5 7.64 5.95L4.9 4.85c-.24-.09-.52 0-.65.24L2.05 8.9c-.14.24-.08.53.13.7L4.5 11.5c-.04.34-.07.7-.07 1.08s.03.74.07 1.08L2.18 15.48c-.21.17-.27.46-.13.7l2.2 3.81c.13.24.41.32.65.24l2.74-1.1c.57.44 1.18.81 1.86 1.09l.45 2.76c.05.27.27.46.55.46h3c.28 0 .5-.19.55-.46l.45-2.76c.68-.28 1.3-.65 1.86-1.09l2.74 1.1c.24.09.52 0 .65-.24l2.2-3.81c.14-.24.08-.53-.13-.7l-2.32-1.9z" />
+                      </svg>
+                    </motion.button>
+                    <motion.button
+                      className="mini-lobby-settings-btn"
+                      onClick={() => setShowRoomTools(true)}
+                      title={tl('房间小工具', 'Room Tools')}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+                        <rect x="3" y="7" width="18" height="14" rx="2" /><path d="M8 7V3h8v4M3 12h18M7 10v4m10-4v4" />
+                      </svg>
+                    </motion.button>
+                    {isHost && (
+                      <motion.button
+                        className="mini-lobby-settings-btn"
+                        onClick={() => setShowHostPanel(true)}
+                        title={tl(
+                          '房主管理（人数上限 / 公开广场）',
+                          'Host management (max players / public plaza)'
+                        )}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <CrownIcon size={16} />
+                      </motion.button>
+                    )}
+                  </motion.div>
+
+                  {/* 底部控制按钮 - 只有5个按钮 */}
+                  <motion.div
+                    className="mini-voice-controls"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25, duration: 0.3 }}
+                  >
+                    <motion.button
+                      className={`mini-voice-btn ${micEnabled ? 'active' : 'muted'}`}
+                      onClick={handleToggleMic}
+                      title={`${micEnabled ? tl('关闭麦克风', 'Mute microphone') : tl('开启麦克风', 'Enable microphone')}${micHotkeyLabel ? ` (${micHotkeyLabel})` : ''}`}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <MicIcon enabled={micEnabled} size={24} />
+                    </motion.button>
+                    <motion.button
+                      className={`mini-voice-btn ${globalMuted ? 'muted' : ''}`}
+                      onClick={handleToggleGlobalMute}
+                      title={`${globalMuted ? tl('开启全局听筒', 'Enable speaker') : tl('关闭全局听筒', 'Mute speaker')}${muteHotkeyLabel ? ` (${muteHotkeyLabel})` : ''}`}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <SpeakerIcon muted={globalMuted} size={24} />
+                    </motion.button>
+                    <motion.button
+                      className={`mini-voice-btn chat-btn ${unreadCount > 0 ? 'has-unread' : ''}`}
+                      onClick={handleOpenChatRoom}
+                      title={tl('聊天室', 'Chat Room')}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                      </svg>
+                    </motion.button>
+                    <motion.button
+                      className="mini-voice-btn file-share-btn"
+                      onClick={() => {
+                        console.log('🖱️ [MiniWindow] 点击文件共享按钮，切换视图到fileShare');
+                        setCurrentView('fileShare');
+                      }}
+                      title={tl('文件夹共享', 'Folder Sharing')}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                    </motion.button>
+                    <motion.button
+                      className="mini-voice-btn screen-share-btn"
+                      onClick={() => {
+                        console.log('🖱️ [MiniWindow] 点击屏幕共享按钮，切换视图到screenShare');
+                        setCurrentView('screenShare');
+                      }}
+                      title={tl('屏幕共享', 'Screen Sharing')}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <ScreenShareIcon size={24} />
+                    </motion.button>
+                  </motion.div>
+
+                  {/* 快捷键提示已移除 */}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 大厅动态设置弹窗 */}
+      {lobby && (
+        <LobbySettingsModal
+          visible={showLobbySettings}
+          onClose={() => setShowLobbySettings(false)}
+          currentLobby={{
+            name: lobby.name || '',
+            password: lobby.password || '',
+            virtualIp: lobby.virtualIp || '',
+          }}
+          onSettingsSaved={handleLobbySettingsSaved}
+        />
+      )}
+
+      {/* 局域网世界自动发现弹窗 */}
+      <MinecraftWorldsModal visible={showMcWorlds} onClose={() => setShowMcWorlds(false)} />
+
+      {/* 游戏快连弹窗 */}
+      <GameQuickConnectModal visible={showGameConnect} onClose={() => setShowGameConnect(false)} />
+
+      {/* 连接诊断弹窗 */}
+      <ConnectionDiagnosticModal
+        visible={showDiagnostic}
+        onClose={() => setShowDiagnostic(false)}
+      />
+
+      {/* 房间小工具弹窗 */}
+      <RoomTools
+        visible={showRoomTools}
+        onClose={() => setShowRoomTools(false)}
+        onOpenWorlds={() => setShowMcWorlds(true)}
+        onOpenGameConnect={() => setShowGameConnect(true)}
+        onOpenDiagnostic={() => setShowDiagnostic(true)}
+        hudOn={hudOn}
+        onToggleHud={() => {
+          const v = !hudOn;
+          setHudOn(v);
+          try {
+            localStorage.setItem('mctier_game_hud', v ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+        }}
+      />
+
+      {/* 共享剪贴板接收弹窗（全局） */}
+
+      {/* 房主管理面板 */}
+      <HostPanel visible={showHostPanel} onClose={() => setShowHostPanel(false)} />
+
+      {/* 远程控制（全局：授权弹窗 / 被控横幅 / 控制端窗口） */}
+      <RemoteControl />
+
+      {/* 大厅二维码弹窗：手机端 MCTier 扫码即可加入 */}
+      <Modal
+        open={showQrModal && signalingStatus === 'connected'}
+        onCancel={() => setShowQrModal(false)}
+        footer={null}
+        centered
+        width={300}
+        title={tl('大厅二维码', 'Lobby QR Code')}
+      >
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
+            padding: '4px 0',
+          }}
+        >
+          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
+            {tl('手机用 MCTier 扫码即可加入本大厅', 'Scan with MCTier on your phone to join')}
+          </div>
+          <div className="mini-qr-card">
+            <canvas
+              key={`${lobbyInvite?.name ?? ''}:${lobbyInvite?.password || ''}:${lobbyInvite?.serverNode || ''}:${lobbyInvite?.signalingServer || ''}`}
+              ref={qrCanvasRef}
+              width={240}
+              height={240}
+              className="mini-qr-canvas"
+            />
+          </div>
+          <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{lobby?.name}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="qr-download-btn" onClick={downloadQrPoster}>
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              {tl('下载二维码', 'Download QR')}
+            </button>
+            <button
+              className="qr-download-btn"
+              title={tl(
+                '复制可一键加入的邀请链接，发给好友在浏览器打开即可加入',
+                'Copy a one-click invite link; send it to a friend to open in a browser and join'
+              )}
+              onClick={async () => {
+                if (!lobbyInvite) return;
+                const dl = await buildLobbyInviteLink(lobbyInvite);
+                try {
+                  await writeText(dl);
+                  message.success(
+                    tl(
+                      '邀请链接已复制，发给好友在浏览器打开即可加入',
+                      'Invite link copied. Send it to a friend to open in a browser and join'
+                    )
+                  );
+                } catch {
+                  message.error(tl('复制失败', 'Copy failed'));
+                }
+              }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              {tl('复制链接', 'Copy Link')}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+};

@@ -1,0 +1,200 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MCTier",
+  "version": "3.10.0",
+  "identifier": "com.mctier.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MCTier - 虚拟局域网通用联机工具",
+        "width": 320,
+        "height": 520,
+        "minWidth": 320,
+        "minHeight": 400,
+        "center": true,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": false,
+        "visible": true,
+        "fullscreen": false,
+        "maximizable": true,
+        "zoomHotkeysEnabled": false,
+        "devtools": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'wasm-unsafe-eval'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost"],
+        "media-src": ["'self'", "data:", "blob:", "asset:", "http://asset.localhost"],
+        "font-src": ["'self'", "data:", "blob:"],
+        "worker-src": ["'self'", "blob:"],
+        "connect-src": [
+          "'self'",
+          "ipc:",
+          "http://ipc.localhost",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "ws:",
+          "wss:",
+          "http://*:14540",
+          "https://gitee.com"
+        ],
+        "frame-src": ["'self'", "blob:", "asset:", "http://asset.localhost", "https://uop.quark.cn"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'none'"]
+      },
+      "devCsp": {
+        "default-src": ["'self'", "http://localhost:1420"],
+        "script-src": [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          "'wasm-unsafe-eval'",
+          "http://localhost:1420"
+        ],
+        "style-src": ["'self'", "'unsafe-inline'", "http://localhost:1420"],
+        "img-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "http://localhost:1420"
+        ],
+        "media-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "http://localhost:1420"
+        ],
+        "font-src": ["'self'", "data:", "blob:", "http://localhost:1420"],
+        "worker-src": ["'self'", "blob:", "http://localhost:1420"],
+        "connect-src": [
+          "'self'",
+          "ipc:",
+          "http://ipc.localhost",
+          "data:",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "ws:",
+          "wss:",
+          "http://*:14540",
+          "https://gitee.com",
+          "http://localhost:1420"
+        ],
+        "frame-src": [
+          "https://uop.quark.cn",
+          "'self'",
+          "blob:",
+          "asset:",
+          "http://asset.localhost",
+          "http://localhost:1420"
+        ],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"]
+      },
+      "dangerousDisableAssetCspModification": ["style-src"],
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPCACHE/emoji-builtin-v3/**",
+          "$APPCACHE/chat-attachments/**",
+          "$APPCACHE/office-previews/**"
+        ]
+      }
+    },
+    "withGlobalTauri": false,
+    "macOSPrivateApi": true
+  },
+  "plugins": {
+    "shell": {
+      "open": "https://(?:mctier\\.pmhs\\.top|www\\.mcmod\\.cn|github\\.com|gitee\\.com|webrtc\\.googlesource\\.com|www\\.wintun\\.net|reqrypt\\.org|npcap\\.com|langlangy\\.cn)(?:[/?#][^\\s]*)?\\z"
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["mctier"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "deb", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/installer-hooks.nsh",
+        "installMode": "perMachine",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
+      "allowDowngrades": false,
+      "wix": null
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": null,
+      "providerShortName": null,
+      "entitlements": null
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37",
+          "libgtk-3-0",
+          "libcap2-bin",
+          "policykit-1 | polkitd"
+        ],
+        "recommends": ["libayatana-appindicator3-1 | libappindicator3-1", "pulseaudio-utils"],
+        "section": "net",
+        "priority": "optional",
+        "files": {
+          "/usr/share/polkit-1/actions/com.mctier.app.policy": "../MCTier-Linux/packaging/com.mctier.app.policy"
+        }
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
+    "externalBin": [],
+    "resources": {
+      "../LICENSE": "licenses/LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../licenses/*": "licenses/",
+      "../patches/easytier-2.6.0-mctier-android.patch": "licenses/patches/easytier-2.6.0-mctier-android.patch",
+      "../shared/builtin-emoji/builtin-v3.pack.gz": "builtin-emoji/builtin-v3.pack.gz",
+      "resources/binaries/macos": "binaries/macos"
+    },
+    "copyright": "Copyright © 2024-2026 QingYun Studio_PengMingHang (MCTier Team)",
+    "category": "Game",
+    "shortDescription": "虚拟局域网通用联机工具",
+    "longDescription": "MCTier 是一款桌面应用程序，允许玩家通过虚拟局域网（VLAN）技术实现跨物理网络的联机游戏。该应用集成了虚拟网络组建、实时语音通信和玩家状态管理功能，为玩家提供流畅的联机体验。"
+  }
+}

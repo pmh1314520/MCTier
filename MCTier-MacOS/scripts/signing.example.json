@@ -1,0 +1,16 @@
+{
+  "Android": {
+    "KeystorePath": "C:\\Users\\YOUR_USER\\.mctier-signing\\android-upgrade.keystore",
+    "KeyAlias": "androiddebugkey",
+    "CertificateSha256": "REPLACE_WITH_THE_CERTIFICATE_SHA256_OF_YOUR_PREVIOUS_APK",
+    "UseLegacyDebugKey": true,
+    "StorePasswordEnvironment": "MCTIER_STORE_PASSWORD",
+    "KeyPasswordEnvironment": "MCTIER_KEY_PASSWORD"
+  },
+  "Windows": {
+    "Mode": "SelfSigned",
+    "CertificateThumbprint": "REPLACE_WITH_YOUR_CODE_SIGNING_CERTIFICATE_SHA1",
+    "StoreLocation": "CurrentUser",
+    "TimestampUrl": "http://timestamp.digicert.com"
+  }
+}

@@ -1,0 +1,15 @@
+.danmaku-color-options { display: flex; align-items: center; gap: 12px; margin: 14px 4px 4px; flex-wrap: wrap; }
+.danmaku-color-swatch {
+  width: 30px; height: 30px; padding: 0; flex: 0 0 30px; border-radius: 50%;
+  border: 1px solid #84918b; cursor: pointer; display: grid; place-items: center;
+}
+.danmaku-color-swatch[aria-pressed='true'] { outline: 3px solid #89dc55; outline-offset: 3px; }
+html[data-theme='light'] .danmaku-color-swatch[aria-pressed='true'] { outline-color: #347916; }
+.danmaku-color-swatch:focus-visible, .danmaku-color-custom:focus-visible { outline: 3px solid #1890ff; outline-offset: 3px; }
+.danmaku-color-random { background: conic-gradient(#ff4d4f,#faad14,#52c41a,#1890ff,#eb2f96,#ff4d4f); }
+.danmaku-color-swatch .danmaku-color-check { background: #16311f; color: #fff !important; border-radius: 50%; padding: 3px; font-size: 13px; }
+.danmaku-color-check svg { fill: #fff; }
+.danmaku-color-custom { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #84918b; border-radius: 8px; background: var(--bg-secondary, #243128); color: var(--text-primary, #fff); cursor: pointer; }
+.danmaku-color-custom[aria-pressed='true'] { outline: 2px solid #52c41a; outline-offset: 2px; }
+html[data-theme='light'] .danmaku-color-custom { background: #fff; color: #263729; }
+.mctier-color-picker .ant-popover-inner { border: 1px solid #52c41a80; border-radius: 12px; }

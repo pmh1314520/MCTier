@@ -1,0 +1,12 @@
+# 该目录本身必须存在，但其内容不入库。
+#
+# resource_manager.rs 用 include_bytes! 内嵌 EasyTier / Wintun / WinDivert / Npcap
+# 二进制，这些文件体积大且许可证不允许再分发（见 THIRD_PARTY_NOTICES.md），
+# 因此由 scripts/fetch-binaries.ps1 在构建前拉取并校验 SHA-256。
+#
+# 该脚本出于安全考虑要求目标目录的父目录已存在且位于仓库内（拒绝在仓库外创建目录、
+# 拒绝重解析点）。此前目录里恰好有一个入库文件（minecraft-offline-agent.jar）顺带
+# 保证了目录存在；该 jar 随离线代理功能一并删除后，git 不跟踪空目录，全新检出时
+# 目录消失，脚本随即报「目标目录的父目录不存在」而中止（CI 于 022bea4 失败）。
+#
+# 保留此占位文件即可维持该前提，不需要放宽脚本的安全检查。

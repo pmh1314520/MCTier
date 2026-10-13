@@ -1,0 +1,1814 @@
+use crate::modules::error::AppError;
+use crate::modules::hosts_manager::HostsManager;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// 大厅信息
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lobby {
+    /// 大厅唯一标识符
+    pub id: String,
+    /// 大厅名称
+    pub name: String,
+    /// 大厅密码（用于复制分享）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+    /// 虚拟 IP 地址（当前玩家的）
+    pub virtual_ip: String,
+    #[serde(default)]
+    pub automatic_virtual_ip: bool,
+    #[serde(default)]
+    pub address_attempt: u16,
+    /// 创建者的虚拟 IP 地址（用于连接 WebSocket 信令服务器）
+    pub creator_virtual_ip: String,
+    /// 虚拟域名（如果启用了魔法DNS）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_domain: Option<String>,
+    /// 是否使用域名访问
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_domain: Option<bool>,
+    /// 信令服务器地址
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signaling_server: Option<String>,
+}
+
+impl Lobby {
+    /// 创建新的大厅实例
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码（可选）
+    /// * `virtual_ip` - 虚拟 IP 地址
+    /// * `creator_virtual_ip` - 创建者的虚拟 IP 地址
+    /// * `virtual_domain` - 虚拟域名（可选）
+    /// * `use_domain` - 是否使用域名访问（可选）
+    /// * `signaling_server` - 信令服务器地址（可选）
+    ///
+    /// # 返回
+    /// 新的大厅实例
+    pub fn new(
+        name: String,
+        password: Option<String>,
+        virtual_ip: String,
+        creator_virtual_ip: String,
+        virtual_domain: Option<String>,
+        use_domain: Option<bool>,
+        signaling_server: Option<String>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            password,
+            created_at: Utc::now(),
+            virtual_ip,
+            automatic_virtual_ip: false,
+            address_attempt: 0,
+            creator_virtual_ip,
+            virtual_domain,
+            use_domain,
+            signaling_server,
+        }
+    }
+}
+
+/// 玩家信息
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Player {
+    /// 玩家唯一标识符
+    pub id: String,
+    /// 玩家名称
+    pub name: String,
+    /// 虚拟IP地址
+    pub virtual_ip: String,
+    /// 麦克风是否开启
+    pub mic_enabled: bool,
+    /// 是否被静音
+    pub is_muted: bool,
+    /// 加入时间
+    pub joined_at: DateTime<Utc>,
+}
+
+impl Player {
+    /// 创建新的玩家实例
+    ///
+    /// # 参数
+    /// * `name` - 玩家名称
+    /// * `virtual_ip` - 虚拟IP地址
+    ///
+    /// # 返回
+    /// 新的玩家实例
+    pub fn new(name: String, virtual_ip: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            virtual_ip,
+            mic_enabled: false,
+            is_muted: false,
+            joined_at: Utc::now(),
+        }
+    }
+}
+
+/// 大厅错误类型
+#[derive(Debug, thiserror::Error)]
+pub enum LobbyError {
+    /// 输入验证错误
+    #[error("输入验证失败: {0}")]
+    InvalidInput(String),
+
+    /// 网络错误
+    #[error("网络错误: {0}")]
+    NetworkError(String),
+
+    /// 已经在大厅中
+    #[error("已经在大厅中")]
+    AlreadyInLobby,
+
+    /// 不在大厅中
+    #[error("不在大厅中")]
+    NotInLobby,
+
+    /// 玩家不存在
+    #[error("玩家不存在: {0}")]
+    PlayerNotFound(String),
+}
+
+/// 将 LobbyError 转换为 AppError
+impl From<LobbyError> for AppError {
+    fn from(err: LobbyError) -> Self {
+        match err {
+            LobbyError::InvalidInput(msg) => AppError::ValidationError(msg),
+            LobbyError::NetworkError(msg) => AppError::NetworkError(msg),
+            LobbyError::AlreadyInLobby => AppError::ValidationError("已经在大厅中".to_string()),
+            LobbyError::NotInLobby => AppError::ValidationError("不在大厅中".to_string()),
+            LobbyError::PlayerNotFound(id) => {
+                AppError::ValidationError(format!("玩家不存在: {}", id))
+            }
+        }
+    }
+}
+
+/// 大厅管理器
+///
+/// 负责管理大厅的创建、加入、退出以及玩家管理
+pub struct LobbyManager {
+    /// 当前大厅（如果已加入）
+    current_lobby: Option<Lobby>,
+    /// 玩家列表（玩家 ID -> 玩家信息）
+    players: HashMap<String, Player>,
+    /// Hosts文件管理器（用于Magic DNS）
+    hosts_manager: Option<HostsManager>,
+}
+
+impl LobbyManager {
+    /// Start EasyTier with bounded recovery for transient resolver/socket
+    /// failures. EasyTier can terminate during startup when Windows briefly
+    /// exhausts UDP buffers (WSA 10055) or its DNS resolver races the virtual
+    /// adapter. The old call path surfaced that first failure directly, which
+    /// left auto-lobby in a half-connected state until the application was
+    /// restarted. A retry is safe here because NetworkService cleans the
+    /// failed child and virtual adapter before returning the error.
+    async fn start_easytier_with_retry(
+        network_service: &crate::modules::network_service::NetworkService,
+        network_name: String,
+        network_key: String,
+        server_node: String,
+        player_name: String,
+        app_handle: &tauri::AppHandle,
+        global_config: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
+        lobby_config: Option<Option<crate::modules::config_manager::EasyTierAdvancedConfig>>,
+    ) -> Result<String, AppError> {
+        const MAX_ATTEMPTS: usize = 3;
+        let mut last_error = None;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match network_service
+                .start_easytier_with_config(
+                    network_name.clone(),
+                    network_key.clone(),
+                    server_node.clone(),
+                    player_name.clone(),
+                    app_handle,
+                    global_config.clone(),
+                    lobby_config.clone(),
+                )
+                .await
+            {
+                Ok(ip) => return Ok(ip),
+                Err(error) => {
+                    let text = error.to_string();
+                    let transient = text.contains("10055")
+                        || text.contains("缓冲区空间不足")
+                        || text.contains("DNS")
+                        || text.contains("dns")
+                        || text.contains("lookup")
+                        || text.contains("连接错误")
+                        || text.contains("connect to peer error");
+                    log::warn!(
+                        "EasyTier 启动失败 ({}/{}): {}{}",
+                        attempt,
+                        MAX_ATTEMPTS,
+                        text,
+                        if transient {
+                            "，判定为瞬时错误"
+                        } else {
+                            ""
+                        }
+                    );
+                    last_error = Some(error);
+                    if !transient || attempt == MAX_ATTEMPTS {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1200 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| AppError::NetworkError("EasyTier 启动失败".to_string())))
+    }
+
+    /// 创建新的大厅管理器实例
+    ///
+    /// # 返回
+    /// 新的大厅管理器实例
+    pub fn new() -> Self {
+        Self {
+            current_lobby: None,
+            players: HashMap::new(),
+            hosts_manager: None,
+        }
+    }
+
+    /// 验证输入字符串
+    ///
+    /// # 参数
+    /// * `input` - 要验证的输入字符串
+    /// * `field_name` - 字段名称（用于错误消息）
+    ///
+    /// # 返回
+    /// * `Ok(())` - 验证通过
+    /// * `Err(LobbyError)` - 验证失败
+    ///
+    /// # 验证规则
+    /// - 不能为空字符串
+    /// - 不能仅包含空白字符（空格、制表符、换行符等）
+    pub fn validate_input(input: &str, field_name: &str) -> Result<(), LobbyError> {
+        // 检查是否为空或仅包含空白字符
+        if input.trim().is_empty() {
+            return Err(LobbyError::InvalidInput(format!(
+                "{}不能为空或仅包含空白字符",
+                field_name
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// 标准化服务器节点地址
+    ///
+    /// 迁移历史地址，并为 TCP/UDP 裸域名补齐 EasyTier 默认端口。
+    fn normalize_server_node(server_node: &str) -> String {
+        let trimmed = server_node.trim();
+
+        if trimmed == "tcp://mctier.pmhs.top:11010"
+            || trimmed == "udp://mctier.pmhs.top:11010"
+            || trimmed == "ws://test.pmhs.top"
+            || trimmed == "wss://test.pmhs.top"
+        {
+            return "tcp://easytier.weiai.org.cn:11010".to_string();
+        }
+
+        if trimmed == "tcp://mctiers.pmhs.top" {
+            return "tcp://mctiers.pmhs.top:11010".to_string();
+        }
+        if trimmed == "udp://mctiers.pmhs.top" {
+            return "udp://mctiers.pmhs.top:11010".to_string();
+        }
+        if trimmed == "ws://mctiers.pmhs.top" {
+            return "ws://mctiers.pmhs.top:11011".to_string();
+        }
+
+        trimmed.to_string()
+    }
+    /// 验证大厅名称
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    ///
+    /// # 返回
+    /// * `Ok(())` - 验证通过
+    /// * `Err(LobbyError)` - 验证失败
+    ///
+    /// # 验证规则
+    /// - 长度：4-32 个字符
+    /// - 必须包含字母或数字
+    /// - 可以包含中文、字母、数字、下划线、连字符
+    /// - 不能仅包含空白字符
+    pub fn validate_lobby_name(name: &str) -> Result<(), LobbyError> {
+        let trimmed = name.trim();
+
+        // 检查长度
+        let char_count = trimmed.chars().count();
+        if char_count < 4 {
+            return Err(LobbyError::InvalidInput(
+                "大厅名称至少需要 4 个字符".to_string(),
+            ));
+        }
+        if char_count > 32 {
+            return Err(LobbyError::InvalidInput(
+                "大厅名称最多 32 个字符".to_string(),
+            ));
+        }
+
+        // 检查是否包含字母或数字
+        let has_alphanumeric = trimmed.chars().any(|c| c.is_alphanumeric());
+        if !has_alphanumeric {
+            return Err(LobbyError::InvalidInput(
+                "大厅名称必须包含至少一个字母或数字".to_string(),
+            ));
+        }
+
+        // 检查字符是否合法（中文、字母、数字、下划线、连字符、空格）
+        let is_valid = trimmed
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ' || c.is_whitespace());
+
+        if !is_valid {
+            return Err(LobbyError::InvalidInput(
+                "大厅名称只能包含中文、字母、数字、下划线、连字符和空格".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// 验证密码
+    ///
+    /// # 参数
+    /// * `password` - 密码
+    ///
+    /// # 返回
+    /// * `Ok(())` - 验证通过
+    /// * `Err(LobbyError)` - 验证失败
+    ///
+    /// # 规则
+    /// - 留空（或仅空白字符）表示无密码大厅，直接放行
+    /// - 非空时长度：8-32 个字符
+    /// - 非空时必须包含字母和数字
+    pub fn validate_password(password: &str) -> Result<(), LobbyError> {
+        let trimmed = password.trim();
+
+        // 留空表示无密码大厅。桌面端与 Android 端的密码框文案都是「留空创建无密码大厅」，
+        // 若此处仍强制 8 位，就会出现前端允许提交、后端直接拒绝的矛盾（issue #42）。
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+
+        // 检查长度
+        if trimmed.len() < 8 {
+            return Err(LobbyError::InvalidInput(
+                "密码至少需要 8 个字符".to_string(),
+            ));
+        }
+        if trimmed.len() > 32 {
+            return Err(LobbyError::InvalidInput("密码最多 32 个字符".to_string()));
+        }
+
+        // 检查是否包含字母
+        let has_letter = trimmed.chars().any(|c| c.is_alphabetic());
+        if !has_letter {
+            return Err(LobbyError::InvalidInput(
+                "密码必须包含至少一个字母".to_string(),
+            ));
+        }
+
+        // 检查是否包含数字
+        let has_digit = trimmed.chars().any(|c| c.is_numeric());
+        if !has_digit {
+            return Err(LobbyError::InvalidInput(
+                "密码必须包含至少一个数字".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// 创建大厅
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `network_service` - 网络服务引用（用于启动 EasyTier）
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功创建的大厅信息
+    /// * `Err(LobbyError)` - 创建失败
+    /// 创建大厅（带配置参数，避免死锁）
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `player_id` - 信令身份指纹（用于派生唯一 hosts 域名）
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    /// * `global_config` - 全局 EasyTier 高级配置
+    /// * `lobby_config` - 大厅 EasyTier 高级配置
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功创建的大厅信息
+    /// * `Err(LobbyError)` - 创建失败
+    pub async fn create_lobby_with_config(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        player_id: &str,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+        global_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        lobby_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        address_attempt: u16,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+        let final_virtual_domain = HostsManager::domain_for_identity(player_id)
+            .map_err(|error| LobbyError::InvalidInput(error.to_string()))?;
+
+        log::info!(
+            "正在创建大厅: {}, 使用域名: {}, 身份域名已由本地派生",
+            name,
+            use_domain
+        );
+
+        // 构建 EasyTier 网络凭证
+        // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        let (address_config, automatic_virtual_ip) = crate::modules::lobby_address::configuration(
+            global_config.as_ref(),
+            lobby_config.as_ref(),
+            &name,
+            player_id,
+            address_attempt,
+        )
+        .map_err(LobbyError::InvalidInput)?;
+
+        // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
+        let virtual_ip = Self::start_easytier_with_retry(
+            network_service,
+            network_name,
+            network_key,
+            normalized_server_node,
+            player_name.clone(),
+            app_handle,
+            Some(global_config),
+            Some(Some(address_config)),
+        )
+        .await
+        .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+
+        log::info!("虚拟域名已派生为身份指纹前缀");
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+
+            // 添加当前玩家的域名映射
+            {
+                log::info!("添加当前玩家的身份域名映射 -> {}", virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(&final_virtual_domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续创建大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // EasyTier DHCP 地址可能在应用重启后发生变化；使用本次实际
+        // 分配的地址，避免对端继续访问已经失效的旧创建者地址。
+        let creator_virtual_ip = virtual_ip.clone();
+        log::info!("创建者 EasyTier 地址: {}", creator_virtual_ip);
+        let mut lobby = Lobby::new(
+            name,
+            Some(password),
+            virtual_ip.clone(),
+            creator_virtual_ip,
+            Some(final_virtual_domain),
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        lobby.automatic_virtual_ip = automatic_virtual_ip;
+        lobby.address_attempt = address_attempt;
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip.clone());
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("大厅创建成功: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 创建大厅
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `player_id` - 信令身份指纹（用于派生唯一 hosts 域名）
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功创建的大厅信息
+    /// * `Err(LobbyError)` - 创建失败
+    pub async fn create_lobby(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        player_id: &str,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+        let final_virtual_domain = HostsManager::domain_for_identity(player_id)
+            .map_err(|error| LobbyError::InvalidInput(error.to_string()))?;
+
+        log::info!(
+            "正在创建大厅: {}, 使用域名: {}, 身份域名已由本地派生",
+            name,
+            use_domain
+        );
+
+        // 构建 EasyTier 网络凭证
+        // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        // 启动 EasyTier 服务（统一启用魔法DNS）
+        let virtual_ip = network_service
+            .start_easytier(
+                network_name,
+                network_key,
+                normalized_server_node,
+                player_name.clone(),
+                app_handle,
+            )
+            .await
+            .map_err(|e| LobbyError::NetworkError(e.inner_message()))?;
+
+        log::info!("虚拟域名已派生为身份指纹前缀");
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+
+            // 添加当前玩家的域名映射
+            {
+                log::info!("添加当前玩家的身份域名映射 -> {}", virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(&final_virtual_domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续创建大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // 创建大厅实例
+        // 约定：所有节点都连接到 10.126.126.1:8445
+        // 在 EasyTier DHCP 模式下，第一个加入网络的节点通常会获得 10.126.126.1
+        let creator_virtual_ip = virtual_ip.clone();
+        log::info!("创建者 EasyTier 地址: {}", creator_virtual_ip);
+        let lobby = Lobby::new(
+            name,
+            Some(password),
+            virtual_ip.clone(),
+            creator_virtual_ip,
+            Some(final_virtual_domain),
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip.clone());
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("大厅创建成功: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 加入大厅
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功加入的大厅信息
+    /// * `Err(LobbyError)` - 加入失败
+    /// 加入大厅（带配置参数，避免死锁）
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `virtual_domain` - 虚拟域名
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    /// * `app_handle` - Tauri 应用句柄
+    /// * `global_config` - 全局 EasyTier 高级配置
+    /// * `lobby_config` - 大厅 EasyTier 高级配置
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功加入的大厅信息
+    /// * `Err(LobbyError)` - 加入失败
+    pub async fn join_lobby_with_config(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        player_id: &str,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+        global_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        lobby_config: Option<crate::modules::config_manager::EasyTierAdvancedConfig>,
+        address_attempt: u16,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+        let final_virtual_domain = HostsManager::domain_for_identity(player_id)
+            .map_err(|error| LobbyError::InvalidInput(error.to_string()))?;
+
+        log::info!(
+            "正在加入大厅: {}, 使用域名: {}, 身份域名已由本地派生",
+            name,
+            use_domain
+        );
+
+        // 构建 EasyTier 网络凭证
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        let (address_config, automatic_virtual_ip) = crate::modules::lobby_address::configuration(
+            global_config.as_ref(),
+            lobby_config.as_ref(),
+            &name,
+            player_id,
+            address_attempt,
+        )
+        .map_err(LobbyError::InvalidInput)?;
+
+        // 启动 EasyTier 服务（统一启用魔法DNS），传递配置参数
+        let virtual_ip = Self::start_easytier_with_retry(
+            network_service,
+            network_name,
+            network_key,
+            normalized_server_node,
+            player_name.clone(),
+            app_handle,
+            Some(global_config),
+            Some(Some(address_config)),
+        )
+        .await
+        .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+
+        log::info!("虚拟域名已派生为身份指纹前缀");
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+
+            // 添加当前玩家的域名映射
+            {
+                log::info!("添加当前玩家的身份域名映射 -> {}", virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(&final_virtual_domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续加入大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // 创建大厅实例
+        let creator_virtual_ip = "10.126.126.1".to_string();
+        log::info!("约定的信令服务器地址: {}:8445", creator_virtual_ip);
+        let mut lobby = Lobby::new(
+            name,
+            Some(password),
+            virtual_ip.clone(),
+            creator_virtual_ip,
+            Some(final_virtual_domain),
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        lobby.automatic_virtual_ip = automatic_virtual_ip;
+        lobby.address_attempt = address_attempt;
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip.clone());
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("成功加入大厅: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 加入大厅
+    ///
+    /// # 参数
+    /// * `name` - 大厅名称
+    /// * `password` - 大厅密码
+    /// * `player_name` - 玩家名称
+    /// * `server_node` - 服务器节点地址
+    /// * `signaling_server` - 信令服务器地址
+    /// * `use_domain` - 是否使用域名访问
+    /// * `network_service` - 网络服务引用（用于连接 EasyTier）
+    ///
+    /// # 返回
+    /// * `Ok(Lobby)` - 成功加入的大厅信息
+    /// * `Err(LobbyError)` - 加入失败
+    pub async fn join_lobby(
+        &mut self,
+        name: String,
+        password: String,
+        player_name: String,
+        player_id: &str,
+        server_node: String,
+        signaling_server: String,
+        use_domain: bool,
+        network_service: &crate::modules::network_service::NetworkService,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Lobby, LobbyError> {
+        // 检查是否已经在大厅中
+        if self.current_lobby.is_some() {
+            return Err(LobbyError::AlreadyInLobby);
+        }
+
+        // 验证输入
+        Self::validate_lobby_name(&name)?;
+        Self::validate_password(&password)?;
+        Self::validate_input(&player_name, "玩家名称")?;
+        Self::validate_input(&server_node, "服务器节点")?;
+        let final_virtual_domain = HostsManager::domain_for_identity(player_id)
+            .map_err(|error| LobbyError::InvalidInput(error.to_string()))?;
+
+        log::info!(
+            "正在加入大厅: {}, 使用域名: {}, 身份域名已由本地派生",
+            name,
+            use_domain
+        );
+
+        // 构建 EasyTier 网络凭证
+        // 使用 "MCTier-" + 大厅名称作为网络号，实现大厅隔离
+        let network_name = format!("MCTier-{}", name);
+        let network_key = password.clone();
+
+        log::info!("EasyTier 网络号: {}", network_name);
+
+        let normalized_server_node = Self::normalize_server_node(&server_node);
+        log::info!("使用服务器节点: {}", normalized_server_node);
+
+        // 连接到 EasyTier 网络（统一启用魔法DNS）
+        let virtual_ip = network_service
+            .start_easytier(
+                network_name,
+                network_key,
+                normalized_server_node,
+                player_name.clone(),
+                app_handle,
+            )
+            .await
+            .map_err(|e| LobbyError::NetworkError(e.inner_message()))?;
+
+        log::info!("已连接到 EasyTier 网络，虚拟IP: {}", virtual_ip);
+
+        log::info!("虚拟域名已派生为身份指纹前缀");
+
+        // 如果启用域名访问，创建HostsManager并添加当前玩家的域名映射
+        if use_domain {
+            log::info!("启用域名访问，创建HostsManager...");
+            let hosts_manager = HostsManager::new(&name);
+
+            // 添加当前玩家的域名映射
+            {
+                log::info!("添加当前玩家的身份域名映射 -> {}", virtual_ip);
+                if let Err(e) = hosts_manager.add_entry(&final_virtual_domain, &virtual_ip) {
+                    log::error!("添加hosts记录失败: {}", e);
+                    // 不中断流程，继续加入大厅
+                } else {
+                    log::info!("✅ 当前玩家的域名映射已添加");
+                }
+            }
+
+            // 保存HostsManager实例
+            self.hosts_manager = Some(hosts_manager);
+        }
+
+        // 约定：所有节点都尝试连接到虚拟IP为 10.126.126.1 的节点
+        // 在 EasyTier DHCP 模式下，第一个加入网络的节点通常会获得 10.126.126.1
+        // 如果第一个节点离开，需要有重新选举机制（TODO）
+        let creator_virtual_ip = "10.126.126.1".to_string();
+
+        log::info!("将连接到信令服务器: {}:8445", creator_virtual_ip);
+
+        // 创建大厅实例
+        let lobby = Lobby::new(
+            name,
+            Some(password),
+            virtual_ip.clone(), // clone一份，因为后面还要用
+            creator_virtual_ip,
+            Some(final_virtual_domain),
+            Some(use_domain),
+            Some(signaling_server),
+        );
+
+        // 创建当前玩家
+        let player = Player::new(player_name, virtual_ip);
+
+        // 保存大厅和玩家信息
+        self.current_lobby = Some(lobby.clone());
+        self.players.insert(player.id.clone(), player);
+
+        log::info!("成功加入大厅: {}", lobby.name);
+
+        Ok(lobby)
+    }
+
+    /// 退出大厅
+    ///
+    /// # 参数
+    /// * `network_service` - 网络服务引用（用于断开 EasyTier）
+    ///
+    /// # 返回
+    /// * `Ok(())` - 成功退出
+    /// * `Err(LobbyError)` - 退出失败
+    pub async fn leave_lobby(
+        &mut self,
+        network_service: &crate::modules::network_service::NetworkService,
+    ) -> Result<(), LobbyError> {
+        // 检查是否在大厅中
+        if self.current_lobby.is_none() {
+            return Err(LobbyError::NotInLobby);
+        }
+
+        log::info!("正在退出大厅...");
+
+        // 如果存在HostsManager，清理所有MCTier hosts记录
+        if let Some(ref hosts_manager) = self.hosts_manager {
+            log::info!("清理hosts文件中的MCTier记录...");
+            if let Err(e) = hosts_manager.clear_all() {
+                log::error!("清理hosts记录失败: {}", e);
+                // 不中断流程，继续退出大厅
+            } else {
+                log::info!("✅ hosts记录已清理");
+            }
+        }
+
+        // 释放HostsManager实例
+        self.hosts_manager = None;
+
+        // 停止 EasyTier 服务
+        network_service
+            .stop_easytier()
+            .await
+            .map_err(|e| LobbyError::NetworkError(e.to_string()))?;
+
+        // 清理大厅和玩家信息
+        self.current_lobby = None;
+        self.players.clear();
+
+        log::info!("已成功退出大厅");
+
+        Ok(())
+    }
+
+    /// Clear stale lobby state after an interrupted connection attempt.
+    /// This is intentionally separate from `leave_lobby`, which assumes a
+    /// live EasyTier service and therefore cannot be used by force cleanup.
+    pub fn force_clear_state(&mut self) {
+        self.current_lobby = None;
+        self.players.clear();
+        self.hosts_manager = None;
+    }
+
+    /// 添加玩家
+    ///
+    /// # 参数
+    /// * `player` - 要添加的玩家
+    ///
+    /// # 说明
+    /// 此方法用于添加其他玩家到玩家列表（通过网络同步）
+    pub fn add_player(&mut self, player: Player) {
+        log::info!("添加玩家: {} ({})", player.name, player.id);
+        self.players.insert(player.id.clone(), player);
+    }
+
+    /// 移除玩家
+    ///
+    /// # 参数
+    /// * `player_id` - 要移除的玩家 ID
+    ///
+    /// # 返回
+    /// * `Some(Player)` - 被移除的玩家信息
+    /// * `None` - 玩家不存在
+    pub fn remove_player(&mut self, player_id: &str) -> Option<Player> {
+        log::info!("移除玩家: {}", player_id);
+        self.players.remove(player_id)
+    }
+
+    /// 获取玩家列表
+    ///
+    /// # 返回
+    /// 所有玩家的列表（按加入时间排序）
+    pub fn get_players(&self) -> Vec<Player> {
+        let mut players: Vec<Player> = self.players.values().cloned().collect();
+
+        // 按加入时间排序
+        players.sort_by(|a, b| a.joined_at.cmp(&b.joined_at));
+
+        players
+    }
+
+    /// 获取玩家数量
+    ///
+    /// # 返回
+    /// 当前大厅中的玩家数量
+    pub fn get_player_count(&self) -> usize {
+        self.players.len()
+    }
+
+    /// 根据 ID 获取玩家
+    ///
+    /// # 参数
+    /// * `player_id` - 玩家 ID
+    ///
+    /// # 返回
+    /// * `Some(&Player)` - 玩家信息引用
+    /// * `None` - 玩家不存在
+    pub fn get_player(&self, player_id: &str) -> Option<&Player> {
+        self.players.get(player_id)
+    }
+
+    /// 根据 ID 获取玩家（可变引用）
+    ///
+    /// # 参数
+    /// * `player_id` - 玩家 ID
+    ///
+    /// # 返回
+    /// * `Some(&mut Player)` - 玩家信息可变引用
+    /// * `None` - 玩家不存在
+    pub fn get_player_mut(&mut self, player_id: &str) -> Option<&mut Player> {
+        self.players.get_mut(player_id)
+    }
+
+    /// 更新玩家麦克风状态
+    ///
+    /// # 参数
+    /// * `player_id` - 玩家 ID
+    /// * `mic_enabled` - 麦克风是否开启
+    ///
+    /// # 返回
+    /// * `Ok(())` - 更新成功
+    /// * `Err(LobbyError)` - 玩家不存在
+    pub fn update_player_mic_status(
+        &mut self,
+        player_id: &str,
+        mic_enabled: bool,
+    ) -> Result<(), LobbyError> {
+        let player = self
+            .get_player_mut(player_id)
+            .ok_or_else(|| LobbyError::PlayerNotFound(player_id.to_string()))?;
+
+        player.mic_enabled = mic_enabled;
+
+        log::debug!("更新玩家 {} 麦克风状态: {}", player_id, mic_enabled);
+
+        Ok(())
+    }
+
+    /// 更新玩家静音状态
+    ///
+    /// # 参数
+    /// * `player_id` - 玩家 ID
+    /// * `is_muted` - 是否被静音
+    ///
+    /// # 返回
+    /// * `Ok(())` - 更新成功
+    /// * `Err(LobbyError)` - 玩家不存在
+    pub fn update_player_mute_status(
+        &mut self,
+        player_id: &str,
+        is_muted: bool,
+    ) -> Result<(), LobbyError> {
+        let player = self
+            .get_player_mut(player_id)
+            .ok_or_else(|| LobbyError::PlayerNotFound(player_id.to_string()))?;
+
+        player.is_muted = is_muted;
+
+        log::debug!("更新玩家 {} 静音状态: {}", player_id, is_muted);
+
+        Ok(())
+    }
+
+    /// 获取当前大厅信息
+    ///
+    /// # 返回
+    /// * `Some(&Lobby)` - 当前大厅信息引用
+    /// * `None` - 未加入大厅
+    pub fn get_current_lobby(&self) -> Option<&Lobby> {
+        self.current_lobby.as_ref()
+    }
+
+    /// 检查是否在大厅中
+    ///
+    /// # 返回
+    /// * `true` - 在大厅中
+    /// * `false` - 不在大厅中
+    pub fn is_in_lobby(&self) -> bool {
+        self.current_lobby.is_some()
+    }
+
+    /// 清空所有玩家（保留当前大厅）
+    ///
+    /// # 说明
+    /// 此方法用于重新同步玩家列表
+    pub fn clear_players(&mut self) {
+        log::info!("清空玩家列表");
+        self.players.clear();
+    }
+
+    /// 获取HostsManager引用
+    ///
+    /// # 返回
+    /// * `Some(&HostsManager)` - HostsManager引用
+    /// * `None` - HostsManager不存在
+    pub fn get_hosts_manager(&self) -> Option<&HostsManager> {
+        self.hosts_manager.as_ref()
+    }
+
+    /// 设置HostsManager
+    ///
+    /// # 参数
+    /// * `hosts_manager` - HostsManager实例
+    pub fn set_hosts_manager(&mut self, hosts_manager: Option<HostsManager>) {
+        self.hosts_manager = hosts_manager;
+    }
+}
+
+impl Default for LobbyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lobby_creation() {
+        let lobby = Lobby::new(
+            "测试大厅".to_string(),
+            Some("test1234".to_string()),
+            "10.144.144.1".to_string(),
+            "10.144.144.1".to_string(),
+            Some("testplayer.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+
+        assert_eq!(lobby.name, "测试大厅");
+        assert_eq!(lobby.password, Some("test1234".to_string()));
+        assert_eq!(lobby.virtual_ip, "10.144.144.1");
+        assert_eq!(lobby.creator_virtual_ip, "10.144.144.1");
+        assert!(!lobby.id.is_empty());
+    }
+
+    #[test]
+    fn test_player_creation() {
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+
+        assert_eq!(player.name, "测试玩家");
+        assert!(!player.mic_enabled);
+        assert!(!player.is_muted);
+        assert!(!player.id.is_empty());
+    }
+
+    #[test]
+    fn test_validate_input_empty_string() {
+        let result = LobbyManager::validate_input("", "测试字段");
+        assert!(result.is_err());
+
+        if let Err(LobbyError::InvalidInput(msg)) = result {
+            assert!(msg.contains("测试字段"));
+            assert!(msg.contains("不能为空"));
+        } else {
+            panic!("期望得到 InvalidInput 错误");
+        }
+    }
+
+    #[test]
+    fn test_validate_input_whitespace_only() {
+        let test_cases = vec![
+            "   ",      // 空格
+            "\t",       // 制表符
+            "\n",       // 换行符
+            "\r",       // 回车符
+            " \t\n\r ", // 混合空白字符
+        ];
+
+        for input in test_cases {
+            let result = LobbyManager::validate_input(input, "测试字段");
+            assert!(result.is_err(), "应该拒绝空白字符串: {:?}", input);
+        }
+    }
+
+    #[test]
+    fn test_validate_input_valid() {
+        let test_cases = vec![
+            "测试",
+            "Test",
+            "测试123",
+            " 有效输入 ", // 前后有空格但中间有内容
+        ];
+
+        for input in test_cases {
+            let result = LobbyManager::validate_input(input, "测试字段");
+            assert!(result.is_ok(), "应该接受有效输入: {:?}", input);
+        }
+    }
+
+    #[test]
+    fn test_lobby_manager_creation() {
+        let manager = LobbyManager::new();
+
+        assert!(!manager.is_in_lobby());
+        assert_eq!(manager.get_player_count(), 0);
+        assert!(manager.get_current_lobby().is_none());
+    }
+
+    #[test]
+    fn test_add_and_remove_player() {
+        let mut manager = LobbyManager::new();
+
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
+
+        let player1_id = player1.id.clone();
+        let player2_id = player2.id.clone();
+
+        // 添加玩家
+        manager.add_player(player1);
+        manager.add_player(player2);
+
+        assert_eq!(manager.get_player_count(), 2);
+
+        // 获取玩家
+        assert!(manager.get_player(&player1_id).is_some());
+        assert!(manager.get_player(&player2_id).is_some());
+
+        // 移除玩家
+        let removed = manager.remove_player(&player1_id);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().id, player1_id);
+
+        assert_eq!(manager.get_player_count(), 1);
+        assert!(manager.get_player(&player1_id).is_none());
+        assert!(manager.get_player(&player2_id).is_some());
+    }
+
+    #[test]
+    fn test_get_players_sorted() {
+        let mut manager = LobbyManager::new();
+
+        // 添加多个玩家（会按加入时间排序）
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let player3 = Player::new("玩家3".to_string(), "10.126.126.3".to_string());
+
+        manager.add_player(player1.clone());
+        manager.add_player(player2.clone());
+        manager.add_player(player3.clone());
+
+        let players = manager.get_players();
+
+        assert_eq!(players.len(), 3);
+        // 验证按加入时间排序
+        assert_eq!(players[0].id, player1.id);
+        assert_eq!(players[1].id, player2.id);
+        assert_eq!(players[2].id, player3.id);
+    }
+
+    #[test]
+    fn test_update_player_mic_status() {
+        let mut manager = LobbyManager::new();
+
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+        let player_id = player.id.clone();
+
+        manager.add_player(player);
+
+        // 初始状态应该是关闭
+        assert!(!manager.get_player(&player_id).unwrap().mic_enabled);
+
+        // 更新为开启
+        let result = manager.update_player_mic_status(&player_id, true);
+        assert!(result.is_ok());
+        assert!(manager.get_player(&player_id).unwrap().mic_enabled);
+
+        // 更新为关闭
+        let result = manager.update_player_mic_status(&player_id, false);
+        assert!(result.is_ok());
+        assert!(!manager.get_player(&player_id).unwrap().mic_enabled);
+    }
+
+    #[test]
+    fn test_update_player_mute_status() {
+        let mut manager = LobbyManager::new();
+
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+        let player_id = player.id.clone();
+
+        manager.add_player(player);
+
+        // 初始状态应该是未静音
+        assert!(!manager.get_player(&player_id).unwrap().is_muted);
+
+        // 更新为静音
+        let result = manager.update_player_mute_status(&player_id, true);
+        assert!(result.is_ok());
+        assert!(manager.get_player(&player_id).unwrap().is_muted);
+
+        // 更新为取消静音
+        let result = manager.update_player_mute_status(&player_id, false);
+        assert!(result.is_ok());
+        assert!(!manager.get_player(&player_id).unwrap().is_muted);
+    }
+
+    #[test]
+    fn test_update_nonexistent_player() {
+        let mut manager = LobbyManager::new();
+
+        let result = manager.update_player_mic_status("nonexistent_id", true);
+        assert!(result.is_err());
+
+        if let Err(LobbyError::PlayerNotFound(id)) = result {
+            assert_eq!(id, "nonexistent_id");
+        } else {
+            panic!("期望得到 PlayerNotFound 错误");
+        }
+    }
+
+    #[test]
+    fn test_clear_players() {
+        let mut manager = LobbyManager::new();
+
+        manager.add_player(Player::new("玩家1".to_string(), "10.126.126.1".to_string()));
+        manager.add_player(Player::new("玩家2".to_string(), "10.126.126.2".to_string()));
+
+        assert_eq!(manager.get_player_count(), 2);
+
+        manager.clear_players();
+
+        assert_eq!(manager.get_player_count(), 0);
+    }
+
+    #[test]
+    fn test_lobby_error_conversion() {
+        let error = LobbyError::InvalidInput("测试错误".to_string());
+        let app_error: AppError = error.into();
+
+        match app_error {
+            AppError::ValidationError(msg) => {
+                assert_eq!(msg, "测试错误");
+            }
+            _ => panic!("错误类型转换失败"),
+        }
+    }
+
+    #[test]
+    fn test_lobby_serialization() {
+        let lobby = Lobby::new(
+            "测试大厅".to_string(),
+            Some("test1234".to_string()),
+            "10.144.144.1".to_string(),
+            "10.144.144.1".to_string(),
+            Some("testplayer.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+
+        // 序列化
+        let json = serde_json::to_string(&lobby).unwrap();
+
+        // 反序列化
+        let deserialized: Lobby = serde_json::from_str(&json).unwrap();
+
+        // 验证往返一致性
+        assert_eq!(lobby.id, deserialized.id);
+        assert_eq!(lobby.name, deserialized.name);
+        assert_eq!(lobby.password, deserialized.password);
+        assert_eq!(lobby.virtual_ip, deserialized.virtual_ip);
+        assert_eq!(lobby.creator_virtual_ip, deserialized.creator_virtual_ip);
+    }
+
+    #[test]
+    fn test_player_serialization() {
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+
+        // 序列化
+        let json = serde_json::to_string(&player).unwrap();
+
+        // 反序列化
+        let deserialized: Player = serde_json::from_str(&json).unwrap();
+
+        // 验证往返一致性
+        assert_eq!(player.id, deserialized.id);
+        assert_eq!(player.name, deserialized.name);
+        assert_eq!(player.mic_enabled, deserialized.mic_enabled);
+        assert_eq!(player.is_muted, deserialized.is_muted);
+    }
+
+    // ========== 创建大厅流程测试 ==========
+
+    #[test]
+    fn test_validate_lobby_name_empty() {
+        let result = LobbyManager::validate_input("", "大厅名称");
+        assert!(result.is_err());
+        if let Err(LobbyError::InvalidInput(msg)) = result {
+            assert!(msg.contains("大厅名称"));
+            assert!(msg.contains("不能为空"));
+        }
+    }
+
+    #[test]
+    fn test_validate_lobby_name_whitespace() {
+        let whitespace_inputs = vec!["   ", "\t", "\n", "\r", " \t\n\r "];
+        for input in whitespace_inputs {
+            let result = LobbyManager::validate_input(input, "大厅名称");
+            assert!(result.is_err(), "应该拒绝空白字符串: {:?}", input);
+        }
+    }
+
+    #[test]
+    fn test_validate_password_empty() {
+        let result = LobbyManager::validate_input("", "密码");
+        assert!(result.is_err());
+        if let Err(LobbyError::InvalidInput(msg)) = result {
+            assert!(msg.contains("密码"));
+        }
+    }
+
+    #[test]
+    fn test_validate_password_whitespace() {
+        let result = LobbyManager::validate_input("   ", "密码");
+        assert!(result.is_err());
+    }
+
+    /// 留空必须被接受：两端 UI 都以「留空创建无密码大厅」为文案（issue #42）。
+    #[test]
+    fn test_validate_password_allows_blank_for_passwordless_lobby() {
+        assert!(LobbyManager::validate_password("").is_ok());
+        assert!(LobbyManager::validate_password("   ").is_ok());
+    }
+
+    /// 非空密码仍然要满足原有强度要求，放行留空不等于放松弱密码。
+    #[test]
+    fn test_validate_password_still_rejects_weak_non_empty() {
+        assert!(LobbyManager::validate_password("short1").is_err());
+        assert!(LobbyManager::validate_password("onlyletters").is_err());
+        assert!(LobbyManager::validate_password("12345678").is_err());
+        assert!(LobbyManager::validate_password(&"a1".repeat(20)).is_err());
+        assert!(LobbyManager::validate_password("Passw0rdok").is_ok());
+    }
+
+    #[test]
+    fn test_validate_player_name_empty() {
+        let result = LobbyManager::validate_input("", "玩家名称");
+        assert!(result.is_err());
+        if let Err(LobbyError::InvalidInput(msg)) = result {
+            assert!(msg.contains("玩家名称"));
+        }
+    }
+
+    #[test]
+    fn test_validate_player_name_whitespace() {
+        let result = LobbyManager::validate_input("\t\n", "玩家名称");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_server_node_empty() {
+        let result = LobbyManager::validate_input("", "服务器节点");
+        assert!(result.is_err());
+        if let Err(LobbyError::InvalidInput(msg)) = result {
+            assert!(msg.contains("服务器节点"));
+        }
+    }
+
+    #[test]
+    fn test_validate_server_node_whitespace() {
+        let result = LobbyManager::validate_input("   ", "服务器节点");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_all_fields_valid() {
+        // 测试所有有效输入
+        assert!(LobbyManager::validate_input("测试大厅", "大厅名称").is_ok());
+        assert!(LobbyManager::validate_input("password123", "密码").is_ok());
+        assert!(LobbyManager::validate_input("玩家1", "玩家名称").is_ok());
+        assert!(LobbyManager::validate_input("tcp://server:11010", "服务器节点").is_ok());
+    }
+
+    #[test]
+    fn test_validate_mixed_whitespace() {
+        // 测试各种空白字符组合
+        let test_cases = vec![
+            (" ", "单个空格"),
+            ("  ", "多个空格"),
+            ("\t", "制表符"),
+            ("\n", "换行符"),
+            ("\r", "回车符"),
+            (" \t", "空格+制表符"),
+            ("\n\r", "换行+回车"),
+            (" \t\n\r ", "所有空白字符"),
+        ];
+
+        for (input, desc) in test_cases {
+            let result = LobbyManager::validate_input(input, "测试字段");
+            assert!(result.is_err(), "应该拒绝: {}", desc);
+        }
+    }
+
+    #[test]
+    fn test_validate_with_leading_trailing_spaces() {
+        // 前后有空格但中间有内容应该通过验证
+        let result = LobbyManager::validate_input(" 有效内容 ", "测试字段");
+        assert!(result.is_ok(), "前后有空格但中间有内容应该通过验证");
+    }
+
+    #[test]
+    fn test_lobby_error_types() {
+        // 测试各种错误类型
+        let errors = vec![
+            LobbyError::InvalidInput("无效输入".to_string()),
+            LobbyError::NetworkError("网络错误".to_string()),
+            LobbyError::AlreadyInLobby,
+            LobbyError::NotInLobby,
+            LobbyError::PlayerNotFound("player123".to_string()),
+        ];
+
+        for error in errors {
+            let error_str = error.to_string();
+            assert!(!error_str.is_empty(), "错误消息不应为空");
+        }
+    }
+
+    #[test]
+    fn test_lobby_error_to_app_error_conversion() {
+        // 测试 InvalidInput 转换
+        let lobby_error = LobbyError::InvalidInput("测试".to_string());
+        let app_error: AppError = lobby_error.into();
+        assert!(matches!(app_error, AppError::ValidationError(_)));
+
+        // 测试 NetworkError 转换
+        let lobby_error = LobbyError::NetworkError("测试".to_string());
+        let app_error: AppError = lobby_error.into();
+        assert!(matches!(app_error, AppError::NetworkError(_)));
+
+        // 测试 AlreadyInLobby 转换
+        let lobby_error = LobbyError::AlreadyInLobby;
+        let app_error: AppError = lobby_error.into();
+        assert!(matches!(app_error, AppError::ValidationError(_)));
+
+        // 测试 NotInLobby 转换
+        let lobby_error = LobbyError::NotInLobby;
+        let app_error: AppError = lobby_error.into();
+        assert!(matches!(app_error, AppError::ValidationError(_)));
+
+        // 测试 PlayerNotFound 转换
+        let lobby_error = LobbyError::PlayerNotFound("test".to_string());
+        let app_error: AppError = lobby_error.into();
+        assert!(matches!(app_error, AppError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_lobby_struct_fields() {
+        let lobby = Lobby::new(
+            "测试大厅".to_string(),
+            Some("test1234".to_string()),
+            "10.144.144.1".to_string(),
+            "10.144.144.1".to_string(),
+            Some("testplayer.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+
+        // 验证所有字段都已正确设置
+        assert!(!lobby.id.is_empty(), "大厅 ID 不应为空");
+        assert_eq!(lobby.name, "测试大厅", "大厅名称应该匹配");
+        assert_eq!(
+            lobby.password,
+            Some("test1234".to_string()),
+            "大厅密码应该匹配"
+        );
+        assert_eq!(lobby.virtual_ip, "10.144.144.1", "虚拟 IP 应该匹配");
+        assert_eq!(
+            lobby.creator_virtual_ip, "10.144.144.1",
+            "创建者虚拟 IP 应该匹配"
+        );
+        assert!(
+            lobby.created_at <= chrono::Utc::now(),
+            "创建时间应该在当前时间之前或等于"
+        );
+    }
+
+    #[test]
+    fn test_player_struct_fields() {
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+
+        // 验证所有字段都已正确设置
+        assert!(!player.id.is_empty(), "玩家 ID 不应为空");
+        assert_eq!(player.name, "测试玩家", "玩家名称应该匹配");
+        assert!(!player.mic_enabled, "麦克风默认应该关闭");
+        assert!(!player.is_muted, "默认不应该被静音");
+        assert!(
+            player.joined_at <= chrono::Utc::now(),
+            "加入时间应该在当前时间之前或等于"
+        );
+    }
+
+    #[test]
+    fn test_lobby_manager_initial_state() {
+        let manager = LobbyManager::new();
+
+        // 验证初始状态
+        assert!(!manager.is_in_lobby(), "初始状态不应该在大厅中");
+        assert_eq!(manager.get_player_count(), 0, "初始玩家数量应该为 0");
+        assert!(manager.get_current_lobby().is_none(), "初始大厅应该为 None");
+        assert_eq!(manager.get_players().len(), 0, "初始玩家列表应该为空");
+    }
+
+    #[test]
+    fn test_multiple_players_management() {
+        let mut manager = LobbyManager::new();
+
+        // 添加多个玩家
+        for i in 1..=5 {
+            let player = Player::new(format!("玩家{}", i), format!("10.126.126.{}", i));
+            manager.add_player(player);
+        }
+
+        assert_eq!(manager.get_player_count(), 5, "应该有 5 个玩家");
+
+        let players = manager.get_players();
+        assert_eq!(players.len(), 5, "玩家列表长度应该为 5");
+
+        // 验证玩家名称
+        for (i, player) in players.iter().enumerate() {
+            assert_eq!(player.name, format!("玩家{}", i + 1));
+        }
+    }
+
+    #[test]
+    fn test_player_id_uniqueness() {
+        let player1 = Player::new("玩家1".to_string(), "10.126.126.1".to_string());
+        let player2 = Player::new("玩家2".to_string(), "10.126.126.2".to_string());
+
+        // 验证每个玩家都有唯一的 ID
+        assert_ne!(player1.id, player2.id, "玩家 ID 应该是唯一的");
+    }
+
+    #[test]
+    fn test_lobby_id_uniqueness() {
+        let lobby1 = Lobby::new(
+            "大厅1".to_string(),
+            Some("test1234".to_string()),
+            "10.144.144.1".to_string(),
+            "10.144.144.1".to_string(),
+            Some("player1.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+        let lobby2 = Lobby::new(
+            "大厅2".to_string(),
+            Some("test5678".to_string()),
+            "10.144.144.2".to_string(),
+            "10.144.144.2".to_string(),
+            Some("player2.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+
+        // 验证每个大厅都有唯一的 ID
+        assert_ne!(lobby1.id, lobby2.id, "大厅 ID 应该是唯一的");
+    }
+
+    #[test]
+    fn test_lobby_equality() {
+        let lobby1 = Lobby::new(
+            "测试大厅".to_string(),
+            Some("test1234".to_string()),
+            "10.144.144.1".to_string(),
+            "10.144.144.1".to_string(),
+            Some("testplayer.mct.net".to_string()),
+            Some(true),
+            Some("wss://test.pmhs.top".to_string()),
+        );
+        let lobby2 = lobby1.clone();
+
+        // 验证克隆的大厅相等
+        assert_eq!(lobby1, lobby2, "克隆的大厅应该相等");
+    }
+
+    #[test]
+    fn test_player_equality() {
+        let player1 = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+        let player2 = player1.clone();
+
+        // 验证克隆的玩家相等
+        assert_eq!(player1, player2, "克隆的玩家应该相等");
+    }
+
+    #[test]
+    fn test_get_player_by_id() {
+        let mut manager = LobbyManager::new();
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+        let player_id = player.id.clone();
+
+        manager.add_player(player);
+
+        // 测试获取存在的玩家
+        let retrieved = manager.get_player(&player_id);
+        assert!(retrieved.is_some(), "应该能获取到玩家");
+        assert_eq!(retrieved.unwrap().id, player_id, "玩家 ID 应该匹配");
+
+        // 测试获取不存在的玩家
+        let not_found = manager.get_player("nonexistent_id");
+        assert!(not_found.is_none(), "不存在的玩家应该返回 None");
+    }
+
+    #[test]
+    fn test_remove_nonexistent_player() {
+        let mut manager = LobbyManager::new();
+
+        // 尝试移除不存在的玩家
+        let result = manager.remove_player("nonexistent_id");
+        assert!(result.is_none(), "移除不存在的玩家应该返回 None");
+    }
+
+    #[test]
+    fn test_update_player_status_comprehensive() {
+        let mut manager = LobbyManager::new();
+        let player = Player::new("测试玩家".to_string(), "10.126.126.1".to_string());
+        let player_id = player.id.clone();
+
+        manager.add_player(player);
+
+        // 测试麦克风状态更新
+        assert!(manager.update_player_mic_status(&player_id, true).is_ok());
+        assert!(manager.get_player(&player_id).unwrap().mic_enabled);
+
+        assert!(manager.update_player_mic_status(&player_id, false).is_ok());
+        assert!(!manager.get_player(&player_id).unwrap().mic_enabled);
+
+        // 测试静音状态更新
+        assert!(manager.update_player_mute_status(&player_id, true).is_ok());
+        assert!(manager.get_player(&player_id).unwrap().is_muted);
+
+        assert!(manager.update_player_mute_status(&player_id, false).is_ok());
+        assert!(!manager.get_player(&player_id).unwrap().is_muted);
+    }
+
+    #[test]
+    fn test_clear_players_preserves_lobby() {
+        let mut manager = LobbyManager::new();
+
+        // 添加玩家
+        manager.add_player(Player::new("玩家1".to_string(), "10.126.126.1".to_string()));
+        manager.add_player(Player::new("玩家2".to_string(), "10.126.126.2".to_string()));
+
+        assert_eq!(manager.get_player_count(), 2);
+
+        // 清空玩家
+        manager.clear_players();
+
+        // 验证玩家已清空
+        assert_eq!(manager.get_player_count(), 0);
+        assert_eq!(manager.get_players().len(), 0);
+    }
+
+    #[test]
+    fn test_default_trait() {
+        let manager1 = LobbyManager::new();
+        let manager2 = LobbyManager::default();
+
+        // 验证两种创建方式的结果一致
+        assert_eq!(manager1.is_in_lobby(), manager2.is_in_lobby());
+        assert_eq!(manager1.get_player_count(), manager2.get_player_count());
+    }
+}

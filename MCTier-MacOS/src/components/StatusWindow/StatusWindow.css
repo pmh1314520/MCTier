@@ -1,0 +1,189 @@
+.status-window {
+  width: 320px;
+  backdrop-filter: blur(12px);
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 9999;
+  user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.status-window.dragging {
+  cursor: grabbing;
+  transform: scale(1.02);
+}
+
+.status-window.collapsed {
+  width: auto;
+  min-width: 150px;
+}
+
+/* 头部 */
+.status-window-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(17, 153, 142, 0.1);
+  border-bottom: 1px solid rgba(17, 153, 142, 0.2);
+  transition: background 0.2s;
+}
+
+.status-window-header:hover {
+  background: rgba(17, 153, 142, 0.15);
+}
+
+.status-window-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.status-window-indicator {
+  width: 8px;
+  height: 8px;
+  background: #52c41a;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #52c41a;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+}
+
+.status-window-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.status-window-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-window-player-count {
+  color: #11998e;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(17, 153, 142, 0.2);
+  border-radius: 10px;
+}
+
+.status-window-header-button {
+  color: rgba(255, 255, 255, 0.7) !important;
+  transition: all 0.2s !important;
+  padding: 4px !important;
+  height: auto !important;
+}
+
+.status-window-header-button:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: scale(1.1);
+}
+
+.status-window-header-button.close-button:hover {
+  color: #ff4d4f !important;
+  background: rgba(255, 77, 79, 0.2) !important;
+}
+
+/* 内容区域 */
+.status-window-content {
+  overflow: hidden;
+}
+
+.status-window-section {
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.status-window-section:last-child {
+  border-bottom: none;
+}
+
+.status-window-section-title {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* 信息显示 */
+.status-window-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.status-window-info-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.status-window-info-value {
+  color: #11998e;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+/* 收起状态样式 */
+.status-window.collapsed .status-window-header {
+  padding: 10px 14px;
+}
+
+.status-window.collapsed .status-window-title {
+  max-width: 80px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .status-window {
+    width: 280px;
+  }
+
+  .status-window-header {
+    padding: 10px 12px;
+  }
+
+  .status-window-section {
+    padding: 12px;
+  }
+}
+
+/* 动画效果 */
+.status-window-section {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
