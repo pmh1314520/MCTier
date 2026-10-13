@@ -179,17 +179,17 @@ jobs:
       # Gradle 任务会调用仓库根目录的 node 脚本（esbuild / libarchive.js / 语音模型）
       - name: Install frontend build dependencies
         run: npm ci
-      - name: Build APKs (debug + release)
+      - name: Build debug APK
+        # 仓库刻意用 preSignedReleaseBuild 挡住无签名的 release 构建（assembleRelease
+        # 的任务图同样包含该检查），正式 APK 必须走本地签名打包脚本；CI 只产出 debug APK。
         working-directory: MCTier-Android
-        run: ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
       - name: Collect artifacts
         run: |
           version="$(node -p "require('./package.json').version")"
           mkdir -p dist-android
           cp MCTier-Android/app/build/outputs/apk/debug/app-debug.apk \
             "dist-android/MCTier-${version}-android-arm64-v8a-debug.apk"
-          cp MCTier-Android/app/build/outputs/apk/release/app-release-unsigned.apk \
-            "dist-android/MCTier-${version}-android-arm64-v8a-release-unsigned.apk"
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
