@@ -147,3 +147,4 @@ signing.local.json
 !/.github/ISSUE_TEMPLATE/config.yml
 !/.github/ISSUE_TEMPLATE/feature_request.yml
 !/.github/workflows/ci.yml
+!/.github/workflows/build.yml

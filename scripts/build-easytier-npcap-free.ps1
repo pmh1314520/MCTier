@@ -158,15 +158,27 @@ try {
     Copy-Item -Recurse -Path (Join-Path $crateDir "pnet_datalink-$PnetDatalinkVersion") -Destination $vendorDir
 
     Write-Host '正在应用去 Npcap 补丁 ...'
-    Push-Location $vendorDir
+    # git apply 在仓库子目录里运行时会把补丁路径解析到仓库根目录，目标不存在时
+    # 只打印 "Skipped patch" 并返回 0（实测 Git for Windows 2.x），补丁被静默跳过。
+    # 因此必须在仓库根目录运行，并用 --directory 把路径锚定到 vendor 子目录。
+    Push-Location $srcDir
     try {
         # --check 先行：宁可在这里明确失败，也不要打进半个补丁再去构建。
-        git apply --check $PatchFile
+        git apply --check --directory=vendor/pnet_datalink $PatchFile
         if ($LASTEXITCODE -ne 0) { throw '补丁无法应用（上游源码版本可能已变化）。' }
-        git apply $PatchFile
+        git apply --directory=vendor/pnet_datalink $PatchFile
         if ($LASTEXITCODE -ne 0) { throw '应用补丁失败。' }
     } finally {
         Pop-Location
+    }
+    # 双保险：git apply 的静默跳过不报错，构建前逐文件确认补丁内容真实落盘。
+    foreach ($patchedFile in @(
+        (Join-Path $vendorDir 'src\bindings\winpcap.rs'),
+        (Join-Path $vendorDir 'src\winpcap.rs')
+    )) {
+        if (-not (Select-String -LiteralPath $patchedFile -Pattern 'MCTier patch:' -Quiet)) {
+            throw "补丁校验失败：$patchedFile 未包含补丁内容（git apply 可能被静默跳过）。"
+        }
     }
     Write-Host '  补丁已应用。' -ForegroundColor Green
 

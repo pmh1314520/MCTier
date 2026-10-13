@@ -120,6 +120,11 @@ pub async fn voice_ice_server(window: tauri::WebviewWindow, state: tauri::State<
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 下面三个测试共用全局 discovery() 单例（start/stop/generation）。cargo test
+    // 默认并行跑测试线程，其他测试的 stop() 会在重试中途 bump generation，令本测试
+    // 以“大厅已退出”失败（aarch64 CI 实测偶发）。串行化后状态互不干扰。
+    static DISCOVERY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     fn request() -> [u8; 20] { let mut r = [0u8; 20]; r[1] = 1; r[4..8].copy_from_slice(&[0x21,0x12,0xa4,0x42]); r[8..20].fill(7); r }
     #[test]
     fn binding_response_preserves_transaction_and_maps_address() {
@@ -137,6 +142,7 @@ mod tests {
     }
     #[tokio::test]
     async fn socket_reuses_session_and_stop_releases_port() {
+        let _serial = DISCOVERY_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let url = start_for_ip(Ipv4Addr::LOCALHOST).unwrap();
         assert_eq!(start_for_ip(Ipv4Addr::LOCALHOST).unwrap(), url);
         let address = url.strip_prefix("stun:").unwrap();
@@ -150,6 +156,7 @@ mod tests {
 
     #[tokio::test]
     async fn configured_address_is_retried_until_windows_can_bind() {
+        let _serial = DISCOVERY_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut attempts = 0;
         let generation = discovery().lock().unwrap().generation;
         let url = wait_for_interface(Duration::from_secs(1), Duration::from_millis(1), || {
@@ -171,6 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn leaving_during_retry_cannot_resurrect_discovery() {
+        let _serial = DISCOVERY_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let generation = discovery().lock().unwrap().generation;
         let mut attempts = 0;
         let result = wait_for_interface(Duration::from_secs(1), Duration::from_millis(1), || {
