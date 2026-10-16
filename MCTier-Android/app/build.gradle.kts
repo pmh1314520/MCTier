@@ -261,15 +261,15 @@ val prepareSherpa by tasks.registering {
 }
 
 dependencies {
-    implementation("androidx.work:work-runtime-ktx:2.10.1")
-    androidTestImplementation("androidx.work:work-testing:2.10.1")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
+    androidTestImplementation("androidx.work:work-testing:2.12.0")
     implementation(files(sherpaAar).builtBy(prepareSherpa))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     implementation(platform("androidx.compose:compose-bom:2025.05.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
     // 保持 1.16.0：1.19.0 要求 AGP 9.1+ / compileSdk 37（Dependabot 误判为 minor 升级）
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.compose.foundation:foundation")
@@ -279,8 +279,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
-    implementation("io.coil-kt.coil3:coil-gif:3.3.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-gif:3.6.3")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("top.yukonga.miuix.kmp:miuix:0.8.8")
@@ -289,9 +289,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation("org.apache.poi:poi:5.4.1")
-    implementation("org.apache.poi:poi-scratchpad:5.4.1")
-    implementation("io.github.webrtc-sdk:android:144.7559.14")
+    implementation("org.apache.poi:poi:5.5.1")
+    implementation("org.apache.poi:poi-scratchpad:5.5.1")
+    implementation("io.github.webrtc-sdk:android:144.7559.15")
     // 二维码：生成(core) + 扫码(zxing-android-embedded)
     implementation("com.google.zxing:core:3.5.4")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
